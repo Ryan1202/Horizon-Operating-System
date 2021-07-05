@@ -1,0 +1,15 @@
+SRC += 8042.c
+SRC += 8259a.c
+SRC += acpi.c
+SRC += apic.c
+SRC += cpufreq.c
+SRC += disk.c
+SRC += dma.c
+SRC += ide.c
+SRC += keyboard.c
+SRC += mouse.c
+SRC += msr.c
+SRC += pci.c
+SRC += pit.c
+SRC += smbios.c
+SRC += video.c

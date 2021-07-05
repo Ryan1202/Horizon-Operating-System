@@ -1,0 +1,226 @@
+#include <kernel/console.h>
+#include <device/video.h>
+#include <kernel/font.h>
+#include <kernel/thread.h>
+#include <kernel/sync.h>
+#include <stdio.h>
+
+int command_length = 0;
+char command[CMD_MAX_LENGTH];
+struct console console;
+static struct lock console_lock;
+
+void init_console(void)
+{
+	lock_init(&console_lock);
+	console.vram = VideoInfo.vram;
+	console.font = font16;
+	console.cur_x = 0;
+	console.cur_y = 0;
+	console.width = VideoInfo.width / 10;
+	console.height = VideoInfo.height / 16;
+	console.color = 0xc0c0c0;
+	console.flag = CMD_FLAG_OUTPUT;
+}
+
+void console_start(void)
+{
+	printk("\n>");
+	console.start_x = 1;
+	console.start_y = console.cur_y + 1;
+	console.flag = CMD_FLAG_INPUT;
+}
+
+void console_set_cursor(int x, int y)
+{
+	console.cur_x = x;
+	console.cur_y = y;
+}
+
+void console_input(char c)
+{
+	int i;
+	char str[2];
+	if (console.flag == CMD_FLAG_INPUT)
+	{
+		if (c != '\n')
+		{
+			if (command_length < CMD_MAX_LENGTH - 1)
+			{
+				command[command_length] = c;
+				command_length++;
+				str[0] = c;
+				str[1] = '\0';
+				printk(str);
+			}
+		}
+		else
+		{
+			for (i = 0; i <= command_length; i++)
+			{
+				command[i] = 0;
+			}
+			command_length = 0;
+			printk("\n");
+			console_start();
+			//运行程序 or 其他操作
+		}
+	}
+}
+
+void print_char(char c, unsigned int color)
+{
+	int i, j, k;
+	print_word(console.cur_x * 10 + 1, console.cur_y * 16 , console.font + c*16, color);
+	console.cur_x++;
+	if(console.cur_x >= console.width)
+	{
+		console.cur_x = 0;
+		console.cur_y++;
+	}
+	if(console.cur_y >= console.height)
+	{
+		console.cur_y = console.height - 1;
+		console.cur_x = 0;
+		for (i = 16; i < console.height * 16; i++)
+		{
+			for(j = 0; j < console.width * 10; j++)
+			{
+				for(k = 0; k < VideoInfo.BitsPerPixel / 8; k++)
+				{
+					console.vram[((i - 16)*VideoInfo.width + j)*(VideoInfo.BitsPerPixel/8)+k] = console.vram[(i*VideoInfo.width + j)*(VideoInfo.BitsPerPixel/8)+k];
+				}
+			}
+		}
+		draw_rect(0, console.height * 16 - 16, console.width * 10, 16, 0);
+	}
+}
+
+int printk(const char *fmt, ...)
+{
+	lock_acquire(&console_lock);
+	int i, color = console.color;
+	char buf[256];
+	va_list arg;
+	va_start(arg,fmt);
+	i = vsprintf(buf, fmt, arg);
+	va_end();
+	
+	char *p = buf, c;
+	int len = i;
+	while(len)
+	{
+		c = *p++;
+		if (c == '<' && len == i)
+		{
+			if (*(p+1) == '>')
+			{
+				switch (*p)
+				{
+				case '0':
+					color = 0x000000;
+					break;
+				case '1':
+					color = 0x0037da;
+					break;
+				case '2':
+					color = 0x13a104;
+					break;
+				case '3':
+					color = 0x3a96dd;
+					break;
+				case '4':
+					color = 0xc50f1f;
+					break;
+				case '5':
+					color = 0x881798;
+					break;
+				case '6':
+					color = 0xc19cda;
+					break;
+				case '7':
+					color = 0xcccccc;
+					break;
+				case '8':
+					color = 0x767676;
+					break;
+				case '9':
+					color = 0x3878ff;
+					break;
+				case 'a':
+					color = 0x16c60c;
+					break;
+				case 'b':
+					color = 0x61d6d6;
+					break;
+				case 'c':
+					color = 0xe74856;
+					break;
+				case 'd':
+					color = 0xb4009e;
+					break;
+				case 'e':
+					color = 0xf9f1a5;
+					break;
+				case 'f':
+					color = 0xf2f2f2;
+					break;
+				
+				default:
+					break;
+				}
+				p+=2;
+				
+				len -= 3;
+				c = *p++;
+			}
+		}
+		switch (c)
+		{
+		case '\n':
+			console.cur_y++;
+			console.cur_x=0;
+			if (console.cur_y >= console.height)
+			{
+				print_char('\n', color);
+				if (console.cur_y < 0)
+				{
+					console.cur_y = 0;
+				}
+				if (console.flag == CMD_FLAG_INPUT)
+				{
+					console.start_y = console.cur_y;
+				}
+			}
+			break;
+		case '\b':
+			if (console.flag == CMD_FLAG_INPUT)
+			{
+				if (console.cur_x != console.start_x && console.cur_y != console.start_y)
+				{
+					console.cur_x--;
+					draw_rect(console.cur_x * 10, console.cur_y * 16, 10, 16, 0);
+				}
+			}
+			break;
+		case '\t':
+			if ((console.cur_x % 4) == 0)
+			{
+				console.cur_x+=4;
+			}
+			while (console.cur_x % 4)
+			{
+				console.cur_x++;
+			}
+			break;
+		default:
+			draw_rect(console.cur_x * 10, console.cur_y * 16, 10, 16, 0);
+			print_char(c, color);
+			break;
+		}
+		len--;
+	}
+	
+	lock_release(&console_lock);
+	return i;
+}

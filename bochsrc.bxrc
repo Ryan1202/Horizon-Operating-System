@@ -1,0 +1,10 @@
+megs:32
+
+romimage: file=/usr/local/share/bochs/BIOS-bochs-latest
+vgaromimage: file=/usr/local/share/bochs/VGABIOS-lgpl-latest
+
+floppya: 1_44=horizon.img, status=inserted
+
+boot: floppy
+
+keyboard:keymap=/usr/local/share/bochs/keymaps/x11-pc-us.map

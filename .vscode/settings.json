@@ -1,0 +1,39 @@
+{
+	"editor.quickSuggestions": {
+		"other": true,
+		"comments": true,
+		"strings": false
+	},
+	"files.associations": {
+		"typeinfo": "c",
+		"cmath": "cpp",
+		"*.tcc": "cpp",
+		"cstdlib": "cpp",
+		"stdint.h": "c",
+		"msr.h": "c",
+		"cpufreq.h": "c",
+		"fs.h": "c",
+		"pit.h": "c",
+		"string.h": "c",
+		"page.h": "c",
+		"stddef.h": "c",
+		"console.h": "c",
+		"video.h": "c",
+		"acpi.h": "c",
+		"8259a.h": "c",
+		"apic.h": "c",
+		"disk.h": "c",
+		"descriptor.h": "c",
+		"func.h": "c",
+		"ide.h": "c",
+		"task.h": "c",
+		"thread.h": "c",
+		"types.h": "c",
+		"memory.h": "c",
+		"keyboard.h": "c",
+		"config.h": "c",
+		"cmos.h": "c",
+		"sync.h": "c",
+		"mouse.h": "c"
+	}
+}
