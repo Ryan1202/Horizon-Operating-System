@@ -22,5 +22,5 @@ NAME		:=	kernel.elf
 
 define CUSTOM_TARGET_CMD
 echo [KERNEL] $@; \
-$(LD) $(X_LDFLAGS) -e _start -Ttext 0x100000 -o $@ $(X_OBJS)
+$(LD) $(X_LDFLAGS) -T $(ARCH)/kernel.lds -o $@ $(X_OBJS)
 endef
