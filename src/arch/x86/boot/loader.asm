@@ -384,7 +384,8 @@ ReadKernel:
 	add		esi,	KERNEL_PHY_ADDR
 .begin:
 	mov		eax,	[esi]
-	cmp		eax,	0
+	cmp		eax,	1
+	jne		.unaction
 	push	dword	[esi + 0x10]	;压入段大小
 	mov		eax,	[esi + 0x04]	;获取段的地址
 	add		eax,	KERNEL_PHY_ADDR
