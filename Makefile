@@ -40,9 +40,11 @@ clean:
 	$(MAKE) -s -C $(KERNEL_SRC) clean
 
 write:
+#先覆盖掉软盘内的内容再写入，在没有软盘映像时能创建映像
+	$(DD) if=/dev/zero of=$(FD_IMG) bs=512 count=2880 conv=notrunc
 	$(DD) if=$(BOOT_BIN) of=$(FD_IMG) bs=512 count=1 conv=notrunc
-	$(DD) if=$(LOADER_BIN)	of=$(FD_IMG) bs=512 seek=$(LOADER_OFF) count=$(LOADER_CNTS) conv=notrunc
-	$(DD) if=$(KERNEL_ELF)	of=$(FD_IMG) bs=512 seek=$(KERNEL_OFF) count=$(KERNEL_CNTS) conv=notrunc
+	$(DD) if=$(LOADER_BIN) of=$(FD_IMG) bs=512 seek=$(LOADER_OFF) count=$(LOADER_CNTS) conv=notrunc
+	$(DD) if=$(KERNEL_ELF) of=$(FD_IMG) bs=512 seek=$(KERNEL_OFF) count=$(KERNEL_CNTS) conv=notrunc
 
 qemu_dbg:
 	$(QEMU) \
