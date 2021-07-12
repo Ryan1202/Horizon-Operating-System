@@ -13,3 +13,9 @@ make
 ```
 make run
 ```
+
+## 调试
+
+```
+make run_dbg
+```
