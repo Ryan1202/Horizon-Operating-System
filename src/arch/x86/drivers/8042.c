@@ -1,4 +1,4 @@
-#include <device/8042.h>
+#include <drivers/8042.h>
 #include <kernel/func.h>
 
 int i8042_get_status(uint8_t type)

@@ -1,6 +1,6 @@
-#include <device/cpufreq.h>
-#include <device/msr.h>
-#include <device/pit.h>
+#include <drivers/cpufreq.h>
+#include <drivers/msr.h>
+#include <drivers/pit.h>
 #include <kernel/fifo.h>
 #include <kernel/func.h>
 

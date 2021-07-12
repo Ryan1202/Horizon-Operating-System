@@ -1,13 +1,14 @@
-#include <device/apic.h>
-#include <device/msr.h>
-#include <device/8259a.h>
-#include <device/pit.h>
-#include <device/cmos.h>
+#include <drivers/apic.h>
+#include <drivers/msr.h>
+#include <drivers/8259a.h>
+#include <drivers/pit.h>
+#include <drivers/cmos.h>
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/console.h>
 #include <kernel/page.h>
 #include <kernel/thread.h>
+#include <kernel/initcall.h>
 #include <config.h>
 
 void apic_timer_handler(void);

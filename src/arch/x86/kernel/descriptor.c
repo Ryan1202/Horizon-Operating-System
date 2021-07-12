@@ -1,11 +1,13 @@
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/console.h>
-#include <device/8259a.h>
-#include <device/pit.h>
-#include <device/keyboard.h>
-#include <device/ide.h>
+#include <drivers/8259a.h>
+#include <drivers/pit.h>
 #include <config.h>
+
+#define KEYBOARD_IRQ 1
+#define IDE0_IRQ 14
+#define IDE1_IRQ 15
 
 irq_handler_t irq_table[NR_IRQ];
 void default_irq_handler(int irq);

@@ -16,7 +16,7 @@ LD			:=  $(ENV_LD)
 export AS LD
 export ARCH
 
-SRC			:=	$(ARCH)/ kernel/ lib/
+SRC			:=	$(ARCH)/ fs/ kernel/ lib/
 
 NAME		:=	kernel.elf
 

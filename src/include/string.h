@@ -12,6 +12,18 @@
 #include "stdint.h"
 #include "stddef.h"
 
+#define STRING_MAX_LEN 256
+
+typedef struct _string {
+    unsigned int length;
+    unsigned int max_length;
+    char *text;
+} string_t;
+
+void string_init(string_t *string);
+int string_new(string_t *string, char *text, unsigned int max_len);
+void string_del(string_t *string);
+
 char* itoa(char ** ps, int val, int base);
 int atoi(const char *src);
 char *itoa16_align(char * str, int num);

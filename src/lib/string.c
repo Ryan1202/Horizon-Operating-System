@@ -5,6 +5,7 @@
  * copyright:	(C) 2018-2020 by Book OS developers. All rights reserved.
  */
 
+#include <kernel/memory.h>
 #include <string.h>
 
 /*
@@ -17,6 +18,53 @@
  *      大于0 表示s1大于s2
  * 说明: 引导和加载完成后，就会跳到这里
  */
+
+void string_init(string_t *string)
+{
+	string->length = 0;
+	string->max_length = STRING_MAX_LEN;
+	string->text = NULL;
+}
+
+int string_new(string_t *string, char *text, unsigned int max_len)
+{
+	if (string == NULL || text == NULL || max_len < 1)
+	{
+		return -1;
+	}
+	string->text = kmalloc(max_len);
+	
+	if (string->text == NULL)
+	{
+		return -1;
+	}
+	if (max_len >= STRING_MAX_LEN)
+	{
+		max_len = STRING_MAX_LEN - 1;
+	}
+	string->length = strlen(text);
+	if (string->length > max_len)
+	{
+		string->length = max_len;
+	}
+	string->max_length = max_len;
+	memset(string->text, 0, max_len);
+	memcpy(string->text, text, string->length);
+	string->text[string->length] = '\0';
+	return 0;
+}
+
+void string_del(string_t *string)
+{
+	if (string->text)
+	{
+		kfree(string->text);
+		string->text = NULL;
+	}
+	string->length = 0;
+	string->max_length = STRING_MAX_LEN;
+}
+
 int strncmp (const char * s1, const char * s2, int n)
 { 
 	if(!n)return(0);

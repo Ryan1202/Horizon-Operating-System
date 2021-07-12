@@ -1,5 +1,5 @@
-#include <device/pit.h>
-#include <device/apic.h>
+#include <drivers/pit.h>
+#include <drivers/apic.h>
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/fifo.h>

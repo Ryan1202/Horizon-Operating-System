@@ -1,8 +1,3 @@
-NASM	=	nasm
-CC		=	gcc
-
-SRC		+=	fs/
-
 SRC		+=	console.c
 SRC		+=	fifo.c
 SRC		+=	font-default.c
@@ -10,6 +5,8 @@ SRC		+=	main.c
 SRC		+=	memory.c
 SRC		+=	sync.c
 SRC		+=	thread.c
+SRC		+=	initcall.c
+SRC		+=	driver.c
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 

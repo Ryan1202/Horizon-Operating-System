@@ -1,7 +1,7 @@
 #ifndef FAT32_H
 #define FAT32_H
 
-#include <kernel/fs/fs.h>
+#include <fs/fs.h>
 #include <string.h>
 
 #define isFAT32(data) strncmp(((struct pt_fat32 *)data)->BS_FilSysType, "FAT32", 5)==0

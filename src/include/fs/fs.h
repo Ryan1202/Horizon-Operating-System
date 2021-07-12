@@ -1,9 +1,9 @@
 #ifndef _FS_H
 #define _FS_H
 
-#include <kernel/fs/fat32.h>
+#include <fs/fat32.h>
 #include <kernel/time.h>
-#include <device/disk.h>
+#include <drivers/disk.h>
 
 #define part_read(part, lba, buf) part->disk->disk_read(part->disk->disk_num, lba, buf)
 #define part_write(part, lba, buf) part->disk->disk_write(part->disk->disk_num, lba, buf)

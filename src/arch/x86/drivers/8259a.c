@@ -1,4 +1,4 @@
-#include <device/8259a.h>
+#include <drivers/8259a.h>
 #include <kernel/func.h>
 #include <kernel/descriptor.h>
 

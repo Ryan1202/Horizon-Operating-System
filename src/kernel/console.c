@@ -1,5 +1,5 @@
 #include <kernel/console.h>
-#include <device/video.h>
+#include <drivers/video.h>
 #include <kernel/font.h>
 #include <kernel/thread.h>
 #include <kernel/sync.h>

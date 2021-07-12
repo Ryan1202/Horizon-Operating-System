@@ -2,7 +2,7 @@
 #include <kernel/func.h>
 #include <kernel/memory.h>
 #include <kernel/console.h>
-#include <device/video.h>
+#include <drivers/video.h>
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
@@ -126,23 +126,21 @@ void *remap(unsigned int paddr, size_t size)
         return NULL;
     }
 	
-	unsigned long vaddr = alloc_vaddr(size);
-    if (vaddr == -1) {
+	unsigned int vaddr = alloc_vaddr(size);
+    if (vaddr == 0) {
         printk("alloc virtual addr for IO remap failed!\n");
         return NULL;
     }
 	
-	unsigned phy_addr = vaddr;
 	io_cli();
 	
-	if (__remap(paddr, vaddr, size)) {
-        // free_vaddr(vaddr, size);
-        vaddr = 0;
-    }
+	__remap(paddr, vaddr, size);
 	
 	io_sti();
 	
-	return (void *)((phy_addr & 0xfffff000) + (paddr & 0x0fff));
+	unsigned int ret = vaddr & 0xfffff000;
+	ret |= (paddr & 0x0fff);
+	return ret;
 }
 
 int alloc_vir_page(void)

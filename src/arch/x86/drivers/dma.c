@@ -1,4 +1,4 @@
-#include <device/dma.h>
+#include <drivers/dma.h>
 #include <kernel/func.h>
 
 void dma_enable(unsigned int channel)

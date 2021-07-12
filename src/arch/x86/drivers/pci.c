@@ -1,4 +1,4 @@
-#include <device/pci.h>
+#include <drivers/pci.h>
 #include <kernel/func.h>
 #include <kernel/console.h>
 #include <types.h>

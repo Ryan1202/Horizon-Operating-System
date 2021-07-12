@@ -1,4 +1,4 @@
-#include <device/msr.h>
+#include <drivers/msr.h>
 
 // char cpuHasMSR(void)
 // {

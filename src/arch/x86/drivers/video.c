@@ -1,4 +1,4 @@
-#include <device/video.h>
+#include <drivers/video.h>
 #include <kernel/font.h>
 #include <kernel/console.h>
 #include <kernel/func.h>

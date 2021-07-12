@@ -35,6 +35,7 @@
 		"cmos.h": "c",
 		"sync.h": "c",
 		"mouse.h": "c",
-		"initcall.h": "c"
+		"initcall.h": "c",
+		"8042.h": "c"
 	}
 }

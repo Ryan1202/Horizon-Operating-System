@@ -1,8 +1,8 @@
-#include <kernel/fs/fat32.h>
-#include <device/ide.h>
+#include <fs/fat32.h>
 #include <kernel/memory.h>
 #include <kernel/time.h>
 #include <kernel/console.h>
+#include <const.h>
 #include <ctype.h>
 #include <math.h>
 

@@ -1,4 +1,4 @@
-#include <device/smbios.h>
+#include <drivers/smbios.h>
 #include <kernel/console.h>
 
 struct SMBIOSEntryPoint *EntryPoint;

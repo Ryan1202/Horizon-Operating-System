@@ -1,10 +1,9 @@
-#include <kernel/fs/fs.h>
-#include <device/ide.h>
+#include <fs/fs.h>
 #include <kernel/memory.h>
 #include <kernel/console.h>
-#include <device/disk.h>
+#include <drivers/disk.h>
 #include <string.h>
-
+#include <const.h>
 
 void init_fs(struct disk *disk, unsigned int disk_num)
 {

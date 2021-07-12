@@ -1,4 +1,4 @@
-#include <device/disk.h>
+#include <drivers/disk.h>
 #include <kernel/memory.h>
 #include <string.h>
 #include <stddef.h>
