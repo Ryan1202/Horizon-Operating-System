@@ -25,12 +25,14 @@
 	io_in8(CMOS_DATA); \
 	})
 	
+#define BCD2BIN(bcd) ((bcd>>4)*10 + (bcd&0x0f))
+	
 struct time {
 	int year, month, day;
 	int hour, minute, second;
 };
 
-void cmos_get_time(struct time *time)
+static inline void cmos_get_time(struct time *time)
 {
 	io_cli();
 	do

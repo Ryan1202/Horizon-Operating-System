@@ -55,9 +55,9 @@ int main()
 	printk("Memory Size:%d\n", get_memory_size());
 	printk("display mode: %d*%d %dbit\n", VideoInfo.width, VideoInfo.height, VideoInfo.BitsPerPixel);
 	init_pci();
+	init_vfs();
 	do_initcalls();
-	printk("Registered Drivers:\n");
-	show_drivers();
+	init_fs();
 	console_start();
 	// thread_start("Kthread_A", 1000, k_thread_a, "A ");
 	// thread_start("Kthread_B", 1000, k_thread_b, "B ");

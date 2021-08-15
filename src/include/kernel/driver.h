@@ -5,23 +5,32 @@
 #define DEVICE_MAX_NAME_LEN	64
 
 #include <kernel/list.h>
+#include <kernel/spinlock.h>
 #include <string.h>
 
 typedef enum {
 	FAILED = -1,
 	SUCCUESS = 0,
 	UNKNOWN
-} req_status;
+} status_t;
+
+typedef enum {
+	DEV_UNKNOWN = 0,
+	DEV_STORAGE,
+	DEV_MANAGER,
+	DEV_KEYBOARD,
+	DEV_MOUSE
+} dev_type_t;
 
 typedef struct
 {
-	req_status (*driver_enter)(struct _driver_s *drv);
-	req_status (*driver_exit)(struct _driver_s *drv);
-	req_status (*driver_open)(struct _driver_s *drv);
-	req_status (*driver_close)(struct _driver_s *drv);
-	req_status (*driver_read)(struct _driver_s *drv, uint32_t *buf, size_t *size);
-	req_status (*driver_write)(struct _driver_s *drv, uint32_t *buf, size_t size);
-	req_status (*driver_devctl)(struct _driver_s *drv, uint32_t func_num, uint32_t value);
+	status_t (*driver_enter)(struct _driver_s *drv);
+	status_t (*driver_exit)(struct _driver_s *drv);
+	status_t (*driver_open)(struct _device_s *dev);
+	status_t (*driver_close)(struct _device_s *dev);
+	status_t (*driver_read)(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+	status_t (*driver_write)(struct _device_s *dev,  uint8_t *buf, uint32_t offset, size_t size);
+	status_t (*driver_devctl)(struct _device_s *dev, uint32_t func_num, uint32_t value);
 } driver_func_t;
 
 typedef struct _driver_s
@@ -33,16 +42,37 @@ typedef struct _driver_s
 	driver_func_t funtion;
 } driver_t;
 
-typedef struct
+typedef struct _device_s
 {
 	list_t list;
+	list_t request_queue_head;
+	spinlock_t lock;
+	dev_type_t type;
+	
+	struct index_node *inode;
 	driver_t *drv_obj;
 	void *device_extension;
 	string_t name;
 } device_t;
 
-req_status driver_create(driver_func_t func, char *driver_name);
-req_status device_create(driver_t *driver, unsigned long device_extension_size, char *name, device_t **device);
+typedef struct  _dev_request_s
+{
+	list_t list;
+	struct _task_s *task;
+	void *buffer;
+	uint32_t offset, length;
+} dev_request_t;
+
+extern struct index_node *dev;
+
+struct inode *dev_open(char *path);
+int dev_close(struct index_node *inode);
+int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);
+int dev_write(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);
+int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg);
+status_t driver_create(driver_func_t func, char *driver_name);
+status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type, device_t **device);
 void device_delete(device_t *device);
+int device_rw(device_t *devobj, int rw, char *buffer, int offset, size_t size);
 
 #endif

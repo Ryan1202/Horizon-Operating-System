@@ -1,2 +1,2 @@
-SRC += drivers/
 SRC += kernel/
+SRC += drivers/

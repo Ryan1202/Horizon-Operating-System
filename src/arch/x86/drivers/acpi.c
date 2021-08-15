@@ -12,8 +12,8 @@ struct ACPI_RSDP *RSDP;
 #define DRV_NAME "Advanced Configuration Power Interface Driver"
 #define DEV_NAME "ACPI"
 
-static req_status acpi_enter(driver_t *drv_obj);
-static req_status acpi_exit(driver_t *drv_obj);
+static status_t acpi_enter(driver_t *drv_obj);
+static status_t acpi_exit(driver_t *drv_obj);
 
 typedef struct
 {
@@ -74,12 +74,12 @@ uint32_t acpi_find_table(device_extension_t *devext, char *Signature)
 	}
 }
 
-static req_status acpi_enter(driver_t *drv_obj)
+static status_t acpi_enter(driver_t *drv_obj)
 {
 	device_t *devobj;
 	device_extension_t *devext;
 	
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, &devobj);
+	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
 	devext = devobj->device_extension;
 	
 	RSDP = (struct ACPI_RSDP *)acpi_find_rsdp();
@@ -171,7 +171,7 @@ void acpi_shutdown(device_extension_t *devext)
 	}
 }
 
-static req_status acpi_exit(driver_t *drv_obj)
+static status_t acpi_exit(driver_t *drv_obj)
 {
 	device_t *devobj, *next;
 	// device_extension_t *ext;

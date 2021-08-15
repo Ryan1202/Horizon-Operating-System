@@ -13,7 +13,7 @@ SECTIONS {
     /* code segment */
     .text : {
         . = ALIGN(4);   /* 4 bytes align */
-        *(.text.startup)
+        *(.text)
         *(.init.text)
 		*(.exit.text)
     }

@@ -57,8 +57,8 @@ typedef struct
 } device_extension_t;
 
 void keyboard_handler(int irq);
-static req_status keyboard_enter(driver_t *drv_obj);
-static req_status keyboard_exit(driver_t *drv_obj);
+static status_t keyboard_enter(driver_t *drv_obj);
+static status_t keyboard_exit(driver_t *drv_obj);
 char scancode_analysis(device_extension_t *devext, int keycode);
 void keyboard_setleds(device_extension_t *devext);
 
@@ -75,12 +75,12 @@ driver_func_t keyboard_driver = {
 struct fifo keyfifo;
 int keybuf[512];
 
-static req_status keyboard_enter(driver_t *drv_obj)
+static status_t keyboard_enter(driver_t *drv_obj)
 {
 	device_t *devobj;
 	device_extension_t *devext;
 	
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, &devobj);
+	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_KEYBOARD, &devobj);
 	devext = devobj->device_extension;
 	
 	fifo_init(&keyfifo, 512, keybuf);
@@ -106,7 +106,7 @@ static req_status keyboard_enter(driver_t *drv_obj)
 	return SUCCUESS;
 }
 
-static req_status keyboard_exit(driver_t *drv_obj)
+static status_t keyboard_exit(driver_t *drv_obj)
 {
 	device_t *devobj, *next;
 	// device_extension_t *ext;

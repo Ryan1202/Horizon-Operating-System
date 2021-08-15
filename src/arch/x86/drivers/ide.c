@@ -7,7 +7,6 @@
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/driver.h>
-#include <drivers/disk.h>
 #include <stdint.h>
 #include <config.h>
 #include <types.h>
@@ -206,10 +205,10 @@ typedef struct _device_extension_s
 	unsigned int size;
 } device_extension_t;
 
-static req_status ide_enter(driver_t *drv_obj);
-static req_status ide_exit(driver_t *drv_obj);
-void ide_read_sector(device_extension_t *devext, uint32_t lba, char *buf);
-void ide_write_sector(device_extension_t *devext, uint32_t lba, char *buf);
+static status_t ide_enter(driver_t *drv_obj);
+static status_t ide_exit(driver_t *drv_obj);
+status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
 void ide0_handler(int irq);
 void ide1_handler(int irq);
 void ide_reset_driver(struct ide_channel *channel);
@@ -230,15 +229,15 @@ driver_func_t ide_driver = {
 	.driver_exit = ide_exit,
 	.driver_open = NULL,
 	.driver_close = NULL,
-	.driver_read = NULL,
-	.driver_write = NULL,
+	.driver_read = ide_read,
+	.driver_write = ide_write,
 	.driver_devctl = NULL
 };
 
 #define DRV_NAME "General HardDisk Driver(IDE)"
-#define DEV_NAME "IDE HardDisk"
+#define DEV_NAME "hd"
 
-static req_status ide_enter(driver_t *drv_obj)
+static status_t ide_enter(driver_t *drv_obj)
 {	
 	int i;
 	disk_count = *((unsigned char *)IDE_DISK_CNT);
@@ -278,7 +277,7 @@ static req_status ide_enter(driver_t *drv_obj)
 			{
 				char devname[DEVICE_MAX_NAME_LEN] = {0};
 				sprintf(devname, "%s%d", DEV_NAME, channel_num*2 + device_num);
-				device_create(drv_obj, sizeof(device_extension_t), devname, &devobj);
+				device_create(drv_obj, sizeof(device_extension_t), devname, DEV_STORAGE, &devobj);
 				devext = devobj->device_extension;
 				channel->device = devext;
 				
@@ -335,7 +334,7 @@ static req_status ide_enter(driver_t *drv_obj)
 	return SUCCUESS;
 }
 
-static req_status ide_exit(driver_t *drv_obj)
+static status_t ide_exit(driver_t *drv_obj)
 {
 	device_t *devobj, *next;
 	device_extension_t *devext;
@@ -350,9 +349,31 @@ static req_status ide_exit(driver_t *drv_obj)
 	return SUCCUESS;
 }
 
-void ide_read_sector(device_extension_t *devext, uint32_t lba, char *buf)
+status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size)
 {
-	AtaTypeTransfer(devext, IDE_READ, lba, 1, buf);
+	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
+	char *tmp_buffer = kmalloc(length*SECTOR_SIZE);
+	AtaTypeTransfer(dev->device_extension, IDE_READ, offset, length, tmp_buffer);
+	memcpy(buf, tmp_buffer, size);
+	kfree(tmp_buffer);
+}
+
+status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size)
+{
+	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
+	char *tmp_buffer;
+	if (size%SECTOR_SIZE == 0)
+	{
+		tmp_buffer = kmalloc(length*SECTOR_SIZE);
+		AtaTypeTransfer(dev->device_extension, IDE_READ, offset + length - 1, 1, tmp_buffer);
+		memcpy(tmp_buffer, buf, size);
+	}
+	else
+	{
+		tmp_buffer = buf;
+		AtaTypeTransfer(dev->device_extension, IDE_READ, offset, length, tmp_buffer);
+	}
+	AtaTypeTransfer(dev->device_extension, IDE_WRITE, offset, length, tmp_buffer);
 }
 
 void ide_write_sector(device_extension_t *devext, uint32_t lba, char *buf)
@@ -362,12 +383,10 @@ void ide_write_sector(device_extension_t *devext, uint32_t lba, char *buf)
 
 void ide0_handler(int irq)
 {
-	printk("ide0 interrupt\n");
 }
 
 void ide1_handler(int irq)
 {
-	printk("ide0 interrupt\n");
 }
 
 void ide_reset_driver(struct ide_channel *channel)

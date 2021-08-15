@@ -9,8 +9,8 @@
 
 struct fifo mouse_fifo;
 
-static req_status mouse_enter(driver_t *drv_obj);
-static req_status mouse_exit(driver_t *drv_obj);
+static status_t mouse_enter(driver_t *drv_obj);
+static status_t mouse_exit(driver_t *drv_obj);
 
 #define MOUSE_IRQ 12
 
@@ -34,12 +34,12 @@ typedef struct
 	int lbtn, mbtn, rbtn;		//左键 中键 右键
 } device_extension_t;
 
-static req_status mouse_enter(driver_t *drv_obj)
+static status_t mouse_enter(driver_t *drv_obj)
 {
 	device_t *devobj;
 	device_extension_t *devext;
 	
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, &devobj);
+	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MOUSE, &devobj);
 	devext = devobj->device_extension;
 	
 	devext->x = 0;
@@ -54,7 +54,7 @@ static req_status mouse_enter(driver_t *drv_obj)
 	return SUCCUESS;
 }
 
-static req_status mouse_exit(driver_t *drv_obj)
+static status_t mouse_exit(driver_t *drv_obj)
 {
 	device_t *devobj, *next;
 	// device_extension_t *ext;

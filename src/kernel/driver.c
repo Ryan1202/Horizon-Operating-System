@@ -1,10 +1,51 @@
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <kernel/console.h>
+#include <kernel/thread.h>
+#include <fs/vfs.h>
+#include <const.h>
+#include <math.h>
 
 LIST_HEAD(driver_list_head);
+struct index_node *dev;
 
-req_status driver_create(driver_func_t func, char *driver_name)
+struct file_operations device_fops = {
+	.open = dev_open,
+	.close = dev_close,
+	.read = dev_read,
+	.write = dev_write,
+	.ioctl = dev_ioctl
+};
+
+struct inode *dev_open(char *path)
+{
+	struct index_node *inode = vfs_open(path);
+	if (inode = NULL) return NULL;
+	else inode->device->drv_obj->funtion.driver_open(inode->device->drv_obj);
+	return inode;
+}
+
+int dev_close(struct index_node *inode)
+{
+	return inode->device->drv_obj->funtion.driver_close(inode->device->drv_obj);
+}
+
+int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
+{
+	return device_rw(inode->device, 0, buffer, offset, length);
+}
+
+int dev_write(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
+{
+	return device_rw(inode->device, 1, buffer, offset, length);
+}
+
+int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg)
+{
+	return inode->device->drv_obj->funtion.driver_devctl(inode->device, cmd, arg);
+}
+
+status_t driver_create(driver_func_t func, char *driver_name)
 {
 	driver_t *drv_obj;
 	int status;
@@ -33,9 +74,16 @@ req_status driver_create(driver_func_t func, char *driver_name)
 	return SUCCUESS;
 }
 
-req_status device_create(driver_t *driver, unsigned long device_extension_size, char *name, device_t **device)
+status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type, device_t **device)
 {
 	device_t *devobj = kmalloc(sizeof(device_t) + device_extension_size);
+	devobj->inode = vfs_create(name, ATTR_DEV, dev);
+	list_init(&devobj->inode->childs);
+	list_init(&devobj->request_queue_head);
+	devobj->inode->device = devobj;
+	devobj->inode->f_ops = device_fops;
+	devobj->type = type;
+	spinlock_init(&devobj->lock);
 	if (devobj == NULL)
 	{
 		return FAILED;
@@ -76,16 +124,48 @@ void device_delete(device_t *device)
 	kfree(device);
 }
 
-void show_drivers()
+int device_rw(device_t *devobj, int rw, char *buffer, int offset, size_t size)
 {
-	driver_t *drvobj, *next;
-	list_for_each_owner_safe(drvobj, next, &driver_list_head, list)
+	dev_request_t *queue = kmalloc(sizeof(dev_request_t));
+	
+	queue->length = size;
+	queue->buffer = buffer;
+	queue->offset = offset;
+	queue->task = get_current_thread();
+	
+	spin_lock(&devobj->lock);
+	if (!list_empty(&devobj->request_queue_head)){
+		spin_unlock(&devobj->lock);
+		thread_block(TASK_WAITING);
+		kfree(queue->buffer);
+	}
+	else
 	{
-		printk("  Driver: %s\n", drvobj->name.text);
-		device_t *devobj, *dnext;
-		list_for_each_owner_safe(devobj, dnext, &drvobj->device_list, list)
+		list_add_tail(&queue->list, &devobj->request_queue_head);
+		spin_unlock(&devobj->lock);
+		if (rw == 0)
 		{
-			printk("    Device: %s\n", devobj->name.text);
+			devobj->drv_obj->funtion.driver_read(devobj, queue->buffer, queue->offset, queue->length);
+		}
+		else
+		{
+			devobj->drv_obj->funtion.driver_write(devobj, queue->buffer, queue->offset, queue->length);
+		}
+		
+		spin_lock(&devobj->lock);
+		dev_request_t *next = NULL;
+		if (queue->list.next != &devobj->request_queue_head)
+		{
+			 next = list_next_owner(queue, list);
+		}
+		list_del(&queue->list);
+		kfree(queue);
+		spin_unlock(&devobj->lock);
+		if (next != NULL)
+		{
+			thread_unblock(next->task);
 		}
 	}
+	
+	return SUCCUESS;
 }

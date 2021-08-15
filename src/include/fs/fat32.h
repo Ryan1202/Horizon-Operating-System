@@ -1,6 +1,7 @@
 #ifndef FAT32_H
 #define FAT32_H
 
+#include <fs/vfs.h>
 #include <fs/fs.h>
 #include <string.h>
 
@@ -70,6 +71,7 @@ struct pt_fat32 {
 	struct FS_Info	FSInfo;
 	
 	unsigned int fat_start;
+	unsigned int data_start;
 	
 }__attribute__((packed));
 
@@ -87,7 +89,7 @@ struct FAT32_dir {
 	unsigned char	DIR_CrtTimeTenth;
 	unsigned short	DIR_CrtTime;
 	unsigned short	DIR_CrtDate;
-	unsigned short	DIR_LastAccData;
+	unsigned short	DIR_LastAccDate;
 	unsigned short	DIR_FstClusHI;
 	unsigned short	DIR_WrtTime;
 	unsigned short	DIR_WrtDate;
@@ -106,18 +108,16 @@ struct FAT32_long_dir {
 	unsigned short	LDIR_Name3[2];
 }__attribute__((packed));
 
-void init_fat32(struct partition *part, char *data);
-struct fs_file FAT32_open(struct partition *part, char *path);
-void FAT32_read(struct partition *part, struct fs_file *file, unsigned int offset, unsigned int length, char *buf);
-void FAT32_write(struct partition *part, struct fs_file *file, unsigned int offset, unsigned int length, char *buf);
-void FAT32_close(struct fs_file *file);
-void FAT32_create_file(struct partition *part, struct fs_folder *fld, struct fs_file *file);
-void FAT32_delete_file(struct partition *part, struct fs_file *file);
-int fat32_alloc_clus(struct partition *part, int last_clus);
-int fat32_free_clus(struct partition *part, int last_clus, int clus);
-unsigned int FAT32_lookup_file(struct partition *part, struct fs_folder fld, char *filename, int *len);
-unsigned int find_member_in_fat(struct partition *part, int i);
-struct fs_file FAT32_find_file(struct partition *part, struct fs_folder,char *filename);
-struct fs_folder FAT32_find_fld(struct partition *part, char *path);
+status_t fat32_readsuperblock(partition_t *partition, char *data);
+struct index_node *FAT32_open(struct _partition_s *part, struct index_node *parent, char *filename);
+void FAT32_close(struct index_node *inode);
+void FAT32_read(struct index_node *inode);
+void FAT32_write(struct index_node *inode);
+struct index_node *FAT32_create_file(partition_t *part, struct index_node *parent, char *name, int len);
+void FAT32_delete_file(partition_t *part, struct index_node *inode);
+int fat32_alloc_clus(partition_t *part, int last_clus);
+int fat32_free_clus(partition_t *part, int last_clus, int clus);
+unsigned int find_member_in_fat(struct _partition_s *part, int i);
+struct index_node *FAT32_find_dir(struct _partition_s *part, struct index_node *parent, char *name);
 
 #endif
