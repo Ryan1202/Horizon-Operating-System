@@ -52,6 +52,6 @@ Mkfile.old
 dkms.conf
 
 # Others
+trash
 *.img
 *.log
-todo.md
