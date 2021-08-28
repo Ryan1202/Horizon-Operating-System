@@ -29,12 +29,12 @@ extern void (*irq_enable)(int);
 #define IDT_ADDR		0x200800
 #define IDT_SIZE		0x7ff
 
-#define	DA_LDT			0x82	/* 局部描述符表段类型值			*/
+#define	DA_LDT			0x82	/* 局部描述符表段类型值		*/
 #define	DA_TaskGate		0x85	/* 任务门类型值				*/
-#define	DA_386TSS		0x89	/* 可用 386 任务状态段类型值		*/
-#define	DA_386CGate		0x8C	/* 386 调用门类型值			*/
-#define	DA_386IGate		0x8E	/* 386 中断门类型值			*/
-#define	DA_386TGate		0x8F	/* 386 陷阱门类型值			*/
+#define	DA_386TSS		0x89	/* 可用386任务状态段类型值	*/
+#define	DA_386CGate		0x8C	/* 386调用门类型值			*/
+#define	DA_386IGate		0x8E	/* 386中断门类型值			*/
+#define	DA_386TGate		0x8F	/* 386陷阱门类型值			*/
 
 void init_descriptor(void);
 void put_irq_handler(int irq, irq_handler_t handler);

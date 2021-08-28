@@ -50,7 +50,6 @@ void init_descriptor(void)
     for(i = 0; i < NR_IRQ; i++){
 		irq_table[i] = default_irq_handler;
 	}
-    init_8259a();
     
     load_idtr(IDT_SIZE, IDT_ADDR);
 }
