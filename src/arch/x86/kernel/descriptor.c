@@ -3,6 +3,9 @@
 #include <kernel/console.h>
 #include <drivers/8259a.h>
 #include <drivers/pit.h>
+#include <kernel/page.h>
+#include <kernel/tss.h>
+#include <string.h>
 #include <config.h>
 
 #define KEYBOARD_IRQ 1
@@ -15,11 +18,20 @@ void (*irq_enable)(int);
 
 struct segment_descriptor	*gdt;
 struct gate_descriptor		*idt;
+static struct tss_s			tss;
+
+void update_tss_esp(struct task_s *pthread)
+{
+	tss.esp0 = (uint32_t *)((uint32_t)pthread + PAGE_SIZE);
+}
 
 void init_descriptor(void)
 {
 	gdt = (struct segment_descriptor *)GDT_ADDR;
 	idt = (struct gate_descriptor *)IDT_ADDR;
+	memset(&tss, 0, sizeof(struct tss_s));
+	tss.ss0 = SELECTOR_K_STACK;
+	tss.io_base = sizeof(struct tss_s);
 	
 	int i;
 	for(i = 0; i < GDT_SIZE / 8; i++)
@@ -28,8 +40,12 @@ void init_descriptor(void)
 	}
 	set_segmdesc(gdt + 1, 0xffffffff, 0x00000000, 0x409a);
 	set_segmdesc(gdt + 2, 0xffffffff, 0x00000000, 0x4092);
-    
+	set_segmdesc(gdt + 3, sizeof(struct tss_s), &tss, DESC_P | DESC_D | DESC_DPL_0 | DESC_S_SYS | DESC_TYPE_TSS);
+	set_segmdesc(gdt + 4, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_CODE | DESC_TYPE_CODE);
+	set_segmdesc(gdt + 5, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_DATA | DESC_TYPE_DATA);
+	
     load_gdtr(GDT_SIZE, GDT_ADDR);
+	__asm__ __volatile__ ("ltr %w0" :: "r" (SElECTOR_TSS));
     
     for(i = 0; i < IDT_SIZE / 8; i++)
     {

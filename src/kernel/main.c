@@ -9,17 +9,11 @@
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/driver.h>
-// #include <drivers/8259a.h>
-// #include <drivers/pit.h>
-// #include <drivers/keyboard.h>
 #include <drivers/pci.h>
-// #include <drivers/ide.h>
-// #include <drivers/smbios.h>
-// #include <drivers/cpufreq.h>
-// #include <drivers/msr.h>
-// #include <drivers/acpi.h>
-// #include <drivers/apic.h>
+#include <kernel/process.h>
 #include <config.h>
+
+int test_var_a = 0, test_var_b = 0;
 
 void k_thread_a(void *arg)
 {
@@ -38,6 +32,23 @@ void k_thread_b(void *arg)
 		io_hlt();
 	}
 }
+
+void u_prog_a(void)
+{
+	while (1)
+	{
+		test_var_a++;
+	}
+}
+
+void u_prog_b(void)
+{
+	while (1)
+	{
+		test_var_b++;
+	}
+}
+
 
 int main()
 {
@@ -59,8 +70,10 @@ int main()
 	do_initcalls();
 	init_fs();
 	console_start();
-	// thread_start("Kthread_A", 1000, k_thread_a, "A ");
-	// thread_start("Kthread_B", 1000, k_thread_b, "B ");
+	thread_start("Kthread_A", THREAD_DEFAULT_PRIO, k_thread_a, "A ");
+	thread_start("Kthread_B", THREAD_DEFAULT_PRIO, k_thread_b, "B ");
+	process_excute(u_prog_a, "user_prog_a");
+	process_excute(u_prog_b, "user_prog_b");
 	for(;;) {
 		// if (fifo_status(&keyfifo))
 		// {

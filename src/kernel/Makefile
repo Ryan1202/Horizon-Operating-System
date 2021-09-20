@@ -7,6 +7,7 @@ SRC		+=	sync.c
 SRC		+=	thread.c
 SRC		+=	initcall.c
 SRC		+=	driver.c
+SRC		+=	process.c
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 

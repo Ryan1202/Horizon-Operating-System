@@ -2,6 +2,7 @@
 #include <kernel/func.h>
 #include <kernel/memory.h>
 #include <kernel/console.h>
+#include <kernel/thread.h>
 #include <drivers/video.h>
 #include <string.h>
 #include <stdint.h>
@@ -64,7 +65,7 @@ unsigned int *pde_ptr(unsigned int vaddr)
 unsigned int vir2phy(unsigned int vaddr)
 {
 	unsigned int *pte = pte_ptr(vaddr);
-	unsigned int *phy_addr = (unsigned int *)((*pte + (vaddr & 0x003ff000) * 4) & 0xfffff000);	//获取页表物理地址并去除属性
+	unsigned int *phy_addr = (unsigned int *)(*pte & 0xfffff000);	//获取页表物理地址并去除属性
 	phy_addr += vaddr & 0x00000fff;		//加上页表内偏移地址
 	return (unsigned int)phy_addr;
 }
@@ -196,8 +197,6 @@ void *kernel_alloc_page(int pages)
 		io_store_eflags(old_status);
 		
 		return (void *)vir_page_addr;
-	}else{
-		return NULL;
 	}
 	return NULL;
 }
@@ -283,4 +282,86 @@ int free_mem_page(int address)
 		return -1;
 	}
 	return 0;
+}
+
+void *thread_get_vaddr(uint32_t vaddr)
+{
+	struct task_s *cur = get_current_thread();
+	
+	int idx = -1;
+	idx = (vaddr - USER_VIR_MEM_BASE_ADDR)/PAGE_SIZE;
+	
+	mmap_set(&cur->vir_page_mmap, idx, 1);
+	
+	fill_vir_page_table(vaddr);
+	return (void *)vaddr;
+}
+
+int thread_alloc_vir_page(struct task_s *thread)
+{
+	int idx;
+	idx = mmap_search(&thread->vir_page_mmap, 1);
+	if (idx != -1)
+	{
+		mmap_set(&thread->vir_page_mmap, idx, 1);
+	}
+	else
+	{
+		return -1;
+	}
+	return idx * PAGE_SIZE + USER_VIR_MEM_BASE_ADDR;
+}
+
+int thread_free_vir_page(struct task_s *thread, uint32_t addr)
+{
+	int idx;
+	idx = (addr - USER_VIR_MEM_BASE_ADDR)/PAGE_SIZE;
+	if(thread->vir_page_mmap.bits[idx / 8] & (1 << (idx % 8)))
+	{
+		mmap_set(&thread->vir_page_mmap, idx, 0);
+	}else{
+		return -1;
+	}
+	return 0;
+}
+
+void *thread_alloc_page(struct task_s *thread, int pages)
+{
+	int i;
+	int vir_page_addr, vir_page_addr_more;
+	
+	vir_page_addr = thread_alloc_vir_page(thread);	//分配一个虚拟地址的页
+	
+	fill_vir_page_table(vir_page_addr);		//把页添加到当前页目录表系统中，使他可以被使用
+	
+	if(pages == 1){	//如果只有一个页
+		memset((void *)vir_page_addr,0,PAGE_SIZE);
+		return (void *)vir_page_addr;
+	}else if(pages > 1){
+		for(i = 1; i < pages; i++){
+			vir_page_addr_more = thread_alloc_vir_page(thread);	//分配一个虚拟地址的页
+			fill_vir_page_table(vir_page_addr_more);		//把页添加到当前页目录表系统中，使他可以被使用	
+		}
+		memset((void *)vir_page_addr,0,PAGE_SIZE*pages);
+		return (void *)vir_page_addr;
+	}
+	return NULL;
+}
+
+void thread_free_page(struct task_s *thread, int vaddr, int pages)
+{
+	int i;
+	int vir_page_addr = vaddr;
+	thread_free_vir_page(thread, vir_page_addr);
+	clean_vir_page_table(vir_page_addr);
+	if(pages == 1){	//如果只有一个页
+		return;
+	}else if(pages > 1){
+		for(i = 1; i < pages; i++){
+			vir_page_addr += PAGE_SIZE;
+			thread_free_vir_page(thread, vir_page_addr);
+			clean_vir_page_table(vir_page_addr);
+		}
+		return;
+	}
 }

@@ -1,6 +1,40 @@
 #ifndef _DESC_H
 #define _DESC_H
 
+#include <kernel/thread.h>
+
+#define DESC_G			0x8000
+#define DESC_D			0x4000
+#define DESC_L			0x2000
+#define DESC_AVL		0x1000
+#define DESC_P			0x80
+#define DESC_DPL_3		0x60
+#define DESC_DPL_2		0x40
+#define DESC_DPL_1		0x20
+#define DESC_DPL_0		0
+
+#define DESC_S_CODE		0x10
+#define DESC_S_DATA		0x10
+#define DESC_S_SYS		0
+#define DESC_TYPE_CODE	0x08
+#define DESC_TYPE_DATA	0x02
+#define DESC_TYPE_TSS	0x09
+
+#define TI_GDT			0
+#define TI_LDT			0x04
+#define RPL0			0
+#define RPL1			1
+#define RPL2			2
+#define RPL3			3
+
+#define SELECTOR_K_CODE		(1 << 3) | TI_GDT | RPL0
+#define SELECTOR_K_DATA		(2 << 3) | TI_GDT | RPL0
+#define SELECTOR_K_STACK	SELECTOR_K_DATA
+#define SElECTOR_TSS		(3 << 3) | TI_GDT | RPL0
+#define SELECTOR_U_CODE		(4 << 3) | TI_GDT | RPL3
+#define SELECTOR_U_DATA		(5 << 3) | TI_GDT | RPL3
+#define SELECTOR_U_STACK	SELECTOR_U_DATA
+
 struct segment_descriptor
 {
     short limit_low, base_low;
@@ -36,6 +70,7 @@ extern void (*irq_enable)(int);
 #define	DA_386IGate		0x8E	/* 386中断门类型值			*/
 #define	DA_386TGate		0x8F	/* 386陷阱门类型值			*/
 
+void update_tss_esp(struct task_s *pthread);
 void init_descriptor(void);
 void put_irq_handler(int irq, irq_handler_t handler);
 void set_segmdesc(struct segment_descriptor *sd, unsigned int limit, int base, int ar);

@@ -13,6 +13,7 @@
 	global general_protection
 	global page_fault
 	global IRQ_timer,	IRQ_pit,	IRQ_keyboard,			IRQ_ide0,	IRQ_ide1
+	global thread_intr_exit
 	global switch_to
 
 extern exception_handler
@@ -336,7 +337,18 @@ IRQ_ide1:
 	
 	sti
 	jmp intr_exit
-	
+
+
+thread_intr_exit:
+	mov esp, [esp + 4]
+	add esp, 4
+	popad
+	pop gs
+	pop fs	
+	pop es	 
+	pop ds
+	add esp, 4
+	iretd
 intr_exit:
 	popad
 	pop gs

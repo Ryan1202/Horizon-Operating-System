@@ -2,7 +2,9 @@
 #include <kernel/page.h>
 #include <kernel/memory.h>
 #include <kernel/func.h>
+#include <kernel/process.h>
 #include <string.h>
+#include <math.h>
 
 struct task_s *main_thread;
 list_t thread_ready;
@@ -23,9 +25,9 @@ static void kernel_thread(thread_func *function, void *func_arg)
 
 void thread_create(struct task_s *pthread, thread_func *function, void *func_arg)
 {
-	pthread->stack -= sizeof(struct intr_stack);
-	pthread->stack -= sizeof(struct thread_stack);
-	struct thread_stack *kthread_stack = (struct thread_stack *)pthread->stack;
+	pthread->kstack -= sizeof(struct intr_stack);
+	pthread->kstack -= sizeof(struct thread_stack);
+	struct thread_stack *kthread_stack = (struct thread_stack *)pthread->kstack;
 	kthread_stack->eip = kernel_thread;
 	kthread_stack->function = function;
 	kthread_stack->func_arg = func_arg;
@@ -45,7 +47,7 @@ void init_thread(struct task_s *pthread, char *name, int priority)
 		pthread->status = TASK_WAITING;
 	}
 	pthread->priority = priority;
-	pthread->stack = (uint32_t *)((uint32_t)pthread + PAGE_SIZE);
+	pthread->kstack = (uint32_t *)((uint32_t)pthread + PAGE_SIZE);
 	pthread->ticks = priority;
 	pthread->elapsed_ticks = 0;
 	pthread->pgdir = NULL;
@@ -155,5 +157,21 @@ void schedule(void)
 	struct task_s *next = list_first_owner(&thread_ready, struct task_s, general_tag);
 	list_del(thread_ready.next);
 	next->status = TASK_RUNNING;
+	
+	process_activate(next);
+	
 	switch_to(cur, next);
+}
+
+void init_thread_memory_manage(struct task_s *thread)
+{
+	int i;
+	uint32_t pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
+	
+	thread->memory_manage = (struct memory_manage *)kernel_alloc_page(pages);
+	memset(thread->memory_manage, 0, sizeof(struct memory_manage));
+	for(i = 0; i < MEMORY_BLOCKS; i++){	
+		thread->memory_manage->free_blocks[i].size = 0;
+		thread->memory_manage->free_blocks[i].flags = MEMORY_BLOCK_FREE;
+	}
 }

@@ -29,6 +29,7 @@
 *.dylib
 
 # Executables
+*.bin
 *.exe
 *.out
 *.app
@@ -52,6 +53,6 @@ Mkfile.old
 dkms.conf
 
 # Others
-trash
+fixdep
 *.img
 *.log

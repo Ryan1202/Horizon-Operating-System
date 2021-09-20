@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <kernel/list.h>
+#include <kernel/memory.h>
 
 typedef void thread_func(void *);
 
@@ -52,7 +53,7 @@ struct thread_stack {
 };
 
 struct task_s {
-	uint32_t *stack;
+	uint32_t *kstack;
 	
 	uint32_t pid;
 	char name[32];
@@ -63,15 +64,23 @@ struct task_s {
 	uint32_t *pgdir;
 	uint32_t stack_magic;
 	
+	struct mmap vir_page_mmap;
+	struct memory_manage *memory_manage;
+	
 	list_t general_tag;
 	list_t all_list_tag;
 };
 
+#define THREAD_DEFAULT_PRIO	100
+
 struct task_s *get_current_thread();
+void init_thread(struct task_s *pthread, char *name, int priority);
+void thread_create(struct task_s *pthread, thread_func *function, void *func_arg);
 struct task_s *thread_start(char *name, int priority, thread_func function, void *func_arg);
 void thread_block(task_status_t status);
 void thread_unblock(struct task_s *pthread);
 void init_task(void);
 void schedule(void);
+void init_thread_memory_manage(struct task_s *thread);
 
 #endif

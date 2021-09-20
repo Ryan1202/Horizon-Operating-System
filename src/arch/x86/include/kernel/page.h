@@ -1,7 +1,8 @@
 #ifndef	_PAGE_H
 #define	_PAGE_H
 
-#include <stddef.h>
+#include <stdint.h>
+#include <kernel/thread.h>
 
 #define PDT_PHY_ADDR		0x201000	//页目录表物理地址
 
@@ -34,5 +35,10 @@ void fill_vir_page_table(int vir_address);
 void clean_vir_page_table(int vir_address);
 int alloc_mem_page(void);
 int free_mem_page(int address);
+void *thread_get_vaddr(uint32_t vaddr);
+int thread_alloc_vir_page(struct task_s *thread);
+int thread_free_vir_page(struct task_s *thread, uint32_t addr);
+void *thread_alloc_page(struct task_s *thread, int pages);
+void thread_free_page(struct task_s *thread, int vaddr, int pages);
 
 #endif
