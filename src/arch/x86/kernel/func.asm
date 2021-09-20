@@ -18,6 +18,7 @@
 
 extern exception_handler
 extern irq_table
+extern do_interrupt
 extern apic_eoi
 
 EOI				equ	0x20
@@ -26,11 +27,28 @@ INT_M_CTLMASK	equ	0x21
 INT_S_CTL		equ	0xa0
 INT_S_CTLMASK	equ	0xa1
 
-TIMER_IRQ		equ 0
-PIT_IRQ			equ 2
-KEYBOARD_IRQ	equ	1
-IDE0_IRQ		equ 14
-IDE1_IRQ		equ 15
+%macro INTERRUPT_ENTRY 1
+global irq_entry%1
+irq_entry%1:
+	push ds
+	push es
+	push fs
+	push gs
+	pushad
+	
+	mov dx, ss
+	mov ds, dx
+	mov es, dx
+	
+	call apic_eoi
+	push %1
+	call [irq_table + %1 * 4]
+	add esp, 4
+	
+	jmp intr_exit
+
+%endmacro
+
 [section .text]
 [bits 32]
 
@@ -212,131 +230,122 @@ exception:
 	add		esp, 12
 	hlt
 	iretd
+	
+INTERRUPT_ENTRY 0
 
-IRQ_timer:
-	push ds
-	push es
-	push fs
-	push gs
-	pushad
-	
-	mov dx,ss
-	mov ds, dx
-	mov es, dx
-	
-	;mov esp, INTERRUPT_STACK_TOP
-	cli
-	
-	;mov	al, EOI
-	;out	INT_M_CTL, al
-	call apic_eoi
-	
-	push TIMER_IRQ
-	call [irq_table + TIMER_IRQ*4]
-	add esp, 4
+;IRQ_timer:
+;	push ds
+;	push es
+;	push fs
+;	push gs
+;	pushad
+;	
+;	mov dx,ss
+;	mov ds, dx
+;	mov es, dx
+;	
+;	cli
+;
+;	call apic_eoi
+;	
+;	push TIMER_IRQ
+;	call [irq_table + TIMER_IRQ*4]
+;	add esp, 4
+;
+;	sti
+;	jmp intr_exit
 
-	sti
-	jmp intr_exit
+INTERRUPT_ENTRY 1
+;IRQ_keyboard:
+;	push ds
+;	push es
+;	push fs
+;	push gs
+;	pushad
+;	
+;	mov dx,ss
+;	mov ds, dx
+;	mov es, dx
+;	
+;	
+;	cli
+;	call apic_eoi
+;	
+;	push KEYBOARD_IRQ
+;	call [irq_table + KEYBOARD_IRQ*4]
+;	add esp, 4
+;	
+;	sti
+;	jmp intr_exit
 
-IRQ_pit:
-	push ds
-	push es
-	push fs
-	push gs
-	pushad
-	
-	mov dx,ss
-	mov ds, dx
-	mov es, dx
-	
-	;mov esp, INTERRUPT_STACK_TOP
-	cli
-	
-	;mov	al, EOI
-	;out	INT_M_CTL, al
-	call apic_eoi
-	
-	push PIT_IRQ
-	call [irq_table + PIT_IRQ*4]
-	add esp, 4
+INTERRUPT_ENTRY 2
+;IRQ_pit:
+;	push ds
+;	push es
+;	push fs
+;	push gs
+;	pushad
+;	
+;	mov dx,ss
+;	mov ds, dx
+;	mov es, dx
+;	
+;	cli
+;	
+;	call apic_eoi
+;	
+;	push PIT_IRQ
+;	call [irq_table + PIT_IRQ*4]
+;	add esp, 4
+;
+;	sti
+;	jmp intr_exit
 
-	sti
-	jmp intr_exit
-	
-IRQ_keyboard:
-	push ds
-	push es
-	push fs
-	push gs
-	pushad
-	
-	mov dx,ss
-	mov ds, dx
-	mov es, dx
-	
-	;mov esp, INTERRUPT_STACK_TOP
-	
-	cli 
-	;mov	al, EOI
-	;out	INT_M_CTL, al
-	call apic_eoi
-	
-	push KEYBOARD_IRQ
-	call [irq_table + KEYBOARD_IRQ*4]
-	add esp, 4
-	
-	sti
-	jmp intr_exit
-	
-IRQ_ide0:
-	push ds
-	push es
-	push fs
-	push gs
-	pushad
-	
-	mov dx,ss
-	mov ds, dx
-	mov es, dx
-	
-	;mov esp, INTERRUPT_STACK_TOP
-	
-	cli 
-	;mov	al, EOI
-	;out	INT_M_CTL, al
-	call apic_eoi
-	
-	push IDE0_IRQ
-	call [irq_table + IDE0_IRQ*4]
-	add esp, 4
-	
-	sti
-	jmp intr_exit
-	
-IRQ_ide1:
-	push ds
-	push es
-	push fs
-	push gs
-	pushad
-	
-	mov dx,ss
-	mov ds, dx
-	mov es, dx
-	
-	;mov esp, INTERRUPT_STACK_TOP
-	
-	cli 
-	;mov	al, EOI
-	;out	INT_M_CTL, al
-	call apic_eoi
-	
-	push IDE1_IRQ
-	call [irq_table + IDE1_IRQ*4]
-	add esp, 4
-	
-	sti
-	jmp intr_exit
+INTERRUPT_ENTRY 14
+
+;IRQ_ide0:
+;	push ds
+;	push es
+;	push fs
+;	push gs
+;	pushad
+;	
+;	mov dx,ss
+;	mov ds, dx
+;	mov es, dx
+;	
+;	cli
+;	call apic_eoi
+;	
+;	push IDE0_IRQ
+;	call [irq_table + IDE0_IRQ*4]
+;	add esp, 4
+;	
+;	sti
+;	jmp intr_exit
+
+INTERRUPT_ENTRY 15
+
+;IRQ_ide1:
+;	push ds
+;	push es
+;	push fs
+;	push gs
+;	pushad
+;	
+;	mov dx,ss
+;	mov ds, dx
+;	mov es, dx
+;	
+;	cli 
+;	call apic_eoi
+;	
+;	push IDE1_IRQ
+;	call [irq_table + IDE1_IRQ*4]
+;	add esp, 4
+;	
+;	sti
+;	jmp intr_exit
 
 
 thread_intr_exit:
@@ -349,6 +358,7 @@ thread_intr_exit:
 	pop ds
 	add esp, 4
 	iretd
+	
 intr_exit:
 	popad
 	pop gs

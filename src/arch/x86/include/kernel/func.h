@@ -85,12 +85,11 @@ void stack_exception(void);
 void general_protection(void);
 void page_fault(void);
 
-void IRQ_pit(void);
-void IRQ_timer(void);
-void IRQ_keyboard(void);
-void IRQ_floppy(void);
-void IRQ_ide0(void);
-void IRQ_ide1(void);
+void irq_entry0(void);
+void irq_entry1(void);
+void irq_entry2(void);
+void irq_entry14(void);
+void irq_entry15(void);
 
 void switch_to(int *cur, int *next);
 

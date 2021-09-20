@@ -41,7 +41,7 @@ void init_fs(void)
 						path[0] = '/';
 						strcpy(path+1, inode->name.text);
 						path[inode->name.length + 1] = 'p';
-						path[inode->name.length + 2] = i + '0';
+						path[inode->name.length + 2] = i + '1';
 						part_inode = vfs_mkdir(path);
 						part_inode->f_ops = fs_fops;
 						part_inode->part = kmalloc(sizeof(partition_t));

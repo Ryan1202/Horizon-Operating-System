@@ -73,12 +73,9 @@ int main()
 	thread_start("Kthread_A", THREAD_DEFAULT_PRIO, k_thread_a, "A ");
 	thread_start("Kthread_B", THREAD_DEFAULT_PRIO, k_thread_b, "B ");
 	process_excute(u_prog_a, "user_prog_a");
-	process_excute(u_prog_b, "user_prog_b");
+	process_excute(u_prog_b, "user_prog_b");	
+	
 	for(;;) {
-		// if (fifo_status(&keyfifo))
-		// {
-			// console_input(scancode_analysis(fifo_get(&keyfifo)));
-		// }
 		io_hlt();
 	}
 }

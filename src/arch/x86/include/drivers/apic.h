@@ -38,5 +38,6 @@
 
 void init_apic(void);
 void apic_enable_irq(int irq);
+void apic_eoi(void);
 
 #endif

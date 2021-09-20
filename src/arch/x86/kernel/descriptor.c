@@ -58,11 +58,11 @@ void init_descriptor(void)
     set_gatedesc(idt + 0x0d, (int)&general_protection, 0x08, DA_386IGate);
     set_gatedesc(idt + 0x0e, (int)&page_fault, 0x08, DA_386IGate);
     
-	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&IRQ_timer, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + PIT_IRQ, (int)&IRQ_pit, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&IRQ_keyboard, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + IDE0_IRQ, (int)&IRQ_ide0, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + IDE1_IRQ, (int)&IRQ_ide1, 0x08, DA_386IGate);
+	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&irq_entry0, 0x08, DA_386IGate);
+    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate);
+    set_gatedesc(idt + 0x20 + PIT_IRQ, (int)&irq_entry2, 0x08, DA_386IGate);
+    set_gatedesc(idt + 0x20 + IDE0_IRQ, (int)&irq_entry14, 0x08, DA_386IGate);
+    set_gatedesc(idt + 0x20 + IDE1_IRQ, (int)&irq_entry15, 0x08, DA_386IGate);
     for(i = 0; i < NR_IRQ; i++){
 		irq_table[i] = default_irq_handler;
 	}
@@ -183,6 +183,12 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
     
 	io_hlt();
 	while(1);
+}
+
+void do_interrupt(int irq)
+{
+	// apic_eoi();
+	irq_table[irq](irq);
 }
 
 void default_irq_handler(int irq)
