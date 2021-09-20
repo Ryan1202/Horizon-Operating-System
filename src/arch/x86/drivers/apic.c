@@ -53,7 +53,7 @@ void lapic_write(int index, int value)
 	lapic[APIC_ID/4];
 }
 
-int lapic_read(int index)
+uint32_t lapic_read(int index)
 {
 	return lapic[index/4];
 }
@@ -88,13 +88,14 @@ void init_apic(void)
 	 * 
 	 * x2APIC Mode(MSR Address: 802H):0~31bit
 	 */
-	printk("APICID:%#x \n", *((volatile uint32 *)(lapic + APIC_ID/4)));
+	int apicid = lapic_read(APIC_ID);
+	printk("APICID:%#x \n", apicid);
 	// 获取APIC版本
 	/*
 	 * 16~23位 Max LVT Entry
 	 * 0~7位   Version
 	 */
-	printk("APIC Ver:%04x \n",  *((volatile uint32 *)(lapic + APIC_Ver/4)));
+	printk("APIC Ver:%04x \n",  lapic_read(APIC_Ver));
 	//屏蔽LVT
 	lapic_write(APIC_LVT_CMCI, 1<<16);
 	lapic_write(APIC_LVT_THMR, 1<<16);

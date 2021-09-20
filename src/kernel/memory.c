@@ -36,8 +36,8 @@ void init_memory(void)
 	vir_page_mmap.bits = (unsigned char *)VIR_MEM_MMAP;
 	vir_page_mmap.len = PHY_MEM_MMAP_SIZE-PHY_MEM_BASE_ADDR/(PAGE_SIZE*8);
 	
-	memset(phy_page_mmap.bits, 0, phy_page_mmap.len);
-	memset(vir_page_mmap.bits, 0, vir_page_mmap.len);
+	memset(phy_page_mmap.bits, 0, phy_page_mmap.bits);
+	memset(vir_page_mmap.bits, 0, vir_page_mmap.bits);
 	
 	unsigned int memory_manage_pages = (sizeof(struct memory_manage) + PAGE_SIZE - 1) / PAGE_SIZE;
 	memory_manage = (struct memory_manage *)kernel_alloc_page(memory_manage_pages);
@@ -77,7 +77,7 @@ int mmap_search(struct mmap *btmp, unsigned int cnt)
 	}
 	
 	int bit_left = btmp->len * 8 - index_start;
-	int next_bit = bit_left + 1;
+	int next_bit = index_start + 1;
 	int count = 0;
 	while (bit_left-- > 0)
 	{
@@ -131,7 +131,7 @@ unsigned long alloc_vaddr(size_t size)
 	}
 
 	/* 返还转换好的虚拟地址 */
-	return 0x10000 + idx * PAGE_SIZE; 
+	return VIR_MEM_BASE_ADDR + idx * PAGE_SIZE; 
 }
 
 void *kmalloc(uint32_t size)

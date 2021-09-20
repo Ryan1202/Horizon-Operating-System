@@ -56,7 +56,7 @@ uint32_t *create_page_dir(void)
 	{
 		return NULL;
 	}
-	memcpy((void *)page_dir_vaddr, 0xfffff000, 4096);
+	memcpy((void *)page_dir_vaddr, 0xfffff000, 2048);
 	uint32_t new_page_dir_phy_addr = vir2phy(page_dir_vaddr);
 	page_dir_vaddr[1023] = new_page_dir_phy_addr | SIGN_US | SIGN_RW | SIGN_P;
 	return page_dir_vaddr;
