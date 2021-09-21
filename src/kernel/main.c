@@ -13,43 +13,6 @@
 #include <kernel/process.h>
 #include <config.h>
 
-int test_var_a = 0, test_var_b = 0;
-
-void k_thread_a(void *arg)
-{
-	char *para = arg;
-	while (1)
-	{
-		io_hlt();
-	}
-}
-
-void k_thread_b(void *arg)
-{
-	char *para = arg;
-	while (1)
-	{
-		io_hlt();
-	}
-}
-
-void u_prog_a(void)
-{
-	while (1)
-	{
-		test_var_a++;
-	}
-}
-
-void u_prog_b(void)
-{
-	while (1)
-	{
-		test_var_b++;
-	}
-}
-
-
 int main()
 {
 	int i, j;
@@ -70,10 +33,6 @@ int main()
 	do_initcalls();
 	init_fs();
 	console_start();
-	thread_start("Kthread_A", THREAD_DEFAULT_PRIO, k_thread_a, "A ");
-	thread_start("Kthread_B", THREAD_DEFAULT_PRIO, k_thread_b, "B ");
-	process_excute(u_prog_a, "user_prog_a");
-	process_excute(u_prog_b, "user_prog_b");	
 	
 	for(;;) {
 		io_hlt();

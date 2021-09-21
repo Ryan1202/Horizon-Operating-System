@@ -6,7 +6,7 @@ ARCH	:=	arch/x86
 X_ASFLAGS	:= $(ENV_AFLAGS) -I $(ARCH)/include/ -g
 X_CFLAGS    := $(ENV_CFLAGS) -fno-strict-aliasing -g
 
-X_INCDIRS	:= include/ $(ARCH)/include/
+X_INCDIRS	:= ../include/ ./include/ $(ARCH)/include/
 
 X_LDFLAGS	:=  $(ENV_LDFLAGS)
 

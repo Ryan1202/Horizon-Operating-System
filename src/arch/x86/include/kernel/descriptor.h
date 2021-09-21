@@ -30,10 +30,10 @@
 #define SELECTOR_K_CODE		(1 << 3) | TI_GDT | RPL0
 #define SELECTOR_K_DATA		(2 << 3) | TI_GDT | RPL0
 #define SELECTOR_K_STACK	SELECTOR_K_DATA
-#define SElECTOR_TSS		(3 << 3) | TI_GDT | RPL0
-#define SELECTOR_U_CODE		(4 << 3) | TI_GDT | RPL3
-#define SELECTOR_U_DATA		(5 << 3) | TI_GDT | RPL3
+#define SELECTOR_U_CODE		(3 << 3) | TI_GDT | RPL3
+#define SELECTOR_U_DATA		(4 << 3) | TI_GDT | RPL3
 #define SELECTOR_U_STACK	SELECTOR_U_DATA
+#define SElECTOR_TSS		(5 << 3) | TI_GDT | RPL0
 
 struct segment_descriptor
 {
@@ -55,20 +55,21 @@ extern struct gate_descriptor		*idt;
 
 extern void (*irq_enable)(int);
 
-#define NR_IRQ          16
+#define NR_IRQ          	16
 
-#define GDT_ADDR		0x200000
-#define GDT_SIZE		0x7ff
+#define GDT_ADDR			0x200000
+#define GDT_SIZE			0x7ff
 
-#define IDT_ADDR		0x200800
-#define IDT_SIZE		0x7ff
+#define IDT_ADDR			0x200800
+#define IDT_SIZE			0x7ff
 
-#define	DA_LDT			0x82	/* 局部描述符表段类型值		*/
-#define	DA_TaskGate		0x85	/* 任务门类型值				*/
-#define	DA_386TSS		0x89	/* 可用386任务状态段类型值	*/
-#define	DA_386CGate		0x8C	/* 386调用门类型值			*/
-#define	DA_386IGate		0x8E	/* 386中断门类型值			*/
-#define	DA_386TGate		0x8F	/* 386陷阱门类型值			*/
+#define	DA_LDT				0x82	/* 局部描述符表段类型值		*/
+#define	DA_TaskGate			0x85	/* 任务门类型值				*/
+#define	DA_386TSS			0x89	/* 可用386任务状态段类型值	*/
+#define	DA_386CGate			0x8C	/* 386调用门类型值			*/
+#define	DA_386IGate_DPL0	0x8E	/* 386中断门类型值(0特权级)	*/
+#define	DA_386IGate_DPL3	0xEE	/* 386中断门类型值(3特权级)	*/
+#define	DA_386TGate			0x8F	/* 386陷阱门类型值			*/
 
 void update_tss_esp(struct task_s *pthread);
 void init_descriptor(void);

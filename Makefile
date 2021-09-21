@@ -6,6 +6,7 @@ FD_IMG		=	./horizon.img
 HD_IMG		=	./hd0.img
 
 KERNEL_SRC	=	src
+LIB_SRC		=	lib
 ARCH		=	$(KERNEL_SRC)/arch/x86
 BOOT_DIR	=	$(ARCH)/boot
 DRIVER_DIR	=	$(ARCH)/drivers
@@ -25,19 +26,23 @@ KERNEL_ELF	=	$(KERNEL_SRC)/kernel.elf
 
 .PHONY: cld
 
-cld: kernel write
+cld: kernel libs write
 
-run: kernel write qemu
+run: kernel libs write qemu
 
-run_dbg: kernel write qemu_dbg
+run_dbg: kernel libs write qemu_dbg
 
 kernel:
 	$(MAKE) -s -C $(BOOT_DIR)
 	$(MAKE) -s -C $(KERNEL_SRC)
 
+libs:
+	$(MAKE) -s -C $(LIB_SRC)
+
 clean:
 	$(MAKE) -s -C $(BOOT_DIR) clean
 	$(MAKE) -s -C $(KERNEL_SRC) clean
+	$(MAKE) -s -C $(LIB_SRC) clean
 
 write:
 #先覆盖掉软盘内的内容再写入，在没有软盘映像时能创建映像

@@ -3,12 +3,23 @@
 #include <kernel/memory.h>
 #include <kernel/func.h>
 #include <kernel/process.h>
+#include <kernel/sync.h>
 #include <string.h>
 #include <math.h>
 
 struct task_s *main_thread;
 list_t thread_ready;
 list_t thread_all;
+struct lock pid_lock;
+uint32_t new_pid = 0;
+
+static uint32_t alloc_pid(void)
+{
+	lock_acquire(&pid_lock);
+	new_pid++;
+	lock_release(&pid_lock);
+	return new_pid;
+}
 
 struct task_s *get_current_thread()
 {
@@ -25,6 +36,7 @@ static void kernel_thread(thread_func *function, void *func_arg)
 
 void thread_create(struct task_s *pthread, thread_func *function, void *func_arg)
 {
+	pthread->pid = alloc_pid();
 	pthread->kstack -= sizeof(struct intr_stack);
 	pthread->kstack -= sizeof(struct thread_stack);
 	struct thread_stack *kthread_stack = (struct thread_stack *)pthread->kstack;
@@ -137,6 +149,7 @@ void init_task(void)
 {
 	list_init(&thread_ready);
 	list_init(&thread_all);
+	lock_init(&pid_lock);
 	make_main_thread();
 }
 

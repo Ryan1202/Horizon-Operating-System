@@ -18,7 +18,8 @@
 
 extern exception_handler
 extern irq_table
-extern do_interrupt
+extern do_irq
+extern do_syscall
 extern apic_eoi
 
 EOI				equ	0x20
@@ -30,6 +31,9 @@ INT_S_CTLMASK	equ	0xa1
 %macro INTERRUPT_ENTRY 1
 global irq_entry%1
 irq_entry%1:
+	
+	push 0
+
 	push ds
 	push es
 	push fs
@@ -39,10 +43,12 @@ irq_entry%1:
 	mov dx, ss
 	mov ds, dx
 	mov es, dx
+	mov fs, dx
+	mov gs, dx
 	
-	call apic_eoi
+	push %1+0x20
 	push %1
-	call [irq_table + %1 * 4]
+	call do_irq
 	add esp, 4
 	
 	jmp intr_exit
@@ -232,139 +238,44 @@ exception:
 	iretd
 	
 INTERRUPT_ENTRY 0
-
-;IRQ_timer:
-;	push ds
-;	push es
-;	push fs
-;	push gs
-;	pushad
-;	
-;	mov dx,ss
-;	mov ds, dx
-;	mov es, dx
-;	
-;	cli
-;
-;	call apic_eoi
-;	
-;	push TIMER_IRQ
-;	call [irq_table + TIMER_IRQ*4]
-;	add esp, 4
-;
-;	sti
-;	jmp intr_exit
-
 INTERRUPT_ENTRY 1
-;IRQ_keyboard:
-;	push ds
-;	push es
-;	push fs
-;	push gs
-;	pushad
-;	
-;	mov dx,ss
-;	mov ds, dx
-;	mov es, dx
-;	
-;	
-;	cli
-;	call apic_eoi
-;	
-;	push KEYBOARD_IRQ
-;	call [irq_table + KEYBOARD_IRQ*4]
-;	add esp, 4
-;	
-;	sti
-;	jmp intr_exit
-
 INTERRUPT_ENTRY 2
-;IRQ_pit:
-;	push ds
-;	push es
-;	push fs
-;	push gs
-;	pushad
-;	
-;	mov dx,ss
-;	mov ds, dx
-;	mov es, dx
-;	
-;	cli
-;	
-;	call apic_eoi
-;	
-;	push PIT_IRQ
-;	call [irq_table + PIT_IRQ*4]
-;	add esp, 4
-;
-;	sti
-;	jmp intr_exit
-
 INTERRUPT_ENTRY 14
-
-;IRQ_ide0:
-;	push ds
-;	push es
-;	push fs
-;	push gs
-;	pushad
-;	
-;	mov dx,ss
-;	mov ds, dx
-;	mov es, dx
-;	
-;	cli
-;	call apic_eoi
-;	
-;	push IDE0_IRQ
-;	call [irq_table + IDE0_IRQ*4]
-;	add esp, 4
-;	
-;	sti
-;	jmp intr_exit
-
 INTERRUPT_ENTRY 15
 
-;IRQ_ide1:
-;	push ds
-;	push es
-;	push fs
-;	push gs
-;	pushad
-;	
-;	mov dx,ss
-;	mov ds, dx
-;	mov es, dx
-;	
-;	cli 
-;	call apic_eoi
-;	
-;	push IDE1_IRQ
-;	call [irq_table + IDE1_IRQ*4]
-;	add esp, 4
-;	
-;	sti
-;	jmp intr_exit
-
+global syscall_handler
+syscall_handler:
+	push	0
+	
+	push	ds
+	push	es
+	push	fs
+	push	gs
+	pushad
+	
+	push	0x80
+	
+	push	edx
+	push	ecx
+	push	ebx
+	push	eax
+	
+	call 	do_syscall
+	add		esp,	16
+	
+	mov		[esp + 32],	eax
+	jmp intr_exit
 
 thread_intr_exit:
 	mov esp, [esp + 4]
-	add esp, 4
-	popad
-	pop gs
-	pop fs	
-	pop es	 
-	pop ds
-	add esp, 4
-	iretd
-	
 intr_exit:
+	add esp, 4
 	popad
 	pop gs
 	pop fs	
 	pop es	 
 	pop ds
+	add esp, 4
 	iretd
 
 switch_to:

@@ -15,6 +15,7 @@
 irq_handler_t irq_table[NR_IRQ];
 void default_irq_handler(int irq);
 void (*irq_enable)(int);
+extern uint32_t syscall_handler(void);
 
 struct segment_descriptor	*gdt;
 struct gate_descriptor		*idt;
@@ -40,9 +41,9 @@ void init_descriptor(void)
 	}
 	set_segmdesc(gdt + 1, 0xffffffff, 0x00000000, 0x409a);
 	set_segmdesc(gdt + 2, 0xffffffff, 0x00000000, 0x4092);
-	set_segmdesc(gdt + 3, sizeof(struct tss_s), &tss, DESC_P | DESC_D | DESC_DPL_0 | DESC_S_SYS | DESC_TYPE_TSS);
-	set_segmdesc(gdt + 4, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_CODE | DESC_TYPE_CODE);
-	set_segmdesc(gdt + 5, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_DATA | DESC_TYPE_DATA);
+	set_segmdesc(gdt + 3, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_CODE | DESC_TYPE_CODE);
+	set_segmdesc(gdt + 4, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_DATA | DESC_TYPE_DATA);
+	set_segmdesc(gdt + 5, sizeof(struct tss_s), &tss, DESC_P | DESC_D | DESC_DPL_0 | DESC_S_SYS | DESC_TYPE_TSS);
 	
     load_gdtr(GDT_SIZE, GDT_ADDR);
 	__asm__ __volatile__ ("ltr %w0" :: "r" (SElECTOR_TSS));
@@ -51,21 +52,23 @@ void init_descriptor(void)
     {
         set_gatedesc(idt + i, 0, 0, 0);
     }
-    set_gatedesc(idt + 0x00, (int)&divide_error, 0x08, DA_386IGate);
-	set_gatedesc(idt + 0x01, (int)&single_step_exception, 0x08, DA_386IGate);
-	set_gatedesc(idt + 0x02, (int)&nmi, 0x08, DA_386IGate);
-	set_gatedesc(idt + 0x0c, (int)&stack_exception, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x0d, (int)&general_protection, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x0e, (int)&page_fault, 0x08, DA_386IGate);
+    set_gatedesc(idt + 0x00, (int)&divide_error, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x01, (int)&single_step_exception, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x02, (int)&nmi, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x0c, (int)&stack_exception, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0d, (int)&general_protection, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0e, (int)&page_fault, 0x08, DA_386IGate_DPL0);
     
-	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&irq_entry0, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + PIT_IRQ, (int)&irq_entry2, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + IDE0_IRQ, (int)&irq_entry14, 0x08, DA_386IGate);
-    set_gatedesc(idt + 0x20 + IDE1_IRQ, (int)&irq_entry15, 0x08, DA_386IGate);
+	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&irq_entry0, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + PIT_IRQ, (int)&irq_entry2, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + IDE0_IRQ, (int)&irq_entry14, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + IDE1_IRQ, (int)&irq_entry15, 0x08, DA_386IGate_DPL0);
     for(i = 0; i < NR_IRQ; i++){
 		irq_table[i] = default_irq_handler;
 	}
+	
+	set_segmdesc(idt + 0x80, (int)syscall_handler, 3*0x08, DA_386IGate_DPL3);
     
     load_idtr(IDT_SIZE, IDT_ADDR);
 }
@@ -185,9 +188,9 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
 	while(1);
 }
 
-void do_interrupt(int irq)
+void do_irq(int irq)
 {
-	// apic_eoi();
+	apic_eoi();
 	irq_table[irq](irq);
 }
 
