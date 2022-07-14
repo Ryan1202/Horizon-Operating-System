@@ -29,30 +29,30 @@
 
 ## 编译
 
-> 虚拟硬盘
->>
->> 创建
->> ```
->> sudo make hd
->> ```
->> 
->> 写入
->> ```
->> sudo make writehd
->> ```
-> 
-> 内核
+### 虚拟硬盘
+
+> 创建
 > ```
-> make
+> sudo make hd
 > ```
->  库
+>
+> 写入
 > ```
-> make lib
+> sudo make writehd
 > ```
-> 用户程序
-> ```
-> make app
-> ```
+
+### 内核
+```
+make
+```
+###  库
+```
+make lib
+```
+### 用户程序
+```
+make app
+```
 
 ## 运行
 
