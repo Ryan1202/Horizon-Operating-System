@@ -25,7 +25,7 @@ void start_process(void *filename)
 	proc_stack->eip = function;
 	proc_stack->cs = SELECTOR_U_CODE;
 	proc_stack->eflags = (1 << 1) | (1 << 9) | (0 << 12);
-	proc_stack->esp = (void *)((uint32_t)thread_get_page(get_current_thread(), USER_STACK3_ADDR) + PAGE_SIZE);
+	proc_stack->esp = (void *)((uint32_t)thread_get_page(get_current_thread(), USER_STACK3_ADDR) + PAGE_SIZE-8);
 	proc_stack->ss = SELECTOR_U_STACK;
 	thread_intr_exit(proc_stack);
 }

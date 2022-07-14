@@ -1,7 +1,9 @@
 #include <syscall.h>
 
 enum syscall_nr {
-	sys_getpid = 0
+	sys_getpid = 0,
+	sys_putchar,
+	sys_puts
 };
 
 #define _syscall0(NUMBER) ({	\
@@ -48,7 +50,17 @@ enum syscall_nr {
 	ret;											\
 })
 
-uint32_t getpid()
+int getpid()
 {
-	return _syscall0(getpid);
+	return _syscall0(sys_getpid);
+}
+
+int putchar(char c)
+{
+	return _syscall1(sys_putchar, &c);
+}
+
+int puts(char *str)
+{
+	return _syscall1(sys_puts, str);
 }

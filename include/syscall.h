@@ -1,8 +1,8 @@
 #ifndef SYSCALL_H
 #define SYSCALL_H
 
-#include <stdint.h>
-
-uint32_t getpid(void);
+int getpid(void);
+int putchar(char c);
+int puts(char *str);
 
 #endif

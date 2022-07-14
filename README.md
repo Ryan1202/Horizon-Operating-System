@@ -1,6 +1,11 @@
-# Horizon操作系统
-
+<h1 align="center">Horizon操作系统</h1>
+<p align="center">
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/stars/Ryan1202/Horizon-Operating-System.svg" /></a>
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/forks/Ryan1202/Horizon-Operating-System.svg" /></a>
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/license/Ryan1202/Horizon-Operating-System.svg" /></a>
+<br/>
 是个半成品。。。
+</p>
 
 ## 环境
 
@@ -24,18 +29,30 @@
 
 ## 编译
 
-内核
-```
-make
-```
-库
-```
-make libs
-```
-用户程序
-```
-make apps
-```
+> 虚拟硬盘
+>>
+>> 创建
+>> ```
+>> sudo make hd
+>> ```
+>> 
+>> 写入
+>> ```
+>> sudo make writehd
+>> ```
+> 
+> 内核
+> ```
+> make
+> ```
+>  库
+> ```
+> make lib
+> ```
+> 用户程序
+> ```
+> make app
+> ```
 
 ## 运行
 

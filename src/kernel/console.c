@@ -72,7 +72,8 @@ void console_input(char c)
 void print_char(char c, unsigned int color)
 {
 	int i, j, k;
-	print_word(console.cur_x * 10 + 1, console.cur_y * 16 , console.font + c*16, color);
+	uint32_t _color = color;
+	print_word(console.cur_x * 10 + 1, console.cur_y * 16 , console.font + c*16, _color);
 	console.cur_x++;
 	if(console.cur_x >= console.width)
 	{

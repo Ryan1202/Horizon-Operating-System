@@ -49,6 +49,8 @@
 		"clang-diagnostic-pointer-to-int-cast",
 		"clang-diagnostic-visibility",
 		"clang-analyzer-security.insecureAPI.strcpy",
-		"clang-diagnostic-incompatible-library-redeclaration"
-	]
+		"clang-diagnostic-incompatible-library-redeclaration",
+		"clang-diagnostic-implicit-function-declaration"
+	],
+	"C_Cpp.errorSquiggles": "Disabled"
 }

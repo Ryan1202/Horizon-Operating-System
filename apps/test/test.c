@@ -2,11 +2,12 @@
 
 int main(int argc, char *argv[])
 {
+	int pid = getpid();
+	putchar((pid%10) + '0');
 	while (1)
 	{
 		/* code */
 	}
 	
-	int pid = getpid();
 	return 0;
 }

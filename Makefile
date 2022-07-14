@@ -40,6 +40,7 @@ hd:
 	$(DD) if=/dev/zero of=$(HD_IMG) bs=1M count=$(HD_SIZE)
 	@parted $(HD_IMG) -s mklabel msdos mkpart primary fat32 0% 100%
 	@kpartx -av hd0.img
+	@umount /dev/mapper/loop0p1
 	@mkfs.vfat -F 32 /dev/mapper/loop0p1
 	@kpartx -d hd0.img
 	@chmod -R 777 $(HD_IMG)
@@ -70,9 +71,9 @@ writefd:
 writehd:
 	@kpartx -av $(HD_IMG)
 	@mount /dev/mapper/loop0p1 /mnt
-	@cp -r $(DISK_DIR)/ /mnt
+	$(CP) -r $(DISK_DIR)/* /mnt
 	@umount /mnt
-	@-kpartx -d $(HD_IMG)
+	@kpartx -d $(HD_IMG)
 
 qemu_dbg:
 	$(QEMU) \
