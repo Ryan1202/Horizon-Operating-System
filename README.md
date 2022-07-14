@@ -1,7 +1,7 @@
 <h1 align="center">Horizon操作系统</h1>
 <p align="center">
-<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/stars/Ryan1202/Horizon-Operating-System.svg" /></a>
-<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/forks/Ryan1202/Horizon-Operating-System.svg" /></a>
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/stars/Ryan1202/Horizon-Operating-System.svg?logo=GitHub" /></a>
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/forks/Ryan1202/Horizon-Operating-System.svg?logo=GitHub" /></a>
 <a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/license/Ryan1202/Horizon-Operating-System.svg" /></a>
 <br/>
 是个半成品。。。
