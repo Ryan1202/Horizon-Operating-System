@@ -1,0 +1,29 @@
+OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
+OUTPUT_ARCH(i386)
+ENTRY(main) /* _start is at xlibc/arch/x86/start.asm */
+
+SECTIONS {
+    /* 
+    if use lower addr: . = 0x08048000;  (128M)
+    or not use high addr: . = 0x80001000;
+    */
+    . = 0x80001000;
+    
+    /* code segment */
+    .text : {
+        . = ALIGN(4);   /* 4 bytes align */
+        *(.text)
+    }
+
+    /* data segment */
+    .data : {
+        . = ALIGN(4);   /* 4 bytes align */
+        *(.data)
+    }
+
+    /* bss segement */
+    .bss : {
+        . = ALIGN(4);   /* 4 bytes align */
+        *(.bss)
+    }
+}

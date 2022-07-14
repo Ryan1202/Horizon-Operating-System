@@ -116,14 +116,6 @@ void vfs_close(struct index_node *inode)
 	kfree(inode);
 	inode = parent;
 	list_del(&inode->list);
-	while (list_empty(&inode->childs) && inode->parent != root)
-	{
-		string_del(&inode->name);
-		kfree(inode->dir);
-		parent = inode->parent;
-		kfree(inode);
-		inode = parent;
-	}
 }
 
 struct index_node *vfs_opendir(char *path)

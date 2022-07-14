@@ -39,5 +39,6 @@ void console_set_cursor(int x, int y);
 void console_input(char c);
 void print_char(char c, unsigned int color);
 int printk(const char *fmt, ...);
+void print_hex(unsigned char *s, int length);
 
 #endif

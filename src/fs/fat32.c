@@ -12,6 +12,7 @@
 // struct FAT_clus_list *clus_list;
 
 fs_operations_t fat32_fs_ops = {
+	.fs_check = fat32_check,
 	.fs_read_superblock = fat32_readsuperblock,
 	.fs_open = FAT32_open,
 	.fs_opendir = FAT32_find_dir,
@@ -21,6 +22,15 @@ fs_operations_t fat32_fs_ops = {
 	.fs_create = FAT32_create_file,
 	.fs_delete = FAT32_delete_file
 };
+
+status_t fat32_check(struct partition_table *pt)
+{
+	if(pt->fs_type == 0x0b || pt->fs_type == 0x0c)
+	{
+		return SUCCUESS;
+	}
+	return FAILED;
+}
 
 status_t fat32_readsuperblock(partition_t *partition, char *data)
 {
@@ -763,10 +773,7 @@ unsigned int find_member_in_fat(struct _partition_s *part, int i)
 
 static __init void fat32_fs_entry(void)
 {
-	if (fs_register("FAT32", 0x0b, &fat32_fs_ops) < 0)
-	{
-		printk(COLOR_RED"[fs] %s fs create failed!\n", __func__);
-	}
+	fs_register("FAT32", &fat32_fs_ops);
 }
 
 fs_initcall(fat32_fs_entry);

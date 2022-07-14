@@ -1,4 +1,7 @@
 {
+	"editor.formatOnPaste": true,
+	"editor.formatOnSave": true,
+	"editor.formatOnType": true,
 	"editor.quickSuggestions": {
 		"other": true,
 		"comments": true,
@@ -37,5 +40,15 @@
 		"mouse.h": "c",
 		"initcall.h": "c",
 		"8042.h": "c"
-	}
+	},
+	"C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
+		"clang-diagnostic-int-to-void-pointer-cast",
+		"clang-diagnostic-int-to-pointer-cast",
+		"clang-diagnostic-void-pointer-to-int-cast",
+		"clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling",
+		"clang-diagnostic-pointer-to-int-cast",
+		"clang-diagnostic-visibility",
+		"clang-analyzer-security.insecureAPI.strcpy",
+		"clang-diagnostic-incompatible-library-redeclaration"
+	]
 }

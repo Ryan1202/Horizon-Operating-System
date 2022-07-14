@@ -28,19 +28,19 @@ void init_memory(void)
 		ards++;
 	}
 	
-	int page_bytes = (memory_total_size-PHY_MEM_BASE_ADDR)/(PAGE_SIZE*8);
+	int page_bytes = (memory_total_size-PHY_MEM_BASE_ADDR-KERN_VIR_MEM_BASE_ADDR)/(PAGE_SIZE*8);
 	
 	phy_page_mmap.bits = (unsigned char *)PHY_MEM_MMAP;
 	phy_page_mmap.len = page_bytes;
 	
 	vir_page_mmap.bits = (unsigned char *)VIR_MEM_MMAP;
-	vir_page_mmap.len = PHY_MEM_MMAP_SIZE-PHY_MEM_BASE_ADDR/(PAGE_SIZE*8);
+	vir_page_mmap.len = PHY_MEM_MMAP_SIZE-(PHY_MEM_BASE_ADDR+KERN_VIR_MEM_BASE_ADDR)/(PAGE_SIZE*8);
 	
-	memset(phy_page_mmap.bits, 0, phy_page_mmap.bits);
-	memset(vir_page_mmap.bits, 0, vir_page_mmap.bits);
+	memset(phy_page_mmap.bits, 0, phy_page_mmap.len);
+	memset(vir_page_mmap.bits, 0, vir_page_mmap.len);
 	
-	unsigned int memory_manage_pages = (sizeof(struct memory_manage) + PAGE_SIZE - 1) / PAGE_SIZE;
-	memory_manage = (struct memory_manage *)kernel_alloc_page(memory_manage_pages);
+	unsigned int memory_manage_pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
+	memory_manage = (struct memory_manage *)kernel_alloc_pages(memory_manage_pages);
 	memset(memory_manage, 0, memory_manage_pages*PAGE_SIZE);
 	for(i = 0; i < MEMORY_BLOCKS; i++){	
 		memory_manage->free_blocks[i].size = 0;	//大小是页的数量
@@ -131,7 +131,7 @@ unsigned long alloc_vaddr(size_t size)
 	}
 
 	/* 返还转换好的虚拟地址 */
-	return VIR_MEM_BASE_ADDR + idx * PAGE_SIZE; 
+	return KERN_VIR_MEM_BASE_ADDR + VIR_MEM_BASE_ADDR + idx * PAGE_SIZE; 
 }
 
 void *kmalloc(uint32_t size)
@@ -147,7 +147,7 @@ void *kmalloc(uint32_t size)
 		int pages = DIV_ROUND_UP(size, PAGE_SIZE);	//一共占多少个页
 		for(i = 0; i < MEMORY_BLOCKS; i++){
 			if(memory_manage->free_blocks[i].flags == MEMORY_BLOCK_FREE){	//找到
-				address = (uint32_t )kernel_alloc_page(pages);	//分配页
+				address = (uint32_t )kernel_alloc_pages(pages);	//分配页
 				memory_manage->free_blocks[i].address = address;	
 				memory_manage->free_blocks[i].size = pages;	//大小是页的数量
 				memory_manage->free_blocks[i].flags = MEMORY_BLOCK_USING;
@@ -186,8 +186,8 @@ void *kmalloc(uint32_t size)
 		}
 		//如果都没有找到，分配一个页，然后打散
 		//分配一个页，用来被打散
-		new_address = kernel_alloc_page(1);
-		break_cnt = PAGE_SIZE/break_size;
+		new_address = kernel_alloc_pages(1);
+		break_cnt = PAGE_SIZE / break_size;
 		
 		//打散成break_cnt个
 		for(i = 0; i < MEMORY_BLOCKS; i++){

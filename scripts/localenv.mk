@@ -4,8 +4,10 @@ ENV_CFLAGS	:= -march=i486 -fno-builtin -Wall -Wunused -m32 -std=gnu99 -fno-stack
 # kernel name & version
 ENV_CFLAGS	+= -DKERNEL_NAME=\"horizon\" -DKERNEL_VERSION=\"0.0.1\"
 
-ENV_AFLAGS	:= -f elf
-ENV_LDFLAGS	:= -no-pie
+ENV_AFLAGS	:= -g -f elf
+ENV_LDFLAGS	:= -g -no-pie
+
+ENV_APP_LD_SCRIPT	:= -T ../apps/app.lds
 
 # MacOS special
 ifeq ($(shell uname),Darwin)

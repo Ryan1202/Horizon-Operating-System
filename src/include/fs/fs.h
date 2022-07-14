@@ -15,6 +15,7 @@ struct partition_table {
 };
 
 typedef struct {
+	status_t (*fs_check)(struct partition_table *pt);
 	status_t (*fs_read_superblock)(struct _partition_s *partition, char *data);
 	struct index_node *(*fs_open)(struct _partition_s *part, struct index_node *parent, char *filename);
 	struct index_node *(*fs_opendir)(struct _partition_s *part, struct index_node *parent, char *name);
@@ -28,7 +29,6 @@ typedef struct {
 typedef struct {
 	list_t list;
 	string_t name;
-	int fs_type;
 	fs_operations_t *fs_ops;
 } fs_t;
 
@@ -46,8 +46,9 @@ typedef struct _partition_s {
 void init_fs(void);
 struct index_node *fs_open(char *path);
 int fs_close(struct index_node *inode);
-int fs_read(struct index_node *inode, char *buffer, uint32_t length);
-int fs_write(struct index_node *inode, char *buffer, uint32_t length);
+int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t length);
+int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t length);
+int fs_seek(struct index_node *inode, unsigned int offset, unsigned int origin);
 int fs_create(struct index_node *parent, char *name);
 int fs_delete(struct index_node *inode);
 

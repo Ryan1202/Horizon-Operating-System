@@ -1,7 +1,7 @@
 	global io_in8,		io_out8,	io_in16,	io_out16,	io_in32,	io_out32
 	global io_read,		io_write
 	global io_cli,		io_sti,		io_hlt,		io_stihlt
-	global read_cr3,	write_cr3,	read_cr0,	write_cr0
+	global read_cr3,	write_cr3,	read_cr0,	write_cr0,	enable_paging
 	global load_gdtr,	load_idtr
 	global io_load_eflags,			io_store_eflags
 	global enable_irq
@@ -27,6 +27,9 @@ INT_M_CTL		equ	0x20
 INT_M_CTLMASK	equ	0x21
 INT_S_CTL		equ	0xa0
 INT_S_CTLMASK	equ	0xa1
+
+%define   ERROR_CODE   nop
+%define   NO_ERROR_CODE push 0
 
 %macro INTERRUPT_ENTRY 1
 global irq_entry%1
@@ -55,8 +58,61 @@ irq_entry%1:
 
 %endmacro
 
+%macro EXCEPTION_ENTRY 2
+global exception_entry%1
+exception_entry%1:
+    %2				 ; 中断若有错误码会压在eip后面 
+    push %1
+    
+    push esp
+    call exception_handler
+    add esp, 4*3
+    
+    hlt
+%endmacro
+
 [section .text]
 [bits 32]
+
+EXCEPTION_ENTRY 0,NO_ERROR_CODE
+EXCEPTION_ENTRY 1,NO_ERROR_CODE
+EXCEPTION_ENTRY 2,NO_ERROR_CODE
+EXCEPTION_ENTRY 3,NO_ERROR_CODE 
+EXCEPTION_ENTRY 4,NO_ERROR_CODE
+EXCEPTION_ENTRY 5,NO_ERROR_CODE
+EXCEPTION_ENTRY 6,NO_ERROR_CODE
+EXCEPTION_ENTRY 7,NO_ERROR_CODE 
+EXCEPTION_ENTRY 8,ERROR_CODE
+EXCEPTION_ENTRY 9,NO_ERROR_CODE
+EXCEPTION_ENTRY 10,ERROR_CODE
+EXCEPTION_ENTRY 11,ERROR_CODE 
+EXCEPTION_ENTRY 12,NO_ERROR_CODE
+EXCEPTION_ENTRY 13,ERROR_CODE
+EXCEPTION_ENTRY 14,ERROR_CODE
+EXCEPTION_ENTRY 15,NO_ERROR_CODE 
+EXCEPTION_ENTRY 16,ERROR_CODE
+EXCEPTION_ENTRY 17,ERROR_CODE 
+EXCEPTION_ENTRY 18,NO_ERROR_CODE
+EXCEPTION_ENTRY 19,ERROR_CODE
+EXCEPTION_ENTRY 20,ERROR_CODE
+EXCEPTION_ENTRY 21,NO_ERROR_CODE 
+EXCEPTION_ENTRY 22,NO_ERROR_CODE
+EXCEPTION_ENTRY 23,ERROR_CODE
+EXCEPTION_ENTRY 24,ERROR_CODE
+EXCEPTION_ENTRY 25,NO_ERROR_CODE 
+EXCEPTION_ENTRY 26,ERROR_CODE
+EXCEPTION_ENTRY 27,ERROR_CODE 
+EXCEPTION_ENTRY 28,NO_ERROR_CODE
+EXCEPTION_ENTRY 29,ERROR_CODE
+EXCEPTION_ENTRY 30,ERROR_CODE
+EXCEPTION_ENTRY 31,NO_ERROR_CODE 
+
+INTERRUPT_ENTRY 1
+INTERRUPT_ENTRY 2
+INTERRUPT_ENTRY 14
+INTERRUPT_ENTRY 15
+
+INTERRUPT_ENTRY	0, 
 
 io_in8:		;int io_in8(int port);
 	mov		edx,[esp+4]
@@ -144,6 +200,14 @@ write_cr0:
 	mov	cr0,	eax
 	ret
 	
+enable_paging:
+	mov	eax,	cr0
+	or	eax,	0x80000000
+	mov	cr0,	eax
+	pop	eax
+	add	eax,	0x80000000
+	push		eax
+	
 load_gdtr:	;void load_gdtr(int limit, int addr);
 	mov ax, [esp + 4]
 	mov	[esp+6],ax		
@@ -197,51 +261,6 @@ enable_8:
 	out		INT_S_CTLMASK, al       ; clear bit at slave 8259
 	popf
 	ret
-	
-divide_error:
-	push	0xffffffff
-	push	0
-	jmp		exception
-
-single_step_exception:
-	push	0xffffffff
-	push	1
-	jmp		exception
-	
-nmi:
-	push	0xffffffff
-	push	2
-	jmp		exception
-	
-breakpoint_exception:
-	push	0xffffffff
-	push	3
-	jmp		exception
-
-stack_exception:
-	push	12
-	jmp		exception
-
-general_protection:
-	push	13
-	jmp		exception
-	
-page_fault:
-	push	14
-	jmp		exception
-
-exception:
-	push	esp
-	call	exception_handler
-	add		esp, 12
-	hlt
-	iretd
-	
-INTERRUPT_ENTRY 0
-INTERRUPT_ENTRY 1
-INTERRUPT_ENTRY 2
-INTERRUPT_ENTRY 14
-INTERRUPT_ENTRY 15
 
 global syscall_handler
 syscall_handler:
@@ -276,7 +295,7 @@ intr_exit:
 	pop es	 
 	pop ds
 	add esp, 4
-	iretd
+	iret
 
 switch_to:
 	push	esi

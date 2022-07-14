@@ -69,6 +69,8 @@ void write_cr3(unsigned int *cr3);
 int read_cr0();
 void write_cr0(int cr0);
 
+void enable_paging(void);
+
 void load_gdtr(int limit, int addr);
 void load_idtr(int limit, int addr);
 
@@ -77,13 +79,38 @@ void io_store_eflags(int eflags);\
 
 void enable_irq(int irq);
 
-void divide_error(void);
-void single_step_exception(void);
-void nmi(void);
-void breakpoint_exception(void);
-void stack_exception(void);
-void general_protection(void);
-void page_fault(void);
+void exception_entry0(void);
+void exception_entry1(void);
+void exception_entry2(void);
+void exception_entry3(void);
+void exception_entry4(void);
+void exception_entry5(void);
+void exception_entry6(void);
+void exception_entry7(void);
+void exception_entry8(void);
+void exception_entry9(void);
+void exception_entry10(void);
+void exception_entry11(void);
+void exception_entry12(void);
+void exception_entry13(void);
+void exception_entry14(void);
+void exception_entry15(void);
+void exception_entry16(void);
+void exception_entry17(void);
+void exception_entry18(void);
+void exception_entry19(void);
+void exception_entry20(void);
+void exception_entry21(void);
+void exception_entry22(void);
+void exception_entry23(void);
+void exception_entry24(void);
+void exception_entry25(void);
+void exception_entry26(void);
+void exception_entry27(void);
+void exception_entry28(void);
+void exception_entry29(void);
+void exception_entry30(void);
+void exception_entry31(void);
 
 void irq_entry0(void);
 void irq_entry1(void);

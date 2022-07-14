@@ -324,11 +324,11 @@ ReadKernel:
 ;typedef struct elf_hdr_s {
 ;0x00    uint32 magic;  		;ELF文件头
 ;0x04   -uint8  elf[12];
-;0x05	 	uint8	class		;文件类型，01:32位程序	02:64位程序
-;0x06		uint8	data		;数据编码，01:高位在前	02:低位在前
-;0x07		uint8	version		;文件版本，固定01
-;0x08		uint8	pad[5]		;?
-;0x0f		uint8	nident		;?
+;0x05	 uint8	class		;文件类型，01:32位程序	02:64位程序
+;0x06	 uint8	data		;数据编码，01:高位在前	02:低位在前
+;0x07	 uint8	version		;文件版本，固定01
+;0x08	 uint8	pad[5]		;?
+;0x0f	 uint8	nident		;?
 ;0x10    uint16 type;			;文件类型，01:未知文件类型	02:可重定位文件类型	03:可执行文件	04:共享目标文件	...
 ;0x12    uint16 machine;		;声明ABI，03:x86	28:arm
 ;0x14    uint32 version;

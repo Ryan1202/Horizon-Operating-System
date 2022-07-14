@@ -4,6 +4,7 @@
 #include <kernel/thread.h>
 #include <kernel/sync.h>
 #include <stdio.h>
+#include <math.h>
 
 int command_length = 0;
 char command[CMD_MAX_LENGTH];
@@ -223,4 +224,56 @@ int printk(const char *fmt, ...)
 	
 	lock_release(&console_lock);
 	return i;
+}
+
+/**
+ * @brief 将数据以十六进制形式输出
+ * 
+ * @param s 数据内容
+ * @param length 数据长度
+ */
+void print_hex(unsigned char *s, int length)
+{
+	int i, j;
+	if (length > 256)
+	{
+		printk("\nData is too long!\n");
+		return;
+	}
+	printk("\n          0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F  0123456789ABCDEF\n");
+	for (i = 0; i < DIV_ROUND_UP(length, 16); i++)
+	{
+		printk("%08X ", i * 16);
+		for (j = 0; j < 16; j++)
+		{
+			if (j < length - i * 16)
+			{
+				printk("%02X ", s[i * 16 + j]);
+			}
+			else
+			{
+				printk("   ");
+			}
+		}
+		printk(" ");
+		for (j = 0; j < 16; j++)
+		{
+			if (j < length - i * 16)
+			{
+				if (s[i * 16 + j] < 32 || s[i * 16 +j] > 126)
+				{
+					printk(".");
+				}
+				else
+				{
+					printk("%c", s[i * 16 + j]);
+				}
+			}
+			else
+			{
+				printk(" ");
+			}
+		}
+		printk("\n");
+	}	
 }

@@ -8,17 +8,11 @@
 #include <kernel/memory.h>
 #include <string.h>
 
-/*
- * 功能: n个字符比对
- * 参数: s1     字符串1
- *      s2      字符串2
- *      s3      要比较的字符数
- * 返回: 0 表示字符串一样
- *      小于0 表示s1小于s2
- *      大于0 表示s1大于s2
- * 说明: 引导和加载完成后，就会跳到这里
+/**
+ * @brief 初始化字符串
+ * 
+ * @param string 要初始化的字符串
  */
-
 void string_init(string_t *string)
 {
 	string->length = 0;
@@ -26,6 +20,14 @@ void string_init(string_t *string)
 	string->text = NULL;
 }
 
+/**
+ * @brief 新建字符串
+ * 
+ * @param string 要新建的字符串
+ * @param text 字符串
+ * @param max_len 最大长度
+ * @return int 0:成功 1:失败
+ */
 int string_new(string_t *string, char *text, unsigned int max_len)
 {
 	if (string == NULL || text == NULL || max_len < 1)
@@ -54,6 +56,11 @@ int string_new(string_t *string, char *text, unsigned int max_len)
 	return 0;
 }
 
+/**
+ * @brief 删除字符串
+ * 
+ * @param string 要删除的字符串
+ */
 void string_del(string_t *string)
 {
 	if (string->text)
@@ -63,6 +70,19 @@ void string_del(string_t *string)
 	}
 	string->length = 0;
 	string->max_length = STRING_MAX_LEN;
+}
+
+/**
+ * @brief 复制字符串
+ * 
+ * @param dest 目的字符串
+ * @param src 源字符串
+ * @return int 0:成功 1:失败
+ */
+int string_cpy(string_t *dest, string_t *src)
+{
+	string_del(dest);
+	return string_new(dest, src->text, src->max_length);
 }
 
 int strncmp (const char * s1, const char * s2, int n)

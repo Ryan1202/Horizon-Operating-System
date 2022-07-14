@@ -108,6 +108,7 @@ struct FAT32_long_dir {
 	unsigned short	LDIR_Name3[2];
 }__attribute__((packed));
 
+status_t fat32_check(struct partition_table *pt);
 status_t fat32_readsuperblock(partition_t *partition, char *data);
 struct index_node *FAT32_open(struct _partition_s *part, struct index_node *parent, char *filename);
 void FAT32_close(struct index_node *inode);

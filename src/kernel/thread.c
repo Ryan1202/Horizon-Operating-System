@@ -4,6 +4,7 @@
 #include <kernel/func.h>
 #include <kernel/process.h>
 #include <kernel/sync.h>
+#include <kernel/console.h>
 #include <string.h>
 #include <math.h>
 
@@ -68,7 +69,7 @@ void init_thread(struct task_s *pthread, char *name, int priority)
 
 struct task_s *thread_start(char *name, int priority, thread_func function, void *func_arg)
 {
-	struct task_s *thread = kernel_alloc_page(1);
+	struct task_s *thread = kernel_alloc_pages(1);
 	
 	init_thread(thread, name, priority);
 	thread_create(thread, function, func_arg);
@@ -173,7 +174,7 @@ void schedule(void)
 	
 	process_activate(next);
 	
-	switch_to(cur, next);
+	switch_to((int *)cur, (int *)next);
 }
 
 void init_thread_memory_manage(struct task_s *thread)
@@ -181,7 +182,7 @@ void init_thread_memory_manage(struct task_s *thread)
 	int i;
 	uint32_t pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
 	
-	thread->memory_manage = (struct memory_manage *)kernel_alloc_page(pages);
+	thread->memory_manage = (struct memory_manage *)kernel_alloc_pages(pages);
 	memset(thread->memory_manage, 0, sizeof(struct memory_manage));
 	for(i = 0; i < MEMORY_BLOCKS; i++){	
 		thread->memory_manage->free_blocks[i].size = 0;

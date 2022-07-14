@@ -11,8 +11,8 @@ struct file_operations fs_fops = {
 	.open = fs_open,
 	.close = fs_close,
 	.read = fs_read,
-	.write = NULL,
-	.seek = NULL,
+	.write = fs_write,
+	.seek = fs_seek,
 	.ioctl = NULL
 };
 
@@ -33,44 +33,38 @@ void init_fs(void)
 			for (i = 0; i < 4; i++)
 			{
 				pt = buffer + 0x1be + i*sizeof(struct partition_table);
+				if (pt->sign != 0x80 && pt->sign != 0x00) continue;
 				list_for_each_owner_safe(fs, fs_next, &fs_list_head, list)
 				{
-					if (fs->fs_type == pt->fs_type)
-					{
-						char *path = kmalloc(inode->name.length + 3);
-						path[0] = '/';
-						strcpy(path+1, inode->name.text);
-						path[inode->name.length + 1] = 'p';
-						path[inode->name.length + 2] = i + '1';
-						part_inode = vfs_mkdir(path);
-						part_inode->f_ops = fs_fops;
-						part_inode->part = kmalloc(sizeof(partition_t));
-						part_inode->part->fs = fs;
-						part_inode->part->root = part_inode;
-						part_inode->part->device = inode->device;
-						part_inode->part->start_lba = pt->start_lba;
-						list_add_tail(&part_inode->part->list, &part_list_head);
-						char *superblock = kmalloc(SECTOR_SIZE);
-						inode->f_ops.read(inode, superblock, pt->start_lba, SECTOR_SIZE);
-						fs->fs_ops->fs_read_superblock(part_inode->part, superblock);
-					}
-					else
-					{
-						kfree(pt);
-					}
+					if(fs->fs_ops->fs_check(pt) == FAILED) continue;
+					char *path = kmalloc(inode->name.length + 3);
+					path[0] = '/';
+					strcpy(path+1, inode->name.text);
+					path[inode->name.length + 1] = 'p';
+					path[inode->name.length + 2] = i + '1';
+					part_inode = vfs_mkdir(path);
+					part_inode->f_ops = fs_fops;
+					part_inode->part = kmalloc(sizeof(partition_t));
+					part_inode->part->fs = fs;
+					part_inode->part->root = part_inode;
+					part_inode->part->device = inode->device;
+					part_inode->part->start_lba = pt->start_lba;
+					list_add_tail(&part_inode->part->list, &part_list_head);
+					char *superblock = kmalloc(SECTOR_SIZE);
+					inode->f_ops.read(inode, superblock, pt->start_lba, SECTOR_SIZE);
+					fs->fs_ops->fs_read_superblock(part_inode->part, superblock);
 				}
 			}
 		}
 	}
 }
 
-int fs_register(char *name, int fs_type, fs_operations_t *fs_ops)
+int fs_register(char *name, fs_operations_t *fs_ops)
 {
 	fs_t *fs = kmalloc(sizeof(fs_t));
 	list_add_tail(&fs->list, &fs_list_head);
 	string_init(&fs->name);
 	string_new(&fs->name, name, strlen(name));
-	fs->fs_type = fs_type;
 	fs->fs_ops = fs_ops;
 }
 
@@ -161,6 +155,7 @@ struct index_node *fs_open(char *path)
 		inode->fp->rw_buf = kmalloc(SECTOR_SIZE);
 		inode->fp->rw_buf_changed = 0;
 		inode->fp->offset = 0;
+		inode->part->fs->fs_ops->fs_read(inode);
 	}
 	return inode;
 }
@@ -178,12 +173,12 @@ int fs_close(struct index_node *inode)
 	vfs_close(inode);
 }
 
-int fs_read(struct index_node *inode, char *buffer, uint32_t length)
+int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t length)
 {
 	int i, n;
 	uint32_t l = length;
 	uint32_t offset = 0, pos = inode->fp->offset/SECTOR_SIZE;
-	int size = SECTOR_SIZE - inode->fp->offset%SECTOR_SIZE;
+	int size = min(length, SECTOR_SIZE - inode->fp->offset%SECTOR_SIZE);
 	if (inode->fp->offset%SECTOR_SIZE && inode->fp->offset + size < inode->fp->size)
 	{
 		memcpy(buffer, inode->fp->rw_buf + inode->fp->offset%SECTOR_SIZE, size);
@@ -217,7 +212,7 @@ int fs_read(struct index_node *inode, char *buffer, uint32_t length)
 	}
 }
 
-int fs_write(struct index_node *inode, char *buffer, uint32_t length)
+int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t length)
 {
 	int i, n;
 	uint32_t l = length;
@@ -251,6 +246,11 @@ int fs_write(struct index_node *inode, char *buffer, uint32_t length)
 			inode->part->fs->fs_ops->fs_write(inode);
 		}
 	}
+}
+
+int fs_seek(struct index_node *inode, unsigned int offset, unsigned int origin)
+{
+	inode->fp->offset = origin + offset;
 }
 
 int fs_create(struct index_node *parent, char *name)

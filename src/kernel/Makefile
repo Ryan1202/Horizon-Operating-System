@@ -9,6 +9,8 @@ SRC		+=	initcall.c
 SRC		+=	driver.c
 SRC		+=	process.c
 SRC		+=	syscall.c
+SRC		+=	app.c
+SRC		+=	elf.c
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 

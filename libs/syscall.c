@@ -1,5 +1,9 @@
 #include <syscall.h>
 
+enum syscall_nr {
+	sys_getpid = 0
+};
+
 #define _syscall0(NUMBER) ({	\
 	int ret;					\
 	__asm__ __volatile__ (		\

@@ -41,9 +41,9 @@ void init_descriptor(void)
 	}
 	set_segmdesc(gdt + 1, 0xffffffff, 0x00000000, 0x409a);
 	set_segmdesc(gdt + 2, 0xffffffff, 0x00000000, 0x4092);
-	set_segmdesc(gdt + 3, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_CODE | DESC_TYPE_CODE);
-	set_segmdesc(gdt + 4, 0x000fffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_DATA | DESC_TYPE_DATA);
-	set_segmdesc(gdt + 5, sizeof(struct tss_s), &tss, DESC_P | DESC_D | DESC_DPL_0 | DESC_S_SYS | DESC_TYPE_TSS);
+	set_segmdesc(gdt + 3, 0xffffffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_CODE | DESC_TYPE_CODE);
+	set_segmdesc(gdt + 4, 0xffffffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_DATA | DESC_TYPE_DATA);
+	set_segmdesc(gdt + 5, sizeof(struct tss_s), (int)&tss, DESC_P | DESC_D | DESC_DPL_0 | DESC_S_SYS | DESC_TYPE_TSS);
 	
     load_gdtr(GDT_SIZE, GDT_ADDR);
 	__asm__ __volatile__ ("ltr %w0" :: "r" (SElECTOR_TSS));
@@ -52,12 +52,38 @@ void init_descriptor(void)
     {
         set_gatedesc(idt + i, 0, 0, 0);
     }
-    set_gatedesc(idt + 0x00, (int)&divide_error, 0x08, DA_386IGate_DPL0);
-	set_gatedesc(idt + 0x01, (int)&single_step_exception, 0x08, DA_386IGate_DPL0);
-	set_gatedesc(idt + 0x02, (int)&nmi, 0x08, DA_386IGate_DPL0);
-	set_gatedesc(idt + 0x0c, (int)&stack_exception, 0x08, DA_386IGate_DPL0);
-    set_gatedesc(idt + 0x0d, (int)&general_protection, 0x08, DA_386IGate_DPL0);
-    set_gatedesc(idt + 0x0e, (int)&page_fault, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x00, (int)&exception_entry0, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x01, (int)&exception_entry1, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x02, (int)&exception_entry2, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x03, (int)&exception_entry3, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x04, (int)&exception_entry4, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x05, (int)&exception_entry5, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x06, (int)&exception_entry6, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x07, (int)&exception_entry7, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x08, (int)&exception_entry8, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x09, (int)&exception_entry9, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0a, (int)&exception_entry10, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0b, (int)&exception_entry11, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0c, (int)&exception_entry12, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0d, (int)&exception_entry13, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0e, (int)&exception_entry14, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x0f, (int)&exception_entry15, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x10, (int)&exception_entry16, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x11, (int)&exception_entry17, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x12, (int)&exception_entry18, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x13, (int)&exception_entry19, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x14, (int)&exception_entry20, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x15, (int)&exception_entry21, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x16, (int)&exception_entry22, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x17, (int)&exception_entry23, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x18, (int)&exception_entry24, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x19, (int)&exception_entry25, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x1a, (int)&exception_entry26, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x1b, (int)&exception_entry27, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x1c, (int)&exception_entry28, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x1d, (int)&exception_entry29, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x1e, (int)&exception_entry30, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x1f, (int)&exception_entry31, 0x08, DA_386IGate_DPL0);
     
 	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&irq_entry0, 0x08, DA_386IGate_DPL0);
     set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
@@ -68,7 +94,7 @@ void init_descriptor(void)
 		irq_table[i] = default_irq_handler;
 	}
 	
-	set_segmdesc(idt + 0x80, (int)syscall_handler, 3*0x08, DA_386IGate_DPL3);
+	set_gatedesc(idt + 0x80, (int)syscall_handler, 0x08, DA_386IGate_DPL3);
     
     load_idtr(IDT_SIZE, IDT_ADDR);
 }
@@ -138,7 +164,7 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
 {
 	char err_description[][64] = {	"#DE Divide Error",
 					"#DB RESERVED",
-					"—  NMI Interrupt",
+					"NMI Interrupt",
 					"#BP Breakpoint",
 					"#OF Overflow",
 					"#BR BOUND Range Exceeded",
@@ -151,7 +177,7 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
 					"#SS Stack-Segment Fault",
 					"#GP General Protection",
 					"#PF Page Fault",
-					"—  (Intel reserved. Do not use.)",
+					"(Intel reserved. Do not use.)",
 					"#MF x87 FPU Floating-Point Error (Math Fault)",
 					"#AC Alignment Check",
 					"#MC Machine Check",

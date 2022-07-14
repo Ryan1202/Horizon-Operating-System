@@ -9,9 +9,9 @@
 			"command": "make"
 		},
 		{
-			"label": "run",
+			"label": "run_dbg",
 			"type": "shell",
-			"command": "make run"
+			"command": "make run_dbg"
 		}
 	]
 }

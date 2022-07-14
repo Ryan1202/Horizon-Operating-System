@@ -3,10 +3,6 @@
 
 #include <stdint.h>
 
-enum syscall_nr {
-	sys_getpid
-};
-
 uint32_t getpid(void);
 
 #endif
