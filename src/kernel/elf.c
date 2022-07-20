@@ -1,9 +1,22 @@
+/**
+ * @file elf.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 读取elf文件
+ * @version 0.1
+ * @date 2021-10
+ */
 #include <fs/fs.h>
 #include <kernel/memory.h>
 #include <kernel/console.h>
 #include <kernel/page.h>
 #include <kernel/elf32.h>
 
+/**
+ * @brief 读取并解析elf文件
+ * 
+ * @param prog 
+ * @return unsigned int* 
+ */
 unsigned int *elf_load(struct program_struct *prog)
 {
 	struct elf32_header header;

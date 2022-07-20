@@ -1,9 +1,16 @@
+/**
+ * @file pit.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 
+ * @version 0.1
+ * @date 2020-07
+ */
 #include <drivers/pit.h>
 #include <drivers/apic.h>
+#include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/fifo.h>
-#include <kernel/console.h>
 #include <config.h>
 
 struct timerctl timerctl;

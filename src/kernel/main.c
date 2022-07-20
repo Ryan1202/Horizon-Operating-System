@@ -1,3 +1,10 @@
+/**
+ * @file main.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 内核主程序
+ * @version 0.9
+ * @date 2020-03
+ */
 #include <drivers/video.h>
 #include <drivers/pit.h>
 #include <kernel/page.h>

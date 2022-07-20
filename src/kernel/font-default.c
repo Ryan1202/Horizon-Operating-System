@@ -1,3 +1,10 @@
+/**
+ * @file font-default.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 默认字体的定义
+ * @version 1.0
+ * @date 2020-04
+ */
 #include<kernel/font.h>
 #define FONT_NAME "DefaultFont"
 

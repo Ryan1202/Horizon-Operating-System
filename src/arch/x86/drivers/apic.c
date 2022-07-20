@@ -1,14 +1,21 @@
-#include <drivers/apic.h>
-#include <drivers/msr.h>
+/**
+ * @file apic.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief APIC驱动(参考xv6)
+ * @version 0.1 Alpha
+ * @date 2021-06
+ */
 #include <drivers/8259a.h>
-#include <drivers/pit.h>
+#include <drivers/apic.h>
 #include <drivers/cmos.h>
+#include <drivers/msr.h>
+#include <drivers/pit.h>
+#include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
-#include <kernel/console.h>
+#include <kernel/initcall.h>
 #include <kernel/page.h>
 #include <kernel/thread.h>
-#include <kernel/initcall.h>
 #include <config.h>
 
 void apic_timer_handler(void);
@@ -77,7 +84,7 @@ void init_apic(void)
 	lapic_write(APIC_TIMER_DCR, 0x0b);			//divide by 16
 	lapic_write(APIC_LVT_TIMER, 1<<17 | 0x20 + LAPIC_TIMER_IRQ);	//周期性计时
 	int a, b, c, d;
-	get_cpuid(0x15, 0x00, &a, &b, &c, &d);
+	get_cpuid(0x15, 0x00, (unsigned int *)&a, (unsigned int *)&b, (unsigned int *)&c, (unsigned int *)&d);
 	lapic_write(APIC_TIMER_ICT, b/a*10);
 
 	// 获取APICID
@@ -120,7 +127,7 @@ void init_apic(void)
 		io_apic_write(IOAPIC_TBL + i*2 + 1, 0);
 	}
 	
-	put_irq_handler(LAPIC_TIMER_IRQ, apic_timer_handler);
+	put_irq_handler(LAPIC_TIMER_IRQ, (irq_handler_t)apic_timer_handler);
 	irq_enable(LAPIC_TIMER_IRQ);
 }
 

@@ -1,3 +1,10 @@
+/**
+ * @file video.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 
+ * @version 0.6
+ * @date 2020-10
+ */
 #include <drivers/video.h>
 #include <kernel/font.h>
 #include <kernel/console.h>
@@ -5,11 +12,15 @@
 
 struct video_info VideoInfo;
 
-char toChar(int i){//将0-15之间的整数处理后返回十六进制字符
-	if(i<10)
-		return i+'0';
-	else return i+'A'-10;
-}
+/**
+ * VIDEO_INFO_ADDR处存着loader保存的显示模式信息
+ * VIDEO_INFO_ADDR+0	X分辨率
+ * VIDEO_INFO_ADDR+2	Y分辨率
+ * VIDEO_INFO_ADDR+4	颜色位数
+ * VIDEO_INFO_ADDR+6	显存物理地址
+ * VIDEO_INFO_ADDR+10	显示模式的INFO_BLOCK
+ */
+
 void init_video()
 {
 	VideoInfo.width = *(unsigned short *)(VIDEO_INFO_ADDR + 0);
@@ -18,12 +29,13 @@ void init_video()
 	VideoInfo.vram = (unsigned char *)VRAM_VIR_ADDR;
 	VideoInfo.vbe_info = (struct vbe_info_block *)(VIDEO_INFO_ADDR + 10);
 	
-	VideoInfo.vbe_info->OemStringPtr = ((((unsigned int)VideoInfo.vbe_info->OemStringPtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemStringPtr&0xffff)));
-	VideoInfo.vbe_info->VideoModePtr = ((((unsigned int)VideoInfo.vbe_info->VideoModePtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->VideoModePtr&0xffff)));
-	VideoInfo.vbe_info->OemVendorNamePtr = ((((unsigned int)VideoInfo.vbe_info->OemVendorNamePtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemVendorNamePtr&0xffff)));
-	VideoInfo.vbe_info->OemProduceRevPtr = ((((unsigned int)VideoInfo.vbe_info->OemProduceRevPtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemVendorNamePtr&0xffff)));
-	VideoInfo.vbe_info->OemProductNamePtr = ((((unsigned int)VideoInfo.vbe_info->OemProductNamePtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemProductNamePtr&0xffff)));
+	VideoInfo.vbe_info->OemStringPtr = (unsigned int *)((((unsigned int)VideoInfo.vbe_info->OemStringPtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemStringPtr&0xffff)));
+	VideoInfo.vbe_info->VideoModePtr = (unsigned int *)((((unsigned int)VideoInfo.vbe_info->VideoModePtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->VideoModePtr&0xffff)));
+	VideoInfo.vbe_info->OemVendorNamePtr = (unsigned int *)((((unsigned int)VideoInfo.vbe_info->OemVendorNamePtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemVendorNamePtr&0xffff)));
+	VideoInfo.vbe_info->OemProduceRevPtr = (unsigned int *)((((unsigned int)VideoInfo.vbe_info->OemProduceRevPtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemVendorNamePtr&0xffff)));
+	VideoInfo.vbe_info->OemProductNamePtr = (unsigned int *)((((unsigned int)VideoInfo.vbe_info->OemProductNamePtr>>16)<<4) + (((unsigned int)VideoInfo.vbe_info->OemProductNamePtr&0xffff)));
 	
+	// 如果是256色模式则设置调色板
 	if (VideoInfo.BitsPerPixel == 8)
 	{
 		unsigned char table[216 * 3], *p;
@@ -55,6 +67,10 @@ void init_video()
 	}
 }
 
+/**
+ * @brief 显示VBE相关信息
+ * 
+ */
 void show_vbeinfo()
 {
 	int i;
@@ -83,6 +99,13 @@ void show_vbeinfo()
 	printk("OEM ProduceRev:%s\n", VideoInfo.vbe_info->OemProduceRevPtr);
 }
 
+/**
+ * @brief 写像素
+ * 
+ * @param x x坐标
+ * @param y y坐标
+ * @param color 颜色
+ */
 void write_pixel(int x, int y, unsigned int color)
 {
 	unsigned char r,g,b;
@@ -111,6 +134,15 @@ void write_pixel(int x, int y, unsigned int color)
 	}
 }
 
+/**
+ * @brief 画矩形
+ * 
+ * @param x x坐标
+ * @param y y坐标
+ * @param width 宽度
+ * @param height 高度
+ * @param color 颜色
+ */
 void draw_rect(int x, int y, int width,int height, int color)
 {
 	/*wide-video wide*/
@@ -122,13 +154,21 @@ void draw_rect(int x, int y, int width,int height, int color)
 	}
 }
 
+/**
+ * @brief 打印字符
+ * 
+ * @param x x坐标
+ * @param y y坐标
+ * @param ascii 字符数据(16*8点阵字体)
+ * @param color 颜色
+ */
 void print_word(int x, int y , unsigned char *ascii, unsigned int color)
 {
 	unsigned char *vram;
 	int i;
 	char d;
 	for (i = 0; i < 16; i++) {
-		vram = (unsigned char *)(VideoInfo.vram + ((y+i)*VideoInfo.width + x)*(VideoInfo.BitsPerPixel/8));
+		// vram = (unsigned char *)(VideoInfo.vram + ((y+i)*VideoInfo.width + x)*(VideoInfo.BitsPerPixel/8));
 		d = ascii[i];
 		if (d & 0x80) { write_pixel(x + 0, y + i, color); }
 		if (d & 0x40) { write_pixel(x + 1, y + i, color); }
@@ -141,6 +181,15 @@ void print_word(int x, int y , unsigned char *ascii, unsigned int color)
 	}
 }
 
+/**
+ * @brief 打印字符串
+ * 
+ * @param x x坐标
+ * @param y y坐标
+ * @param color 颜色
+ * @param font 字体
+ * @param string 字符串
+ */
 void print_string(int x, int y, unsigned int color, unsigned char *font, char *string)
 {
 	while(*string != 0)

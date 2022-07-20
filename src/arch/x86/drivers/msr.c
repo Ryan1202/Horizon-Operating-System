@@ -1,3 +1,10 @@
+/**
+ * @file msr.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 
+ * @version 0.1
+ * @date 2021-08
+ */
 #include <drivers/msr.h>
 
 // char cpuHasMSR(void)

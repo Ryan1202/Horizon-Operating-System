@@ -65,7 +65,7 @@ typedef struct  _dev_request_s
 
 extern struct index_node *dev;
 
-struct inode *dev_open(char *path);
+struct index_node *dev_open(char *path);
 int dev_close(struct index_node *inode);
 int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);
 int dev_write(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);

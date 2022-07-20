@@ -1,6 +1,13 @@
-#include <kernel/sync.h>
-#include <kernel/func.h>
+/**
+ * @file sync.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 参考《操作系统真象还原》的实现
+ * @version 0.1
+ * @date 2021-07
+ */
 #include <kernel/console.h>
+#include <kernel/func.h>
+#include <kernel/sync.h>
 
 void sema_init(struct semaphore *psema, uint8_t value)
 {

@@ -1,10 +1,17 @@
+/**
+ * @file mouse.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief PS/2鼠标驱动
+ * @version 0.1
+ * @date 2021-06
+ */
 #include <drivers/8042.h>
-#include <kernel/descriptor.h>
-#include <kernel/func.h>
-#include <kernel/initcall.h>
-#include <kernel/driver.h>
 #include <kernel/console.h>
+#include <kernel/descriptor.h>
+#include <kernel/driver.h>
+#include <kernel/func.h>
 #include <kernel/fifo.h>
+#include <kernel/initcall.h>
 #include <config.h>
 
 struct fifo mouse_fifo;

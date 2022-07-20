@@ -1,13 +1,20 @@
+/**
+ * @file keyboard.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief PS/2键盘驱动
+ * @version 0.1
+ * @date 2021-06
+ */
 #include <drivers/8042.h>
 #include <drivers/apic.h>
-#include <kernel/descriptor.h>
-#include <kernel/func.h>
-#include <kernel/initcall.h>
-#include <kernel/driver.h>
 #include <kernel/console.h>
+#include <kernel/descriptor.h>
+#include <kernel/driver.h>
+#include <kernel/func.h>
 #include <kernel/fifo.h>
-#include <stdint.h>
+#include <kernel/initcall.h>
 #include <config.h>
+#include <stdint.h>
 
 static char scan_codes1[95] =
 {
@@ -189,13 +196,13 @@ void keyboard_setleds(device_extension_t *devext)
 	i8042_wait_ctr_send_ready();
 	i8042_write_data(0xed);
 	do {
-		kb_read = io_in8(I8042_PORT_DATA);
-	} while ((kb_read =! 0xfa));
+		kb_read = (uint8_t)io_in8(I8042_PORT_DATA);
+	} while ((kb_read != 0xfa));
 	i8042_wait_ctr_send_ready();
 	i8042_write_data(devext->caps_lock<<2 | devext->num_lock<<1 | devext->scroll_lock);
 	do {
-		kb_read = io_in8(I8042_PORT_DATA);
-	} while ((kb_read =! 0xfa));
+		kb_read = (uint8_t)io_in8(I8042_PORT_DATA);
+	} while ((kb_read != 0xfa));
 }
 
 static __init void keyboard_driver_entry(void)

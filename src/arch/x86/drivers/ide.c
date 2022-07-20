@@ -1,16 +1,23 @@
+/**
+ * @file ide.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief IDE驱动
+ * @version 1.0
+ * @date 2021-08
+ */
 #include <drivers/pci.h>
 #include <kernel/console.h>
-#include <kernel/memory.h>
 #include <kernel/descriptor.h>
+#include <kernel/driver.h>
 #include <kernel/fifo.h>
-#include <fs/fs.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
-#include <kernel/driver.h>
-#include <stdint.h>
+#include <kernel/memory.h>
+#include <fs/fs.h>
 #include <config.h>
-#include <types.h>
+#include <stdint.h>
 #include <math.h>
+#include <types.h>
 
 #define ATA_PRIMARY_PORT		0x1f0
 #define ATA_SECONDARY_PORT		0x170
@@ -225,7 +232,7 @@ uint8_t disk_count;
 struct ide_channel channels[2];
 
 driver_func_t ide_driver = {
-	.driver_enter = ide_enter,
+	.driver_enter = (status_t (*)(driver_t *))ide_enter,
 	.driver_exit = ide_exit,
 	.driver_open = NULL,
 	.driver_close = NULL,
@@ -278,7 +285,18 @@ static status_t ide_enter(driver_t *drv_obj)
 				char devname[DEVICE_MAX_NAME_LEN] = {0};
 				sprintf(devname, "%s%d", DEV_NAME, channel_num*2 + device_num);
 				device_create(drv_obj, sizeof(device_extension_t), devname, DEV_STORAGE, &devobj);
+				if (drv_obj == NULL && 
+					disk_count == 1 && 
+					channel_num == (ide_channel_count - 1) && 
+					device_num == 1)
+				{
+					return FAILED;
+				}
 				devext = devobj->device_extension;
+				if (devext == NULL)
+				{
+					return FAILED;
+				}
 				channel->device = devext;
 				
 				devext->channel = channel;
@@ -306,7 +324,7 @@ static status_t ide_enter(driver_t *drv_obj)
 					printk("error! %d\n", err);
 					continue;
 				}
-				port_insw(ATA_REG_DATA(devext->channel), devext->info, 256);
+				port_insw(ATA_REG_DATA(devext->channel), (unsigned int)devext->info, 256);
 				
 				devext->command_sets = (int)((devext->info->cmd_set1 << 16) + devext->info->cmd_set0);
 				
@@ -356,15 +374,16 @@ status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t s
 	AtaTypeTransfer(dev->device_extension, IDE_READ, offset, length, tmp_buffer);
 	memcpy(buf, tmp_buffer, size);
 	kfree(tmp_buffer);
+	return SUCCUESS;
 }
 
 status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size)
 {
 	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
-	char *tmp_buffer;
+	uint8_t *tmp_buffer;
 	if (size%SECTOR_SIZE == 0)
 	{
-		tmp_buffer = kmalloc(length*SECTOR_SIZE);
+		tmp_buffer = (uint8_t *)kmalloc(length*SECTOR_SIZE);
 		AtaTypeTransfer(dev->device_extension, IDE_READ, offset + length - 1, 1, tmp_buffer);
 		memcpy(tmp_buffer, buf, size);
 	}
@@ -374,6 +393,7 @@ status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t 
 		AtaTypeTransfer(dev->device_extension, IDE_READ, offset, length, tmp_buffer);
 	}
 	AtaTypeTransfer(dev->device_extension, IDE_WRITE, offset, length, tmp_buffer);
+	return SUCCUESS;
 }
 
 void ide_write_sector(device_extension_t *devext, uint32_t lba, char *buf)
@@ -547,10 +567,10 @@ int PioDataTransfer(device_extension_t *devext, unsigned char rw, unsigned char 
 			/* 醒来后开始执行下面代码*/
 			if ((error = ide_wait(devext))) {     //  若失败
 				/* 重置磁盘驱动并返回 */
-				ide_reset_driver(devext);
+				ide_reset_driver(devext->channel);
 				return error;
 			}
-			port_insw(ATA_REG_DATA(devext->channel), buf, 256);
+			port_insw(ATA_REG_DATA(devext->channel), (unsigned int)buf, 256);
 			buf += SECTOR_SIZE;
 		}
 	} else {
@@ -561,11 +581,11 @@ int PioDataTransfer(device_extension_t *devext, unsigned char rw, unsigned char 
 			/* 等待硬盘控制器请求数据 */
 			if ((error = ide_wait(devext))) {     //  若失败
 				/* 重置磁盘驱动并返回 */
-				ide_reset_driver(devext);
+				ide_reset_driver(devext->channel);
 				return error;
 			}
 			/* 把数据写入端口，完成1个扇区后会产生一次中断 */
-			port_outsw(ATA_REG_DATA(devext->channel), buf, 256);
+			port_outsw(ATA_REG_DATA(devext->channel), (unsigned int)buf, 256);
 			buf += SECTOR_SIZE;
             //printk("write success! ");
 		}

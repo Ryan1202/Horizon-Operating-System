@@ -1,3 +1,10 @@
+/**
+ * @file console.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 控制文字的输出
+ * @version 0.3
+ * @date 2022-07-15
+ */
 #include <kernel/console.h>
 #include <drivers/video.h>
 #include <kernel/font.h>
@@ -11,6 +18,10 @@ char command[CMD_MAX_LENGTH];
 struct console console;
 static struct lock console_lock;
 
+/**
+ * @brief 初始化控制台的配置
+ * 
+ */
 void init_console(void)
 {
 	lock_init(&console_lock);
@@ -24,6 +35,10 @@ void init_console(void)
 	console.flag = CMD_FLAG_OUTPUT;
 }
 
+/**
+ * @brief 打印">"
+ * 
+ */
 void console_start(void)
 {
 	printk("\n>");
@@ -32,12 +47,19 @@ void console_start(void)
 	console.flag = CMD_FLAG_INPUT;
 }
 
+/**
+ * @brief 设置光标位置
+ * 
+ * @param x 光标的x坐标
+ * @param y 光标的y坐标
+ */
 void console_set_cursor(int x, int y)
 {
 	console.cur_x = x;
 	console.cur_y = y;
 }
 
+/*
 void console_input(char c)
 {
 	int i;
@@ -68,7 +90,14 @@ void console_input(char c)
 		}
 	}
 }
+*/
 
+/**
+ * @brief 打印一个字符
+ * 
+ * @param c 字符
+ * @param color 颜色
+ */
 void print_char(char c, unsigned int color)
 {
 	int i, j, k;
@@ -98,6 +127,13 @@ void print_char(char c, unsigned int color)
 	}
 }
 
+/**
+ * @brief 格式化输出
+ * 
+ * @param fmt 格式字符串
+ * @param ... 参数
+ * @return int 字符串长度
+ */
 int printk(const char *fmt, ...)
 {
 	lock_acquire(&console_lock);

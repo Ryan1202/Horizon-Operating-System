@@ -1,3 +1,10 @@
+/**
+ * @file 8042.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 8042控制器的驱动
+ * @version 0.1
+ * @date 2021-06
+ */
 #include <drivers/8042.h>
 #include <kernel/func.h>
 

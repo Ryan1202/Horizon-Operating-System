@@ -1,6 +1,13 @@
+/**
+ * @file memory.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 内存管理
+ * @version 0.1
+ * @date 2020-07
+ */
 #include <kernel/ards.h>
-#include <kernel/memory.h>
 #include <kernel/console.h>
+#include <kernel/memory.h>
 #include <kernel/page.h>
 #include <string.h>
 #include <math.h>

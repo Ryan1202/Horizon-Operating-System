@@ -1,11 +1,3 @@
-/**
- * @file app.h
- * @author ryan (ryan1202@foxmail.com)
- * @brief 运行程序所需的相关定义
- * @version 0.1
- * @date 2022-05-01
- */
-
 #ifndef APP_H
 #define APP_H
 

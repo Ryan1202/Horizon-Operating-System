@@ -1,3 +1,13 @@
+/**
+ * @file 8259a.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief PIC驱动
+ * @version 1.0
+ * @date 2021-06
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
 #include <drivers/8259a.h>
 #include <kernel/func.h>
 #include <kernel/descriptor.h>

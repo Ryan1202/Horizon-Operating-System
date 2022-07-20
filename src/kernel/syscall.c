@@ -1,3 +1,10 @@
+/**
+ * @file syscall.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 系统调用相关
+ * @version 0.1
+ * @date 2022-05-01
+ */
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/thread.h>

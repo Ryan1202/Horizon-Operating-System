@@ -1,3 +1,13 @@
+/**
+ * @file cpufreq.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief CPU频率检测
+ * @version 0.1 Beta
+ * @date 2021-07
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
 #include <drivers/cpufreq.h>
 #include <drivers/msr.h>
 #include <drivers/pit.h>
@@ -10,8 +20,8 @@ unsigned int cpu_get_freq(void)
 	unsigned int tsc = 0, tsc2 = 0;
 	struct timer *timer;
 	struct fifo fifo;
-	char fifo_buf[1];
-	fifo_init(&fifo, 1, fifo_buf);
+	char fifo_buf[4];
+	fifo_init(&fifo, 4, (int *)fifo_buf);
 	timer = timer_alloc();
 	timer_init(timer, &fifo, 128);
 	

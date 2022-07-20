@@ -1,6 +1,13 @@
+/**
+ * @file driver.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 驱动接口
+ * @version 0.2
+ * @date 2021-06
+ */
+#include <kernel/console.h>
 #include <kernel/driver.h>
 #include <kernel/memory.h>
-#include <kernel/console.h>
 #include <kernel/thread.h>
 #include <fs/vfs.h>
 #include <const.h>
@@ -17,17 +24,17 @@ struct file_operations device_fops = {
 	.ioctl = dev_ioctl
 };
 
-struct inode *dev_open(char *path)
+struct index_node *dev_open(char *path)
 {
 	struct index_node *inode = vfs_open(path);
-	if (inode = NULL) return NULL;
-	else inode->device->drv_obj->funtion.driver_open(inode->device->drv_obj);
+	if (inode == NULL) return NULL;
+	else inode->device->drv_obj->funtion.driver_open(inode->device);
 	return inode;
 }
 
 int dev_close(struct index_node *inode)
 {
-	return inode->device->drv_obj->funtion.driver_close(inode->device->drv_obj);
+	return inode->device->drv_obj->funtion.driver_close(inode->device);
 }
 
 int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
@@ -106,6 +113,7 @@ status_t device_create(driver_t *driver, unsigned long device_extension_size, ch
 	devobj->drv_obj = driver;
 	list_add_tail(&devobj->list, &driver->device_list);
 	*device = devobj;
+	return SUCCUESS;
 }
 
 void device_delete(device_t *device)

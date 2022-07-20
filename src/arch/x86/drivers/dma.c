@@ -1,3 +1,10 @@
+/**
+ * @file dma.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief (ISA)DMA驱动
+ * @version 0.1
+ * @date 2021-7
+ */
 #include <drivers/dma.h>
 #include <kernel/func.h>
 

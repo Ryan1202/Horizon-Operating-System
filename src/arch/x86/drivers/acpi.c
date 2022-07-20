@@ -1,3 +1,10 @@
+/**
+ * @file acpi.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief ACPI驱动
+ * @version 0.1
+ * @date 2021-06
+ */
 #include <drivers/acpi.h>
 #include <drivers/pit.h>
 #include <kernel/func.h>
@@ -45,15 +52,15 @@ char checksum(uint8_t *addr, uint32_t length)
 
 uint32_t *acpi_find_rsdp(void)
 {
-	uint32_t *addr;
+	uint32_t addr;
 	
 	for (addr = 0x000e0000; addr < 0x00100000; addr++)
 	{
-		if (memcmp(addr, "RSD PTR ", 8) == 0)
+		if (memcmp((void *)addr, "RSD PTR ", 8) == 0)
 		{
-			if (checksum(addr, ((struct ACPI_RSDP *)addr)->Length))
+			if (checksum((uint8_t *)addr, ((struct ACPI_RSDP *)addr)->Length))
 			{
-				return addr;
+				return (uint32_t *)addr;
 			}
 		}
 	}
@@ -72,6 +79,7 @@ uint32_t acpi_find_table(device_extension_t *devext, char *Signature)
 			return (uint32_t)header;
 		}
 	}
+	return 0;
 }
 
 static status_t acpi_enter(driver_t *drv_obj)
@@ -80,18 +88,36 @@ static status_t acpi_enter(driver_t *drv_obj)
 	device_extension_t *devext;
 	
 	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
+	if (drv_obj == NULL)
+	{
+		return FAILED;
+	}
 	devext = devobj->device_extension;
+	if (devext == NULL)
+	{
+		return FAILED;
+	}
 	
 	RSDP = (struct ACPI_RSDP *)acpi_find_rsdp();
-	if (RSDP == NULL) return;
+	if (RSDP == NULL)
+	{
+		return FAILED;
+	}
 	unsigned int *ptr = remap(RSDP->RsdtAddress, sizeof(struct ACPI_RSDT));
-	devext->RSDT = ptr;
+	if (ptr == NULL)
+	{
+		return FAILED;
+	}
+	devext->RSDT = (struct ACPI_RSDT *)ptr;
 	// checksum(RSDT, RSDT->header.Length);
-	if (!checksum(devext->RSDT, devext->RSDT->header.Length)) return;
+	if (!checksum((uint8_t *)devext->RSDT, devext->RSDT->header.Length)) return FAILED;
 	
-	int length = devext->RSDT->header.Length;
-	devext->FADT = acpi_find_table(devext, "FACP");
-	if (!checksum((uint32_t *)devext->FADT, devext->FADT->h.Length)) return;
+	devext->FADT = (struct ACPI_FADT *)acpi_find_table(devext, "FACP");
+	if (devext->FADT == NULL)
+	{
+		return FAILED;
+	}
+	if (!checksum((uint8_t *)devext->FADT, devext->FADT->h.Length)) return FAILED;
 	
 	if (!(io_in16(devext->FADT->PM1aControlBlock) & 1))
 	{
@@ -134,11 +160,13 @@ static status_t acpi_enter(driver_t *drv_obj)
  * 			0E Qword
 */
 
+/*
 void acpi_shutdown(device_extension_t *devext)
 {	
 	int i;
 	uint16_t SLP_TYPa, SLP_TYPb;
-	struct ACPISDTHeader *header = acpi_find_table(devext, "DSDT");
+	struct ACPISDTHeader *header = (struct ACPISDTHeader *)acpi_find_table(devext, "DSDT");
+	
 	char *S5Addr = (char *)header;
 	int dsdtLength = (header->Length - sizeof(struct ACPISDTHeader))/4;
 	
@@ -170,6 +198,7 @@ void acpi_shutdown(device_extension_t *devext)
 		}
 	}
 }
+*/
 
 static status_t acpi_exit(driver_t *drv_obj)
 {

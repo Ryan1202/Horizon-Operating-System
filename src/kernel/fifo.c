@@ -1,6 +1,21 @@
+/**
+ * @file fifo.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief FIFO缓冲区
+ * 		参考了《三十天自制操作系统》的实现
+ * @version 0.1
+ * @date 2020-07
+ */
 #include <kernel/fifo.h>
 #include <kernel/console.h>
 
+/**
+ * @brief 初始化FIFO缓冲区
+ * 
+ * @param fifo FIFO结构
+ * @param size 缓冲区大小
+ * @param buf 缓冲区
+ */
 void fifo_init(struct fifo *fifo, int size, int *buf)
 {
 	fifo->size = size;
@@ -12,6 +27,13 @@ void fifo_init(struct fifo *fifo, int size, int *buf)
 	return;
 }
 
+/**
+ * @brief 向FIFO缓冲区中写入数据
+ * 
+ * @param fifo FIFO结构
+ * @param data 要写入的数据
+ * @return int 成功为0，失败为-1
+ */
 int fifo_put(struct fifo *fifo, int data)
 {
 	if(fifo->free == 0)
@@ -30,6 +52,12 @@ int fifo_put(struct fifo *fifo, int data)
 	return 0;
 }
 
+/**
+ * @brief 取出FIFO缓冲区中的数据
+ * 
+ * @param fifo FIFO结构
+ * @return int 成功为0，失败为-1
+ */
 int fifo_get(struct fifo *fifo)
 {
 	int data;
@@ -48,6 +76,12 @@ int fifo_get(struct fifo *fifo)
 	return data;
 }
 
+/**
+ * @brief 获取FIFO大小
+ * 
+ * @param fifo FIFO结构
+ * @return int FIFO大小
+ */
 int fifo_status(struct fifo *fifo)
 {
 	return fifo->size - fifo->free;

@@ -1,3 +1,10 @@
+/**
+ * @file descriptor.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 配置GDT、IDT等描述符
+ * @version 1.1
+ * @date 2022-07-20
+ */
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/console.h>
@@ -21,11 +28,20 @@ struct segment_descriptor	*gdt;
 struct gate_descriptor		*idt;
 static struct tss_s			tss;
 
+/**
+ * @brief 更新TSS中的ESP为对应任务的ESP
+ * 
+ * @param pthread 任务结构
+ */
 void update_tss_esp(struct task_s *pthread)
 {
 	tss.esp0 = (uint32_t *)((uint32_t)pthread + PAGE_SIZE);
 }
 
+/**
+ * @brief 初始化描述符
+ * 
+ */
 void init_descriptor(void)
 {
 	gdt = (struct segment_descriptor *)GDT_ADDR;
@@ -34,20 +50,34 @@ void init_descriptor(void)
 	tss.ss0 = SELECTOR_K_STACK;
 	tss.io_base = sizeof(struct tss_s);
 	
+	// 配置GDT
 	int i;
 	for(i = 0; i < GDT_SIZE / 8; i++)
 	{
 		set_segmdesc(gdt + i, 0, 0, 0);
 	}
-	set_segmdesc(gdt + 1, 0xffffffff, 0x00000000, 0x409a);
-	set_segmdesc(gdt + 2, 0xffffffff, 0x00000000, 0x4092);
-	set_segmdesc(gdt + 3, 0xffffffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_CODE | DESC_TYPE_CODE);
-	set_segmdesc(gdt + 4, 0xffffffff, 0x00000000, DESC_P | DESC_D | DESC_DPL_3 | DESC_S_DATA | DESC_TYPE_DATA);
-	set_segmdesc(gdt + 5, sizeof(struct tss_s), (int)&tss, DESC_P | DESC_D | DESC_DPL_0 | DESC_S_SYS | DESC_TYPE_TSS);
+	// 内核代码段
+	set_segmdesc(gdt + 1, 0xffffffff, 0x00000000, 
+		DESC_D | DESC_P | DESC_S_CODE | DESC_TYPE_CODE | DESC_DPL_0);	
+	// 内核数据段
+	set_segmdesc(gdt + 2, 0xffffffff, 0x00000000, 
+		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_0);
+	// 用户代码段
+	set_segmdesc(gdt + 3, 0xffffffff, 0x00000000, 
+		DESC_D | DESC_P | DESC_S_CODE | DESC_TYPE_CODE | DESC_DPL_3);
+	// 用户数据段
+	set_segmdesc(gdt + 4, 0xffffffff, 0x00000000, 
+		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_3);
+	// TSS
+	set_segmdesc(gdt + 5, sizeof(struct tss_s), (int)&tss, 
+		DESC_D | DESC_P | DESC_S_SYS | DESC_TYPE_TSS | DESC_DPL_0);
 	
+	// 改变GDTR寄存器使其指向刚配置好的GDT
     load_gdtr(GDT_SIZE, GDT_ADDR);
 	__asm__ __volatile__ ("ltr %w0" :: "r" (SElECTOR_TSS));
     
+	// 配置IDT
+	// 0x00-0x1f号中断是CPU异常中断, 0x20-0x2f号中断是IRQ中断
     for(i = 0; i < IDT_SIZE / 8; i++)
     {
         set_gatedesc(idt + i, 0, 0, 0);
@@ -85,9 +115,11 @@ void init_descriptor(void)
     set_gatedesc(idt + 0x1e, (int)&exception_entry30, 0x08, DA_386IGate_DPL0);
     set_gatedesc(idt + 0x1f, (int)&exception_entry31, 0x08, DA_386IGate_DPL0);
     
+#ifdef APIC
 	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&irq_entry0, 0x08, DA_386IGate_DPL0);
-    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
+#endif
     set_gatedesc(idt + 0x20 + PIT_IRQ, (int)&irq_entry2, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
     set_gatedesc(idt + 0x20 + IDE0_IRQ, (int)&irq_entry14, 0x08, DA_386IGate_DPL0);
     set_gatedesc(idt + 0x20 + IDE1_IRQ, (int)&irq_entry15, 0x08, DA_386IGate_DPL0);
     for(i = 0; i < NR_IRQ; i++){
@@ -99,11 +131,25 @@ void init_descriptor(void)
     load_idtr(IDT_SIZE, IDT_ADDR);
 }
 
+/**
+ * @brief 设置IRQ中断处理函数
+ * 
+ * @param irq IRQ号
+ * @param handler 中断处理函数
+ */
 void put_irq_handler(int irq, irq_handler_t handler)
 {
     irq_table[irq] = handler;
 }
 
+/**
+ * @brief 创建段描述符
+ * 
+ * @param sd 段描述符结构
+ * @param limit 段长度
+ * @param base 段起始地址
+ * @param ar 标志
+ */
 void set_segmdesc(struct segment_descriptor *sd, unsigned int limit, int base, int ar)
 {
     if(limit > 0xfffff)
@@ -122,34 +168,43 @@ void set_segmdesc(struct segment_descriptor *sd, unsigned int limit, int base, i
 }
 
 /*
- *                                 Task Gate
+ *                                   任务门
  * 31                                16 15 14  13 12    8 7                0
  * -------------------------------------------------------------------------
  * |                                   | P | DPL | 00101 |                 |
  * -------------------------------------------------------------------------
  * -------------------------------------------------------------------------
- * |       TSS Segment Selector        |                                   |
+ * |            TSS段选择子            |                                   |
  * -------------------------------------------------------------------------
  * 
- *                               Interrupt Gate
+ *                                   中断门
  * 31                               16 15 14  13 12    8 7                0
  * -------------------------------------------------------------------------
- * |           Offset 31:16            | P | DPL | 0D110 |                 |
+ * |            偏移 31:16             | P | DPL | 0D110 |                 |
  * -------------------------------------------------------------------------
  * -------------------------------------------------------------------------
- * |         Segment Selector          |            Offset 15:0            |
+ * |             段选择子              |             偏移 15:0             |
  * -------------------------------------------------------------------------
  * 
- *                                 Trap Gate
+ *                                   陷阱门
  * 31                                16 15 14  13 12    8 7                0
  * -------------------------------------------------------------------------
- * |           Offset 31:16            | P | DPL | 0D111 |                 |
+ * |            偏移 31:16             | P | DPL | 0D111 |                 |
  * -------------------------------------------------------------------------
  * -------------------------------------------------------------------------
- * |         Segment Selector          |            Offset 15:0            |
+ * |             段选择子              |             偏移 15:0             |
  * -------------------------------------------------------------------------
+ * D为0表示16位，D为1表示32位
  */
 
+/**
+ * @brief 创建门描述符
+ * 
+ * @param gd 门描述符结构
+ * @param offset 偏移地址
+ * @param selector 段选择子
+ * @param ar 标志
+ */
 void set_gatedesc(struct gate_descriptor *gd, int offset, int selector, int ar)
 {
     gd->offset_low   = offset & 0xffff;
@@ -160,6 +215,16 @@ void set_gatedesc(struct gate_descriptor *gd, int offset, int selector, int ar)
     return;
 }
 
+/**
+ * @brief 异常中断处理程序
+ * 
+ * @param esp 
+ * @param vec_no 
+ * @param err_code 
+ * @param eip 
+ * @param cs 
+ * @param eflags 
+ */
 void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int eflags)
 {
 	char err_description[][64] = {	"#DE Divide Error",
@@ -216,11 +281,15 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
 
 void do_irq(int irq)
 {
+#ifdef APIC
 	apic_eoi();
+#endif
 	irq_table[irq](irq);
 }
 
 void default_irq_handler(int irq)
 {
-    
+#ifdef APIC
+	apic_eoi();
+#endif
 }

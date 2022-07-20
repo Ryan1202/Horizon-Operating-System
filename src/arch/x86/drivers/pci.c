@@ -1,6 +1,13 @@
+/**
+ * @file pci.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 
+ * @version 0.1
+ * @date 2020-07
+ */
 #include <drivers/pci.h>
-#include <kernel/func.h>
 #include <kernel/console.h>
+#include <kernel/func.h>
 #include <types.h>
 
 struct pci_device pci_devices[PCI_MAX_DEVICE];

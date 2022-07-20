@@ -1,3 +1,11 @@
+/**
+ * @file smbios.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 临时用的SMBIOS驱动
+ * @version 0.1 Alpha
+ * @date 2020-10
+ */
+
 #include <drivers/smbios.h>
 #include <kernel/console.h>
 

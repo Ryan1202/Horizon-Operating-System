@@ -1,10 +1,25 @@
+/**
+ * @file app.c
+ * @author Ryan Wang (ryan1202@foxmail.com)
+ * @brief 运行应用程序相关
+ * @version 0.1
+ * @date 2022-07-19
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
 #include <fs/fs.h>
 #include <kernel/app.h>
-#include <kernel/memory.h>
 #include <kernel/console.h>
 #include <kernel/elf32.h>
+#include <kernel/memory.h>
 #include <kernel/process.h>
 
+/**
+ * @brief 运行应用程序
+ * 
+ * @param path 应用程序的路径
+ */
 void run_app(char *path)
 {
 	struct program_struct *prog = kmalloc(sizeof(struct program_struct));
