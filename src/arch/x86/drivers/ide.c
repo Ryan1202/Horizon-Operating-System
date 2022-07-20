@@ -2,8 +2,8 @@
  * @file ide.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief IDE驱动
- * @version 1.0
- * @date 2021-08
+ * @version 1.1
+ * @date 2022-07-20
  */
 #include <drivers/pci.h>
 #include <kernel/console.h>
@@ -13,6 +13,7 @@
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/memory.h>
+#include <kernel/wait_queue.h>
 #include <fs/fs.h>
 #include <config.h>
 #include <stdint.h>
@@ -202,7 +203,6 @@ typedef struct _device_extension_s
 	char flag;
 	char drive_num;
 	char type;
-	struct fifo *request_queue;
 	struct ide_channel *channel;
 	struct ide_identify_info *info;
 	int int_flag;
@@ -210,6 +210,7 @@ typedef struct _device_extension_s
 	unsigned short signature;
 	unsigned int command_sets;
 	unsigned int size;
+	wait_queue_manager_t *wqm;
 } device_extension_t;
 
 static status_t ide_enter(driver_t *drv_obj);
@@ -232,7 +233,7 @@ uint8_t disk_count;
 struct ide_channel channels[2];
 
 driver_func_t ide_driver = {
-	.driver_enter = (status_t (*)(driver_t *))ide_enter,
+	.driver_enter = ide_enter,
 	.driver_exit = ide_exit,
 	.driver_open = NULL,
 	.driver_close = NULL,
@@ -304,6 +305,9 @@ static status_t ide_enter(driver_t *drv_obj)
 				devext->type = IDE_ATA;
 				devext->int_flag = 0;
 				
+				devext->wqm = create_wait_queue();
+				wait_queue_init(devext->wqm);
+				
 				devext->info = kmalloc(sizeof(struct ide_identify_info));
 				if (devext->info == NULL)
 				{
@@ -324,7 +328,7 @@ static status_t ide_enter(driver_t *drv_obj)
 					printk("error! %d\n", err);
 					continue;
 				}
-				port_insw(ATA_REG_DATA(devext->channel), (unsigned int)devext->info, 256);
+				port_insw(ATA_REG_DATA(devext->channel), (unsigned int)devext->info, sizeof(struct ide_identify_info));
 				
 				devext->command_sets = (int)((devext->info->cmd_set1 << 16) + devext->info->cmd_set0);
 				
@@ -369,30 +373,36 @@ static status_t ide_exit(driver_t *drv_obj)
 
 status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size)
 {
+	device_extension_t *devext = dev->device_extension;
+	wait_queue_add(devext->wqm);
 	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
 	char *tmp_buffer = kmalloc(length*SECTOR_SIZE);
-	AtaTypeTransfer(dev->device_extension, IDE_READ, offset, length, tmp_buffer);
+	AtaTypeTransfer(devext, IDE_READ, offset, length, tmp_buffer);
 	memcpy(buf, tmp_buffer, size);
 	kfree(tmp_buffer);
+	wait_queue_wakeup(devext->wqm);
 	return SUCCUESS;
 }
 
 status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size)
 {
+	device_extension_t *devext = dev->device_extension;
+	wait_queue_add(devext->wqm);
 	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
 	uint8_t *tmp_buffer;
 	if (size%SECTOR_SIZE == 0)
 	{
 		tmp_buffer = (uint8_t *)kmalloc(length*SECTOR_SIZE);
-		AtaTypeTransfer(dev->device_extension, IDE_READ, offset + length - 1, 1, tmp_buffer);
+		AtaTypeTransfer(devext, IDE_READ, offset + length - 1, 1, tmp_buffer);
 		memcpy(tmp_buffer, buf, size);
 	}
 	else
 	{
 		tmp_buffer = buf;
-		AtaTypeTransfer(dev->device_extension, IDE_READ, offset, length, tmp_buffer);
+		AtaTypeTransfer(devext, IDE_READ, offset, length, tmp_buffer);
 	}
-	AtaTypeTransfer(dev->device_extension, IDE_WRITE, offset, length, tmp_buffer);
+	AtaTypeTransfer(devext, IDE_WRITE, offset, length, tmp_buffer);
+	wait_queue_wakeup(devext->wqm);
 	return SUCCUESS;
 }
 
@@ -403,6 +413,7 @@ void ide_write_sector(device_extension_t *devext, uint32_t lba, char *buf)
 
 void ide0_handler(int irq)
 {
+	
 }
 
 void ide1_handler(int irq)

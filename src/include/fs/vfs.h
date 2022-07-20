@@ -41,7 +41,7 @@ struct file
 
 struct file_operations
 {
-	struct inode *(*open)(char *path);
+	struct index_node *(*open)(char *path);
 	int (*close)(struct index_node *inode);
 	int (*read)(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);
 	int (*write)(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);

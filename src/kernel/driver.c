@@ -2,8 +2,8 @@
  * @file driver.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief 驱动接口
- * @version 0.2
- * @date 2021-06
+ * @version 0.3
+ * @date 2022-07-20
  */
 #include <kernel/console.h>
 #include <kernel/driver.h>
@@ -39,12 +39,12 @@ int dev_close(struct index_node *inode)
 
 int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
 {
-	return device_rw(inode->device, 0, buffer, offset, length);
+	return inode->device->drv_obj->funtion.driver_read(inode->device, (uint8_t *)buffer, offset, length);
 }
 
 int dev_write(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
 {
-	return device_rw(inode->device, 1, buffer, offset, length);
+	return inode->device->drv_obj->funtion.driver_write(inode->device, (uint8_t *)buffer, offset, length);
 }
 
 int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg)
@@ -130,50 +130,4 @@ void device_delete(device_t *device)
 	list_del(&device->list);
 	string_del(&driver->name);
 	kfree(device);
-}
-
-int device_rw(device_t *devobj, int rw, char *buffer, int offset, size_t size)
-{
-	dev_request_t *queue = kmalloc(sizeof(dev_request_t));
-	
-	queue->length = size;
-	queue->buffer = buffer;
-	queue->offset = offset;
-	queue->task = get_current_thread();
-	
-	spin_lock(&devobj->lock);
-	if (!list_empty(&devobj->request_queue_head)){
-		spin_unlock(&devobj->lock);
-		thread_block(TASK_WAITING);
-		kfree(queue->buffer);
-	}
-	else
-	{
-		list_add_tail(&queue->list, &devobj->request_queue_head);
-		spin_unlock(&devobj->lock);
-		if (rw == 0)
-		{
-			devobj->drv_obj->funtion.driver_read(devobj, queue->buffer, queue->offset, queue->length);
-		}
-		else
-		{
-			devobj->drv_obj->funtion.driver_write(devobj, queue->buffer, queue->offset, queue->length);
-		}
-		
-		spin_lock(&devobj->lock);
-		dev_request_t *next = NULL;
-		if (queue->list.next != &devobj->request_queue_head)
-		{
-			 next = list_next_owner(queue, list);
-		}
-		list_del(&queue->list);
-		kfree(queue);
-		spin_unlock(&devobj->lock);
-		if (next != NULL)
-		{
-			thread_unblock(next->task);
-		}
-	}
-	
-	return SUCCUESS;
 }

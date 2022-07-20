@@ -22,6 +22,19 @@ typedef enum {
 	DEV_MOUSE
 } dev_type_t;
 
+typedef struct _device_s
+{
+	list_t list;
+	list_t request_queue_head;
+	spinlock_t lock;
+	dev_type_t type;
+	
+	struct index_node *inode;
+	struct _driver_s *drv_obj;
+	void *device_extension;
+	string_t name;
+} device_t;
+
 typedef struct
 {
 	status_t (*driver_enter)(struct _driver_s *drv);
@@ -41,27 +54,6 @@ typedef struct _driver_s
 	
 	driver_func_t funtion;
 } driver_t;
-
-typedef struct _device_s
-{
-	list_t list;
-	list_t request_queue_head;
-	spinlock_t lock;
-	dev_type_t type;
-	
-	struct index_node *inode;
-	driver_t *drv_obj;
-	void *device_extension;
-	string_t name;
-} device_t;
-
-typedef struct  _dev_request_s
-{
-	list_t list;
-	struct _task_s *task;
-	void *buffer;
-	uint32_t offset, length;
-} dev_request_t;
 
 extern struct index_node *dev;
 

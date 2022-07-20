@@ -11,6 +11,7 @@ SRC		+=	process.c
 SRC		+=	syscall.c
 SRC		+=	app.c
 SRC		+=	elf.c
+SRC		+=	wait_queue.c
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 
