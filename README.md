@@ -1,7 +1,7 @@
 <h1 align="center">Horizon操作系统</h1>
 <p align="center">
-<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/stars/Ryan1202/Horizon-Operating-System.svg" /></a>
-<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/forks/Ryan1202/Horizon-Operating-System.svg" /></a>
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/stars/Ryan1202/Horizon-Operating-System.svg?logo=GitHub" /></a>
+<a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/forks/Ryan1202/Horizon-Operating-System.svg?logo=GitHub" /></a>
 <a href="https://github.com/Ryan1202/Horizon-Operating-System"><img src="https://img.shields.io/github/license/Ryan1202/Horizon-Operating-System.svg" /></a>
 <br/>
 是个半成品。。。
@@ -29,30 +29,30 @@
 
 ## 编译
 
-> 虚拟硬盘
->>
->> 创建
->> ```
->> sudo make hd
->> ```
->> 
->> 写入
->> ```
->> sudo make writehd
->> ```
-> 
-> 内核
+### 虚拟硬盘
+
+> 创建
 > ```
-> make
+> sudo make hd
 > ```
->  库
+>
+> 写入
 > ```
-> make lib
+> sudo make writehd
 > ```
-> 用户程序
-> ```
-> make app
-> ```
+
+### 内核
+```
+make
+```
+###  库
+```
+make lib
+```
+### 用户程序
+```
+make app
+```
 
 ## 运行
 
