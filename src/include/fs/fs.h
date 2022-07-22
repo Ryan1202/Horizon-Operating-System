@@ -5,6 +5,8 @@
 #include <fs/vfs.h>
 #include <string.h>
 
+#define FD_MAX_NR 128
+
 struct partition_table {
 	uint8_t sign;
 	uint8_t start_chs[3];
@@ -42,12 +44,15 @@ typedef struct _partition_s {
 	void *private_data;
 } partition_t;
 
+extern struct file *fds[FD_MAX_NR];
+extern int fd_num;
 
 void init_fs(void);
+int alloc_fd(void);
 struct index_node *fs_open(char *path);
 int fs_close(struct index_node *inode);
-int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t length);
-int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t length);
+int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length);
+int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length);
 int fs_seek(struct index_node *inode, unsigned int offset, unsigned int origin);
 int fs_create(struct index_node *parent, char *name);
 int fs_delete(struct index_node *inode);

@@ -37,12 +37,12 @@ int dev_close(struct index_node *inode)
 	return inode->device->drv_obj->funtion.driver_close(inode->device);
 }
 
-int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
+int dev_read(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length)
 {
 	return inode->device->drv_obj->funtion.driver_read(inode->device, (uint8_t *)buffer, offset, length);
 }
 
-int dev_write(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length)
+int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length)
 {
 	return inode->device->drv_obj->funtion.driver_write(inode->device, (uint8_t *)buffer, offset, length);
 }

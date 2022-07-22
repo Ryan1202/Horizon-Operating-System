@@ -14,6 +14,7 @@
 
 /* 32位操作系统 */
 typedef unsigned int size_t;
+typedef int ssize_t;
 
 typedef unsigned int ino_t;
 
@@ -49,10 +50,6 @@ __buildin_expect((x), 0)表示x的值为假的可能性更大.
 */
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
-
-#include "types.h"
-
-
 
 #endif  /*_LIB_STDDEF_H*/
 

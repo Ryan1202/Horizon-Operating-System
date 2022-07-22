@@ -59,8 +59,8 @@ extern struct index_node *dev;
 
 struct index_node *dev_open(char *path);
 int dev_close(struct index_node *inode);
-int dev_read(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);
-int dev_write(struct index_node *inode, char *buffer, uint32_t offset, uint32_t length);
+int dev_read(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length);
+int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length);
 int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg);
 status_t driver_create(driver_func_t func, char *driver_name);
 status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type, device_t **device);
