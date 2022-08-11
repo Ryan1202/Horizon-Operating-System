@@ -2,16 +2,16 @@
  * @file pit.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief 
- * @version 0.1
- * @date 2020-07
+ * @version 1.0
+ * @date 2022-07-31
  */
 #include <drivers/pit.h>
+#include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/fifo.h>
-#include <config.h>
 
 struct timerctl timerctl;
 
@@ -30,8 +30,16 @@ void init_timer(void)
 		timerctl.timers0[i].flags = TIMER_FREE;	//释放所有计时器
 	}
 	
-	put_irq_handler(PIT_IRQ, timer_handler);
-	irq_enable(PIT_IRQ);
+	if (use_apic)
+	{
+		put_irq_handler(APIC_PIT_IRQ, timer_handler);
+		irq_enable(APIC_PIT_IRQ);
+	}
+	else
+	{
+		put_irq_handler(PIC_PIT_IRQ, timer_handler);
+		irq_enable(PIC_PIT_IRQ);
+	}
 	return;
 }
 
@@ -40,6 +48,20 @@ void timer_handler(int irq)
 	int i;
 	struct timer *timer;
 	timerctl.count++;
+	if (use_apic)
+	{
+		struct task_s *cur_thread = get_current_thread();
+		cur_thread->elapsed_ticks++;
+		
+		if (cur_thread->ticks == 0)
+		{
+			schedule();
+		}
+		else
+		{
+			cur_thread->ticks--;
+		}
+	}
 	if (timerctl.next > timerctl.count) {
 		return;
 	}
@@ -131,13 +153,18 @@ void timer_settime(struct timer *timer, unsigned int timeout)
 	return;
 }
 
+/**
+ * @brief 等待
+ * 
+ * @param time 时间（单位：10毫秒） 
+ */
 void delay(int time)
 {
 	struct timer *timer;
 	struct fifo fifo;
 	char buf[1];
 	timer = timer_alloc();
-	fifo_init(&fifo, 1, buf);
+	fifo_init(&fifo, 1, (int *)buf);
 	timer_init(timer, &fifo, 0);
 	timer_settime(timer, time);
 	while(!fifo_status(&fifo));

@@ -70,13 +70,13 @@ int sys_close(int fd)
 ssize_t sys_read(int fd, void *buf, size_t count)
 {
 	struct file *file = fds[fd];
-	return fs_read(file->inode, buf, file->offset, count);
+	return fs_read(file->inode, buf, count);
 }
 
 ssize_t sys_write(int fd, void *buf, size_t count)
 {
 	struct file *file = fds[fd];
-	return fs_write(file->inode, buf, file->offset, count);
+	return fs_write(file->inode, buf, count);
 }
 
 uint32_t do_syscall(uint32_t func, uint32_t arg1, uint32_t arg2, uint32_t arg3)

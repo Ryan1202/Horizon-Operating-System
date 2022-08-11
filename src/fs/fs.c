@@ -36,7 +36,8 @@ void init_fs(void)
 		if (inode->device->type == DEV_STORAGE)
 		{
 			fs_t *fs, *fs_next;
-			inode->f_ops.read(inode, (uint8_t *)buffer, 0, SECTOR_SIZE);
+			inode->f_ops.seek(inode, 0, 0);
+			inode->f_ops.read(inode, (uint8_t *)buffer, SECTOR_SIZE);
 			for (i = 0; i < 4; i++)
 			{
 				pt = (struct partition_table *)(buffer + 0x1be + i*sizeof(struct partition_table));
@@ -58,7 +59,8 @@ void init_fs(void)
 					part_inode->part->start_lba = pt->start_lba;
 					list_add_tail(&part_inode->part->list, &part_list_head);
 					char *superblock = kmalloc(SECTOR_SIZE);
-					inode->f_ops.read(inode, (uint8_t *)superblock, pt->start_lba, SECTOR_SIZE);
+					inode->f_ops.seek(inode, pt->start_lba, 0);
+					inode->f_ops.read(inode, (uint8_t *)superblock, SECTOR_SIZE);
 					fs->fs_ops->fs_read_superblock(part_inode->part, superblock);
 				}
 			}
@@ -197,23 +199,22 @@ int fs_close(struct index_node *inode)
 	kfree(inode->fp->rw_buf);
 	kfree(inode->fp);
 	string_del(&inode->name);
-	vfs_close(inode);
 	return 0;
 }
 
-int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length)
+int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t length)
 {
 	int i, n;
 	uint32_t l = length;
-	uint32_t pos = offset%SECTOR_SIZE, off = 0;
-	int size = min(length, SECTOR_SIZE - offset%SECTOR_SIZE);
-	if (pos%SECTOR_SIZE && pos + size < inode->fp->size)
+	uint32_t off = 0;
+	int size = min(length, SECTOR_SIZE - inode->fp->offset%SECTOR_SIZE);
+	if (inode->fp->offset%SECTOR_SIZE && inode->fp->offset + size < inode->fp->size)
 	{
-		memcpy(buffer, inode->fp->rw_buf + pos%SECTOR_SIZE, size);
+		memcpy(buffer, inode->fp->rw_buf + inode->fp->offset%SECTOR_SIZE, size);
 		if(inode->fp->rw_buf_changed) inode->part->fs->fs_ops->fs_write(inode);
 		off += size;
 		l -= size;
-		pos += size;
+		inode->fp->offset += size;
 	}
 	n = DIV_ROUND_UP(l, SECTOR_SIZE);
 	for (i = 0; i < n; i++)
@@ -222,37 +223,37 @@ int fs_read(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t
 		if (i == n-1)
 		{
 			memcpy(buffer + off, inode->fp->rw_buf, l);
-			pos += l;
+			inode->fp->offset += l;
 		}
 		else
 		{
 			memcpy(buffer + off, inode->fp->rw_buf, SECTOR_SIZE);
 			l -= SECTOR_SIZE;
 			off += SECTOR_SIZE;
-			pos += SECTOR_SIZE;
+			inode->fp->offset += SECTOR_SIZE;
 		}
-		if (pos > inode->fp->size)
+		if (inode->fp->offset > inode->fp->size)
 		{
 			memset(buffer + off, 0xff, length - off);
 			break;
 		}
 	}
-	return off - offset;
+	return off - inode->fp->offset;
 }
 
-int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length)
+int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t length)
 {
 	int i, n;
 	uint32_t l = length;
 	uint32_t off = 0;
-	int size = SECTOR_SIZE - offset%SECTOR_SIZE;
-	if (offset%SECTOR_SIZE && offset + size < inode->fp->size)
+	int size = SECTOR_SIZE - inode->fp->offset%SECTOR_SIZE;
+	if (inode->fp->offset%SECTOR_SIZE && inode->fp->offset + size < inode->fp->size)
 	{
-		memcpy(inode->fp->rw_buf + offset%SECTOR_SIZE, buffer, size);
+		memcpy(inode->fp->rw_buf + inode->fp->offset%SECTOR_SIZE, buffer, size);
 		inode->part->fs->fs_ops->fs_write(inode);
 		off += size;
 		l -= size;
-		offset += size;
+		inode->fp->offset += size;
 	}
 	n = DIV_ROUND_UP(l, SECTOR_SIZE);
 	for (i = 0; i < n; i++)
@@ -260,17 +261,17 @@ int fs_write(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_
 		inode->part->fs->fs_ops->fs_read(inode);
 		if (i == n-1)
 		{
-			memcpy(inode->fp->rw_buf + offset%SECTOR_SIZE, buffer + off, l);
-			offset += l;
-			if (offset%SECTOR_SIZE == 0) inode->part->fs->fs_ops->fs_write(inode);
+			memcpy(inode->fp->rw_buf + inode->fp->offset%SECTOR_SIZE, buffer + off, l);
+			inode->fp->offset += l;
+			if (inode->fp->offset%SECTOR_SIZE == 0) inode->part->fs->fs_ops->fs_write(inode);
 			else inode->fp->rw_buf_changed = 1;
 		}
 		else
 		{
-			memcpy(inode->fp->rw_buf + offset%SECTOR_SIZE, buffer + off, SECTOR_SIZE);
+			memcpy(inode->fp->rw_buf + inode->fp->offset%SECTOR_SIZE, buffer + off, SECTOR_SIZE);
 			l -= SECTOR_SIZE;
 			off += SECTOR_SIZE;
-			offset += SECTOR_SIZE;
+			inode->fp->offset += SECTOR_SIZE;
 			inode->part->fs->fs_ops->fs_write(inode);
 		}
 	}

@@ -7,13 +7,13 @@
  */
 #include <drivers/8042.h>
 #include <drivers/apic.h>
+#include <drivers/8259a.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/fifo.h>
 #include <kernel/initcall.h>
-#include <config.h>
 #include <stdint.h>
 
 static char scan_codes1[95] =

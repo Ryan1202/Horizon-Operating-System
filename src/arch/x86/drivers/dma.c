@@ -16,7 +16,7 @@ void dma_enable(unsigned int channel)
 	}
 	else
 	{
-		io_out8(DMA2_REG_MASK, channel % 4);
+		io_out8(DMA2_REG_MASK, channel & 3);
 	}
 }
 
@@ -28,7 +28,7 @@ void dma_disable(unsigned int channel)
 	}
 	else
 	{
-		io_out8(DMA2_REG_MASK, (channel % 4) | 4);
+		io_out8(DMA2_REG_MASK, (channel & 3) | 4);
 	}
 }
 
@@ -52,7 +52,7 @@ void dma_set_mode(unsigned int channel, char mode)
 	}
 	else
 	{
-		io_out8(DMA2_REG_MODE, mode | (channel % 4));
+		io_out8(DMA2_REG_MODE, mode | (channel & 3));
 	}
 }
 
@@ -89,7 +89,6 @@ void dma_set_page(unsigned int channel, char page)
 
 void dma_set_addr(unsigned int channel, unsigned int addr)
 {
-	dma_set_page(channel, addr>>16);
 	if (channel <= 3)  {
 		io_out8(DMA0 + (channel<<1), addr & 0xff);
 		io_out8(DMA0 + (channel<<1), (addr>>8) & 0xff);
@@ -106,7 +105,7 @@ void dma_set_count(unsigned int channel, unsigned int count)
 		io_out8(DMA0 + (channel<<1) + 1, count & 0xff);
 		io_out8(DMA0 + (channel<<1) + 1, (count>>8) & 0xff);
 	}  else  {
-		io_out8(DMA1 + ((channel&3)<<2) + 2, (count>>1) & 0xff);
-		io_out8(DMA1 + ((channel&3)<<2) + 2, (count>>9) & 0xff);
+		io_out8(DMA1 + ((channel&3)<<2) + 2, count & 0xff);
+		io_out8(DMA1 + ((channel&3)<<2) + 2, (count>>8) & 0xff);
 	}
 }

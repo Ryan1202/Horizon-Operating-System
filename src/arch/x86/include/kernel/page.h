@@ -8,6 +8,8 @@
 
 #define TBL_PHY_ADDR		0x202000
 #define VRAM_PT_PHY_ADDR	0x203000
+#define DMA_PT_PHY_ADDR1	0x204000
+#define DMA_PT_PHY_ADDR2	0x205000
 	
 #define PAGE_SIZE			1024*4		//页大小
 

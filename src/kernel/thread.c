@@ -202,7 +202,7 @@ void thread_unblock(struct task_s *pthread)
 static void make_main_thread(void)
 {
 	main_thread = get_current_thread();
-	init_thread(main_thread, "System", 1000);
+	init_thread(main_thread, "System", 10);
 
 	if(list_find(&main_thread->all_list_tag, &thread_all))
 	{
@@ -242,7 +242,8 @@ void schedule(void)
 		cur->ticks = cur->priority;
 		cur->status = TASK_READY;
 	}
-	struct task_s *next = list_first_owner(&thread_ready, struct task_s, general_tag);
+	struct task_s *next;
+	next = list_first_owner(&thread_ready, struct task_s, general_tag);
 	list_del(thread_ready.next);
 	next->status = TASK_RUNNING;
 	

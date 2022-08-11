@@ -43,8 +43,8 @@ struct file_operations
 {
 	struct index_node *(*open)(char *path);
 	int (*close)(struct index_node *inode);
-	int (*read)(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length);
-	int (*write)(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length);
+	int (*read)(struct index_node *inode, uint8_t *buffer, uint32_t length);
+	int (*write)(struct index_node *inode, uint8_t *buffer, uint32_t length);
 	int (*seek)(struct index_node *inode, unsigned int offset, unsigned int origin);
 	int (*ioctl)(struct index_node *inode, uint32_t cmd, uint32_t arg);
 };

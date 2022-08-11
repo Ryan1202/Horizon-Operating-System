@@ -1,4 +1,5 @@
 #include <fs/vfs.h>
+#include <fs/fs.h>
 #include <drivers/cmos.h>
 #include <kernel/memory.h>
 
@@ -81,7 +82,7 @@ struct index_node *vfs_find(struct index_node *parent, char *name)
 
 struct index_node *vfs_open(char *path)
 {
-	struct index_node *inode = root;
+	struct index_node *inode = root, *tmp;
 	
 	char *name = kmalloc(strlen(path)), *p;
 	strcpy(name, path);
@@ -98,13 +99,21 @@ struct index_node *vfs_open(char *path)
 		length = 0;
 		while(p[length] != '/' && p[length] != '\0') length++;
 		p[length] = 0;
-		inode = vfs_find(inode, p);
-		if (inode == NULL) return NULL;
-		if (p[length] == 0 && inode->attribute != ATTR_DIR)
-		{
-			return inode;
-		}
+		tmp = vfs_find(inode, p);
+		if (tmp == NULL) break;
+		else inode = tmp;
 		p += length + 1;
+	}
+	struct index_node *cur, *next;
+	list_for_each_owner_safe(cur, next, &inode->childs, list)
+	{
+		if (strcmp(p, cur->name.text) == 0)
+		{
+			if (cur->attribute != ATTR_DIR)
+			{
+				return cur;
+			}
+		}
 	}
 	return NULL;
 }
@@ -112,10 +121,14 @@ struct index_node *vfs_open(char *path)
 void vfs_close(struct index_node *inode)
 {
 	struct index_node *parent = inode->parent;
-	string_del(&inode->name);
-	kfree(inode);
-	inode = parent;
-	list_del(&inode->list);
+	if(inode->attribute == ATTR_FILE)
+	{
+		fs_close(inode);
+		string_del(&inode->name);
+		kfree(inode);
+		inode = parent;
+		list_del(&inode->list);
+	}
 }
 
 struct index_node *vfs_opendir(char *path)

@@ -16,7 +16,6 @@
 int command_length = 0;
 char command[CMD_MAX_LENGTH];
 struct console console;
-static struct lock console_lock;
 
 /**
  * @brief 初始化控制台的配置
@@ -24,7 +23,6 @@ static struct lock console_lock;
  */
 void init_console(void)
 {
-	lock_init(&console_lock);
 	console.vram = VideoInfo.vram;
 	console.font = font16;
 	console.cur_x = 0;
@@ -136,7 +134,6 @@ void print_char(char c, unsigned int color)
  */
 int printk(const char *fmt, ...)
 {
-	lock_acquire(&console_lock);
 	int i, color = console.color;
 	char buf[256];
 	va_list arg;
@@ -259,7 +256,6 @@ int printk(const char *fmt, ...)
 		len--;
 	}
 	
-	lock_release(&console_lock);
 	return i;
 }
 
@@ -272,7 +268,7 @@ int printk(const char *fmt, ...)
 void print_hex(unsigned char *s, int length)
 {
 	int i, j;
-	if (length > 256)
+	if (length > 512)
 	{
 		printk("\nData is too long!\n");
 		return;

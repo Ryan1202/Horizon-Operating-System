@@ -16,11 +16,11 @@
 #include <kernel/initcall.h>
 #include <kernel/page.h>
 #include <kernel/thread.h>
-#include <config.h>
 
 void apic_timer_handler(void);
 
 uint32_t *lapic;
+char use_apic;
 
 volatile struct ioapic {
 	uint32_t reg;
@@ -74,18 +74,21 @@ void init_apic(void)
 		return;
 	}
 	mask_8259a();
-	cpu_RDMSR(IA32_APIC_BASE, &l, &h);
-	printk("APIC Base:%#08x %08x\n", h, l);
-	cpu_WRMSR(IA32_APIC_BASE, l | (1<<10) | (1<<11), h); //APIC全局使能，启用APIC
-	lapic = remap(0xfee00000, 0xfff);
+	use_apic = 1;
+	// cpu_RDMSR(IA32_APIC_BASE, &l, &h);
+	// printk("APIC Base:%#08x%08x\n", h, l);
+	// cpu_WRMSR(IA32_APIC_BASE, l | (1<<10) | (1<<11), h); //APIC全局使能，启用APIC
+	lapic = remap(0xfee00000, 0x3ff);
 	ioapic = remap(0xfec00000, 0xfff00);
+	io_cli();
 	lapic_write(APIC_SIVR, 1<<8);
 	//设定Loacl APIC定时器
 	lapic_write(APIC_TIMER_DCR, 0x0b);			//divide by 16
 	lapic_write(APIC_LVT_TIMER, 1<<17 | 0x20 + LAPIC_TIMER_IRQ);	//周期性计时
 	int a, b, c, d;
 	get_cpuid(0x15, 0x00, (unsigned int *)&a, (unsigned int *)&b, (unsigned int *)&c, (unsigned int *)&d);
-	lapic_write(APIC_TIMER_ICT, b/a*10);
+	
+	lapic_write(APIC_TIMER_ICT, 100000);
 
 	// 获取APICID
 	/*
@@ -104,9 +107,12 @@ void init_apic(void)
 	 */
 	printk("APIC Ver:%04x \n",  lapic_read(APIC_Ver));
 	//屏蔽LVT
-	lapic_write(APIC_LVT_CMCI, 1<<16);
-	lapic_write(APIC_LVT_THMR, 1<<16);
-	lapic_write(APIC_LVT_PMCR, 1<<16);
+	// lapic_write(APIC_LVT_CMCI, 1<<16);
+	// lapic_write(APIC_LVT_THMR, 1<<16);
+	if (((lapic[APIC_Ver/4]>>16) & 0xff) >= 4)
+	{
+		lapic_write(APIC_LVT_PMCR, 1<<16);
+	}
 	lapic_write(APIC_LVT_LINT0, 1<<16);
 	lapic_write(APIC_LVT_LINT1, 1<<16);
 	lapic_write(APIC_LVT_ERROR, 0xfe);
@@ -128,7 +134,7 @@ void init_apic(void)
 	}
 	
 	put_irq_handler(LAPIC_TIMER_IRQ, (irq_handler_t)apic_timer_handler);
-	irq_enable(LAPIC_TIMER_IRQ);
+	apic_enable_irq(LAPIC_TIMER_IRQ);
 }
 
 void apic_timer_handler(void)

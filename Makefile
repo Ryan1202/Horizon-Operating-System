@@ -75,6 +75,7 @@ writehd:
 	@umount /mnt
 	@kpartx -d $(HD_IMG)
 
+# qemu 7.1后取消了-soundhw，改用-audio
 qemu_dbg:
 	$(QEMU) \
 	-s -S \
@@ -82,6 +83,7 @@ qemu_dbg:
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
+	-audio pa,model=sb16 \
 	-boot a
 	
 qemu:
@@ -90,4 +92,5 @@ qemu:
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
+	-audio pa,model=sb16 \
 	-boot a

@@ -53,8 +53,6 @@ typedef void (*irq_handler_t) (int irq);
 extern struct segment_descriptor	*gdt;
 extern struct gate_descriptor		*idt;
 
-extern void (*irq_enable)(int);
-
 #define NR_IRQ          	16
 
 #define GDT_ADDR			0x200000
@@ -76,5 +74,6 @@ void init_descriptor(void);
 void put_irq_handler(int irq, irq_handler_t handler);
 void set_segmdesc(struct segment_descriptor *sd, unsigned int limit, int base, int ar);
 void set_gatedesc(struct gate_descriptor *gd, int offset, int selector, int ar);
+void irq_enable(int irq);
 
 #endif

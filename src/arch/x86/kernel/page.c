@@ -33,6 +33,23 @@ void setup_page(void)
 		addr += PAGE_SIZE;
 	}
 	
+	pdt[1] = (DMA_PT_PHY_ADDR1 | SIGN_RW | SIGN_SYS | SIGN_P);
+	pdt[2] = (DMA_PT_PHY_ADDR2 | SIGN_RW | SIGN_SYS | SIGN_P);
+	pt = (uint32_t *)DMA_PT_PHY_ADDR1;
+	addr = (0x400000 | SIGN_RW | SIGN_SYS | SIGN_P);
+	for(i = 0; i < 1024; i++)
+	{
+		pt[i] = addr;
+		addr += PAGE_SIZE;
+	}
+	pt = (uint32_t *)DMA_PT_PHY_ADDR2;
+	addr = (0x800000 | SIGN_RW | SIGN_SYS | SIGN_P);
+	for(i = 0; i < 1024; i++)
+	{
+		pt[i] = addr;
+		addr += PAGE_SIZE;
+	}
+	
 	//VRAM
 	uint32_t *vram_addr = (uint32_t *)(VIDEO_INFO_ADDR + 6);
 	uint32_t size = (*(unsigned short *)(VIDEO_INFO_ADDR + 0)) * 

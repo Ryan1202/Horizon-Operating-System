@@ -66,6 +66,7 @@ static inline void port_outsw(unsigned int port, unsigned int buffer, unsigned i
 
 int read_cr3();
 void write_cr3(unsigned int *cr3);
+int read_cr2();
 int read_cr0();
 void write_cr0(int cr0);
 
@@ -75,9 +76,7 @@ void load_gdtr(int limit, int addr);
 void load_idtr(int limit, int addr);
 
 int io_load_eflags(void);
-void io_store_eflags(int eflags);\
-
-void enable_irq(int irq);
+void io_store_eflags(int eflags);
 
 void exception_entry0(void);
 void exception_entry1(void);
@@ -115,6 +114,17 @@ void exception_entry31(void);
 void irq_entry0(void);
 void irq_entry1(void);
 void irq_entry2(void);
+void irq_entry3(void);
+void irq_entry4(void);
+void irq_entry5(void);
+void irq_entry6(void);
+void irq_entry7(void);
+void irq_entry8(void);
+void irq_entry9(void);
+void irq_entry10(void);
+void irq_entry11(void);
+void irq_entry12(void);
+void irq_entry13(void);
 void irq_entry14(void);
 void irq_entry15(void);
 

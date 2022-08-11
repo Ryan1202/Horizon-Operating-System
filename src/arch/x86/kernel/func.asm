@@ -1,10 +1,9 @@
 	global io_in8,		io_out8,	io_in16,	io_out16,	io_in32,	io_out32
 	global io_read,		io_write
 	global io_cli,		io_sti,		io_hlt,		io_stihlt
-	global read_cr3,	write_cr3,	read_cr0,	write_cr0,	enable_paging
+	global read_cr3,	write_cr3,	read_cr2,	read_cr0,	write_cr0,	enable_paging
 	global load_gdtr,	load_idtr
 	global io_load_eflags,			io_store_eflags
-	global enable_irq
 	global divide_error
 	global single_step_exception
 	global nmi
@@ -109,6 +108,17 @@ EXCEPTION_ENTRY 31,NO_ERROR_CODE
 
 INTERRUPT_ENTRY 1
 INTERRUPT_ENTRY 2
+INTERRUPT_ENTRY 3
+INTERRUPT_ENTRY 4
+INTERRUPT_ENTRY 5
+INTERRUPT_ENTRY 6
+INTERRUPT_ENTRY 7
+INTERRUPT_ENTRY 8
+INTERRUPT_ENTRY 9
+INTERRUPT_ENTRY 10
+INTERRUPT_ENTRY 11
+INTERRUPT_ENTRY 12
+INTERRUPT_ENTRY 13
 INTERRUPT_ENTRY 14
 INTERRUPT_ENTRY 15
 
@@ -190,6 +200,10 @@ write_cr3:
 	mov	eax,	[esp+4]
 	mov	cr3,	eax
 	ret
+	
+read_cr2:
+	mov eax,	cr2
+	ret
 
 read_cr0:
 	mov eax,	cr0
@@ -239,27 +253,6 @@ io_store_eflags:	; void io_store_eflags(int eflags);
 	mov		eax,[esp+4]
 	push	eax
 	popfd			; pop eflags
-	ret
-	
-enable_irq:
-	mov		ecx, [esp + 4]          ; irq
-	pushf
-	cli
-	mov		ah, ~1
-	rol		ah, cl                  ; ah = ~(1 << (irq % 8))
-	cmp		cl, 8
-	jae		enable_8                ; enable irq >= 8 at the slave 8259
-enable_0:
-	in		al, INT_M_CTLMASK
-	and		al, ah
-	out		INT_M_CTLMASK, al       ; clear bit at master 8259
-	popf
-	ret
-enable_8:
-	in		al, INT_S_CTLMASK
-	and		al, ah
-	out		INT_S_CTLMASK, al       ; clear bit at slave 8259
-	popf
 	ret
 
 global syscall_handler

@@ -20,7 +20,8 @@
 unsigned int *elf_load(struct program_struct *prog)
 {
 	struct elf32_header header;
-	fs_read(prog->inode, (uint8_t *)&header, 0, sizeof(struct elf32_header));
+	fs_seek(prog->inode, 0, 0);
+	fs_read(prog->inode, (uint8_t *)&header, sizeof(struct elf32_header));
 	
     if (memcmp(header.e_ident, "\177ELF\1\1\1", 7) || \
         header.e_type != ELF32_ET_EXEC || \
@@ -41,7 +42,8 @@ unsigned int *elf_load(struct program_struct *prog)
 	for (i = 0; i < header.e_phnum; i++)
 	{
 		memset(&pheader, 0, prog_header_size);
-		fs_read(prog->inode, (uint8_t *)&pheader, prog_header_off, prog_header_size);
+		fs_seek(prog->inode, prog_header_off, 0);
+		fs_read(prog->inode, (uint8_t *)&pheader, prog_header_size);
 		if (pheader.p_type == PT_LOAD)
 		{
 			int j;

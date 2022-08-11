@@ -1,22 +1,18 @@
 #ifndef _CONFIG_H
 #define _CONFIG_H
 
-#define APIC
+//#define APIC
 
 #ifdef APIC
 
 #include <drivers/apic.h>
 
-#define INIT_PIC()      init_apic()
-#define irq_enable(irq) apic_enable_irq(irq)
-
 #else
 
 #include <drivers/8259a.h>
 
-#define INIT_PIC() init_8259a()
-#define irq_enable(irq) enable_irq(irq)
-
 #endif
+
+extern char use_apic;
 
 #endif

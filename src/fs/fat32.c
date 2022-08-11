@@ -35,23 +35,30 @@ status_t fat32_check(struct partition_table *pt)
 status_t fat32_readsuperblock(partition_t *partition, char *data)
 {
 	struct pt_fat32 *fat32 = kmalloc(sizeof(struct pt_fat32));
+	struct index_node *dev = partition->device->inode;
 	memcpy(fat32, data, SECTOR_SIZE);
-	partition->device->inode->f_ops.read(partition->device->inode, &fat32->FSInfo, partition->start_lba + 1, SECTOR_SIZE);
+	dev->f_ops.seek(dev, partition->start_lba + 1, 0);
+	dev->f_ops.read(dev, (uint8_t *)&fat32->FSInfo, SECTOR_SIZE);
 	
 	if(fat32->FSInfo.FSI_LeadSig == 0x41615252)
 	{
+		partition->root->device = partition->device;
+		struct directory *dir = kmalloc(sizeof(struct directory));
+		dir->start = 2;		//根目录在2号簇
+		dir->inode = partition->root;
 		fat32->fat_start = partition->start_lba + fat32->BPB_RevdSecCnt;
 		partition->private_data = fat32;
 		fat32->data_start = fat32->fat_start + fat32->BPB_NumFATs*fat32->BPB_FATSz32;
-		partition->root->dir->start = 2;		//根目录在2号簇
+		partition->root->dir = dir;
 		struct FAT32_dir sdir;
-		partition->device->inode->f_ops.read(partition->device->inode, &sdir, fat32->data_start, sizeof(struct FAT32_dir));
+		dev->f_ops.seek(dev, fat32->data_start, 0);
+		dev->f_ops.read(dev, (uint8_t *)&sdir, sizeof(struct FAT32_dir));
 		if (sdir.DIR_Attr == FAT32_ATTR_VOLUME_ID)
 		{
 			string_del(&partition->name);
 			int cnt = 0;
 			while (sdir.DIR_Name[cnt] != ' ' && cnt < 11) cnt++;
-			string_new(&partition->name, sdir.DIR_Name, cnt);
+			string_new(&partition->name, (char *)sdir.DIR_Name, cnt);
 		}
 		return SUCCUESS;
 	}
@@ -61,6 +68,7 @@ status_t fat32_readsuperblock(partition_t *partition, char *data)
 
 void FAT32_read(struct index_node *inode)
 {
+	struct index_node *dev = inode->part->device->inode;
 	struct pt_fat32 *fat32 = fs_FAT32(inode->part->private_data);
 	int cnt = inode->fp->offset/(SECTOR_SIZE*fat32->BPB_SecPerClus), i;
 	int pos;
@@ -70,9 +78,10 @@ void FAT32_read(struct index_node *inode)
 		FAT32_write(inode);
 	}
 	file->rw_buf_changed = 0;
-	pos = file->start + file->offset/fat32->BPB_SecPerClus*SECTOR_SIZE;
+	pos = file->start;
 	for (i = 0; i < cnt; i++) pos = find_member_in_fat(inode->part, pos);
-	inode->device->inode->f_ops.read(inode->device->inode, file->rw_buf, fat32->data_start + (pos - 2) * fat32->BPB_SecPerClus + (inode->fp->offset/SECTOR_SIZE)%fat32->BPB_SecPerClus, SECTOR_SIZE);
+	dev->f_ops.seek(dev, (inode->fp->offset/SECTOR_SIZE)%fat32->BPB_SecPerClus, fat32->data_start + (pos - 2) * fat32->BPB_SecPerClus);
+	dev->f_ops.read(dev, file->rw_buf,  SECTOR_SIZE);
 }
 
 void FAT32_write(struct index_node *inode)
@@ -83,6 +92,7 @@ void FAT32_write(struct index_node *inode)
 	struct file *file = inode->fp;
 	struct pt_fat32 *fat32 = inode->part->private_data;
 	struct FAT32_dir *sdir;
+	struct index_node *dev = inode->device->inode;
 	int cnt = inode->fp->offset/(SECTOR_SIZE*fat32->BPB_SecPerClus);
 	
 	pos = file->start + file->offset/(fat32->BPB_SecPerClus*SECTOR_SIZE);
@@ -94,9 +104,11 @@ void FAT32_write(struct index_node *inode)
 	{
 		if (off_sec == size_sec + 2) pos = fat32_alloc_clus(inode->part, pos);
 	}
-	inode->device->inode->f_ops.write(inode, file->rw_buf, fat32->data_start + (pos - 2) * fat32->BPB_SecPerClus + off_sec%fat32->BPB_SecPerClus, SECTOR_SIZE);
-	inode->device->inode->f_ops.read(inode, buf, fat32->data_start + (inode->fp->dir_start - 2)*fat32->BPB_SecPerClus + inode->fp->dir_offset/SECTOR_SIZE, SECTOR_SIZE);
-	sdir = buf + inode->fp->dir_offset%SECTOR_SIZE;
+	dev->f_ops.seek(inode, off_sec%fat32->BPB_SecPerClus, fat32->data_start + (pos - 2) * fat32->BPB_SecPerClus);
+	dev->f_ops.write(inode, file->rw_buf, SECTOR_SIZE);
+	dev->f_ops.seek(inode, inode->fp->dir_offset/SECTOR_SIZE, fat32->data_start + (inode->fp->dir_start - 2)*fat32->BPB_SecPerClus);
+	dev->f_ops.read(inode, (uint8_t *)buf, SECTOR_SIZE);
+	sdir = (struct FAT32_dir *)(buf + inode->fp->dir_offset%SECTOR_SIZE);
 	if (inode->fp->offset > inode->fp->size)	//超出文件大小
 	{
 		sdir->DIR_FileSize = inode->fp->offset;
@@ -110,11 +122,13 @@ void FAT32_write(struct index_node *inode)
 	inode->write_time.second = BCD2BIN(CMOS_READ(CMOS_SECONDS));
 	sdir->DIR_LastAccDate = sdir->DIR_WrtDate = (inode->write_date.year+20)<<9 | inode->write_date.month<<5 | inode->write_date.day;
 	sdir->DIR_WrtTime = inode->write_time.hour<<11 | inode->write_time.minute<<5 | inode->write_time.second;
-	inode->device->inode->f_ops.write(inode, buf, fat32->data_start + (inode->fp->dir_start - 2)*fat32->BPB_SecPerClus + inode->fp->dir_offset/SECTOR_SIZE, SECTOR_SIZE);
+	dev->f_ops.seek(inode, inode->fp->dir_offset/SECTOR_SIZE, fat32->data_start + (inode->fp->dir_start - 2)*fat32->BPB_SecPerClus);
+	dev->f_ops.write(inode, (uint8_t *)buf, SECTOR_SIZE);
 }
 
 struct index_node *FAT32_create_file(partition_t *part, struct index_node *parent, char *name, int len)
 {
+	struct index_node *dev = part->device->inode;
 	char buf[512], filename_short[11];
 	unsigned int pos, i = 0, j, len1, len2, name_count = 0, count = 0, name_len, tmp;
 	unsigned char checksum;
@@ -134,12 +148,14 @@ struct index_node *FAT32_create_file(partition_t *part, struct index_node *paren
 	inode->part = part;
 	inode->f_ops = parent->f_ops;
 	pos = dir->start;
+	tmp = pos;
 	do
 	{
 		if (i % SECTOR_SIZE == 0)
 		{
 			offset = fat32->data_start + (pos - 2) * fat32->BPB_SecPerClus + i/SECTOR_SIZE;
-			part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 		}
 		if (i/SECTOR_SIZE/fat32->BPB_SecPerClus) tmp = find_member_in_fat(part, pos);
 		if (tmp >= 0x0fffffff) pos = fat32_alloc_clus(part, pos);
@@ -158,6 +174,7 @@ struct index_node *FAT32_create_file(partition_t *part, struct index_node *paren
 		}
 		i+=0x20;
 	} while (buf[i]);
+	flag = 0;
 	pos = ((pos - 2) * fat32->BPB_SecPerClus)*SECTOR_SIZE + i;
 	len1 = len;
 	int name_length = len1;
@@ -191,11 +208,13 @@ struct index_node *FAT32_create_file(partition_t *part, struct index_node *paren
 			int k;
 			if ((pos + i*0x20)%SECTOR_SIZE == 0)
 			{
-				part->device->inode->f_ops.write(part->device->inode, buf, offset, SECTOR_SIZE);
+				dev->f_ops.seek(dev, offset, 0);
+				dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 				offset = fat32->data_start + (pos + i*0x20)/SECTOR_SIZE;
-				part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+				dev->f_ops.seek(dev, offset, 0);
+				dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 			}
-			ldir = buf + (pos + i*0x20)%SECTOR_SIZE;
+			ldir = (struct FAT32_long_dir *)(buf + (pos + i*0x20)%SECTOR_SIZE);
 			ldir->LDIR_Ord = len2 - i;
 			if (i == 0) ldir->LDIR_Ord |= 0x40;
 			for(j = 0; (j%13) <  5; j++) ldir->LDIR_Name1[j] = (j < len1-(len2 - i - 1)*13 ? name[j] : 0);
@@ -209,15 +228,17 @@ struct index_node *FAT32_create_file(partition_t *part, struct index_node *paren
 		pos += i*0x20;
 		if (pos%SECTOR_SIZE == 0)
 		{
-			part->device->inode->f_ops.write(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 			offset = fat32->data_start + pos/SECTOR_SIZE;
-			part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 		}
 		for (i = 0; i < 11; i++)
 		{
 			buf[pos%SECTOR_SIZE + i] = filename_short[i];
 		}
-		sdir = buf + pos%SECTOR_SIZE;
+		sdir = (struct FAT32_dir *)(buf + pos%SECTOR_SIZE);
 		sdir->DIR_Attr = FAT32_ATTR_ARCHIVE;
 		
 		int year = BCD2BIN(CMOS_READ(CMOS_YEAR)) + 20;
@@ -241,7 +262,7 @@ short_dir:
 		for (i = 0, j = 0; i < 8 && name[i] != '.'; i++, j++) buf[pos%SECTOR_SIZE + i] = toupper(name[j]);
 		for (;i < 8; i++) buf[pos%SECTOR_SIZE + i] = ' ';
 		for (j++; i < 11; i++, j++) buf[pos%SECTOR_SIZE + i] = toupper(name[j]);
-		sdir = buf + pos%SECTOR_SIZE;
+		sdir = (struct FAT32_dir *)(buf + pos%SECTOR_SIZE);
 		sdir->DIR_Attr = FAT32_ATTR_ARCHIVE;
 		
 		sdir->DIR_NTRes = 0;
@@ -268,7 +289,8 @@ short_dir:
 	sdir = kmalloc(sizeof(struct FAT32_dir));
 	memcpy(sdir, buf + pos%SECTOR_SIZE, sizeof(struct FAT32_dir));
 	file->private_data = sdir;
-	part->device->inode->f_ops.write(part->device->inode, buf, offset, SECTOR_SIZE);
+	dev->f_ops.seek(dev, offset, 0);
+	dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 	return inode;
 }
 
@@ -278,23 +300,28 @@ void FAT32_delete_file(partition_t *part, struct index_node *inode)
 	unsigned int pos, i;
 	struct file *file = inode->fp;
 	struct pt_fat32 *fat32 = part->private_data;
+	struct index_node *dev = inode->device->inode;
 	uint32_t offset;
 	bool f = true;
 	offset = fat32->data_start + (inode->fp->dir_start - 2)*fat32->BPB_SecPerClus + inode->fp->dir_offset/SECTOR_SIZE;
-	inode->device->inode->f_ops.read(inode, buf, offset, SECTOR_SIZE);
+	dev->f_ops.seek(inode, offset, 0);
+	dev->f_ops.read(inode, (uint8_t *)buf, SECTOR_SIZE);
 	pos = inode->fp->dir_offset;
 	do
 	{
 		if(pos%SECTOR_SIZE == 0 && pos >= SECTOR_SIZE)
 		{
-			part->device->inode->f_ops.write(part, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 			offset -= 1;
-			part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 		}
 		buf[pos%SECTOR_SIZE] = 0xe5;
 		pos-=0x20;
 	} while(buf[pos%SECTOR_SIZE + 11] & FAT32_ATTR_LONG_NAME);
-	part->device->inode->f_ops.write(part->device->inode, buf, offset, SECTOR_SIZE);
+	dev->f_ops.seek(dev, offset, 0);
+	dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 	pos = file->start;		//释放文件在文件分配表中对应的簇
 	while(f)
 	{
@@ -319,28 +346,33 @@ int fat32_alloc_clus(partition_t *part, int last_clus)
 	int i = 3, j;
 	struct pt_fat32 *fat32 = part->private_data;
 	uint32_t offset = fat32->fat_start;
-	part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+	struct index_node *dev = part->device->inode;
+	dev->f_ops.seek(dev, offset, 0);
+	dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 	while(buf[i%128])
 	{
 		if(i % 128 == 0)
 		{
 			offset = fat32->fat_start + (i/128);
-			part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 		}
 		i++;
 	}
 	for(j = 0; j < fat32->BPB_NumFATs; j++)
 	{
 		offset = fat32->fat_start + j*fat32->BPB_FATSz32 + (i/128);
-		part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+		dev->f_ops.seek(dev, offset, 0);
+		dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 		buf[i%128] = 0x0fffffff;
-		part->device->inode->f_ops.write(part->device->inode, buf, offset, SECTOR_SIZE);
+		dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 		if (last_clus >= 3)
 		{
 			offset = fat32->fat_start + j*fat32->BPB_FATSz32 + (last_clus/128);
-			part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 			buf[last_clus%128] = i;
-			part->device->inode->f_ops.write(part->device->inode, buf, offset, SECTOR_SIZE);
+			dev->f_ops.write(dev, (uint8_t *)buf, SECTOR_SIZE);
 		}
 	}
 	return i;
@@ -358,14 +390,16 @@ int fat32_free_clus(partition_t *part, int last_clus, int clus)
 		if (last_clus > 2 && clus > 2)
 		{
 			offset = fat32->fat_start + j*fat32->BPB_FATSz32 + last_clus/128;
-			part->device->inode->f_ops.read(part->device->inode, buf1, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf1, SECTOR_SIZE);
 			if (clus/128 != last_clus/128)
 			{
 				offset = fat32->fat_start + j*fat32->BPB_FATSz32 + clus/128;
-				part->device->inode->f_ops.read(part->device->inode, buf2, offset, SECTOR_SIZE);
+				dev->f_ops.seek(dev, offset, 0);
+				dev->f_ops.read(dev, (uint8_t *)buf2, SECTOR_SIZE);
 				buf1[last_clus%128] = buf2[clus%128];
 				buf2[clus%128] = 0x00;
-				part->device->inode->f_ops.write(part->device->inode, buf2, offset, SECTOR_SIZE);
+				dev->f_ops.write(dev, (uint8_t *)buf2, SECTOR_SIZE);
 			}
 			else
 			{
@@ -373,16 +407,19 @@ int fat32_free_clus(partition_t *part, int last_clus, int clus)
 				buf1[clus%128] = 0x00;
 			}
 			offset = fat32->fat_start + j*fat32->BPB_FATSz32 + last_clus/128;
-			part->device->inode->f_ops.write(part->device->inode, buf1, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.write(dev, (uint8_t *)buf1, SECTOR_SIZE);
 		}
 		else if (clus > 2)
 		{
 			offset = fat32->fat_start + j*fat32->BPB_FATSz32 + clus/128;
-			part->device->inode->f_ops.read(part->device->inode, buf1, offset, SECTOR_SIZE);
+			dev->f_ops.seek(dev, offset, 0);
+			dev->f_ops.read(dev, (uint8_t *)buf1, SECTOR_SIZE);
 			buf1[clus%128] = 0x00;
-			part->device->inode->f_ops.write(part->device->inode, buf1, offset, SECTOR_SIZE);
+			dev->f_ops.write(dev, (uint8_t *)buf1, SECTOR_SIZE);
 		}
 	}
+	return 0;
 }
 
 struct index_node *FAT32_open(struct _partition_s *part, struct index_node *parent, char *filename)
@@ -393,11 +430,12 @@ struct index_node *FAT32_open(struct _partition_s *part, struct index_node *pare
 	struct directory *dir = parent->dir;
 	struct file *file = kmalloc(sizeof(struct file));
 	struct index_node *inode = vfs_create(filename, ATTR_FILE, parent);
+	struct index_node *dev = part->device->inode;
 	struct pt_fat32 *fat32 = part->private_data;
 	uint32_t offset;
 	uint8_t flag = 0, f = 1;
 	unsigned int cc;
-	char buf[fat32->BPB_SecPerClus*SECTOR_SIZE];
+	uint8_t buf[fat32->BPB_SecPerClus*SECTOR_SIZE];
 	file->inode = inode;
 	inode->fp = file;
 	inode->part = parent->part;
@@ -409,7 +447,8 @@ struct index_node *FAT32_open(struct _partition_s *part, struct index_node *pare
 	while (f){
 		if (find_member_in_fat(part, cc) >= 0x0fffffff) f=0;
 		offset = fat32->data_start + (cc - 2) * fat32->BPB_SecPerClus;
-		dir->inode->device->inode->f_ops.read(dir->inode, buf, offset, fat32->BPB_SecPerClus*SECTOR_SIZE);
+		dev->f_ops.seek(dir->inode, offset, 0);
+		dev->f_ops.read(dir->inode, (uint8_t *)buf, fat32->BPB_SecPerClus*SECTOR_SIZE);
 		for (i = 0x00; i < SECTOR_SIZE * fat32->BPB_SecPerClus; i+=0x20)
 		{
 			if (buf[i + 11] == FAT32_ATTR_LONG_NAME) continue;
@@ -597,9 +636,10 @@ struct index_node *FAT32_find_dir(struct _partition_s *part, struct index_node *
 {
 	unsigned int i, j, cc, x, pos;
 	bool flag, f;
-	char *buf = kmalloc(((struct pt_fat32 *)part->private_data)->BPB_SecPerClus*SECTOR_SIZE);
+	uint8_t *buf = kmalloc(((struct pt_fat32 *)part->private_data)->BPB_SecPerClus*SECTOR_SIZE);
 	struct directory *dir = kmalloc(sizeof(struct directory));
 	struct pt_fat32 *fat32 = part->private_data;
+	struct index_node *dev = part->device->inode;
 	struct FAT32_long_dir *ldir;
 	struct FAT32_dir *sdir;
 	struct file file;
@@ -621,7 +661,8 @@ struct index_node *FAT32_find_dir(struct _partition_s *part, struct index_node *
 	while (f) {
 		if (find_member_in_fat(part, cc) >= 0x0fffffff) f=0;
 		offset = fat32->data_start + (cc - 2) * fat32->BPB_SecPerClus;
-		dir->inode->device->inode->f_ops.read(dir->inode, buf, offset, fat32->BPB_SecPerClus*SECTOR_SIZE);
+		dev->f_ops.seek(dir->inode, offset, 0);
+		dev->f_ops.read(dir->inode, (uint8_t *)buf, fat32->BPB_SecPerClus*SECTOR_SIZE);
 		for (i = 0x00; i < SECTOR_SIZE * fat32->BPB_SecPerClus; i+=0x20)
 		{
 			if (buf[i + 11] == FAT32_ATTR_LONG_NAME) continue;
@@ -659,7 +700,7 @@ struct index_node *FAT32_find_dir(struct _partition_s *part, struct index_node *
 			
 			//如果是短目录项
 			j = 0;
-			sdir = (struct FAT32_long_dir *)(buf + i);
+			sdir = (struct FAT32_dir *)(buf + i);
 			for (x = 0; x < 11; x++)
 			{
 				if (sdir->DIR_Name[x] == ' ')
@@ -728,7 +769,7 @@ cmp_fail:;
 cmp_success:
 	if (flag)
 	{
-		sdir = (struct FAT32_long_dir *)(buf + i);
+		sdir = (struct FAT32_dir *)(buf + i);
 		dir->dir_start = cc;
 		dir->dir_offset = i;
 		dir->start = (sdir->DIR_FstClusHI<<16 | sdir->DIR_FstClusLO);
@@ -763,10 +804,12 @@ cmp_success:
 
 unsigned int find_member_in_fat(struct _partition_s *part, int i)
 {
+	struct index_node *dev = part->device->inode;
 	unsigned int buf[SECTOR_SIZE/sizeof(unsigned int)], next_clus;
 	struct pt_fat32 *fat32 = part->private_data;
 	uint32_t offset = part->start_lba + fat32->BPB_RevdSecCnt + (i/128);
-	part->device->inode->f_ops.read(part->device->inode, buf, offset, SECTOR_SIZE);
+	dev->f_ops.seek(dev, offset, 0);
+	dev->f_ops.read(dev, (uint8_t *)buf, SECTOR_SIZE);
 	next_clus = buf[i%128];
 	return next_clus;
 }

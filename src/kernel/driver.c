@@ -9,6 +9,7 @@
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <kernel/thread.h>
+#include <fs/fs.h>
 #include <fs/vfs.h>
 #include <const.h>
 #include <math.h>
@@ -21,7 +22,8 @@ struct file_operations device_fops = {
 	.close = dev_close,
 	.read = dev_read,
 	.write = dev_write,
-	.ioctl = dev_ioctl
+	.ioctl = dev_ioctl,
+	.seek = fs_seek
 };
 
 struct index_node *dev_open(char *path)
@@ -37,14 +39,14 @@ int dev_close(struct index_node *inode)
 	return inode->device->drv_obj->funtion.driver_close(inode->device);
 }
 
-int dev_read(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length)
+int dev_read(struct index_node *inode, uint8_t *buffer, uint32_t length)
 {
-	return inode->device->drv_obj->funtion.driver_read(inode->device, (uint8_t *)buffer, offset, length);
+	return inode->device->drv_obj->funtion.driver_read(inode->device, (uint8_t *)buffer, inode->fp->offset, length);
 }
 
-int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t offset, uint32_t length)
+int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t length)
 {
-	return inode->device->drv_obj->funtion.driver_write(inode->device, (uint8_t *)buffer, offset, length);
+	return inode->device->drv_obj->funtion.driver_write(inode->device, (uint8_t *)buffer, inode->fp->offset, length);
 }
 
 int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg)

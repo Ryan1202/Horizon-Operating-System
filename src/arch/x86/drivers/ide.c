@@ -6,6 +6,8 @@
  * @date 2022-07-20
  */
 #include <drivers/pci.h>
+#include <drivers/8259a.h>
+#include <drivers/apic.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
@@ -15,7 +17,6 @@
 #include <kernel/memory.h>
 #include <kernel/wait_queue.h>
 #include <fs/fs.h>
-#include <config.h>
 #include <stdint.h>
 #include <math.h>
 #include <types.h>
@@ -375,6 +376,10 @@ status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t s
 {
 	device_extension_t *devext = dev->device_extension;
 	wait_queue_add(devext->wqm);
+	if (devext->wqm->list_head.next->next != &devext->wqm->list_head)
+	{
+		thread_block(TASK_BLOCKED);
+	}
 	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
 	char *tmp_buffer = kmalloc(length*SECTOR_SIZE);
 	AtaTypeTransfer(devext, IDE_READ, offset, length, tmp_buffer);
@@ -388,6 +393,10 @@ status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t 
 {
 	device_extension_t *devext = dev->device_extension;
 	wait_queue_add(devext->wqm);
+	if (devext->wqm->list_head.next->next != &devext->wqm->list_head)
+	{
+		thread_block(TASK_BLOCKED);
+	}
 	int length = DIV_ROUND_UP(size, SECTOR_SIZE);
 	uint8_t *tmp_buffer;
 	if (size%SECTOR_SIZE == 0)

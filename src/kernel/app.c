@@ -35,7 +35,7 @@ void run_app(char *path)
 	string_new(&prog->path, path, 255);
 	
 	char sign[4];
-	fs_read(prog->inode, (uint8_t *)sign, 0, 4);
+	fs_read(prog->inode, (uint8_t *)sign, 4);
 	if (strncmp(sign, "\177ELF", 4) == 0)
 	{
 		string_cpy(&prog->name, &prog->filename);

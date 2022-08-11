@@ -162,7 +162,8 @@ int process_load_segment(struct task_s *thread, struct index_node *inode, unsign
 	{
 		return -1;
 	}
-	fs_read(inode, (uint8_t *)(addr + (vaddr&0xfff)), offset, filesz);
+	fs_seek(inode, offset, 0);
+	fs_read(inode, (uint8_t *)(addr + (vaddr&0xfff)), filesz);
 	if (memsz > filesz)
 	{
 		memset((void *)(addr + (vaddr&0xfff) + filesz), 0, memsz - filesz);

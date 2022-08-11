@@ -2,26 +2,21 @@
  * @file descriptor.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief 配置GDT、IDT等描述符
- * @version 1.1
- * @date 2022-07-20
+ * @version 1.2
+ * @date 2022-07-31
  */
 #include <kernel/descriptor.h>
 #include <kernel/func.h>
 #include <kernel/console.h>
+#include <drivers/apic.h>
 #include <drivers/8259a.h>
 #include <drivers/pit.h>
 #include <kernel/page.h>
 #include <kernel/tss.h>
 #include <string.h>
-#include <config.h>
-
-#define KEYBOARD_IRQ 1
-#define IDE0_IRQ 14
-#define IDE1_IRQ 15
 
 irq_handler_t irq_table[NR_IRQ];
 void default_irq_handler(int irq);
-void (*irq_enable)(int);
 extern uint32_t syscall_handler(void);
 
 struct segment_descriptor	*gdt;
@@ -115,13 +110,22 @@ void init_descriptor(void)
     set_gatedesc(idt + 0x1e, (int)&exception_entry30, 0x08, DA_386IGate_DPL0);
     set_gatedesc(idt + 0x1f, (int)&exception_entry31, 0x08, DA_386IGate_DPL0);
     
-#ifdef APIC
-	set_gatedesc(idt + 0x20 + LAPIC_TIMER_IRQ, (int)&irq_entry0, 0x08, DA_386IGate_DPL0);
-#endif
-    set_gatedesc(idt + 0x20 + PIT_IRQ, (int)&irq_entry2, 0x08, DA_386IGate_DPL0);
-    set_gatedesc(idt + 0x20 + KEYBOARD_IRQ, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
-    set_gatedesc(idt + 0x20 + IDE0_IRQ, (int)&irq_entry14, 0x08, DA_386IGate_DPL0);
-    set_gatedesc(idt + 0x20 + IDE1_IRQ, (int)&irq_entry15, 0x08, DA_386IGate_DPL0);
+	set_gatedesc(idt + 0x20 + 0, (int)&irq_entry0, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 1, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 2, (int)&irq_entry2, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 3, (int)&irq_entry3, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 4, (int)&irq_entry4, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 5, (int)&irq_entry5, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 6, (int)&irq_entry6, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 7, (int)&irq_entry7, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 8, (int)&irq_entry8, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 9, (int)&irq_entry9, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 10, (int)&irq_entry10, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 11, (int)&irq_entry11, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 12, (int)&irq_entry12, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 13, (int)&irq_entry13, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 14, (int)&irq_entry14, 0x08, DA_386IGate_DPL0);
+    set_gatedesc(idt + 0x20 + 15, (int)&irq_entry15, 0x08, DA_386IGate_DPL0);
     for(i = 0; i < NR_IRQ; i++){
 		irq_table[i] = default_irq_handler;
 	}
@@ -254,6 +258,11 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
 	
 	printk(COLOR_RED"EFLAGS:%x CS:%x EIP:%x ESP:%x\n",eflags, cs, eip, esp);
 	
+	if (vec_no == 14)
+	{
+		printk(COLOR_RED"Address:%#08x\n", read_cr2());
+	}
+	
 	if(err_code != 0xFFFFFFFF){
 		printk(COLOR_RED"Error code:%x\n", err_code);
 		
@@ -281,15 +290,37 @@ void exception_handler(int esp, int vec_no, int err_code, int eip, int cs, int e
 
 void do_irq(int irq)
 {
-#ifdef APIC
-	apic_eoi();
-#endif
+	if(use_apic)
+	{
+		apic_eoi();
+	}
+	else
+	{
+		pic_eoi(irq);
+	}
 	irq_table[irq](irq);
 }
 
 void default_irq_handler(int irq)
 {
-#ifdef APIC
-	apic_eoi();
-#endif
+	if(use_apic)
+	{
+		apic_eoi();
+	}
+	else
+	{
+		pic_eoi(irq);
+	}
+}
+
+void irq_enable(int irq)
+{
+	if (use_apic)
+	{
+		apic_enable_irq(irq);
+	}
+	else
+	{
+		pic_enable_irq(irq);
+	}
 }
