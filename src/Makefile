@@ -21,7 +21,7 @@ LD			:=  $(ENV_LD)
 export AS LD
 export ARCH_DIR
 
-SRC			:=	$(ARCH_DIR)/ fs/ kernel/ lib/ network/
+SRC			:=	$(ARCH_DIR)/ fs/ kernel/ lib/ network/ gui/
 
 NAME		:=	kernel.elf
 

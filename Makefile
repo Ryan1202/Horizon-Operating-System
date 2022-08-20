@@ -90,7 +90,6 @@ writehd:
 qemu_dbg:
 	$(QEMU) \
 	-s -S \
-	-monitor stdio \
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
@@ -102,7 +101,6 @@ qemu_dbg:
 	
 qemu:
 	$(QEMU) \
-	-monitor stdio \
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \

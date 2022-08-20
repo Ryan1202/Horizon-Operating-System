@@ -33,7 +33,6 @@ struct console {
 };
 
 void init_console(void);
-void console_start(void);
 void console_set_cursor(int x, int y);
 void console_input(char c);
 void print_char(unsigned char c, unsigned int color);

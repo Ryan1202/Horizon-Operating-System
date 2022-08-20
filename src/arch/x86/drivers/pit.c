@@ -42,7 +42,7 @@ void timer_handler(int irq) {
 	int			  i;
 	struct timer *timer;
 	timerctl.count++;
-	if (use_apic) {
+	if (!use_apic) {
 		struct task_s *cur_thread = get_current_thread();
 		cur_thread->elapsed_ticks++;
 

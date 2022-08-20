@@ -83,7 +83,7 @@ driver_func_t keyboard_driver = {.driver_enter	= keyboard_enter,
 								 .driver_devctl = NULL};
 
 static status_t keyboard_enter(driver_t *drv_obj) {
-	device_t		   *devobj;
+	device_t			 *devobj;
 	device_extension_t *devext;
 
 	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_KEYBOARD, &devobj);
@@ -91,8 +91,7 @@ static status_t keyboard_enter(driver_t *drv_obj) {
 
 	fifo_init(&devext->keyfifo, 512, devext->keybuf);
 	i8042_send_cmd(I8042_CONFIG_WRITE);
-	i8042_wait_ctr_send_ready();
-	io_out8(I8042_PORT_DATA, 0x47);
+	i8042_write_data(0x47);
 
 	devext->left_ctrl	= 0;
 	devext->left_shift	= 0;
@@ -114,7 +113,7 @@ static status_t keyboard_enter(driver_t *drv_obj) {
 static status_t keyboard_exit(driver_t *drv_obj) {
 	device_t *devobj, *next;
 	// device_extension_t *ext;
-	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) {}
+	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) { device_delete(devobj); }
 	string_del(&drv_obj->name);
 	return SUCCUESS;
 }

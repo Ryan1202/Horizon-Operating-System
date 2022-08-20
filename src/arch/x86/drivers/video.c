@@ -9,6 +9,7 @@
 #include <kernel/console.h>
 #include <kernel/font.h>
 #include <kernel/func.h>
+#include <math.h>
 
 struct video_info VideoInfo;
 
@@ -198,5 +199,30 @@ void print_string(int x, int y, unsigned int color, unsigned char *font, char *s
 		print_word(x, y, font + (*string) * 16, color);
 		string++;
 		x += 9;
+	}
+}
+
+/**
+ * @brief 从缓冲区复制一段数据到显存
+ * 
+ * @param l x坐标
+ * @param t y坐标
+ * @param width 宽度
+ * @param height 高度
+ * @param buf 缓冲区
+ */
+void copy_area_to_vram(unsigned int l, unsigned int t, unsigned int width, unsigned int height, unsigned char *buf)
+{
+	unsigned int x, y, pos;
+	int i, bpp = VideoInfo.BitsPerPixel/8;
+	int tmp = DIV_ROUND_UP(width*bpp, 4), off = t*VideoInfo.width + l;
+	unsigned int *vram = (unsigned int *)VideoInfo.vram;
+	for (y = 0; y < height; y++)
+	{
+		for (x = 0; x < tmp; x++)
+		{
+			pos = y*VideoInfo.width + x + off;
+			vram[pos] = ((unsigned int *)buf)[pos];
+		}
 	}
 }

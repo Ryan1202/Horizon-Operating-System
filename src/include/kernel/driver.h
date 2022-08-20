@@ -33,8 +33,8 @@ typedef struct _device_s {
 	dev_type_t type;
 
 	struct index_node *inode;
-	struct _driver_s  *drv_obj;
-	void			  *device_extension;
+	struct _driver_s	 *drv_obj;
+	void				 *device_extension;
 	string_t		   name;
 } device_t;
 
@@ -58,7 +58,7 @@ typedef struct {
 typedef struct _device_manager_s {
 	string_t name;
 	list_t	 dev_listhead;
-	void	*private_data;
+	void	 *private_data;
 
 	void (*dm_register)(struct _device_manager_s *dm, struct _device_s *dev, char *name);
 	void (*dm_unregister)(struct _device_manager_s *dm, struct _device_s *dev);
@@ -79,7 +79,7 @@ typedef struct _driver_s {
 typedef void (*driver_irq_handler_t)(device_t *devobj, int irq);
 typedef struct {
 	list_t				 list;
-	device_t			*devobj;
+	device_t			 *devobj;
 	driver_irq_handler_t handler;
 } dev_irq_t;
 
