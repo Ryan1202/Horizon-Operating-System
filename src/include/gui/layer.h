@@ -13,7 +13,7 @@ struct layer_s {
 	int width;			// 宽度
 	int height;			// 高度
 	int z;				// z轴高度
-	uint8_t opacity;	// 不透明度
+	uint8_t inc_tp;		// 包含透明颜色
 	uint8_t *buffer;	// 图像缓冲区
 };
 

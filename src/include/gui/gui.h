@@ -8,8 +8,8 @@
 #define GUI_BG_COLOR 0xf7f4ed
 
 struct gui_s {
-	uint32_t width, height;
-	uint32_t bpp;
+	int width, height;
+	int bpp;
 	uint8_t new_z;
 	uint32_t *frame;
 	uint8_t *map;
@@ -25,6 +25,11 @@ struct gui_s {
 		int updated;
 		int l, t, r, b;
 	}update_area;
+	struct {
+		int8_t move;
+		struct layer_s *layer;
+		int dx, dy;
+	}move_win;
 };
 
 void gui_start(void *arg);

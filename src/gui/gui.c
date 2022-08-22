@@ -13,6 +13,7 @@
 #include <gui/layer.h>
 #include <gui/graphic.h>
 #include <gui/input.h>
+#include <gui/window.h>
 #include <kernel/func.h>
 #include <kernel/memory.h>
 #include <kernel/fifo.h>
@@ -46,12 +47,16 @@ void gui_start(void *arg)
 	gui->update_area.r = gui->update_area.b = 0;
 	gui->update_area.l = gui->width;
 	gui->update_area.t = gui->height;
+	gui->move_win.move = 0;
 	
 	init_idmm(&gui->idmm, 255);
 	
 	init_cursor(gui);
 	init_input(gui);
 	init_desktop(gui);
+	
+	struct win_s *win = create_win(0, 76, 512, 383, gui->bpp, "test win");
+	show_layer(gui, win->layer);
 	
 	gui_main(gui);
 }
@@ -70,6 +75,11 @@ void gui_main(struct gui_s *gui)
 		if (fifo_status(&fifo) > 0)
 		{
 			fifo_get(&fifo);
+			if (gui->move_win.move == 1 && fifo_status(gui->input->mouse.fifo) == 0)
+			{
+				move_layer(gui, gui->move_win.layer, gui->move_win.layer->x + gui->move_win.dx, gui->move_win.layer->y  - gui->move_win.dy);
+				gui->move_win.dx = gui->move_win.dy = 0;
+			}
 			if (gui->update_area.updated == 0)
 			{
 				gui_update(gui, gui->update_area.l, gui->update_area.t, gui->update_area.r, gui->update_area.b);
@@ -96,6 +106,7 @@ void gui_main(struct gui_s *gui)
 void gui_update_map(struct gui_s *gui, int l, int t, int r, int b)
 {
 	int h, x, y, bx0, by0, bx1, by1, vx, vy;
+	uint32_t did4, *p;
 	struct layer_s *layer;
 	l = MAX(l, 0);
 	t = MAX(t, 0);
@@ -108,15 +119,48 @@ void gui_update_map(struct gui_s *gui, int l, int t, int r, int b)
 		bx1 = MIN(r - layer->x, layer->width);
 		by0 = MAX(t - layer->y, 0);
 		by1 = MIN(b - layer->y, layer->height);
-		for (y = by0; y < by1; y++)
+		if (layer->inc_tp)
 		{
-			vy = y + layer->y;
-			for (x = bx0; x < bx1; x++)
+			for (y = by0; y < by1; y++)
 			{
-				vx = x + layer->x;
-				if ((((uint32_t *)layer->buffer)[(y*layer->width + x)*layer->bpp/4] & 0xff000000) == 0)
+				vy = y + layer->y;
+				for (x = bx0; x < bx1; x++)
 				{
-					gui->map[vy * gui->width + vx] = layer->did;
+					vx = x + layer->x;
+					if ((((uint32_t *)layer->buffer)[(y*layer->width + x)*layer->bpp/4] & 0xff000000) == 0)
+					{
+						gui->map[vy * gui->width + vx] = layer->did;
+					}
+				}
+			}
+		}
+		else
+		{
+			if ((layer->x&3)==0 && (bx0&3)==0 && (bx1&3)==0)
+			{
+				bx1 = (bx1-bx0)/4;
+				did4 = layer->did<<24 | layer->did<<16 | layer->did<<8 | layer->did;
+				for (y = by0; y < by1; y++)
+				{
+					vy = y + layer->y;
+					vx = bx0 + layer->x;
+					p = (uint32_t *)&gui->map[vy * gui->width + vx];
+					for (x = 0; x < bx1; x++)
+					{
+						p[x] = did4;
+					}
+				}
+			}
+			else
+			{
+				for (y = by0; y < by1; y++)
+				{
+					vy = y + layer->y;
+					for (x = bx0; x < bx1; x++)
+					{
+						vx = x + layer->x;
+						gui->map[vy * gui->width + vx] = layer->did;
+					}
 				}
 			}
 		}
@@ -142,11 +186,14 @@ void gui_update(struct gui_s *gui, int l, int t, int r, int b)
 {
 	int x, y;
 	uint32_t pos;
-	uint32_t color;
 	struct layer_s *layer;
+	int i, bpp = gui->bpp;
+	int tmpr = r*bpp/4, tmpl = DIV_ROUND_UP(l, 4);
+	unsigned int *vram = (unsigned int *)VideoInfo.vram;
+	unsigned char *_vram = VideoInfo.vram;
 	for (y = t; y < b; y++)
 	{
-		for (x = l; x < r; x++)
+		for (x = tmpl; x < tmpr; x++)
 		{
 			pos = y*gui->width + x;
 			layer = gui->vsb_layer[gui->map[pos]];
@@ -154,11 +201,53 @@ void gui_update(struct gui_s *gui, int l, int t, int r, int b)
 			{
 				continue;
 			}
-			color = ((uint32_t *)layer->buffer)[((y - layer->y)*layer->width + (x - layer->x))*layer->bpp/4];
-			gui->frame[pos*gui->bpp/4] = color;
+			vram[pos] = ((uint32_t *)layer->buffer)[MAX(y - layer->y, 0)*layer->width + MAX(x - layer->x, 0)];
 		}
 	}
-	copy_area_to_vram(l, t, r - l, b - t, (uint8_t *)gui->frame);
+	if ((l&3) != 0)
+	{
+		tmpr = l&3;
+		for (y = t; y < b; y++)
+		{
+			for (x = l; x < tmpr; x++)
+			{
+				pos = y*gui->width + x;
+				layer = gui->vsb_layer[gui->map[pos]];
+				if (layer == NULL)
+				{
+					continue;
+				}
+				pos *= gui->bpp;
+				int p = (MAX(y - layer->y, 0)*layer->width + MAX(x - layer->x, 0))*gui->bpp;
+				for (i = 0; i < gui->bpp; i++)
+				{
+					_vram[pos + i] = layer->buffer[p + i];
+				}
+			}
+		}
+	}
+	if ((r&3) != 0)
+	{
+		tmpl = r&0xffffff00;
+		for (y = t; y < b; y++)
+		{
+			for (x = tmpl; x < r; x++)
+			{
+				pos = y*gui->width + x;
+				layer = gui->vsb_layer[gui->map[pos]];
+				if (layer == NULL)
+				{
+					continue;
+				}
+				pos *= gui->bpp;
+				int p = (MAX(y - layer->y, 0)*layer->width + MAX(x - layer->x, 0))*gui->bpp;
+				for (i = 0; i < gui->bpp; i++)
+				{
+					_vram[pos + i] = layer->buffer[p + i];
+				}
+			}
+		}
+	}
 }
 
 /**
@@ -168,9 +257,9 @@ void gui_update(struct gui_s *gui, int l, int t, int r, int b)
 void init_desktop(struct gui_s *gui)
 {
 	gui->bg = create_layer(0, 0, VideoInfo.width, VideoInfo.height, VideoInfo.BitsPerPixel/8);
-	g_layer_fill_rect(gui->bg, 0, 0, gui->bg->width, gui->bg->height, GUI_BG_COLOR);
+	g_fill_rect(gui->bg, 0, 0, gui->bg->width, gui->bg->height, GUI_BG_COLOR);
 	show_layer(gui, gui->bg);
 	gui->taskbar = create_layer(0, gui->height - 40, gui->width, 40, gui->bpp);
-	g_layer_fill_rect(gui->taskbar, 0, 0, gui->width, 40, 0x48cae4);
+	g_fill_rect(gui->taskbar, 0, 0, gui->width, 40, 0x48cae4);
 	show_layer(gui, gui->taskbar);
 }

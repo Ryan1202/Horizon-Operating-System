@@ -142,6 +142,7 @@ void init_cursor(struct gui_s *gui)
 {
 	struct layer_s *layer = create_layer(gui->width/2, gui->height/2, CURSOR_WIDTH, CURSOR_HEIGHT, gui->bpp);
 	gui->cursor = layer;
+	layer->inc_tp = 1;
 	int x, y;
 	uint32_t *buf = (uint32_t *)layer->buffer;
 	for (y = 0; y < CURSOR_HEIGHT; y++)

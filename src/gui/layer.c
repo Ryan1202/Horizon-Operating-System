@@ -32,7 +32,7 @@ struct layer_s *create_layer(uint32_t x, uint32_t y, uint32_t width, uint32_t he
 	layer->height = height;
 	layer->bpp = bpp;
 	layer->buffer = kmalloc(layer->width*layer->height*layer->bpp);
-	layer->opacity = 1;
+	layer->inc_tp = 0;
 	layer->z = -1;
 	return layer;
 }
@@ -153,7 +153,24 @@ void hide_layer(struct gui_s * gui, struct layer_s *layer)
 void move_layer(struct gui_s *gui, struct layer_s *layer, int new_x, int new_y)
 {
 	int old_x = layer->x, old_y = layer->y;
-	layer->x = MIN(MAX(new_x, 0), gui->width - 1);
-	layer->y = MIN(MAX(new_y, 0), gui->height - 1);
-	gui_update_map(gui, MIN(old_x, new_x), MIN(old_y, new_y), MAX(old_x, new_x)+layer->width, MAX(old_y, new_y) + layer->height);
+	layer->x = new_x;
+	layer->y = new_y;
+	if (layer->x + layer->width < 0)
+	{
+		layer->x = 1 - layer->width;
+	}
+	else if (layer->x > gui->width - 1)
+	{
+		layer->x = gui->width - 1;
+	}
+	if (layer->y < 0)
+	{
+		layer->y = 0;
+	}
+	else if (layer->y > gui->height - 1)
+	{
+		layer->y = gui->height - 1;
+	}
+	gui_update_map(gui, old_x, old_y, old_x+layer->width, old_y + layer->height);
+	gui_update_map(gui, MAX(layer->x, 0), MAX(layer->x, 0), MIN(layer->x+layer->width, gui->width), MIN(layer->y + layer->height, gui->height));
 }

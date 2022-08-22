@@ -4,3 +4,4 @@ SRC	+=	graphic.c
 SRC	+=	idmm.c
 SRC	+=	cursor.c
 SRC	+=	input.c
+SRC	+=	window.c
