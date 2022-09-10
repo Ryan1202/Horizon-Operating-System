@@ -21,6 +21,7 @@
 - dd
 - gcc
 - kpartx
+- ld
 - make
 - mkfs
 - nasm
