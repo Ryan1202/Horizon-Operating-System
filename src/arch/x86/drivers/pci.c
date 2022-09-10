@@ -33,34 +33,31 @@ void init_pci()
 	}
 }
 
-uint32_t pci_read(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset)
-{
-	uint32_t addr_reg;
-	addr_reg = (1 << 31) | (bus << 16) | (device << 11) | (func << 8) | (offset &0xfc);
-	io_out32(PCI_CONFIG_ADDR, addr_reg);
-	return io_in32(PCI_CONFIG_DATA);
-}
-
-void pci_write(uint8_t bus, uint8_t device, uint8_t func, uint8_t offset, uint32_t value)
-{
-	uint32_t addr_reg;
-	addr_reg = (1 << 31) | (bus << 16) | (device << 11) | (func << 8) | (offset &0xfc);
-	io_out32(PCI_CONFIG_ADDR, addr_reg);
-	io_out32(PCI_CONFIG_DATA, value);
-}
+PCI_READ(8, uint8_t)
+PCI_READ(16, uint16_t)
+PCI_READ(32, uint32_t)
+PCI_WRITE(8, uint8_t)
+PCI_WRITE(16, uint16_t)
+PCI_WRITE(32, uint32_t)
+PCI_READ_DEVICE(8, uint8_t)
+PCI_READ_DEVICE(16, uint16_t)
+PCI_READ_DEVICE(32, uint32_t)
+PCI_WRITE_DEVICE(8, uint8_t)
+PCI_WRITE_DEVICE(16, uint16_t)
+PCI_WRITE_DEVICE(32, uint32_t)
 
 void pci_scan_device(uint8_t bus, uint8_t device, uint8_t function)
 {
-	uint32_t value = pci_read(bus, device, function, 0);
+	uint32_t value = pci_read32(bus, device, function, 0);
 	uint16_t vendorID = value & 0xffff;
 	uint16_t deviceID = value >> 16;
 	if (vendorID == 0xffff)
 	{
 		return;
 	}
-	value = pci_read(bus, device, function, 0x0c);
+	value = pci_read32(bus, device, function, 0x0c);
 	uint8_t header_type = value >> 16;
-	value = pci_read(bus, device, function, 8);
+	value = pci_read32(bus, device, function, 8);
 	uint32_t classcode = value >> 8;
 	uint8_t revisionID = value & 0xff;
 	
@@ -76,10 +73,10 @@ void pci_scan_device(uint8_t bus, uint8_t device, uint8_t function)
 		int bar;
 		for (bar = 0; bar < PCI_MAX_BAR; bar++)
 		{
-			value = pci_read(bus, device, function, PCI_BAR(bar));
-			pci_write(bus, device, function, PCI_BAR(bar), 0xffffffff);
-			uint32_t len = pci_read(bus, device, function, PCI_BAR(bar));
-			pci_write(bus, device, function, PCI_BAR(bar), value);
+			value = pci_read32(bus, device, function, PCI_BAR(bar));
+			pci_write32(bus, device, function, PCI_BAR(bar), 0xffffffff);
+			uint32_t len = pci_read32(bus, device, function, PCI_BAR(bar));
+			pci_write32(bus, device, function, PCI_BAR(bar), value);
 			
 			if (len != 0 && len != 0xffffffff) {
 				pci_bar_init(&dev->bar[bar], value, len);
@@ -87,7 +84,7 @@ void pci_scan_device(uint8_t bus, uint8_t device, uint8_t function)
 		}
 	}
 	
-	value = pci_read(bus, device, function, 0x3c) & 0xffff;
+	value = pci_read32(bus, device, function, 0x3c) & 0xffff;
 	if ((value & 0xff) > 0 && (value & 0xff) < 32)
 	{
 		dev->irqline = value & 0xff;
@@ -113,7 +110,7 @@ struct pci_device *pci_get_device_ById(uint16_t vendorID, uint16_t deviceID)
 	return NULL;
 }
 
-struct pci_device *pci_get_device_ByClass(uint8_t classcode, uint8_t subclass)
+struct pci_device *pci_get_device_ByClass(uint8_t classcode, uint8_t subclass, uint8_t progif)
 {
 	int i;
 	struct pci_device *device;
@@ -121,7 +118,7 @@ struct pci_device *pci_get_device_ByClass(uint8_t classcode, uint8_t subclass)
 	for (i = 0; i < PCI_MAX_DEVICE; i++)
 	{
 		device = &pci_devices[i];
-		if (device->classcode == classcode && device->subclass == subclass)
+		if (device->classcode == classcode && device->subclass == subclass && device->prog_if == progif)
 		{
 			return device;
 		}
@@ -131,9 +128,9 @@ struct pci_device *pci_get_device_ByClass(uint8_t classcode, uint8_t subclass)
 
 void pci_enable_bus_mastering(struct pci_device *device)
 {
-	uint32_t value = pci_read(device->bus, device->dev, device->function, 0x04);
+	uint32_t value = pci_read32(device->bus, device->dev, device->function, 0x04);
 	value |= 4;
-	pci_write(device->bus, device->dev, device->function, 0x04, value);
+	pci_write32(device->bus, device->dev, device->function, 0x04, value);
 }
 
 uint32_t pci_get_device_connected(void)
@@ -221,16 +218,6 @@ void pci_bar_init(struct pci_device_bar *bar, uint32_t addr, uint32_t len)
 		bar->base_addr = addr & PCI_BAR_MEM_MASK;
 		bar->length = ~(len & PCI_BAR_MEM_MASK) + 1;
 	}
-}
-
-uint32_t pci_device_read(struct pci_device *dev, uint32_t offset)
-{
-	return pci_read(dev->bus, dev->dev, dev->function, offset);
-}
-
-void pci_device_write(struct pci_device *dev, uint32_t offset, uint32_t value)
-{
-	pci_write(dev->bus, dev->dev, dev->function, offset, value);
 }
 
 uint32_t pci_device_get_mem_addr(struct pci_device *dev)

@@ -171,7 +171,7 @@ int printk(const char *fmt, ...)
 					color = 0x881798;
 					break;
 				case '6':
-					color = 0xc19cda;
+					color = 0xffff00;
 					break;
 				case '7':
 					color = 0xcccccc;

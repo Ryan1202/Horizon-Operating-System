@@ -8,6 +8,7 @@
 		"strings": false
 	},
 	"files.associations": {
+		"*.h": "c",
 		"typeinfo": "c",
 		"cmath": "cpp",
 		"*.tcc": "cpp",
@@ -39,7 +40,11 @@
 		"sync.h": "c",
 		"mouse.h": "c",
 		"initcall.h": "c",
-		"8042.h": "c"
+		"8042.h": "c",
+		"array": "c",
+		"string_view": "c",
+		"initializer_list": "c",
+		"utility": "c"
 	},
 	"C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
 		"clang-diagnostic-int-to-void-pointer-cast",

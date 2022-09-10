@@ -1,6 +1,6 @@
 # env var
 
-ENV_CFLAGS	:= -march=i486 -fno-builtin -Wall -Wunused -m32 -std=gnu99 -fno-stack-protector
+ENV_CFLAGS	:= -march=i486 -fno-builtin -Wall -Wunused -m32 -std=gnu99 -fno-stack-protector -nostdinc -nostdlib
 # kernel name & version
 ENV_CFLAGS	+= -DKERNEL_NAME=\"horizon\" -DKERNEL_VERSION=\"0.0.1\"
 
