@@ -72,7 +72,11 @@ status_t driver_create(driver_func_t func, char *driver_name)
 	list_init(&drv_obj->list);
 	drv_obj->funtion = func;
 	status = drv_obj->funtion.driver_enter(drv_obj);
-	if (status != SUCCUESS)
+	if (status == NODEV)
+	{
+		printk("[driver manager]Cannot found device:%s\n",driver_name);
+	}
+	else if (status != SUCCUESS)
 	{
 		return FAILED;
 	}

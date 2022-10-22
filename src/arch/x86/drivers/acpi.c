@@ -101,7 +101,7 @@ static status_t acpi_enter(driver_t *drv_obj)
 	RSDP = (struct ACPI_RSDP *)acpi_find_rsdp();
 	if (RSDP == NULL)
 	{
-		return FAILED;
+		return NODEV;
 	}
 	unsigned int *ptr = remap(RSDP->RsdtAddress, sizeof(struct ACPI_RSDT));
 	if (ptr == NULL)

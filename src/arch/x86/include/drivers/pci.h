@@ -91,6 +91,8 @@ void pci_scan_device(uint8_t bus, uint8_t device, uint8_t function);
 struct pci_device *pci_get_device_ById(uint16_t vendorID, uint16_t deviceID);
 struct pci_device *pci_get_device_ByClass(uint8_t classcode, uint8_t subclass, uint8_t progif);
 void pci_enable_bus_mastering(struct pci_device *device);
+void pci_enable_io_space(struct pci_device *device);
+void pci_enable_mem_space(struct pci_device *device);
 uint32_t pci_get_device_connected(void);
 struct pci_device *pci_alloc_device(void);
 int pci_free_device(struct pci_device *dev);

@@ -13,12 +13,12 @@
 #define CR0_CD	0x40000000
 #define CR0_PG	0x80000000
 
-int io_in8(int port);
-int io_in16(int port);
-int io_in32(int port);
-void io_out8(int port, int data);
-void io_out16(int port, int data);
-void io_out32(int port, int data);
+int io_in8(unsigned int port);
+int io_in16(unsigned int port);
+int io_in32(unsigned int port);
+void io_out8(unsigned int port, unsigned int data);
+void io_out16(unsigned int port, unsigned int data);
+void io_out32(unsigned int port, unsigned int data);
 void io_read(unsigned short port, void *buf, unsigned int n);
 void io_write(unsigned short port, void *buf, unsigned int n);
 void io_cli(void);

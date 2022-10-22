@@ -9,6 +9,7 @@
 #include <string.h>
 
 typedef enum {
+	NODEV = -2,
 	FAILED = -1,
 	SUCCUESS = 0,
 	UNKNOWN
@@ -19,7 +20,8 @@ typedef enum {
 	DEV_STORAGE,
 	DEV_MANAGER,
 	DEV_KEYBOARD,
-	DEV_MOUSE
+	DEV_MOUSE,
+	DEV_USB
 } dev_type_t;
 
 typedef struct _device_s

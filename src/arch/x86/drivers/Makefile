@@ -14,3 +14,4 @@ SRC += pit.c
 SRC += smbios.c
 SRC += video.c
 SRC += sb16.c
+SRC += usb/

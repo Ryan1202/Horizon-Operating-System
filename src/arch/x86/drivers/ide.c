@@ -353,6 +353,10 @@ static status_t ide_enter(driver_t *drv_obj)
 			channel_num++;
 		}
 	}
+	else
+	{
+		return NODEV;
+	}
 	
 	return SUCCUESS;
 }

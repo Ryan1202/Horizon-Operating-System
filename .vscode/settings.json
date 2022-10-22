@@ -10,9 +10,6 @@
 	"files.associations": {
 		"*.h": "c",
 		"typeinfo": "c",
-		"cmath": "cpp",
-		"*.tcc": "cpp",
-		"cstdlib": "cpp",
 		"stdint.h": "c",
 		"msr.h": "c",
 		"cpufreq.h": "c",

@@ -133,6 +133,20 @@ void pci_enable_bus_mastering(struct pci_device *device)
 	pci_write32(device->bus, device->dev, device->function, 0x04, value);
 }
 
+void pci_enable_io_space(struct pci_device *device)
+{
+	uint32_t value = pci_read32(device->bus, device->dev, device->function, 0x04);
+	value |= 1;
+	pci_write32(device->bus, device->dev, device->function, 0x04, value);
+}
+
+void pci_enable_mem_space(struct pci_device *device)
+{
+	uint32_t value = pci_read32(device->bus, device->dev, device->function, 0x04);
+	value |= 2;
+	pci_write32(device->bus, device->dev, device->function, 0x04, value);
+}
+
 uint32_t pci_get_device_connected(void)
 {
 	int i;

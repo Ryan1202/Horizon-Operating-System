@@ -84,6 +84,7 @@ qemu_dbg:
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
 	-audio pa,model=sb16 \
+	-usb \
 	-boot a
 	
 qemu:
@@ -93,4 +94,5 @@ qemu:
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
 	-audio pa,model=sb16 \
+	-usb \
 	-boot a
