@@ -23,15 +23,15 @@
  * @param bpp 每像素字节数
  * @return struct layer_s* 
  */
-struct layer_s *create_layer(uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint8_t bpp)
+struct layer_s *create_layer(int32_t x, int32_t y, int32_t width, int32_t height, uint8_t bpp)
 {
 	struct layer_s *layer = kmalloc(sizeof(struct layer_s));
-	layer->x = x;
-	layer->y = y;
-	layer->width = width;
-	layer->height = height;
+	layer->rect.l = x;
+	layer->rect.t = y;
+	layer->rect.r = x + width;
+	layer->rect.b = y + height;
 	layer->bpp = bpp;
-	layer->buffer = kmalloc(layer->width*layer->height*layer->bpp);
+	layer->buffer = kmalloc(width*height*layer->bpp);
 	layer->inc_tp = 0;
 	layer->z = -1;
 	return layer;
@@ -81,7 +81,7 @@ void layer_set_z(struct gui_s *gui, struct layer_s *layer, int32_t z)
 			gui->z[_z] = layer->did;
 			gui->top++;
 		}
-		gui_update_map(gui, layer->x, layer->y, layer->x + layer->width, layer->y + layer->height);
+		gui_update_map(gui, &layer->rect);
 	}
 	else if (_z < layer->z) // 比之前低
 	{
@@ -103,7 +103,7 @@ void layer_set_z(struct gui_s *gui, struct layer_s *layer, int32_t z)
 			}
 			gui->top--;
 		}
-		gui_update_map(gui, layer->x, layer->y, layer->x + layer->width, layer->y + layer->height);
+		gui_update_map(gui, &layer->rect);
 	}
 	layer->z = z;
 }
@@ -152,25 +152,55 @@ void hide_layer(struct gui_s * gui, struct layer_s *layer)
  */
 void move_layer(struct gui_s *gui, struct layer_s *layer, int new_x, int new_y)
 {
-	int old_x = layer->x, old_y = layer->y;
-	layer->x = new_x;
-	layer->y = new_y;
-	if (layer->x + layer->width < 0)
+	int old_x = layer->rect.l, old_y = layer->rect.t;
+	int width = layer->rect.r - layer->rect.l, height = layer->rect.b - layer->rect.t;
+	layer->rect.r = new_x + layer->rect.r - layer->rect.l;
+	layer->rect.b = new_y + layer->rect.b - layer->rect.t;
+	layer->rect.l = new_x;
+	layer->rect.t = new_y;
+	if (layer->rect.r < 0)
 	{
-		layer->x = 1 - layer->width;
+		layer->rect.r = 1;
+		layer->rect.l = 1 - width;
 	}
-	else if (layer->x > gui->width - 1)
+	else if (layer->rect.l > gui->width - 1)
 	{
-		layer->x = gui->width - 1;
+		layer->rect.r = gui->width + width - 1;
+		layer->rect.l = gui->width - 1;
 	}
-	if (layer->y < 0)
+	if (layer->rect.t < 0)
 	{
-		layer->y = 0;
+		layer->rect.b = height;
+		layer->rect.t = 0;
 	}
-	else if (layer->y > gui->height - 1)
+	else if (layer->rect.t > gui->height - 1)
 	{
-		layer->y = gui->height - 1;
+		layer->rect.b = gui->height + height - 1;
+		layer->rect.t = gui->height - 1;
 	}
-	gui_update_map(gui, old_x, old_y, old_x+layer->width, old_y + layer->height);
-	gui_update_map(gui, MAX(layer->x, 0), MAX(layer->x, 0), MIN(layer->x+layer->width, gui->width), MIN(layer->y + layer->height, gui->height));
+	if (gui->update_area.updated == 0)
+	{
+		gui->update_area.oldRect.l = MIN(old_x, gui->update_area.oldRect.l);
+		gui->update_area.oldRect.t = MIN(old_y, gui->update_area.oldRect.t);
+		gui->update_area.oldRect.r = MAX(old_x + width, gui->update_area.oldRect.r);
+		gui->update_area.oldRect.b = MAX(old_y + height, gui->update_area.oldRect.b);
+		gui->update_area.newRect.l = MIN(MAX(new_x, 0), gui->update_area.newRect.l);
+		gui->update_area.newRect.t = MIN(MAX(new_y, 0), gui->update_area.newRect.t);
+		gui->update_area.newRect.r = MAX(MIN(layer->rect.r, gui->width), gui->update_area.newRect.r);
+		gui->update_area.newRect.b = MAX(MIN(layer->rect.b, gui->height), gui->update_area.newRect.b);
+	}
+	else
+	{
+		gui->update_area.oldRect.l = old_x;
+		gui->update_area.oldRect.t = old_y;
+		gui->update_area.oldRect.r = old_x + width;
+		gui->update_area.oldRect.b = old_y + height;
+		gui->update_area.newRect.l = MAX(new_x, 0);
+		gui->update_area.newRect.t = MAX(new_y, 0);
+		gui->update_area.newRect.r = MIN(layer->rect.r, gui->width);
+		gui->update_area.newRect.b = MIN(layer->rect.b, gui->height);
+		gui->update_area.updated = 0;
+	}
+	gui_update_map(gui, &gui->update_area.oldRect);
+	gui_update_map(gui, &gui->update_area.newRect);
 }

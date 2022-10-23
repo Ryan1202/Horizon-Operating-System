@@ -7,6 +7,10 @@
 
 #define GUI_BG_COLOR 0xf7f4ed
 
+struct Rect {
+	int l, r, t, b;
+};
+
 struct gui_s {
 	int width, height;
 	int bpp;
@@ -23,17 +27,18 @@ struct gui_s {
 	struct input_devices *input;
 	struct {
 		int updated;
-		int l, t, r, b;
+		struct Rect oldRect;
+		struct Rect newRect;
 	}update_area;
 	struct {
 		int8_t move;
-		struct layer_s *layer;
 		int dx, dy;
+		struct layer_s *layer;
 	}move_win;
 };
 
 void gui_start(void *arg);
-void gui_update_map(struct gui_s *gui, int l, int t, int r, int b);
+void gui_update_map(struct gui_s *gui, struct Rect *rect);
 void gui_update(struct gui_s *gui, int l, int t, int r, int b);
 void init_desktop(struct gui_s *gui);
 

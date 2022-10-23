@@ -11,9 +11,11 @@
 
 void draw_win(struct win_s *win)
 {
-	g_fill_rect(win->layer, 0, 0, win->layer->width, win->layer->height, 0x333333);
-	g_fill_rect(win->layer, 0, 0, win->layer->width, 30, 0x101010);
-	g_print_string(win->layer, win->layer->width/2 - win->title.length*9/2, 7, font16, win->title.text, 0x656565);
+	int width = win->layer->rect.r - win->layer->rect.l;
+	int height = win->layer->rect.b - win->layer->rect.t;
+	g_fill_rect(win->layer, 0, 0, width, height, 0x333333);
+	g_fill_rect(win->layer, 0, 0, width, 30, 0x101010);
+	g_print_string(win->layer, width/2 - win->title.length*9/2, 7, font16, win->title.text, 0x656565);
 	return;
 }
 

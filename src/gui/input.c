@@ -37,13 +37,14 @@ void init_input(struct gui_s *gui)
 
 void input_handler(struct gui_s *gui)
 {
-	int data, dx = 0, dy = 0;
+	int data, dx0, dy0, dx1 = 0, dy1 = 0, tmpx, tmpy;
 	struct mouse *mouse = &gui->input->mouse;
 	struct keyboard *keyboard = &gui->input->keyboard;
 	struct layer_s *layer;
 	int h;
-	if (fifo_status(mouse->fifo) != 0)
+	while (fifo_status(mouse->fifo) != 0)
 	{
+		dx0 = dy0 = 0;
 		data = fifo_get(mouse->fifo);
 		if (mouse->wait_ack && data == 0xfa)
 		{
@@ -54,21 +55,28 @@ void input_handler(struct gui_s *gui)
 			mouse->mbtn = (data & 0x04) >> 2;
 			mouse->rbtn = (data & 0x02) >> 1;
 			mouse->lbtn = (data & 0x01);
-			dx = fifo_get(mouse->fifo);
-			dy = fifo_get(mouse->fifo);
+			dx0 = fifo_get(mouse->fifo);
+			dy0 = fifo_get(mouse->fifo);
 			if (data & 0x10)
 			{
-				dx |= 0xffffff00;
+				dx0 |= 0xffffff00;
 			}
 			if (data & 0x20)
 			{
-				dy |= 0xffffff00;
+				dy0 |= 0xffffff00;
 			}
-			move_layer(gui, gui->cursor, MAX(gui->cursor->x + dx, 0), gui->cursor->y - dy);
+			tmpx = MIN(MAX(gui->cursor->rect.l + dx0, 0), gui->width-1);
+			tmpy = MAX(MIN(gui->cursor->rect.t - dy0, gui->height), 0);
+			dx1 += tmpx - gui->cursor->rect.l;
+			dy1 += tmpy - gui->cursor->rect.t;
 			if (gui->move_win.move == 1)
 			{
-				gui->move_win.dx += dx;
-				gui->move_win.dy += dy;
+				gui->update_area.newRect.l = tmpx;
+				gui->update_area.newRect.r = tmpx + dx0;
+				gui->update_area.newRect.t = tmpy;
+				gui->update_area.newRect.b = tmpy - dy0;
+				gui->move_win.dx += tmpx - gui->cursor->rect.l;
+				gui->move_win.dy += tmpy - gui->cursor->rect.t;
 			}
 		}
 		// 鼠标左键单击
@@ -79,15 +87,17 @@ void input_handler(struct gui_s *gui)
 				for (h = gui->top - 1; h > 1; h--)
 				{
 					layer = gui->vsb_layer[gui->z[h]];
-					if (layer->x <= gui->cursor->x
-						&& gui->cursor->x <= layer->x + layer->width
-						&& layer->y <= gui->cursor->y
-						&& gui->cursor->y <= layer->y + layer->height)
+					if (layer->rect.l <= gui->cursor->rect.l
+						&& gui->cursor->rect.l <= layer->rect.r
+						&& layer->rect.t <= gui->cursor->rect.t
+						&& gui->cursor->rect.b <= layer->rect.b)
 					{
 						gui->move_win.layer = layer;
-						gui->move_win.dx = dx;
-						gui->move_win.dy = dy;
 						gui->move_win.move = 1;
+						gui->update_area.oldRect.l = layer->rect.l;
+						gui->update_area.oldRect.r = layer->rect.r;
+						gui->update_area.oldRect.t = layer->rect.t;
+						gui->update_area.newRect.b = layer->rect.b;
 						break;
 					}
 				}
@@ -96,7 +106,11 @@ void input_handler(struct gui_s *gui)
 		else if (gui->move_win.move == 1)
 		{
 			gui->move_win.move = 0;
-			move_layer(gui, gui->move_win.layer, gui->move_win.layer->x + dx, gui->move_win.layer->y - dy);
+			move_layer(gui, gui->move_win.layer, gui->move_win.layer->rect.l + dx0, gui->move_win.layer->rect.t - dy0);
 		}
+	}
+	if (dx1 != 0 || dy1 != 0)
+	{
+		move_layer(gui, gui->cursor, gui->cursor->rect.l+dx1, gui->cursor->rect.t + dy1);
 	}
 }

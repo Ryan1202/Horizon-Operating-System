@@ -22,7 +22,8 @@
 void g_fill_rect(struct layer_s *layer, uint32_t l, uint32_t t, uint32_t r, uint32_t b, uint32_t color)
 {
 	uint32_t *buffer = (uint32_t *)layer->buffer;
-	if (l > layer->width || r > layer->width || t >layer->height || b >layer->height)
+	int width = layer->rect.r - layer->rect.l, height = layer->rect.b - layer->rect.t;
+	if (l > width || r > width || t > height || b > height)
 	{
 		return;
 	}
@@ -37,7 +38,7 @@ void g_fill_rect(struct layer_s *layer, uint32_t l, uint32_t t, uint32_t r, uint
 	{
 		for (x = l; x < r; x++)
 		{
-			buffer[(y*layer->width+x)*layer->bpp/4] = c;
+			buffer[(y*width+x)*layer->bpp/4] = c;
 		}
 	}
 }
@@ -45,10 +46,10 @@ void g_fill_rect(struct layer_s *layer, uint32_t l, uint32_t t, uint32_t r, uint
 void g_print_char8(struct layer_s *layer, int x, int y, unsigned char *ascii, unsigned int color)
 {
 	unsigned int *vram;
-	int i;
+	int i, width = layer->rect.r - layer->rect.l;
 	char d;
 	for (i = 0; i < 16; i++) {
-		vram = (unsigned int *)(layer->buffer + (y + i)*layer->width*layer->bpp);
+		vram = (unsigned int *)(layer->buffer + (y + i)*width*layer->bpp);
 		d = ascii[i];
 		if (d & 0x80) { vram[x + 1] = color; }
 		if (d & 0x40) { vram[x + 2] = color; }
