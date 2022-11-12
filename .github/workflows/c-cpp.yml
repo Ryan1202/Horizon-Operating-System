@@ -2,9 +2,13 @@ name: C/C++ CI
 
 on:
   push:
-    branches: [ "master", "GUI" ]
+    branches: 
+      - "master"
+      - "GUI"
   pull_request:
-    branches: [ "master", "GUI" ]
+    branches:
+      - "master"
+      - "GUI"
 
 jobs:
   build:
