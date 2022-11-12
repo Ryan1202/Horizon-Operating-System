@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3, ilammy/setup-nasm@v1.4.0
+    - uses: ilammy/setup-nasm@v1.4.0
+    - uses: actions/checkout@v3
     - name: make
       run: make
