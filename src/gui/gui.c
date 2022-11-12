@@ -2,10 +2,10 @@
  * @file gui.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief GUI主程序
- * @version 0.1
- * @date 2022-08-12
+ * @version 0.3
+ * @date 2022-11-12
  * 
- * @copyright Copyright (c) 2022
+ * @copyright Copyright (c) Ryan Wang 2022
  * 
  */
 #include <drivers/video.h>
@@ -52,7 +52,7 @@ void gui_start(void *arg)
 	init_input(gui);
 	init_desktop(gui);
 	
-	struct win_s *win = create_win(0, 76, 512, 383, gui->bpp, "test win");
+	struct win_s *win = create_win(gui, 0, 76, 512, 383, gui->bpp, "test win");
 	show_layer(gui, win->layer);
 	
 	gui_main(gui);
@@ -73,12 +73,11 @@ void gui_main(struct gui_s *gui)
 		if (fifo_status(&fifo) > 0)
 		{
 			fifo_get(&fifo);
-			if (gui->move_win.move == 1 && fifo_status(gui->input->mouse.fifo) == 0)
+			if (gui->move_win.move == 1)
 			{
-				move_layer(gui, gui->move_win.layer,
-					gui->move_win.layer->rect.l + gui->move_win.dx,
-					gui->move_win.layer->rect.t + gui->move_win.dy);
-					gui->move_win.dx = gui->move_win.dy = 0;
+				move_layer(gui, gui->move_win.layer, 
+					gui->cursor->rect.l - gui->move_win.dx,
+					gui->cursor->rect.t - gui->move_win.dy);
 			}
 			if (gui->update_area.updated == 0)
 			{
@@ -88,6 +87,10 @@ void gui_main(struct gui_s *gui)
 				gui_update(gui,
 					gui->update_area.newRect.l, gui->update_area.newRect.t,
 					gui->update_area.newRect.r, gui->update_area.newRect.b);
+				gui->update_area.oldRect.l = gui->update_area.newRect.l;
+				gui->update_area.oldRect.r = gui->update_area.newRect.r;
+				gui->update_area.oldRect.t = gui->update_area.newRect.t;
+				gui->update_area.oldRect.b = gui->update_area.newRect.b;
 				gui->update_area.updated = 1;
 			}
 			timer_settime(timer, 1);
@@ -97,7 +100,7 @@ void gui_main(struct gui_s *gui)
 }
 
 /**
- * @brief 刷新map
+ * @brief 更新map
  * 
  * @param gui gui描述结构
  * @param Rect 刷新矩形
@@ -172,7 +175,7 @@ void gui_update_map(struct gui_s *gui, struct Rect *rect)
 }
 
 /**
- * @brief 刷新画面
+ * @brief 更新画面
  * 
  * @param gui gui描述结构
  * @param l 左坐标
@@ -253,6 +256,53 @@ void gui_update(struct gui_s *gui, int l, int t, int r, int b)
 }
 
 /**
+ * @brief 局部刷新（用于窗口）
+ * 
+ * @param gui GUI结构
+ * @param rect 刷新范围
+ */
+void gui_refresh(struct gui_s *gui, struct Rect *rect)
+{
+	gui_update_map(gui, rect);
+	if (gui->update_area.updated == 0)
+	{
+		gui->update_area.oldRect.l = MIN(rect->l, gui->update_area.oldRect.l);
+		gui->update_area.oldRect.t = MIN(rect->t, gui->update_area.oldRect.t);
+		gui->update_area.oldRect.r = MAX(rect->r, gui->update_area.oldRect.r);
+		gui->update_area.oldRect.b = MAX(rect->b, gui->update_area.oldRect.b);
+		gui->update_area.newRect.l = MIN(MAX(rect->l, 0), gui->update_area.newRect.l);
+		gui->update_area.newRect.t = MIN(MAX(rect->t, 0), gui->update_area.newRect.t);
+		gui->update_area.newRect.r = MAX(MIN(rect->r, gui->width), gui->update_area.newRect.r);
+		gui->update_area.newRect.b = MAX(MIN(rect->b, gui->height), gui->update_area.newRect.b);
+	}
+	else
+	{
+		gui->update_area.oldRect.l = rect->l;
+		gui->update_area.oldRect.t = rect->t;
+		gui->update_area.oldRect.r = rect->b;
+		gui->update_area.oldRect.b = rect->l;
+		gui->update_area.newRect.l = MAX(rect->l, 0);
+		gui->update_area.newRect.t = MAX(rect->t, 0);
+		gui->update_area.newRect.r = MIN(rect->r, gui->width);
+		gui->update_area.newRect.b = MIN(rect->b, gui->height);
+		gui->update_area.updated = 0;
+	}
+}
+
+struct trigger_item_s *register_trigger(uint32_t type, int l, int t, int r, int b, void *priv)
+{
+	struct trigger_item_s *item = kmalloc(sizeof(struct trigger_item_s));
+	item->range.l = l;
+	item->range.t = t;
+	item->range.r = r;
+	item->range.b = b;
+	item->type = type;
+	item->triggered = 0;
+	item->private_data = priv;
+	return item;
+}
+
+/**
  * @brief 初始化桌面
  * 
  */
@@ -264,4 +314,5 @@ void init_desktop(struct gui_s *gui)
 	gui->taskbar = create_layer(0, gui->height - 40, gui->width, 40, gui->bpp);
 	g_fill_rect(gui->taskbar, 0, 0, gui->width, 40, 0x48cae4);
 	show_layer(gui, gui->taskbar);
+	gui->focus = gui->bg;
 }

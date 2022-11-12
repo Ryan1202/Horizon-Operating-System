@@ -2,10 +2,10 @@
  * @file layer.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief 图层管理
- * @version 0.1
- * @date 2022-08-19
+ * @version 0.2
+ * @date 2022-11-13
  * 
- * @copyright Copyright (c) 2022
+ * @copyright Copyright (c) Ryan Wang 2022
  * 
  */
 #include <gui/gui.h>
@@ -34,7 +34,21 @@ struct layer_s *create_layer(int32_t x, int32_t y, int32_t width, int32_t height
 	layer->buffer = kmalloc(width*height*layer->bpp);
 	layer->inc_tp = 0;
 	layer->z = -1;
+	layer->win = NULL;
 	return layer;
+}
+
+/**
+ * @brief 删除图层
+ * 
+ * @param layer 图层
+ */
+void delete_layer(struct gui_s *gui, struct layer_s *layer)
+{
+	hide_layer(gui, layer);
+	kfree(layer->buffer);
+	kfree(layer);
+	return;
 }
 
 /**
@@ -85,7 +99,7 @@ void layer_set_z(struct gui_s *gui, struct layer_s *layer, int32_t z)
 	}
 	else if (_z < layer->z) // 比之前低
 	{
-		if (layer->z > 0)
+		if (z > 0)
 		{
 			for (h = layer->z; h > _z; h--)
 			{
@@ -94,12 +108,15 @@ void layer_set_z(struct gui_s *gui, struct layer_s *layer, int32_t z)
 			}
 			gui->z[_z] = layer->did;
 		}
-		else if (layer->z < 0)
+		else if (z < 0)
 		{
-			for (h = layer->z; h < gui->top; h++)
+			if (gui->top > layer->z)
 			{
-				gui->z[h] = gui->z[h + 1];
-				gui->vsb_layer[gui->z[h]]->z = h;
+				for (h = layer->z; h < gui->top; h++)
+				{
+					gui->z[h] = gui->z[h+1];
+					gui->vsb_layer[gui->z[h]]->z = h;
+				}
 			}
 			gui->top--;
 		}
@@ -139,6 +156,7 @@ void hide_layer(struct gui_s * gui, struct layer_s *layer)
 	gui->vsb_layer[layer->did] = NULL;
 	free_id(&gui->idmm, layer->did);
 	layer->did = -1;
+	gui_refresh(gui, &layer->rect);
 	return;
 }
 

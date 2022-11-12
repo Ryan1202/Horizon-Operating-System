@@ -2,15 +2,16 @@
  * @file input.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief 输入设备管理
- * @version 0.1
- * @date 2022-08-20
+ * @version 0.2
+ * @date 2022-11-12
  * 
- * @copyright Copyright (c) 2022
+ * @copyright Copyright (c) Ryan Wang 2022
  * 
  */
 #include <gui/layer.h>
 #include <gui/cursor.h>
 #include <gui/input.h>
+#include <gui/window.h>
 #include <kernel/memory.h>
 #include <kernel/fifo.h>
 #include <fs/fs.h>
@@ -41,7 +42,7 @@ void input_handler(struct gui_s *gui)
 	struct mouse *mouse = &gui->input->mouse;
 	struct keyboard *keyboard = &gui->input->keyboard;
 	struct layer_s *layer;
-	int h;
+	int h, x, y;
 	while (fifo_status(mouse->fifo) != 0)
 	{
 		dx0 = dy0 = 0;
@@ -67,50 +68,66 @@ void input_handler(struct gui_s *gui)
 			}
 			tmpx = MIN(MAX(gui->cursor->rect.l + dx0, 0), gui->width-1);
 			tmpy = MAX(MIN(gui->cursor->rect.t - dy0, gui->height), 0);
-			dx1 += tmpx - gui->cursor->rect.l;
-			dy1 += tmpy - gui->cursor->rect.t;
-			if (gui->move_win.move == 1)
-			{
-				gui->update_area.newRect.l = tmpx;
-				gui->update_area.newRect.r = tmpx + dx0;
-				gui->update_area.newRect.t = tmpy;
-				gui->update_area.newRect.b = tmpy - dy0;
-				gui->move_win.dx += tmpx - gui->cursor->rect.l;
-				gui->move_win.dy += tmpy - gui->cursor->rect.t;
-			}
+			dx1 = tmpx - gui->cursor->rect.l;
+			dy1 = tmpy - gui->cursor->rect.t;
+			move_layer(gui, gui->cursor, gui->cursor->rect.l+dx1, gui->cursor->rect.t + dy1);
 		}
-		// 鼠标左键单击
-		if (mouse->lbtn != 0)
+		for (h = gui->top - 1; h > 1; h--)
 		{
-			if (gui->move_win.move == 0)
+			layer = gui->vsb_layer[gui->z[h]];
+			if (layer->win == NULL)
 			{
-				for (h = gui->top - 1; h > 1; h--)
+				continue;
+			}
+			x = gui->cursor->rect.l - layer->rect.l;
+			y = gui->cursor->rect.t - layer->rect.t;
+			if (layer->rect.l - 4 <= gui->cursor->rect.l && gui->cursor->rect.l < layer->rect.r + 4 &&
+				layer->rect.t - 4 <= gui->cursor->rect.t && gui->cursor->rect.t < layer->rect.b + 4)
+			{
+				if ((((uint32_t *)layer->buffer)[y * (layer->rect.r - layer->rect.l) + x] & 0xff000000) != 0xff000000)
 				{
-					layer = gui->vsb_layer[gui->z[h]];
-					if (layer->rect.l <= gui->cursor->rect.l
-						&& gui->cursor->rect.l <= layer->rect.r
-						&& layer->rect.t <= gui->cursor->rect.t
-						&& gui->cursor->rect.b <= layer->rect.b)
+					if (layer != gui->focus)
 					{
-						gui->move_win.layer = layer;
-						gui->move_win.move = 1;
-						gui->update_area.oldRect.l = layer->rect.l;
-						gui->update_area.oldRect.r = layer->rect.r;
-						gui->update_area.oldRect.t = layer->rect.t;
-						gui->update_area.newRect.b = layer->rect.b;
-						break;
+						gui->focus = layer;
+						layer_set_z(gui, layer, gui->top - 1);
+					}
+					layer->win->win_handler(layer->win, WIN_MSG_MOVE,
+						gui->cursor->rect.l, gui->cursor->rect.t);
+					if (mouse->lbtn != 0)
+					{
+						layer->win->win_handler(layer->win, WIN_MSG_LCLICK,
+							gui->cursor->rect.l, gui->cursor->rect.t);
+						if (gui->move_win.move == 0 && layer != NULL)
+						{
+							gui->move_win.layer = layer;
+							gui->move_win.dx = gui->cursor->rect.l - layer->rect.l;
+							gui->move_win.dy = gui->cursor->rect.t - layer->rect.t;
+							gui->move_win.move = 1;
+						}
+					}
+					if (mouse->mbtn != 0)
+					{
+						layer->win->win_handler(layer->win, WIN_MSG_MCLICK,
+							gui->cursor->rect.l, gui->cursor->rect.t);
+					}
+					if (mouse->rbtn != 0)
+					{
+						layer->win->win_handler(layer->win, WIN_MSG_RCLICK,
+							gui->cursor->rect.l, gui->cursor->rect.t);
 					}
 				}
 			}
-		}
-		else if (gui->move_win.move == 1)
-		{
-			gui->move_win.move = 0;
-			move_layer(gui, gui->move_win.layer, gui->move_win.layer->rect.l + dx0, gui->move_win.layer->rect.t - dy0);
+			else if (layer->win->triggers.hovered != NULL)
+			{
+				layer->win->win_handler(layer->win, WIN_MSG_MOVE,
+					gui->cursor->rect.l, gui->cursor->rect.t);
+			}
 		}
 	}
-	if (dx1 != 0 || dy1 != 0)
+	if (gui->move_win.move == 1 && mouse->lbtn == 0)
 	{
-		move_layer(gui, gui->cursor, gui->cursor->rect.l+dx1, gui->cursor->rect.t + dy1);
+		gui->move_win.move = 0;
+		move_layer(gui, gui->move_win.layer,
+			gui->cursor->rect.l - gui->move_win.dx, gui->cursor->rect.t - gui->move_win.dy);
 	}
 }

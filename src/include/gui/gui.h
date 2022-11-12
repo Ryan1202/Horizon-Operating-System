@@ -20,6 +20,7 @@ struct gui_s {
 	uint32_t *z;
 	int top;
 	struct layer_s **vsb_layer;		//可见图层
+	struct layer_s *focus;
 	struct layer_s *bg;
 	struct layer_s *taskbar;
 	struct layer_s *cursor;
@@ -37,9 +38,25 @@ struct gui_s {
 	}move_win;
 };
 
+struct trigger_item_s {
+	uint32_t type;
+	struct Rect range;
+	list_t list;
+	void *private_data;
+	uint8_t triggered;
+	void (*func)(struct win_s *win, uint32_t value, uint32_t *private_data);
+};
+
+struct trigger_s {
+	list_t list_head;
+	struct trigger_item_s *hovered;
+};
+
 void gui_start(void *arg);
 void gui_update_map(struct gui_s *gui, struct Rect *rect);
 void gui_update(struct gui_s *gui, int l, int t, int r, int b);
+void gui_refresh(struct gui_s *gui, struct Rect *rect);
+struct trigger_item_s *register_trigger(uint32_t type, int l, int t, int r, int b, void *priv);
 void init_desktop(struct gui_s *gui);
 
 #endif
