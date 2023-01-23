@@ -53,6 +53,7 @@ Mkfile.old
 dkms.conf
 
 # Others
+disk/
 core
 fixdep
 *.img

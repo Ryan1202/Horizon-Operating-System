@@ -5,17 +5,15 @@
 #include <kernel/thread.h>
 #include <stdint.h>
 
-struct semaphore
-{
-    uint8_t value;
+struct semaphore {
+    uint8_t     value;
     struct list waiters;
 };
 
-struct lock
-{
-    struct task_s *holder;
+struct lock {
+    struct task_s   *holder;
     struct semaphore semaphore;
-    uint32_t holder_repeat_nr;
+    uint32_t         holder_repeat_nr;
 };
 
 void lock_init(struct lock *plock);

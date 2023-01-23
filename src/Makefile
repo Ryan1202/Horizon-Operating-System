@@ -1,7 +1,7 @@
 sinclude ../scripts/env.mk
 sinclude ../scripts/localenv.mk
 
-ARCH	:=	arch/x86
+ARCH	:=	./arch/x86
 
 X_ASFLAGS	:= $(ENV_AFLAGS) -I $(ARCH)/include/ -g
 X_CFLAGS    := $(ENV_CFLAGS) -fno-strict-aliasing -g

@@ -4,7 +4,7 @@
  * @brief 驱动的入口和出口
  * @version 0.1
  * @date 2021-06
- * 
+ *
  */
 #include <kernel/initcall.h>
 
@@ -15,18 +15,16 @@ extern exitcall_t __exitcall_end[];
 
 void do_initcalls(void)
 {
-	initcall_t *func = &(*__initcall_start);
-	for (;func < &(*__initcall_end); func++)
-	{
-		(*func)();
-	}
+    initcall_t *func = &(*__initcall_start);
+    for (; func < &(*__initcall_end); func++) {
+        (*func)();
+    }
 }
 
 void do_exitcalls(void)
 {
-	initcall_t *func = &(*__exitcall_start);
-	for (; func < &(*__exitcall_end); func++)
-	{
-		(*func)();
-	}
+    initcall_t *func = &(*__exitcall_start);
+    for (; func < &(*__exitcall_end); func++) {
+        (*func)();
+    }
 }

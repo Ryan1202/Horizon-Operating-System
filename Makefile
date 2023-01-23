@@ -70,7 +70,7 @@ writefd:
 
 writehd:
 	@kpartx -av $(HD_IMG)
-	@mount /dev/mapper/loop0p1 /mnt
+	@mount /dev/mapper/loop1p1 /mnt
 	$(CP) -r $(DISK_DIR)/* /mnt
 	@umount /mnt
 	@kpartx -d $(HD_IMG)
@@ -83,7 +83,7 @@ qemu_dbg:
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
-	-audio pa,model=sb16 \
+	-soundhw sb16 \
 	-usb \
 	-boot a
 	
@@ -93,6 +93,6 @@ qemu:
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
-	-audio pa,model=sb16 \
+	-soundhw sb16 \
 	-usb \
 	-boot a

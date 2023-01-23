@@ -4,52 +4,51 @@
 #include <stdint.h>
 
 struct ACPI_RSDP {
-	char Signature[8];
-	uint8_t Checksum;
-	char OEMID[6];
-	uint8_t Revision;
-	uint32_t RsdtAddress;
-	uint32_t Length;
-	uint32_t XsdtAddress[2];
-	uint8_t ExtendedChecksum;
-	uint8_t Reserved[3];
+    char     Signature[8];
+    uint8_t  Checksum;
+    char     OEMID[6];
+    uint8_t  Revision;
+    uint32_t RsdtAddress;
+    uint32_t Length;
+    uint32_t XsdtAddress[2];
+    uint8_t  ExtendedChecksum;
+    uint8_t  Reserved[3];
 };
 
 struct ACPISDTHeader {
-  char Signature[4];
-  uint32_t Length;
-  uint8_t Revision;
-  uint8_t Checksum;
-  char OEMID[6];
-  char OEMTableID[8];
-  uint32_t OEMRevision;
-  uint32_t CreatorID;
-  uint32_t CreatorRevision;
+    char     Signature[4];
+    uint32_t Length;
+    uint8_t  Revision;
+    uint8_t  Checksum;
+    char     OEMID[6];
+    char     OEMTableID[8];
+    uint32_t OEMRevision;
+    uint32_t CreatorID;
+    uint32_t CreatorRevision;
 };
 
 struct ACPI_RSDT {
-	struct ACPISDTHeader header;
-	uint32_t Entry;
+    struct ACPISDTHeader header;
+    uint32_t             Entry;
 };
 
 typedef struct
 {
-  uint8_t AddressSpace;
-  uint8_t BitWidth;
-  uint8_t BitOffset;
-  uint8_t AccessSize;
-  uint32_t Address[2];
+    uint8_t  AddressSpace;
+    uint8_t  BitWidth;
+    uint8_t  BitOffset;
+    uint8_t  AccessSize;
+    uint32_t Address[2];
 } GenericAddressStructure;
 
-struct ACPI_FADT
-{
-    struct   ACPISDTHeader h;
-    uint32_t FirmwareCtrl;
-    uint32_t Dsdt;
- 
+struct ACPI_FADT {
+    struct ACPISDTHeader h;
+    uint32_t             FirmwareCtrl;
+    uint32_t             Dsdt;
+
     // field used in ACPI 1.0; no longer in use, for compatibility only
-    uint8_t  Reserved;
- 
+    uint8_t Reserved;
+
     uint8_t  PreferredPowerManagementProfile;
     uint16_t SCI_Interrupt;
     uint32_t SMI_CommandPort;
@@ -82,23 +81,23 @@ struct ACPI_FADT
     uint8_t  DayAlarm;
     uint8_t  MonthAlarm;
     uint8_t  Century;
- 
+
     // reserved in ACPI 1.0; used since ACPI 2.0+
     uint16_t BootArchitectureFlags;
- 
+
     uint8_t  Reserved2;
     uint32_t Flags;
- 
+
     // 12 byte structure; see below for details
     GenericAddressStructure ResetReg;
- 
-    uint8_t  ResetValue;
-    uint8_t  Reserved3[3];
- 
+
+    uint8_t ResetValue;
+    uint8_t Reserved3[3];
+
     // 64bit pointers - Available on ACPI 2.0+
-    uint32_t                X_FirmwareControl[2];
-    uint32_t                X_Dsdt[2];
- 
+    uint32_t X_FirmwareControl[2];
+    uint32_t X_Dsdt[2];
+
     GenericAddressStructure X_PM1aEventBlock;
     GenericAddressStructure X_PM1bEventBlock;
     GenericAddressStructure X_PM1aControlBlock;

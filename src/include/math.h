@@ -3,8 +3,8 @@
 #include <types.h>
 
 /* max() & min() */
-#define	MAX(a,b)	((a) > (b) ? (a) : (b))
-#define	MIN(a,b)	((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 #define DIV_ROUND_UP(X, STEP) ((X + STEP - 1) / (STEP))
 

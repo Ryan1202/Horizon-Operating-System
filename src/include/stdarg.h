@@ -1,8 +1,8 @@
 #ifndef _LIB_STDARG_H
 #define _LIB_STDARG_H
 
-#define _AUPBND 1
-#define _ADNBND 1 
+#define _AUPBND      1
+#define _ADNBND      1
 #define _Bnd(X, bnd) (sizeof(X) + (bnd) & ~(bnd))
 
 typedef char *va_list;

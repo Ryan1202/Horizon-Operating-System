@@ -17,4 +17,4 @@ int vsnprintf(char *buf, int buflen, const char *fmt, va_list args);
 int sprintf(char *buf, const char *fmt, ...);
 int snprintf(char *buf, int buflen, const char *fmt, ...);
 
-#endif  /* _LIB_VSPRINTF_H */
+#endif /* _LIB_VSPRINTF_H */

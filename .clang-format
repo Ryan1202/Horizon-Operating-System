@@ -3,8 +3,10 @@ Language:        Cpp
 # BasedOnStyle:  WebKit
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
-AlignConsecutiveAssignments: ture
-AlignConsecutiveDeclarations: ture
+AlignConsecutiveAssignments: true
+AlignConsecutiveBitFields: true
+AlignConsecutiveDeclarations: true
+AlignConsecutiveMacros: true
 AlignEscapedNewlines: Right
 AlignOperands:   false
 AlignTrailingComments: false

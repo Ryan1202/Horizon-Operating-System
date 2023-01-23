@@ -53,7 +53,8 @@
 		"clang-analyzer-security.insecureAPI.strcpy",
 		"clang-diagnostic-incompatible-library-redeclaration",
 		"clang-diagnostic-implicit-function-declaration",
-		"clang-analyzer-deadcode.DeadStores"
+		"clang-analyzer-deadcode.DeadStores",
+		"clang-diagnostic-error"
 	],
 	"C_Cpp.errorSquiggles": "Disabled",
 	"makefile.launchConfigurations": [
