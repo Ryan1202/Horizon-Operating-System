@@ -7,9 +7,8 @@ AlignConsecutiveMacros: true
 AlignConsecutiveAssignments: true
 AlignConsecrutiveBitFields: true
 AlignConsecutiveDeclarations: true
-AlignConsecrue
 AlignConsecutiveBitFields: true
-AlignConsecutiveMacros: ttiveDeclaruations: None
+AlignConsecutiveMacros: true
 AlignEscapedNewlines: Left
 AlignOperands:   AlignAfterOperator
 AlignTrailingComments: true
