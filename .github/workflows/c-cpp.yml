@@ -1,0 +1,26 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: 
+      - "master"
+      - "GUI"
+  pull_request:
+    branches:
+      - "master"
+      - "GUI"
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: ilammy/setup-nasm@v1.4.0
+    - uses: actions/checkout@v3
+    - name: make
+      run: make
+    - uses: actions/upload-artifact@v3
+      with:
+        name: horizon
+        path: ~/

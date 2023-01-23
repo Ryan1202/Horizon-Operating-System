@@ -9,6 +9,7 @@ HD_SIZE		=	64
 
 APP_SRC		=	apps
 KERNEL_SRC	=	src
+TOOL_SRC	=	tools
 LIB_SRC		=	libs
 ARCH		=	$(KERNEL_SRC)/arch/x86
 BOOT_DIR	=	$(ARCH)/boot
@@ -51,6 +52,9 @@ app:
 kernel:
 	$(MAKE) -s -C $(BOOT_DIR)
 	$(MAKE) -s -C $(KERNEL_SRC)
+	
+tools:
+	$(MAKE) -s -C $(TOOL_SRC)
 
 lib:
 	$(MAKE) -s -C $(LIB_SRC)
@@ -59,6 +63,7 @@ clean:
 	$(MAKE) -s -C $(APP_SRC) clean
 	$(MAKE) -s -C $(BOOT_DIR) clean
 	$(MAKE) -s -C $(KERNEL_SRC) clean
+	$(MAKE) -s -C $(TOOL_SRC) clean
 	$(MAKE) -s -C $(LIB_SRC) clean
 
 writefd:
