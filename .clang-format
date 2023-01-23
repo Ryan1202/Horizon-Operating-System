@@ -5,7 +5,7 @@ AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
 AlignConsecutiveMacros: true
 AlignConsecutiveAssignments: true
-AlignConsecrutiveBitFields: tue
+AlignConsecrutiveBitFields: true
 AlignConsecutiveDeclarations: true
 AlignConsecrue
 AlignConsecutiveBitFields: true
