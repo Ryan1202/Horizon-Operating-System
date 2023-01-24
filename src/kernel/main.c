@@ -25,36 +25,35 @@
 #include <kernel/process.h>
 #include <kernel/thread.h>
 
-void                   idle(void *arg);
+void				   idle(void *arg);
 extern struct timerctl timerctl;
+struct task_s		  *l;
 
-int main()
-{
-    int i;
-    init_descriptor();
-    init_video();
-    init_console();
-    init_memory();
-    init_apic();
-    init_timer();
-    init_task();
-    init_pci();
-    io_sti();
-    printk("Memory Size:%d\n", get_memory_size());
-    printk("display mode: %d*%d %dbit\n", VideoInfo.width, VideoInfo.height, VideoInfo.BitsPerPixel);
-    thread_start("Idle", 1, idle, 0);
-    init_vfs();
-    do_initcalls();
-    init_fs();
-    console_start();
-    for (;;) {
-        io_hlt();
-    }
+int main() {
+	init_descriptor();
+	init_video();
+	init_console();
+	init_memory();
+	init_apic();
+	init_timer();
+	init_task();
+	l = thread_start("Idle", 1, idle, 0);
+	init_pci();
+	io_sti();
+	printk("Memory Size:%d\n", get_memory_size());
+	printk("display mode: %d*%d %dbit\n", VideoInfo.width, VideoInfo.height, VideoInfo.BitsPerPixel);
+	init_vfs();
+	do_initcalls();
+	init_fs();
+	console_start();
+
+	for (;;) {
+		io_hlt();
+	}
 }
 
-void idle(void *arg)
-{
-    for (;;) {
-        io_hlt();
-    }
+void idle(void *arg) {
+	for (;;) {
+		io_hlt();
+	}
 }
