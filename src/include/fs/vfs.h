@@ -113,6 +113,7 @@ void			   vfs_rename(struct index_node *inode, char *name);
 struct index_node *vfs_open(char *path);
 struct index_node *vfs_opendir(char *path);
 struct index_node *vfs_create(char *name, inode_attr_t attr, struct index_node *parent);
+void			   vfs_delete(struct index_node *inode);
 void			   vfs_close(struct index_node *inode);
 
 #endif

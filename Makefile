@@ -1,7 +1,13 @@
 DD		=	dd
 CP		=	cp
 
+ARCH_X86 := x86
+
+export ARCH_X86
+
+ifdef ARCH_X86
 QEMU	=	qemu-system-i386
+endif
 
 FD_IMG		=	./horizon.img
 HD_IMG		=	./hd0.img

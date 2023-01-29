@@ -8,13 +8,27 @@
 #include <kernel/spinlock.h>
 #include <string.h>
 
-typedef enum { UNSUPPORT = -3, NODEV = -2, FAILED = -1, SUCCUESS = 0, UNKNOWN } status_t;
+typedef enum {
+	UNSUPPORT = -3,
+	NODEV	  = -2,
+	FAILED	  = -1,
+	SUCCUESS  = 0,
+	UNKNOWN,
+} status_t;
 
-typedef enum { DEV_UNKNOWN = 0, DEV_STORAGE, DEV_MANAGER, DEV_KEYBOARD, DEV_MOUSE, DEV_USB } dev_type_t;
+typedef enum {
+	DEV_UNKNOWN = 0,
+	DEV_STORAGE,
+	DEV_MANAGER,
+	DEV_KEYBOARD,
+	DEV_MOUSE,
+	DEV_USB,
+	DEV_SOUND,
+	DEV_ETH_NET,
+} dev_type_t;
 
 typedef struct _device_s {
 	list_t	   list;
-	list_t	   request_queue_head;
 	spinlock_t lock;
 	dev_type_t type;
 
@@ -24,6 +38,7 @@ typedef struct _device_s {
 	string_t		   name;
 
 	list_t listm; // 特定驱动管理程序用
+	void  *dm_private;
 } device_t;
 
 typedef struct {
@@ -44,8 +59,20 @@ typedef struct _driver_s {
 	driver_func_t funtion;
 } driver_t;
 
+typedef struct _driver_manager_s {
+	string_t name;
+	list_t	 dev_listhead;
+	void	*private_data;
+
+	void (*dm_start)(void);
+	void (*dm_register)(struct _device_s *dev, char *name);
+	void (*dm_unregister)(struct _device_s *dev);
+} driver_manager_t;
+
 extern struct index_node *dev;
 
+void			   init_dm(void);
+void			   dm_start(void);
 struct index_node *dev_open(char *path);
 int				   dev_close(struct index_node *inode);
 int				   dev_read(struct index_node *inode, uint8_t *buffer, uint32_t length);
@@ -55,6 +82,5 @@ status_t		   driver_create(driver_func_t func, char *driver_name);
 status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
 					   device_t **device);
 void	 device_delete(device_t *device);
-int		 device_rw(device_t *devobj, int rw, char *buffer, int offset, size_t size);
 
 #endif

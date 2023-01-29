@@ -4,10 +4,10 @@
 #include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
-#include <kernel/network.h>
 #include <kernel/page.h>
 #include <kernel/spinlock.h>
 #include <kernel/wait_queue.h>
+#include <network/network.h>
 
 #include <drivers/network/rtl8139.h>
 
@@ -33,15 +33,17 @@ static status_t rtl8139_exit(driver_t *drv_obj);
 static status_t rtl8139_open(struct _device_s *dev);
 static status_t rtl8139_close(struct _device_s *dev);
 static status_t rtl8139_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+static status_t rtl8139_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t value);
 
 driver_func_t rtl8139_driver = {
 	.driver_enter  = rtl8139_enter,
 	.driver_exit   = rtl8139_exit,
 	.driver_open   = rtl8139_open,
 	.driver_close  = rtl8139_close,
-	.driver_read   = NULL,
+	.driver_read   = rtl8139_read,
 	.driver_write  = rtl8139_write,
-	.driver_devctl = NULL,
+	.driver_devctl = rtl8139_ioctl,
 };
 
 struct read_request_s {
@@ -143,7 +145,7 @@ void rtl8139_handler(int irq) {
 static status_t rtl8139_enter(driver_t *drv_obj) {
 	int i;
 
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_USB, &rtl8139);
+	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_ETH_NET, &rtl8139);
 	rtl8139_ext = rtl8139->device_extension;
 
 	rtl8139_ext->device = pci_get_device_ById(RTL8139_VENDOR_ID, RTL8139_DEVICE_ID);
@@ -272,6 +274,22 @@ static status_t rtl8139_write(struct _device_s *dev, uint8_t *buf, uint32_t offs
 	devext->tx_idx_w = (devext->tx_idx_w + 1) % TX_DESC_NR;
 
 	return SUCCUESS;
+}
+
+static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t value) {
+	int i;
+
+	device_extension_t *devext = dev->device_extension;
+
+	switch (func_num) {
+	case NETSTD_FUNC_GET_MAC_ADDR: {
+		uint8_t *addr = (uint8_t *)value;
+		for (i = 0; i < 6; i++) {
+			addr[i] = devext->mac_addr[i];
+		}
+		break;
+	}
+	}
 }
 
 static status_t rtl8139_close(struct _device_s *dev) {

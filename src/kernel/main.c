@@ -24,6 +24,8 @@
 #include <kernel/page.h>
 #include <kernel/process.h>
 #include <kernel/thread.h>
+#include <network/arp.h>
+#include <network/network.h>
 
 void				   idle(void *arg);
 extern struct timerctl timerctl;
@@ -41,10 +43,11 @@ int main() {
 	init_pci();
 	io_sti();
 	printk("Memory Size:%d\n", get_memory_size());
-	printk("display mode: %d*%d %dbit\n", VideoInfo.width, VideoInfo.height, VideoInfo.BitsPerPixel);
+	printk("Display mode: %d*%d %dbit\n", VideoInfo.width, VideoInfo.height, VideoInfo.BitsPerPixel);
 	init_vfs();
 	do_initcalls();
 	init_fs();
+
 	console_start();
 
 	for (;;) {

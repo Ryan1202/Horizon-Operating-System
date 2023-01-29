@@ -14,15 +14,20 @@
 #include <kernel/thread.h>
 #include <math.h>
 
+#include <network/network.h>
+
 LIST_HEAD(driver_list_head);
+
 struct index_node *dev;
 
-struct file_operations device_fops = {.open	 = dev_open,
-									  .close = dev_close,
-									  .read	 = dev_read,
-									  .write = dev_write,
-									  .ioctl = dev_ioctl,
-									  .seek	 = fs_seek};
+struct file_operations device_fops = {
+	.open  = dev_open,
+	.close = dev_close,
+	.read  = dev_read,
+	.write = dev_write,
+	.ioctl = dev_ioctl,
+	.seek  = fs_seek,
+};
 
 struct index_node *dev_open(char *path) {
 	struct index_node *inode = vfs_open(path);
@@ -47,6 +52,18 @@ int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t length) {
 
 int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg) {
 	return inode->device->drv_obj->funtion.driver_devctl(inode->device, cmd, arg);
+}
+
+void init_dm(void) {
+	init_network();
+}
+
+void dm_start(void) {
+	if (eth_dm.dm_start == NULL) {
+		printk("[driver]eth_dm.dm_start is null!\n");
+	} else {
+		eth_dm.dm_start();
+	}
 }
 
 status_t driver_create(driver_func_t func, char *driver_name) {
@@ -75,13 +92,15 @@ status_t driver_create(driver_func_t func, char *driver_name) {
 status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
 					   device_t **device) {
 	device_t *devobj = kmalloc(sizeof(device_t) + device_extension_size);
-	devobj->inode	 = vfs_create(name, ATTR_DEV, dev);
-	list_init(&devobj->inode->childs);
-	list_init(&devobj->request_queue_head);
-	devobj->inode->device = devobj;
-	devobj->inode->f_ops  = device_fops;
-	devobj->inode->fp	  = kmalloc(sizeof(struct file));
-	devobj->type		  = type;
+	if (type == DEV_ETH_NET) {
+		eth_dm.dm_register(devobj, name);
+	} else {
+		devobj->inode		  = vfs_create(name, ATTR_DEV, dev);
+		devobj->inode->device = devobj;
+		devobj->inode->f_ops  = device_fops;
+		devobj->inode->fp	  = kmalloc(sizeof(struct file));
+	}
+	devobj->type = type;
 	spinlock_init(&devobj->lock);
 	if (devobj == NULL) { return FAILED; }
 	list_init(&devobj->list);

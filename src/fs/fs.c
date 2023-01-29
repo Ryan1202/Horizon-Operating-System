@@ -60,10 +60,10 @@ void init_fs(void) {
 
 int fs_register(char *name, fs_operations_t *fs_ops) {
 	fs_t *fs = kmalloc(sizeof(fs_t));
-	list_add_tail(&fs->list, &fs_list_head);
 	string_init(&fs->name);
 	string_new(&fs->name, name, strlen(name));
 	fs->fs_ops = fs_ops;
+	list_add_tail(&fs->list, &fs_list_head);
 	return 0;
 }
 

@@ -93,7 +93,7 @@ void sb16_handler(int irq) {
 static status_t sb16_enter(driver_t *drv_obj) {
 	device_extension_t *devext;
 
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MOUSE, &sb16);
+	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_SOUND, &sb16);
 	if (sb16 == NULL) {
 		device_delete(sb16);
 		return FAILED;
