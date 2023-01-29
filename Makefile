@@ -89,6 +89,9 @@ qemu_dbg:
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
 	-soundhw sb16 \
+	-device rtl8139,netdev=nc1 \
+	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
+	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
 	-boot a
 	
 qemu:
@@ -98,4 +101,7 @@ qemu:
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
 	-soundhw sb16 \
+	-device rtl8139,netdev=nc1 \
+	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
+	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
 	-boot a

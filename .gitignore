@@ -58,3 +58,4 @@ core
 fixdep
 *.img
 *.log
+*.dat

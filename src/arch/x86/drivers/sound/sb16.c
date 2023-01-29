@@ -125,7 +125,7 @@ static status_t sb16_enter(driver_t *drv_obj) {
 	// 设置采样率
 	sb16_set_sample_rate(44100);
 
-	put_irq_handler(SB16_IRQ, sb16_handler);
+	put_irq_handler(SB16_IRQ, (irq_handler_t)sb16_handler);
 	irq_enable(SB16_IRQ);
 	return SUCCUESS;
 }
@@ -199,7 +199,7 @@ status_t sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t *devext = dev->device_extension;
 	int					i;
 	while ((devext->index_w + 1) % DMA_MAX == devext->index_r) {
-		wait_queue_add(devext->wqm);
+		wait_queue_add(devext->wqm, 0);
 		thread_block(TASK_BLOCKED);
 	}
 	uint8_t *dma_mem = (uint8_t *)(0x800000 + devext->index_w * 0x10000);
