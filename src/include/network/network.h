@@ -8,7 +8,8 @@
 #define ETH_MAX_FRAME_SIZE 1536
 #define ETH_MIN_FRAME_SIZE 60
 
-#define NETSTD_FUNC_GET_MAC_ADDR 0x01
+#define NET_FUNC_GET_MAC_ADDR 0x01
+#define NET_FUNC_SET_MAC_ADDR 0x02
 
 #define ETH_TYPE_IPV4	0x0800
 #define ETH_TYPE_IPV6	0x86dd
@@ -34,7 +35,6 @@ typedef struct {
 	uint8_t	 dest_mac[6];
 	uint8_t	 src_mac[6];
 	uint16_t type;
-	uint8_t *data;
 	list_t	 list;
 } __attribute__((packed)) eth_frame_t;
 
@@ -42,7 +42,7 @@ extern driver_manager_t eth_dm;
 extern device_t		   *default_net_device;
 
 void init_network(void);
-void eth_write(device_t *device, eth_frame_t *frame, uint8_t *data, uint8_t length);
-void eth_get_mac(device_t *device, uint8_t *addr);
+void eth_write(device_t *device, uint8_t *src_mac, uint8_t *dst_mac, uint16_t type, uint8_t *data,
+			   uint8_t length);
 
 #endif

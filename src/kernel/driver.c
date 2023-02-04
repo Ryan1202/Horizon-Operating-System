@@ -32,26 +32,26 @@ struct file_operations device_fops = {
 struct index_node *dev_open(char *path) {
 	struct index_node *inode = vfs_open(path);
 	if (inode == NULL) return NULL;
-	else inode->device->drv_obj->funtion.driver_open(inode->device);
+	else inode->device->drv_obj->function.driver_open(inode->device);
 	return inode;
 }
 
 int dev_close(struct index_node *inode) {
-	return inode->device->drv_obj->funtion.driver_close(inode->device);
+	return inode->device->drv_obj->function.driver_close(inode->device);
 }
 
 int dev_read(struct index_node *inode, uint8_t *buffer, uint32_t length) {
-	return inode->device->drv_obj->funtion.driver_read(inode->device, (uint8_t *)buffer, inode->fp->offset,
-													   length);
-}
-
-int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t length) {
-	return inode->device->drv_obj->funtion.driver_write(inode->device, (uint8_t *)buffer, inode->fp->offset,
+	return inode->device->drv_obj->function.driver_read(inode->device, (uint8_t *)buffer, inode->fp->offset,
 														length);
 }
 
+int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t length) {
+	return inode->device->drv_obj->function.driver_write(inode->device, (uint8_t *)buffer, inode->fp->offset,
+														 length);
+}
+
 int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg) {
-	return inode->device->drv_obj->funtion.driver_devctl(inode->device, cmd, arg);
+	return inode->device->drv_obj->function.driver_devctl(inode->device, cmd, arg);
 }
 
 void init_dm(void) {
@@ -75,8 +75,8 @@ status_t driver_create(driver_func_t func, char *driver_name) {
 	if (func.driver_enter == NULL) { return FAILED; }
 	list_init(&drv_obj->device_list);
 	list_init(&drv_obj->list);
-	drv_obj->funtion = func;
-	status			 = drv_obj->funtion.driver_enter(drv_obj);
+	drv_obj->function = func;
+	status			  = drv_obj->function.driver_enter(drv_obj);
 	if (status == NODEV) {
 		printk("[driver manager]Cannot found device:%s\n", driver_name);
 	} else if (status != SUCCUESS) {

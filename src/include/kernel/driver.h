@@ -51,12 +51,19 @@ typedef struct {
 	status_t (*driver_devctl)(struct _device_s *dev, uint32_t func_num, uint32_t value);
 } driver_func_t;
 
+#define DEV_READ(device, buf, offset, size) \
+	device->drv_obj->function.driver_read(device, (uint8_t *)buf, (uint32_t)offset, (size_t)size)
+#define DEV_WRITE(device, buf, offset, size) \
+	device->drv_obj->function.driver_write(device, (uint8_t *)buf, (uint32_t)offset, (size_t)size)
+#define DEV_CTL(device, func, value) \
+	device->drv_obj->function.driver_devctl(device, (uint32_t)func, (uint32_t)value)
+
 typedef struct _driver_s {
 	list_t	 list;
 	list_t	 device_list;
 	string_t name;
 
-	driver_func_t funtion;
+	driver_func_t function;
 } driver_t;
 
 typedef struct _driver_manager_s {

@@ -282,10 +282,17 @@ static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t
 	device_extension_t *devext = dev->device_extension;
 
 	switch (func_num) {
-	case NETSTD_FUNC_GET_MAC_ADDR: {
+	case NET_FUNC_GET_MAC_ADDR: {
 		uint8_t *addr = (uint8_t *)value;
 		for (i = 0; i < 6; i++) {
 			addr[i] = devext->mac_addr[i];
+		}
+		break;
+	}
+	case NET_FUNC_SET_MAC_ADDR: {
+		uint8_t *addr = (uint8_t *)value;
+		for (i = 0; i < 6; i++) {
+			devext->mac_addr[i] = addr[i];
 		}
 		break;
 	}

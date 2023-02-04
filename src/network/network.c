@@ -36,27 +36,6 @@ typedef struct {
 	list_t *lists;
 } eth_t;
 
-uint8_t *eth_read(struct index_node *inode, uint8_t *buffer, uint32_t length) {
-	uint8_t	 *buf	 = kmalloc(ETH_MAX_FRAME_SIZE);
-	device_t *device = list_owner(&inode->device->listm, device_t, listm);
-	device->drv_obj->funtion.driver_read(device, buf, 0, 0);
-}
-
-void eth_write(device_t *device, eth_frame_t *frame, uint8_t *data, uint8_t length) {
-	uint16_t size = MAX(ETH_MIN_FRAME_SIZE, length + 16);
-	uint8_t *buf  = kmalloc(size);
-	memcpy(buf, frame, 12);
-	*((uint16_t *)(buf + 12)) = HOST2BE_WORD(frame->type);
-	memcpy(buf + 14, data, length);
-	memset(buf + length + 14, 0, size - length - 14);
-	device->drv_obj->funtion.driver_write(device, buf, 0, size);
-	kfree(buf);
-}
-
-void eth_get_mac(device_t *device, uint8_t *addr) {
-	device->drv_obj->funtion.driver_devctl(device, NETSTD_FUNC_GET_MAC_ADDR, (uint32_t)addr);
-}
-
 void init_network(void) {
 	eth_t *eth;
 	eth_dm.private_data = kmalloc(sizeof(eth_t));
@@ -66,15 +45,37 @@ void init_network(void) {
 	list_init(&eth_dm.dev_listhead);
 }
 
+uint8_t *eth_read(struct index_node *inode, uint8_t *buffer, uint32_t length) {
+	uint8_t	 *buf	 = kmalloc(ETH_MAX_FRAME_SIZE);
+	device_t *device = list_owner(&inode->device->listm, device_t, listm);
+	device->drv_obj->function.driver_read(device, buf, 0, 0);
+}
+
+void eth_write(device_t *device, uint8_t *src_mac, uint8_t *dst_mac, uint16_t type, uint8_t *data,
+			   uint8_t length) {
+	eth_frame_t *frame;
+	uint16_t	 size = MAX(ETH_MIN_FRAME_SIZE, length + 16);
+	uint8_t		*buf  = kmalloc(size);
+	frame			  = (eth_frame_t *)buf;
+
+	memcpy(frame->src_mac, src_mac, 6);
+	memcpy(frame->dest_mac, dst_mac, 6);
+	frame->type = HOST2BE_WORD(type);
+	memcpy(buf + 14, data, length);
+	memset(buf + length + 14, 0, size - length - 14);
+	device->drv_obj->function.driver_write(device, buf, 0, size);
+	kfree(buf);
+}
+
 void eth_service(void *arg) {
 	device_t	*device	  = (device_t *)arg;
 	list_t		*listhead = (list_t *)device->dm_private;
 	uint8_t		*buf	  = kmalloc(ETH_MAX_FRAME_SIZE);
 	uint16_t	 offset	  = 0;
 	eth_frame_t *frame	  = kmalloc(sizeof(eth_frame_t));
-	device->drv_obj->funtion.driver_open(device);
+	device->drv_obj->function.driver_open(device);
 	while (1) {
-		device->drv_obj->funtion.driver_read(device, buf + offset, 0, ETH_MAX_FRAME_SIZE - offset);
+		device->drv_obj->function.driver_read(device, buf + offset, 0, ETH_MAX_FRAME_SIZE - offset);
 		memcpy(frame, buf, sizeof(eth_frame_t) - sizeof(uint8_t) - sizeof(uint16_t) - sizeof(list_t));
 		frame->type = BE2HOST_WORD((uint16_t)(buf + sizeof(uint8_t) * 12));
 	}
