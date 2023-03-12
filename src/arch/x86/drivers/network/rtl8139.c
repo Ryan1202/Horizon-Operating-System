@@ -7,6 +7,7 @@
 #include <kernel/page.h>
 #include <kernel/spinlock.h>
 #include <kernel/wait_queue.h>
+#include <network/eth.h>
 #include <network/network.h>
 
 #include <drivers/network/rtl8139.h>
@@ -48,7 +49,7 @@ driver_func_t rtl8139_driver = {
 
 struct read_request_s {
 	uint8_t *buffer;
-	uint8_t	 length;
+	uint32_t length;
 };
 
 typedef struct {
@@ -95,6 +96,7 @@ void rtl8139_handler(int irq) {
 	wait_queue_t		  *wq;
 	struct read_request_s *rq;
 	uint16_t			   status = io_in16(rtl8139_ext->io_base + RTL8139_ISR);
+	uint16_t			   info, length;
 	if (status & RTL8139_ISR_SERR) {
 		printk("[RTL8139]SERR\n");
 		io_out16(rtl8139_ext->io_base + RTL8139_ISR, RTL8139_ISR_SERR);
@@ -126,6 +128,7 @@ void rtl8139_handler(int irq) {
 	if (status & RTL8139_ISR_TOK) {
 		printk("[RTL8139]TOK\n");
 		io_out16(rtl8139_ext->io_base + RTL8139_ISR, RTL8139_ISR_TOK);
+		rtl8139_ext->tx_idx_done = (rtl8139_ext->tx_idx_done + 1) % TX_DESC_NR;
 	}
 	if (status & RTL8139_ISR_RER) {
 		printk("[RTL8139]RER\n");
@@ -135,9 +138,13 @@ void rtl8139_handler(int irq) {
 		printk("[RTL8139]ROK\n");
 		io_out16(rtl8139_ext->io_base + RTL8139_ISR, RTL8139_ISR_ROK);
 
-		wq = wait_queue_first(rtl8139_ext->wqm);
-		rq = (struct read_request_s *)wq->private_data;
-		memcpy(rq->buffer, rtl8139_ext->rx_buffer, rq->length);
+		info   = *(uint16_t *)rtl8139_ext->rx_buffer;
+		length = *(uint16_t *)(rtl8139_ext->rx_buffer + 2);
+		if (length > 14 && (info & 1)) {
+			((eth_handler_t)rtl8139->drv_obj->dm->private_data)(rtl8139->drv_obj->dm,
+																rtl8139_ext->rx_buffer + 4, length);
+		}
+		wait_queue_wakeup(rtl8139_ext->wqm);
 	}
 	return;
 }
@@ -282,6 +289,11 @@ static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t
 	device_extension_t *devext = dev->device_extension;
 
 	switch (func_num) {
+	case NET_FUNC_GET_MTU: {
+		uint32_t *p = (uint32_t *)value;
+		*p			= ETH_MTU;
+		break;
+	}
 	case NET_FUNC_GET_MAC_ADDR: {
 		uint8_t *addr = (uint8_t *)value;
 		for (i = 0; i < 6; i++) {
@@ -297,6 +309,7 @@ static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t
 		break;
 	}
 	}
+	return SUCCUESS;
 }
 
 static status_t rtl8139_close(struct _device_s *dev) {

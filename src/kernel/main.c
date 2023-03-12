@@ -25,6 +25,7 @@
 #include <kernel/process.h>
 #include <kernel/thread.h>
 #include <network/arp.h>
+#include <network/dhcp.h>
 #include <network/ipv4.h>
 #include <network/network.h>
 #include <network/udp.h>
@@ -50,12 +51,11 @@ int main() {
 	do_initcalls();
 	init_fs();
 
-	uint8_t dst_ip[] = {192, 168, 1, 1}, src_ip[] = {0, 0, 0, 0};
-	uint8_t dst_mac[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-	uint8_t src_mac[6];
-	uint8_t data[] = "Hello World!";
-	DEV_CTL(default_net_device, NET_FUNC_GET_MAC_ADDR, src_mac);
-	udp_send(default_net_device, src_mac, src_ip, dst_mac, dst_ip, 80, 80, (uint16_t *)data, sizeof(data));
+	int ret = dhcp_main(default_net_dev);
+	while (ret == -4) {
+		ret = dhcp_main(default_net_dev);
+	}
+	if (ret < 0) { printk("[DHCPipv4 address request failed!\n"); }
 
 	console_start();
 

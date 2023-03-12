@@ -36,9 +36,6 @@ typedef struct _device_s {
 	struct _driver_s  *drv_obj;
 	void			  *device_extension;
 	string_t		   name;
-
-	list_t listm; // 特定驱动管理程序用
-	void  *dm_private;
 } device_t;
 
 typedef struct {
@@ -58,23 +55,26 @@ typedef struct {
 #define DEV_CTL(device, func, value) \
 	device->drv_obj->function.driver_devctl(device, (uint32_t)func, (uint32_t)value)
 
+typedef struct _device_manager_s {
+	string_t name;
+	list_t	 dev_listhead;
+	void	*private_data;
+
+	void (*dm_register)(struct _device_manager_s *dm, struct _device_s *dev, char *name);
+	void (*dm_unregister)(struct _device_manager_s *dm, struct _device_s *dev);
+
+	void (*drv_inited)(struct _device_manager_s *dm);
+} device_manager_t;
+
 typedef struct _driver_s {
 	list_t	 list;
 	list_t	 device_list;
 	string_t name;
 
 	driver_func_t function;
+
+	struct _device_manager_s *dm;
 } driver_t;
-
-typedef struct _driver_manager_s {
-	string_t name;
-	list_t	 dev_listhead;
-	void	*private_data;
-
-	void (*dm_start)(void);
-	void (*dm_register)(struct _device_s *dev, char *name);
-	void (*dm_unregister)(struct _device_s *dev);
-} driver_manager_t;
 
 extern struct index_node *dev;
 
@@ -89,5 +89,6 @@ status_t		   driver_create(driver_func_t func, char *driver_name);
 status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
 					   device_t **device);
 void	 device_delete(device_t *device);
+void	 driver_inited();
 
 #endif

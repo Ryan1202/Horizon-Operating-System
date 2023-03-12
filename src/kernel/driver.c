@@ -14,6 +14,7 @@
 #include <kernel/thread.h>
 #include <math.h>
 
+#include <network/eth.h>
 #include <network/network.h>
 
 LIST_HEAD(driver_list_head);
@@ -58,14 +59,6 @@ void init_dm(void) {
 	init_network();
 }
 
-void dm_start(void) {
-	if (eth_dm.dm_start == NULL) {
-		printk("[driver]eth_dm.dm_start is null!\n");
-	} else {
-		eth_dm.dm_start();
-	}
-}
-
 status_t driver_create(driver_func_t func, char *driver_name) {
 	driver_t *drv_obj;
 	int		  status;
@@ -89,11 +82,19 @@ status_t driver_create(driver_func_t func, char *driver_name) {
 	return SUCCUESS;
 }
 
+void driver_inited() {
+	driver_t *cur, *next;
+	list_for_each_owner_safe (cur, next, &driver_list_head, list) {
+		if (cur->dm != NULL) { cur->dm->drv_inited(cur->dm); }
+	}
+}
+
 status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
 					   device_t **device) {
 	device_t *devobj = kmalloc(sizeof(device_t) + device_extension_size);
 	if (type == DEV_ETH_NET) {
-		eth_dm.dm_register(devobj, name);
+		eth_dm.dm_register(&eth_dm, devobj, name);
+		driver->dm = &eth_dm;
 	} else {
 		devobj->inode		  = vfs_create(name, ATTR_DEV, dev);
 		devobj->inode->device = devobj;

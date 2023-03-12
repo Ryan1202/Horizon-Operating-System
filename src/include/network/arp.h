@@ -4,6 +4,7 @@
 #include "../stdint.h"
 #include <kernel/driver.h>
 #include <kernel/list.h>
+#include <network/network.h>
 
 #define ARP_HWTYPE_ETH 0x0001
 
@@ -29,7 +30,7 @@ typedef struct {
 	list_t	list;
 } arp_cache_t;
 
-uint8_t *ip2mac(device_t *device, uint8_t *src_mac, uint8_t *ip);
-void	 send_arp(device_t *device, uint8_t *src_mac, uint8_t *dst_ip, uint16_t opcode);
+uint8_t *ip2mac(netc_t *netc, uint8_t *src_mac, uint8_t *ip);
+void	 send_arp(netc_t *netc, uint8_t *src_mac, uint8_t *dst_ip, uint16_t opcode);
 
 #endif

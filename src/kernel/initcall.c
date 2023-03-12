@@ -20,7 +20,7 @@ void do_initcalls(void) {
 	for (; func < &(*__initcall_end); func++) {
 		(*func)();
 	}
-	dm_start();
+	driver_inited();
 }
 
 void do_exitcalls(void) {
