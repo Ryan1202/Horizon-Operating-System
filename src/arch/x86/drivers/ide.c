@@ -254,8 +254,8 @@ static status_t ide_enter(driver_t *drv_obj);
 static status_t ide_exit(driver_t *drv_obj);
 status_t		ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
 status_t		ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-void			ide0_handler(int irq);
-void			ide1_handler(int irq);
+void			ide0_handler(device_t *devobj, int irq);
+void			ide1_handler(device_t *devobj, int irq);
 void			ide_reset_driver(struct ide_channel *channel);
 void			ide_select_device(device_extension_t *devext, char mode, unsigned char head);
 int				ide_pulling(struct ide_channel *channel, unsigned int advanced_check);
@@ -355,13 +355,11 @@ static status_t ide_enter(driver_t *drv_obj) {
 	channels[0].base		= ATA_PRIMARY_PORT;
 	channels[0].channel_num = 0;
 	channels[0].irq_num		= IDE0_IRQ;
-	put_irq_handler(IDE0_IRQ, &ide0_handler);
-	irq_enable(IDE0_IRQ);
+	device_register_irq(devobj, IDE0_IRQ, ide0_handler);
 	channels[1].base		= ATA_SECONDARY_PORT;
 	channels[1].channel_num = 1;
 	channels[1].irq_num		= IDE1_IRQ;
-	put_irq_handler(IDE1_IRQ, &ide1_handler);
-	irq_enable(IDE1_IRQ);
+	device_register_irq(devobj, IDE1_IRQ, ide1_handler);
 	channels[0].selected_drive = channels[1].selected_drive = 0;
 	channels[0].bmr											= device->bar[4].base_addr;
 	channels[1].bmr											= channels[0].bmr;
@@ -474,10 +472,10 @@ void ide_write_sector(device_extension_t *devext, uint32_t lba, char *buf) {
 	AtaTypeTransfer(devext, IDE_WRITE, lba, 1, buf);
 }
 
-void ide0_handler(int irq) {
+void ide0_handler(device_t *devobj, int irq) {
 }
 
-void ide1_handler(int irq) {
+void ide1_handler(device_t *devobj, int irq) {
 }
 
 void ide_reset_driver(struct ide_channel *channel) {

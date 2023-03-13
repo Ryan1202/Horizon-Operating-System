@@ -51,9 +51,7 @@ status_t		sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size);
 #define DEV_NAME "sb16"
 
 #define DMA_MAX 4
-
-device_t *sb16;
-uint32_t  data_len[DMA_MAX];
+uint32_t data_len[DMA_MAX];
 
 driver_func_t sb16_driver = {.driver_enter	= sb16_enter,
 							 .driver_exit	= sb16_exit,
@@ -77,8 +75,8 @@ uint8_t	 dsp_read();
 status_t dsp_reset(void);
 void	 sb16_set_sample_rate(uint16_t samplerate);
 
-void sb16_handler(int irq) {
-	device_extension_t *devext = sb16->device_extension;
+void sb16_handler(device_t *devobj, int irq) {
+	device_extension_t *devext = devobj->device_extension;
 	dsp_write(SB16_CMD_STOP_PLAY16);
 	io_in8(SB16_DSP_READ_STATUS);
 	if (devext->major_ver >= 4) { io_in8(SB16_DESP_IACK16); }
@@ -91,14 +89,15 @@ void sb16_handler(int irq) {
 }
 
 static status_t sb16_enter(driver_t *drv_obj) {
+	device_t		   *devobj;
 	device_extension_t *devext;
 
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_SOUND, &sb16);
-	if (sb16 == NULL) {
-		device_delete(sb16);
+	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_SOUND, &devobj);
+	if (devobj == NULL) {
+		device_delete(devobj);
 		return FAILED;
 	}
-	devext = sb16->device_extension;
+	devext = devobj->device_extension;
 
 	spinlock_init(&devext->lock);
 	devext->wqm = create_wait_queue();
@@ -112,7 +111,7 @@ static status_t sb16_enter(driver_t *drv_obj) {
 
 	// 复位DSP
 	if (dsp_reset() != SUCCUESS) {
-		device_delete(sb16);
+		device_delete(devobj);
 		return FAILED;
 	}
 
@@ -125,8 +124,7 @@ static status_t sb16_enter(driver_t *drv_obj) {
 	// 设置采样率
 	sb16_set_sample_rate(44100);
 
-	put_irq_handler(SB16_IRQ, (irq_handler_t)sb16_handler);
-	irq_enable(SB16_IRQ);
+	device_register_irq(devobj, SB16_IRQ, sb16_handler);
 	return SUCCUESS;
 }
 

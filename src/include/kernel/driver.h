@@ -76,6 +76,13 @@ typedef struct _driver_s {
 	struct _device_manager_s *dm;
 } driver_t;
 
+typedef void (*driver_irq_handler_t)(device_t *devobj, int irq);
+typedef struct {
+	list_t				 list;
+	device_t			*devobj;
+	driver_irq_handler_t handler;
+} dev_irq_t;
+
 extern struct index_node *dev;
 
 void			   init_dm(void);
@@ -89,6 +96,9 @@ status_t		   driver_create(driver_func_t func, char *driver_name);
 status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
 					   device_t **device);
 void	 device_delete(device_t *device);
+void	 device_register_irq(device_t *devobj, int irq, driver_irq_handler_t handler);
+void	 device_unregister_irq(device_t *devobj, int irq);
+void	 device_irq_handler(int irq);
 void	 driver_inited();
 
 #endif

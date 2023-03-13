@@ -9,6 +9,7 @@
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/console.h>
+#include <kernel/descriptor.h>
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <kernel/thread.h>
@@ -18,6 +19,16 @@
 #include <network/network.h>
 
 LIST_HEAD(driver_list_head);
+list_t irq_handler_lists[16] = {
+	LIST_HEAD_INIT(irq_handler_lists[0]),  LIST_HEAD_INIT(irq_handler_lists[1]),
+	LIST_HEAD_INIT(irq_handler_lists[2]),  LIST_HEAD_INIT(irq_handler_lists[3]),
+	LIST_HEAD_INIT(irq_handler_lists[4]),  LIST_HEAD_INIT(irq_handler_lists[5]),
+	LIST_HEAD_INIT(irq_handler_lists[6]),  LIST_HEAD_INIT(irq_handler_lists[7]),
+	LIST_HEAD_INIT(irq_handler_lists[8]),  LIST_HEAD_INIT(irq_handler_lists[9]),
+	LIST_HEAD_INIT(irq_handler_lists[10]), LIST_HEAD_INIT(irq_handler_lists[11]),
+	LIST_HEAD_INIT(irq_handler_lists[12]), LIST_HEAD_INIT(irq_handler_lists[13]),
+	LIST_HEAD_INIT(irq_handler_lists[14]), LIST_HEAD_INIT(irq_handler_lists[15]),
+};
 
 struct index_node *dev;
 
@@ -128,4 +139,33 @@ void device_delete(device_t *device) {
 	list_del(&device->list);
 	string_del(&driver->name);
 	kfree(device);
+}
+
+void device_register_irq(device_t *devobj, int irq, driver_irq_handler_t handler) {
+	if (irq > 16) return;
+	if (list_empty(&irq_handler_lists[irq])) irq_enable(irq);
+	dev_irq_t *dev_irq = kmalloc(sizeof(dev_irq_t));
+	dev_irq->devobj	   = devobj;
+	dev_irq->handler   = handler;
+	list_add_tail(&dev_irq->list, &irq_handler_lists[irq]);
+}
+
+void device_unregister_irq(device_t *devobj, int irq) {
+	if (irq > 16) return;
+	if (list_empty(&irq_handler_lists[irq])) return;
+	dev_irq_t *dev_irq, *next;
+	list_for_each_owner_safe (dev_irq, next, &irq_handler_lists[irq], list) {
+		if (dev_irq->devobj == devobj) {
+			list_del(&dev_irq->list);
+			kfree(dev_irq);
+		}
+	}
+}
+
+void device_irq_handler(int irq) {
+	dev_irq_t *cur, *next;
+	if (list_empty(&irq_handler_lists[irq])) return;
+	list_for_each_owner_safe (cur, next, &irq_handler_lists[irq], list) {
+		cur->handler(cur->devobj, irq);
+	}
 }

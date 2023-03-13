@@ -30,9 +30,8 @@
 #include <network/network.h>
 #include <network/udp.h>
 
-void				   idle(void *arg);
-extern struct timerctl timerctl;
-struct task_s		  *l;
+void		   idle(void *arg);
+struct task_s *task_idle;
 
 int main() {
 	init_descriptor();
@@ -42,7 +41,7 @@ int main() {
 	init_apic();
 	init_timer();
 	init_task();
-	l = thread_start("Idle", 1, idle, 0);
+	task_idle = thread_start("Idle", 1, idle, 0);
 	init_pci();
 	io_sti();
 	printk("Memory Size:%d\n", get_memory_size());
@@ -55,7 +54,7 @@ int main() {
 	while (ret == -4) {
 		ret = dhcp_main(default_net_dev);
 	}
-	if (ret < 0) { printk("[DHCPipv4 address request failed!\n"); }
+	if (ret < 0) { printk("[DHCP]ipv4 address request failed!\n"); }
 
 	console_start();
 
