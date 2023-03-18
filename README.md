@@ -17,15 +17,15 @@
 
 建议使用```VSCode```开发
 
-需要的工具:
-- dd
-- gcc
+需要的工具(括号中为我使用的版本):
+- dd(8.30)
+- gcc(8.3.0)
 - kpartx
-- ld
-- make
-- mkfs
-- nasm
-- qemu
+- ld(2.31.1)
+- make(4.2.1)
+- mkfs(2.38.1)
+- nasm(2.14)
+- qemu-system-i386(7.1.0)
 
 ### VSCode
 
