@@ -28,6 +28,8 @@
 #define RXFTH_NONE RTL8139_RCR_RXFTH(0x07)
 #define RBLEN_64K  RTL8139_RCR_RBLEN(0x03)
 
+#define RTL8139_RECV_BUF_SIZE 8192 + 16 + 1500
+
 static status_t rtl8139_enter(driver_t *drv_obj);
 static status_t rtl8139_exit(driver_t *drv_obj);
 static status_t rtl8139_open(struct _device_s *dev);
@@ -68,6 +70,7 @@ typedef struct {
 	wait_queue_manager_t *wqm;
 	wait_queue_manager_t *rqm;
 
+	uint16_t rx_offset;
 	uint8_t *rx_buffer;
 	uint32_t rx_buffer_phy;
 } device_extension_t;
@@ -94,6 +97,7 @@ void rtl8139_handler(device_t *devobj, int irq) {
 	struct read_request_s *rq;
 	uint16_t			   status = io_in16(devext->io_base + RTL8139_ISR);
 	uint16_t			   info, length;
+	int					   i;
 	if (status & RTL8139_ISR_SERR) {
 		printk("[RTL8139]SERR\n");
 		io_out16(devext->io_base + RTL8139_ISR, RTL8139_ISR_SERR);
@@ -135,12 +139,25 @@ void rtl8139_handler(device_t *devobj, int irq) {
 		printk("[RTL8139]ROK\n");
 		io_out16(devext->io_base + RTL8139_ISR, RTL8139_ISR_ROK);
 
+		i	   = devext->rx_offset;
 		info   = *(uint16_t *)devext->rx_buffer;
-		length = *(uint16_t *)(devext->rx_buffer + 2);
-		if (length > 14 && (info & 1)) {
-			((eth_handler_t)devobj->drv_obj->dm->private_data)(devobj->drv_obj->dm, devext->rx_buffer + 4,
-															   length);
+		length = *(uint16_t *)(devext->rx_buffer + 2) - 4;
+		i += 4;
+		if (length >= 14 && (info & 1)) {
+			uint8_t *tmpbuffer = kmalloc(length);
+			if (i + length >= RTL8139_RECV_BUF_SIZE) {
+				memcpy(tmpbuffer, devext->rx_buffer + i, RTL8139_RECV_BUF_SIZE - i);
+				i = RTL8139_RECV_BUF_SIZE - i;
+				memcpy(tmpbuffer, devext->rx_buffer + i, length - i);
+			} else {
+				memcpy(tmpbuffer, devext->rx_buffer + i, length);
+			}
+			((eth_handler_t)devobj->drv_obj->dm->private_data)(devobj->drv_obj->dm, tmpbuffer, length);
+			kfree(tmpbuffer);
 		}
+		devext->rx_offset = (devext->rx_offset + length + 8 + 3) & ~3;
+		devext->rx_offset %= RTL8139_RECV_BUF_SIZE;
+		io_out16(devext->io_base + RTL8139_CAPR, devext->rx_offset - 0x10);
 		wait_queue_wakeup(devext->wqm);
 	}
 	return;
@@ -196,7 +213,8 @@ static status_t rtl8139_enter(driver_t *drv_obj) {
 	io_out8(devext->io_base + RTL8139_9346CR, 0xc0); // Unlock
 
 	// 分配接收缓冲区
-	devext->rx_buffer = kmalloc(8192 + 16 + 1500);
+	devext->rx_offset = 0;
+	devext->rx_buffer = kmalloc(RTL8139_RECV_BUF_SIZE);
 	if (devext->rx_buffer == NULL) { return FAILED; }
 	devext->rx_buffer_phy = vir2phy((uint32_t)devext->rx_buffer);
 	io_out32(devext->io_base + RTL8139_RBSTART, devext->rx_buffer_phy);

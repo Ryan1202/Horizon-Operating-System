@@ -35,6 +35,11 @@ netc_t *netc_create(net_device_t *net_dev, uint16_t protocol, uint16_t app_proto
 	return netc;
 }
 
+int netc_delete(netc_t *netc) {
+	kfree(netc);
+	return 0;
+}
+
 void netc_set_dest(netc_t *netc, uint8_t dst_mac[6]) {
 	memcpy(netc->dst_mac, dst_mac, 6);
 }
@@ -58,4 +63,9 @@ int netc_read(netc_t *netc, uint8_t *buf, uint32_t size) {
 		netc->recv_len -= real_size;
 	}
 	return real_size;
+}
+
+void netc_drop_all(netc_t *netc) {
+	netc->recv_offset = 0;
+	netc->recv_len	  = 0;
 }

@@ -26,11 +26,11 @@ typedef struct {
 typedef struct {
 	uint8_t ip[4];
 	uint8_t mac[6];
-	uint8_t count;
 	list_t	list;
 } arp_cache_t;
 
-uint8_t *ip2mac(netc_t *netc, uint8_t *src_mac, uint8_t *ip);
-void	 send_arp(netc_t *netc, uint8_t *src_mac, uint8_t *dst_ip, uint16_t opcode);
+uint8_t *ip2mac(netc_t *netc, uint8_t *ip);
+void	 send_arp(netc_t *netc, uint8_t *dst_ip, uint16_t opcode);
+void	 arp_read(uint8_t *buf, uint16_t offset, uint16_t length);
 
 #endif

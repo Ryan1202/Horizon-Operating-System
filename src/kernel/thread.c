@@ -22,7 +22,7 @@ list_t		   thread_all;
 struct lock	   pid_lock;
 uint32_t	   new_pid = 0;
 
-extern struct task_s *l;
+extern struct task_s *task_idle;
 
 /**
  * @brief 分配pid
@@ -237,8 +237,8 @@ void schedule(void) {
 
 		switch_to((int *)cur, (int *)next);
 	} else {
-		process_activate(l);
-		switch_to((int *)cur, (int *)l);
+		process_activate(task_idle);
+		switch_to((int *)cur, (int *)task_idle);
 	}
 }
 

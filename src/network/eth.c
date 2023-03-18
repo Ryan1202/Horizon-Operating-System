@@ -6,6 +6,7 @@
 #include <kernel/memory.h>
 #include <kernel/thread.h>
 #include <math.h>
+#include <network/arp.h>
 #include <network/eth.h>
 #include <network/ipv4.h>
 #include <network/network.h>
@@ -54,6 +55,9 @@ void eth_handler(device_manager_t *eth_dm, uint8_t *buf, uint16_t size) {
 	case ETH_TYPE_IPV4:
 		ipv4_read(buf, sizeof(eth_frame_t), size - sizeof(eth_frame_t));
 		break;
+	case ETH_TYPE_ARP:
+		arp_read(buf, sizeof(eth_frame_t), size - sizeof(eth_frame_t));
+		break;
 
 	default:
 		break;
@@ -93,6 +97,7 @@ void eth_driver_inited(struct _device_manager_s *dm) {
 	net_device_t *cur, *next;
 	list_for_each_owner_safe (cur, next, &dm->dev_listhead, list) {
 		stat = cur->device->drv_obj->function.driver_open(cur->device);
+		DEV_CTL(cur->device, NET_FUNC_GET_MAC_ADDR, cur->info->mac);
 		if (stat != SUCCUESS) {
 			cur->enable = 0;
 		} else {

@@ -1,4 +1,3 @@
-#include <drivers/pit.h>
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <network/dhcp.h>
@@ -7,17 +6,20 @@
 #include <network/network.h>
 #include <network/udp.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 uint8_t dhcp_magic_cookie[4] = {99, 130, 83, 99};
 
 int dhcp_main(net_device_t *net_dev) {
 	uint8_t		*buf	= kmalloc(sizeof(dhcp_basic_t) + 20);
 	device_t	*device = net_dev->device;
+	netc_t		*netc;
 	dhcp_basic_t dhcp;
 	dhcp_info_t *dhcp_info = kmalloc(sizeof(dhcp_info_t));
-	netc_t		*netc;
-	int			 flag;
-	uint8_t		 option = DHCP_OPTION_END, len, msg_type;
+	uint8_t		 option	   = DHCP_OPTION_END, len, msg_type;
+
+	int ret;
+	int flag;
 
 	net_dev->info->dhcp_data = dhcp_info;
 
@@ -30,11 +32,10 @@ int dhcp_main(net_device_t *net_dev) {
 		return -1;
 	}
 	dhcp.hops  = 0;
-	dhcp.xID   = timerctl.count;
+	dhcp.xID   = HOST2BE_DWORD(rand());
 	dhcp.secs  = 0;
 	dhcp.flags = HOST2BE_WORD(0x8000);
-	DEV_CTL(device, NET_FUNC_GET_MAC_ADDR, dhcp.chAddr);
-	memcpy(dhcp.chAddr, net_dev->info->mac, 4);
+	memcpy(dhcp.chAddr, net_dev->info->mac, 6);
 
 	memcpy(buf, &dhcp, sizeof(dhcp_basic_t));
 	memcpy(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4);
@@ -88,6 +89,7 @@ int dhcp_main(net_device_t *net_dev) {
 			break;
 		}
 	}
+	netc_drop_all(netc);
 
 	uint8_t *options = buf + sizeof(dhcp_basic_t) + 4;
 	memcpy(buf, &dhcp, sizeof(dhcp_basic_t));
@@ -113,12 +115,17 @@ int dhcp_main(net_device_t *net_dev) {
 	else if (msg_type != DHCP_ACK) return -3;
 	while (1) {
 		netc_read(netc, &option, 1);
-		if (msg_type != DHCP_OPTION_END) {
-			netc_read(netc, &len, 2);
+		if (option != DHCP_OPTION_END) {
+			netc_read(netc, &len, 1);
 			netc_read(netc, buf, len);
 		} else {
 			break;
 		}
 	}
+
+	netc_drop_all(netc);
+
+	netc_delete(netc);
+
 	return 0;
 }

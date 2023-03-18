@@ -4,3 +4,4 @@ SRC	+=	arp.c
 SRC	+=	ipv4.c
 SRC	+=	udp.c
 SRC	+=	dhcp.c
+SRC +=	tcp.c

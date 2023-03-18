@@ -75,7 +75,9 @@ extern uint8_t broadcast_mac[6];
 
 void	init_network(void);
 netc_t *netc_create(net_device_t *net_dev, uint16_t protocol, uint16_t app_protocol);
+int		netc_delete(netc_t *netc);
 void	netc_set_dest(netc_t *netc, uint8_t dst_mac[6]);
 int		netc_read(netc_t *netc, uint8_t *buf, uint32_t size);
+void	netc_drop_all(netc_t *netc);
 
 #endif

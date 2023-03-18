@@ -98,7 +98,7 @@ void ipv4_read(uint8_t *buf, uint16_t offset, uint16_t length) {
 	header->TotalLength	   = BE2HOST_WORD(header->TotalLength);
 
 	list_for_each_owner_safe (cur, next, &ipv4_lh, proto_list) {
-		if (cur->proto_id == BE2HOST_WORD(header->Identification)) {
+		if (cur->proto_id == header->Identification) {
 			flag = 0;
 			break;
 		}
