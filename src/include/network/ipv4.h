@@ -31,7 +31,7 @@ struct ipv4_data {
 	uint16_t   counter;
 };
 
-uint8_t broadcast_ipv4_addr[4];
+extern uint8_t broadcast_ipv4_addr[4];
 
 void ipv4_init(struct network_info *net);
 int	 ipv4_send(netc_t *netc, uint8_t *dst_ip, uint8_t DF, uint8_t ttl, uint8_t protocol, uint8_t *data,
