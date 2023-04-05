@@ -15,10 +15,8 @@ int			 fd_num;
 
 void init_fs(void) {
 	int						i;
-	uint8_t					f;
 	struct index_node	   *inode, *next, *part_inode;
 	struct partition_table *pt;
-	file_request_t			req;
 	for (i = 0; i < FD_MAX_NR; i++) {
 		fds[i] = NULL;
 	}
@@ -97,7 +95,7 @@ struct index_node *fs_opendir(char *path) {
 	p[cnt] = 0;
 	if ((inode = vfs_opendir(p)) != NULL) return inode;
 
-	int length = 0, flag;
+	int length = 0;
 	if (*p != '/') return NULL; // 绝对路径以"/"开始
 	else if (p[1] == '\0') { return root; }
 	p++;

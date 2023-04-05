@@ -23,6 +23,7 @@
 #include <kernel/wait_queue.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <types.h>
 
 #define ATA_PRIMARY_PORT   0x1f0
@@ -319,9 +320,7 @@ int ide_read_identity_info(device_extension_t *devext, struct ide_channel *chann
 
 static status_t ide_enter(driver_t *drv_obj) {
 	struct ide_channel *channel;
-	int					channel_num, device_num;
 	int					i = 0, j = 0;
-	int					uninit_disk = disk_count;
 	device_t		   *devobj;
 	device_extension_t *devext;
 
@@ -352,14 +351,12 @@ static status_t ide_enter(driver_t *drv_obj) {
 	}
 #endif
 
-	channels[0].base		= ATA_PRIMARY_PORT;
-	channels[0].channel_num = 0;
-	channels[0].irq_num		= IDE0_IRQ;
-	device_register_irq(devobj, IDE0_IRQ, ide0_handler);
-	channels[1].base		= ATA_SECONDARY_PORT;
-	channels[1].channel_num = 1;
-	channels[1].irq_num		= IDE1_IRQ;
-	device_register_irq(devobj, IDE1_IRQ, ide1_handler);
+	channels[0].base		   = ATA_PRIMARY_PORT;
+	channels[0].channel_num	   = 0;
+	channels[0].irq_num		   = IDE0_IRQ;
+	channels[1].base		   = ATA_SECONDARY_PORT;
+	channels[1].channel_num	   = 1;
+	channels[1].irq_num		   = IDE1_IRQ;
 	channels[0].selected_drive = channels[1].selected_drive = 0;
 	channels[0].bmr											= device->bar[4].base_addr;
 	channels[1].bmr											= channels[0].bmr;
@@ -380,6 +377,12 @@ static status_t ide_enter(driver_t *drv_obj) {
 				goto next;
 			}
 			channel->device = devext;
+
+			if (i == 0) {
+				device_register_irq(devobj, IDE0_IRQ, ide0_handler);
+			} else if (i == 1) {
+				device_register_irq(devobj, IDE1_IRQ, ide1_handler);
+			}
 
 			devext->device	  = device;
 			devext->channel	  = channel;
@@ -643,7 +646,6 @@ int PioDataTransfer(device_extension_t *devext, unsigned char rw, unsigned char 
 
 int AtaTypeTransfer(device_extension_t *devext, unsigned char rw, unsigned int lba, unsigned int count,
 					void *buf) {
-	int i;
 
 	unsigned char  mode; /* 0: CHS, 1:LBA28, 2: LBA48 */
 	unsigned char  dma;	 /* 0: No DMA, 1: DMA */

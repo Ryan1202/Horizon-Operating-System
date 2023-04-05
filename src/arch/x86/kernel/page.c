@@ -51,9 +51,9 @@ void setup_page(void) {
 	uint32_t  size = (*(unsigned short *)(VIDEO_INFO_ADDR + 0)) * (*(unsigned short *)(VIDEO_INFO_ADDR + 2)) *
 					(*(uint32_t *)(VIDEO_INFO_ADDR + 4) / 8);
 	for (i = 1; i <= DIV_ROUND_UP(size, PAGE_SIZE * 1024); i++) {
-		pdt[i] = (VRAM_PT_PHY_ADDR + (i - 1) * PAGE_SIZE | SIGN_RW | SIGN_SYS | SIGN_P);
+		pdt[i] = ((VRAM_PT_PHY_ADDR + (i - 1) * PAGE_SIZE) | SIGN_RW | SIGN_SYS | SIGN_P);
 		pt	   = (uint32_t *)(VRAM_PT_PHY_ADDR + ((i - 1) * PAGE_SIZE));
-		addr   = (*vram_addr + (i - 1) * PAGE_SIZE * 1024 | SIGN_RW | SIGN_SYS | SIGN_P);
+		addr   = ((*vram_addr + (i - 1) * PAGE_SIZE * 1024) | SIGN_RW | SIGN_SYS | SIGN_P);
 		for (j = 0; j < 1024; j++) {
 			pt[j] = addr;
 			addr += PAGE_SIZE;
@@ -507,9 +507,8 @@ void thread_free_page(struct task_s *thread, uint32_t vaddr, int pages) {
  * @return 成功则返回0，失败则返回NULL
  */
 int thread_use_page(struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages) {
-	uint32_t *_vaddr = NULL;
-	int		  i		 = 0;
-	int		  idx	 = (vaddr - USER_VIR_MEM_BASE_ADDR) / PAGE_SIZE;
+	int i	= 0;
+	int idx = (vaddr - USER_VIR_MEM_BASE_ADDR) / PAGE_SIZE;
 	while (i < pages) {
 		if (thread->vir_page_mmap.bits[idx / 8] & (1 << (idx % 8))) { return -1; }
 		mmap_set(&thread->vir_page_mmap, idx, 1);

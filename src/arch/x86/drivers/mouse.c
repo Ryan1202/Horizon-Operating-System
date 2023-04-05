@@ -18,7 +18,7 @@
 struct fifo mouse_fifo;
 
 static status_t mouse_enter(driver_t *drv_obj);
-static status_t mouse_exit(struct _device_s *dev);
+static status_t mouse_exit(driver_t *drv_obj);
 
 #define MOUSE_IRQ 12
 
@@ -60,13 +60,13 @@ static status_t mouse_enter(driver_t *drv_obj) {
 	return SUCCUESS;
 }
 
-static status_t mouse_exit(struct _device_s *dev) {
+static status_t mouse_exit(driver_t *drv_obj) {
 	device_t *devobj, *next;
 	// device_extension_t *ext;
-	list_for_each_owner_safe (devobj, next, &dev->drv_obj->device_list, list) {
+	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) {
 		device_delete(devobj);
 	}
-	string_del(&dev->drv_obj->name);
+	string_del(&drv_obj->name);
 	return SUCCUESS;
 }
 

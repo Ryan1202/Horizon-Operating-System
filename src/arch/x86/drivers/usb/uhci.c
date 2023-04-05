@@ -62,13 +62,13 @@ void uhci_skel_init(device_extension_t *devext) {
 				while ((qh->qh_link & 0x01) == 0) {
 					qh = (struct uhci_qh *)(qh->qh_link & 0xfffffff0);
 				}
-				qh->qh_link = ((uint32_t)kmalloc(sizeof(struct uhci_qh))) & 0xfffffff0 | (1 << 1) | 0;
+				qh->qh_link = (((uint32_t)kmalloc(sizeof(struct uhci_qh))) & 0xfffffff0) | (1 << 1) | 0;
 				qh			= (struct uhci_qh *)(qh->qh_link & 0xfffffff0);
 			} else {
 				qh						 = kmalloc(sizeof(struct uhci_qh));
-				devext->fl.frames_vir[j] = ((uint32_t)qh) & 0xfffffff0 | (1 << 1) | 0;
+				devext->fl.frames_vir[j] = (((uint32_t)qh) & 0xfffffff0) | (1 << 1) | 0;
 			}
-			qh->qe_link = ((uint32_t)&devext->skel->qh[i]) & 0xfffffff0 | (1 << 1) | 1;
+			qh->qe_link = (((uint32_t)&devext->skel->qh[i]) & 0xfffffff0) | (1 << 1) | 1;
 			qh->qh_link = 1;
 		}
 	}
@@ -79,7 +79,7 @@ void uhci_skel_add_td(device_extension_t *devext, struct uhci_td *td, enum uhci_
 	while ((((uint32_t)tmp->link) & 0x01) == 0) {
 		tmp = (struct uhci_td *)(((uint32_t)tmp->link) & 0xfffffff0);
 	}
-	tmp->link = (uint32_t)td & 0xfffffff0 | (0 << 1) | 1;
+	tmp->link = ((uint32_t)td & 0xfffffff0) | (0 << 1) | 1;
 }
 
 int uhci_skel_del_td(device_extension_t *devext, struct uhci_td *td, enum uhci_gap gap) {

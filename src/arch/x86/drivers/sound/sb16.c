@@ -170,7 +170,6 @@ status_t dsp_reset(void) {
 }
 
 status_t sb16_open(device_t *device) {
-	device_extension_t *devext = device->device_extension;
 	memset(data_len, 0, DMA_MAX * sizeof(uint32_t));
 	return SUCCUESS;
 }
@@ -195,7 +194,6 @@ void sb16_request(device_extension_t *devext) {
 status_t sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	if (size > 64 * 1024) { return FAILED; }
 	device_extension_t *devext = dev->device_extension;
-	int					i;
 	while ((devext->index_w + 1) % DMA_MAX == devext->index_r) {
 		wait_queue_add(devext->wqm, 0);
 		thread_block(TASK_BLOCKED);

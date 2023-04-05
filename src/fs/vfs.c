@@ -82,7 +82,7 @@ struct index_node *vfs_open(char *path) {
 	char *name = kmalloc(strlen(path)), *p;
 	strcpy(name, path);
 	p = name;
-	int length, flag;
+	int length;
 	if (*path != '/') return NULL; // 绝对路径以"/"开始
 	else if (path[1] == '\0') { return root; }
 	p++;
@@ -106,7 +106,6 @@ struct index_node *vfs_open(char *path) {
 }
 
 void vfs_close(struct index_node *inode) {
-	struct index_node *parent = inode->parent;
 	if (inode->attribute == ATTR_FILE) {
 		fs_close(inode);
 		string_del(&inode->name);
@@ -121,7 +120,7 @@ struct index_node *vfs_opendir(char *path) {
 	char			  *name	 = kmalloc(l), *p;
 	strcpy(name, path);
 	p = name;
-	int length, flag;
+	int length;
 	if (*path != '/') return NULL; // 绝对路径以"/"开始
 	else if (path[1] == '\0') { return root; }
 	p++;

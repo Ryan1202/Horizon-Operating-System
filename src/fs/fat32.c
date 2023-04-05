@@ -78,7 +78,7 @@ int FAT32_read(struct index_node *inode, uint8_t *buffer, uint32_t length) {
 	struct file		  *fp	 = inode->fp;
 	struct index_node *dev	 = inode->part->device->inode;
 	struct pt_fat32	  *fat32 = fs_FAT32(inode->part->private_data);
-	int				   cnt, i, off = 0, tmp;
+	int				   cnt, off = 0, tmp;
 	int				   pos;
 	const uint32_t	   clus_size = SECTOR_SIZE * fat32->BPB_SecPerClus;
 	const uint8_t	  *buf		 = kmalloc(clus_size);
@@ -110,7 +110,7 @@ int FAT32_read(struct index_node *inode, uint8_t *buffer, uint32_t length) {
 
 int FAT32_write(struct index_node *inode, uint8_t *buffer, uint32_t length) {
 	int				   i;
-	int				   pos, tmp;
+	int				   pos;
 	struct file		  *fp	 = inode->fp;
 	struct pt_fat32	  *fat32 = inode->part->private_data;
 	const uint8_t	  *buf	 = kmalloc(SECTOR_SIZE * fat32->BPB_SecPerClus);
@@ -165,7 +165,7 @@ done:
 struct index_node *FAT32_create_file(partition_t *part, struct index_node *parent, char *name, int len) {
 	struct index_node	  *dev = part->device->inode;
 	char				   buf[SECTOR_SIZE], filename_short[11];
-	unsigned int		   pos, i = 0, j, len2, name_count = 1, count = 1, name_len, tmp;
+	unsigned int		   pos, i = 0, j, len2, name_count = 1, count = 1, name_len;
 	unsigned char		   checksum;
 	struct directory	  *dir	 = parent->dir;
 	struct pt_fat32		  *fat32 = part->private_data;
@@ -185,7 +185,6 @@ struct index_node *FAT32_create_file(partition_t *part, struct index_node *paren
 	inode->part		= part;
 	inode->f_ops	= parent->f_ops;
 	pos				= dir->start;
-	tmp				= pos;
 	do {
 		// 如果到了下一个扇区，重新读取
 		if (i % SECTOR_SIZE == 0) {
@@ -584,7 +583,7 @@ cmp_success:
 }
 
 struct index_node *FAT32_find_dir(struct _partition_s *part, struct index_node *parent, char *name) {
-	unsigned int	   i, j, cc, x, pos;
+	unsigned int	   i, j, cc, x;
 	bool			   flag, f;
 	uint8_t			  *buf	 = kmalloc(((struct pt_fat32 *)part->private_data)->BPB_SecPerClus * SECTOR_SIZE);
 	struct directory  *dir	 = kmalloc(sizeof(struct directory));
@@ -592,7 +591,6 @@ struct index_node *FAT32_find_dir(struct _partition_s *part, struct index_node *
 	struct index_node *dev	 = part->device->inode;
 	struct FAT32_long_dir *ldir;
 	struct FAT32_dir	  *sdir;
-	struct file			   file;
 	int					   len = strlen(name);
 	uint32_t			   offset;
 	dir->inode			  = kmalloc(sizeof(struct index_node));

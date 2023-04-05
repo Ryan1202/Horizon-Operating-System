@@ -92,12 +92,10 @@ struct chip_info {
 };
 
 void rtl8139_handler(device_t *devobj, int irq) {
-	device_extension_t	  *devext = (device_extension_t *)devobj->device_extension;
-	wait_queue_t		  *wq;
-	struct read_request_s *rq;
-	uint16_t			   status = io_in16(devext->io_base + RTL8139_ISR);
-	uint16_t			   info, length;
-	int					   i;
+	device_extension_t *devext = (device_extension_t *)devobj->device_extension;
+	uint16_t			status = io_in16(devext->io_base + RTL8139_ISR);
+	uint16_t			info, length;
+	int					i;
 	if (status & RTL8139_ISR_SERR) {
 		printk("[RTL8139]SERR\n");
 		io_out16(devext->io_base + RTL8139_ISR, RTL8139_ISR_SERR);

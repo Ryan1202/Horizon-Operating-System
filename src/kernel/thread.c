@@ -125,16 +125,16 @@ struct task_s *thread_start(char *name, int priority, thread_func function, void
 			;
 	}
 	list_add_tail(&thread->all_list_tag, &thread_all);
-	// __asm__ __volatile__(
-	// 	"movl %0, %%esp; \
-	// 	pop %%ebp; \
-	// 	pop %%ebx; \
-	// 	pop %%edi; \
-	// 	pop %%esi; \
-	// 	ret"
-	// 	::"g"(thread->stack)
-	// 	:"memory"
-	// );
+	/* __asm__ __volatile__(
+		"movl %0, %%esp; \
+		pop %%ebp; \
+		pop %%ebx; \
+		pop %%edi; \
+		pop %%esi; \
+		ret"
+		::"g"(thread->stack)
+		:"memory"
+	); */
 	return thread;
 }
 
