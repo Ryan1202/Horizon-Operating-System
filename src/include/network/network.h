@@ -14,7 +14,7 @@
 #define NET_FUNC_SET_MAC_ADDR 0x02
 
 #define SWAP_WORD(n)  ((((n)&0xff) << 8) | (((n)&0xff00) >> 8))
-#define SWAP_DWORD(n) (SWAP_WORD((n)&0xffff) << 16 | SWAP_WORD((n)&0xffff0000) >> 16)
+#define SWAP_DWORD(n) (SWAP_WORD((n)&0xffff) << 16 | SWAP_WORD(((n)&0xffff0000) >> 16))
 
 #ifdef ARCH_X86
 #define BE2HOST_WORD(n)	 SWAP_WORD(n)
@@ -40,10 +40,6 @@ typedef struct netc_s {
 	struct task_s		*thread;
 	struct net_device_s *net_dev;
 
-	enum {
-		NETC_AUTO_SET_DST_MAC,
-	} netc_flag;
-
 	uint8_t *recv_buffer;
 	uint32_t recv_offset;
 	uint32_t recv_len;
@@ -51,10 +47,13 @@ typedef struct netc_s {
 	uint16_t protocol;
 	uint16_t proto_id;
 	list_t	 proto_list;
+	void	*proto_private;
 	uint16_t app_protocl;
 	uint32_t app_proto_id;
+	void	*app_private;
 
-	uint8_t dst_mac[6];
+	uint8_t	 dst_mac[6];
+	uint8_t *dst_laddr, dst_laddr_len;
 } netc_t;
 typedef struct net_device_s {
 	struct network_info *info;
@@ -76,7 +75,7 @@ extern uint8_t broadcast_mac[6];
 void	init_network(void);
 netc_t *netc_create(net_device_t *net_dev, uint16_t protocol, uint16_t app_protocol);
 int		netc_delete(netc_t *netc);
-void	netc_set_dest(netc_t *netc, uint8_t dst_mac[6]);
+void	netc_set_dest(netc_t *netc, uint8_t dst_mac[6], uint8_t *dst_laddr, uint8_t dst_laddr_len);
 int		netc_read(netc_t *netc, uint8_t *buf, uint32_t size);
 void	netc_drop_all(netc_t *netc);
 

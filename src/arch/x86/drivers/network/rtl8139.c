@@ -140,8 +140,8 @@ void rtl8139_handler(device_t *devobj, int irq) {
 		io_out16(devext->io_base + RTL8139_ISR, RTL8139_ISR_ROK);
 
 		i	   = devext->rx_offset;
-		info   = *(uint16_t *)devext->rx_buffer;
-		length = *(uint16_t *)(devext->rx_buffer + 2) - 4;
+		info   = *(uint16_t *)(devext->rx_buffer + i);
+		length = *(uint16_t *)(devext->rx_buffer + i + 2) - 4;
 		i += 4;
 		if (length >= 14 && (info & 1)) {
 			uint8_t *tmpbuffer = kmalloc(length);

@@ -27,9 +27,14 @@ struct ipv4_data {
 	uint8_t	   subnet_mask[4];
 	uint8_t	   router_ip[4];
 	uint8_t	   dns_server_ip[4];
-	spinlock_t ipv4_idlock;
+	spinlock_t idlock;
 	uint16_t   counter;
 };
+
+typedef struct {
+	uint16_t src_port, dst_port;
+	list_t	 list;
+} ipv4_conn_t;
 
 extern uint8_t broadcast_ipv4_addr[4];
 

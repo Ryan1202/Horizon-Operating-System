@@ -18,7 +18,6 @@ int dhcp_main(net_device_t *net_dev) {
 	dhcp_info_t *dhcp_info = kmalloc(sizeof(dhcp_info_t));
 	uint8_t		 option	   = DHCP_OPTION_END, len, msg_type;
 
-	int ret;
 	int flag;
 
 	net_dev->info->dhcp_data = dhcp_info;
@@ -45,9 +44,10 @@ int dhcp_main(net_device_t *net_dev) {
 	buf[sizeof(dhcp_basic_t) + 7] = DHCP_OPTION_END;
 
 	netc = netc_create(net_dev, ETH_TYPE_IPV4, PROTOCOL_UDP);
-	netc_set_dest(netc, broadcast_mac);
+	netc_set_dest(netc, broadcast_mac, NULL, 0);
+	if (udp_bind(netc, broadcast_ipv4_addr, 68, 67) < 0) return -1;
 
-	udp_send(netc, broadcast_ipv4_addr, 68, 67, (uint16_t *)buf, sizeof(dhcp_basic_t) + 8);
+	udp_send(netc, (uint16_t *)buf, sizeof(dhcp_basic_t) + 8);
 	netc_read(netc, buf, sizeof(dhcp_basic_t) + 4);
 	if (memcmp(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4) != 0) return -2;
 	netc_read(netc, &option, sizeof(option));
@@ -56,7 +56,6 @@ int dhcp_main(net_device_t *net_dev) {
 	netc_read(netc, &msg_type, len);
 	if (msg_type != DHCP_OFFER) return -3;
 
-	// ipv4_set_ip(netc, ((dhcp_basic_t *)buf)->ciAddr);
 	memcpy(dhcp_info->server_ip, ((dhcp_basic_t *)buf)->siAddr, 4);
 
 	struct ipv4_data *ipv4 = (struct ipv4_data *)netc->net_dev->info->ipv4_data;
@@ -103,10 +102,11 @@ int dhcp_main(net_device_t *net_dev) {
 	options[10]					  = 4;
 	*((uint32_t *)(options + 11)) = HOST2BE_DWORD(dhcp_info->lease_time);
 	options[15]					  = DHCP_OPTION_END;
-	udp_send(netc, broadcast_ipv4_addr, 68, 67, (uint16_t *)buf, sizeof(dhcp_basic_t) + 20);
+	udp_send(netc, (uint16_t *)buf, sizeof(dhcp_basic_t) + 20);
 
 	netc_read(netc, buf, sizeof(dhcp_basic_t) + 4);
 	if (memcmp(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4) != 0) return -2;
+	ipv4_set_ip(netc, ((dhcp_basic_t *)buf)->yiAddr);
 	netc_read(netc, &option, sizeof(option));
 	netc_read(netc, &len, sizeof(len));
 	if (option != DHCP_OPTION_MSG_TYPE) return -3;
@@ -124,7 +124,7 @@ int dhcp_main(net_device_t *net_dev) {
 	}
 
 	netc_drop_all(netc);
-
+	udp_unbind(netc);
 	netc_delete(netc);
 
 	return 0;

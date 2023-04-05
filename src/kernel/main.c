@@ -26,8 +26,10 @@
 #include <kernel/thread.h>
 #include <network/arp.h>
 #include <network/dhcp.h>
+#include <network/eth.h>
 #include <network/ipv4.h>
 #include <network/network.h>
+#include <network/tcp.h>
 #include <network/udp.h>
 
 void		   idle(void *arg);
@@ -55,6 +57,19 @@ int main() {
 		ret = dhcp_main(default_net_dev);
 	}
 	if (ret < 0) { printk("[DHCP]ipv4 address request failed!\n"); }
+
+	uint8_t dst_ip[4] = {180, 101, 50, 188}, *router_mac;
+	netc_t *netc	  = netc_create(default_net_dev, ETH_TYPE_ARP, 0);
+	netc_set_dest(netc, broadcast_mac, NULL, 0);
+	router_mac = ip2mac(netc, ((struct ipv4_data *)netc->net_dev->info->ipv4_data)->router_ip);
+	netc_delete(netc);
+
+	netc = netc_create(default_net_dev, ETH_TYPE_IPV4, PROTOCOL_TCP);
+	netc_set_dest(netc, router_mac, dst_ip, 4);
+	tcp_create(netc);
+	tcp_bind(netc, dst_ip, 12345, 80);
+	tcp_ipv4_connect(netc);
+	tcp_ipv4_close(netc);
 
 	console_start();
 
