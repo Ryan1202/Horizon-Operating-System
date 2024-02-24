@@ -14,7 +14,6 @@
 void eth_device_register(struct _device_manager_s *dm, device_t *device, char *name);
 void eth_device_unregister(struct _device_manager_s *dm, device_t *device);
 void eth_driver_inited(struct _device_manager_s *dm);
-void eth_handler(device_manager_t *eth_dm, uint8_t *buf, uint16_t size);
 
 device_manager_t eth_dm = {
 	.name		   = {0, 0, NULL},
@@ -46,14 +45,14 @@ int eth_write(netc_t *netc, uint8_t *buffer, uint32_t length) {
 	return 0;
 }
 
-void eth_handler(device_manager_t *eth_dm, uint8_t *buf, uint16_t size) {
+void eth_handler(net_rx_pack_t *pack, uint8_t *buf, uint16_t size) {
 	eth_frame_t *frame;
 
 	frame		= (eth_frame_t *)buf;
 	frame->type = BE2HOST_WORD(frame->type);
 	switch (frame->type) {
 	case ETH_TYPE_IPV4:
-		ipv4_read(buf, sizeof(eth_frame_t), size - sizeof(eth_frame_t));
+		ipv4_read(pack, buf, sizeof(eth_frame_t), size - sizeof(eth_frame_t));
 		break;
 	case ETH_TYPE_ARP:
 		arp_read(buf, sizeof(eth_frame_t), size - sizeof(eth_frame_t));
@@ -65,18 +64,15 @@ void eth_handler(device_manager_t *eth_dm, uint8_t *buf, uint16_t size) {
 }
 
 void eth_device_register(struct _device_manager_s *dm, device_t *device, char *name) {
-	net_device_t		*net_dev;
-	struct network_info *net;
-
+	net_device_t *net_dev;
 	string_init(&device->name);
 	string_new(&device->name, name, strlen(name));
 	net_dev			= kmalloc(sizeof(net_device_t));
 	net_dev->info	= kmalloc(sizeof(struct network_info));
 	net_dev->device = device;
 	net_dev->enable = 1;
-	net				= net_dev->info;
 	list_add_tail(&net_dev->list, &dm->dev_listhead);
-	ipv4_init(net);
+	ipv4_init(net_dev);
 
 	if (default_net_dev == NULL) { default_net_dev = net_dev; }
 }

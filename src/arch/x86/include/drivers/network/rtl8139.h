@@ -1,10 +1,10 @@
 #ifndef RTL8139_H
 #define RTL8139_H
 
-#define RTL8139_IDRN(n)	   (0x00 + n)
-#define RTL8139_MARN(n)	   (0x08 + n)
-#define RTL8139_TSDN(n)	   (0x10 + (n << 2))
-#define RTL8139_TSADN(n)   (0x20 + (n << 2))
+#define RTL8139_IDRN(n)	   (0x00 + (n))
+#define RTL8139_MARN(n)	   (0x08 + (n))
+#define RTL8139_TSDN(n)	   (0x10 + ((n) << 2))
+#define RTL8139_TSADN(n)   (0x20 + ((n) << 2))
 #define RTL8139_RBSTART	   0x30
 #define RTL8139_ERBCR	   0x34
 #define RTL8139_ERSR	   0x36
@@ -87,6 +87,14 @@
 #define RTL8139_TCR_TXRR(n)	 ((n & 0x0f) << 4)
 #define RTL8139_TCR_CLRABT	 0x0001
 
+// TSR 传输状态寄存器
+#define RTL8139_TSR_CRS	 0x80000000
+#define RTL8139_TSR_TABT 0x40000000
+#define RTL8139_TSR_OWC	 0x20000000
+#define RTL8139_TSR_TOK	 0x8000
+#define RTL8139_TSR_TUN	 0x4000
+#define RTL8139_TSR_OWN	 0x2000
+
 // RCR 接收配置寄存器
 
 #define RTL8139_RCR_RXFTH(n) ((n & 0x07) << 13)
@@ -100,6 +108,14 @@
 #define RTL8139_RCR_APM		 0x0002 // Accept Physical Match packets
 #define RTL8139_RCR_AAP		 0x0001 // Accept  All Packets
 
-#define RTL8139_TRANS_DESC()
+#define RTL8139_RX_STAT_ROK	 0x0001
+#define RTL8139_RX_STAT_FAE	 0x0002
+#define RTL8139_RX_STAT_CRC	 0x0004
+#define RTL8139_RX_STAT_LONG 0x0008
+#define RTL8139_RX_STAT_RUNT 0x0010
+#define RTL8139_RX_STAT_ISE	 0x0020
+#define RTL8139_RX_STAT_BAR	 0x2000
+#define RTL8139_RX_STAT_PAM	 0x4000
+#define RTL8139_RX_STAT_MAR	 0x8000
 
 #endif

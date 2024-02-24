@@ -1,3 +1,4 @@
+#include "network/netpack.h"
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
@@ -10,8 +11,9 @@
 
 uint8_t broadcast_ipv4_addr[4] = {0xff, 0xff, 0xff, 0xff};
 
-void ipv4_init(struct network_info *net) {
-	struct ipv4_data *data;
+void ipv4_init(net_device_t *netdev) {
+	struct ipv4_data	 *data;
+	struct network_info *net = netdev->info;
 
 	net->ipv4_data = kmalloc(sizeof(struct ipv4_data));
 	data		   = (struct ipv4_data *)net->ipv4_data;
@@ -19,13 +21,15 @@ void ipv4_init(struct network_info *net) {
 	spinlock_init(&data->idlock);
 	data->counter = 0;
 	memset(data->ip_addr, 0, 6);
+	DEV_CTL(netdev->device, NET_FUNC_GET_MTU, &data->mtu);
+	data->mtu -= 20; // 去掉ip头的长度
 }
 
 void ipv4_send_pack(netc_t *netc, uint8_t *dst_ip, uint8_t flags, uint8_t id, uint8_t ttl, uint8_t protocol,
 					uint8_t offset, uint8_t *data, uint16_t datalen) {
 	int				  i;
 	uint32_t		  chksum = 0;
-	ipv4_header_t	 *header;
+	ipv4_header_t	  *header;
 	net_device_t	 *net_dev = netc->net_dev;
 	struct ipv4_data *ipv4	  = (struct ipv4_data *)net_dev->info->ipv4_data;
 
@@ -58,7 +62,7 @@ void ipv4_send_pack(netc_t *netc, uint8_t *dst_ip, uint8_t flags, uint8_t id, ui
 int ipv4_send(netc_t *netc, uint8_t *dst_ip, uint8_t DF, uint8_t ttl, uint8_t protocol, uint8_t *data,
 			  uint32_t datalen) {
 	uint32_t		  i, id;
-	uint32_t		  mtu, len;
+	uint32_t		  len;
 	net_device_t	 *net_dev = netc->net_dev;
 	struct ipv4_data *ipv4	  = (struct ipv4_data *)net_dev->info->ipv4_data;
 
@@ -66,23 +70,21 @@ int ipv4_send(netc_t *netc, uint8_t *dst_ip, uint8_t DF, uint8_t ttl, uint8_t pr
 
 	i	= 0;
 	len = datalen;
-	DEV_CTL(net_dev->device, NET_FUNC_GET_MTU, &mtu);
-	mtu -= 20; // 去掉ip头的长度
 
 	spin_lock(&ipv4->idlock);
 	id = ipv4->counter++;
 	spin_unlock(&ipv4->idlock);
 
-	while (len > mtu) {
+	while (len > ipv4->mtu) {
 		if (DF) { return -1; } // 不允许分片则直接退出
-		ipv4_send_pack(netc, dst_ip, 1, id, ttl, protocol, i * mtu, data, mtu);
+		ipv4_send_pack(netc, dst_ip, 1, id, ttl, protocol, i * ipv4->mtu, data, ipv4->mtu);
 		i++;
 	}
-	ipv4_send_pack(netc, dst_ip, 0, id, ttl, protocol, i * mtu, data, datalen % mtu);
+	ipv4_send_pack(netc, dst_ip, 0, id, ttl, protocol, i * ipv4->mtu, data, datalen % ipv4->mtu);
 	return 0;
 }
 
-void ipv4_read(uint8_t *buf, uint16_t offset, uint16_t length) {
+void ipv4_read(net_rx_pack_t *pack, uint8_t *buf, uint16_t offset, uint16_t length) {
 	ipv4_header_t *header = (ipv4_header_t *)(buf + offset);
 
 	header->HeaderChecksum = BE2HOST_WORD(header->HeaderChecksum);
@@ -92,13 +94,15 @@ void ipv4_read(uint8_t *buf, uint16_t offset, uint16_t length) {
 
 	switch (header->Protocol) {
 	case PROTOCOL_TCP:
-		tcp_read(buf, offset + 20, length - 20);
+		net_raw2tcp_pack(pack, 4, header->SourceAddress, offset + 20, header->TotalLength - 20);
 		break;
 	case PROTOCOL_UDP:
-		udp_read(buf, offset + 20, length - 20);
+		net_raw2udp_pack(pack, offset + 20, header->TotalLength - 20);
 		break;
 
 	default:
+		kfree(pack->data);
+		kfree(pack);
 		break;
 	}
 }
@@ -111,4 +115,9 @@ void ipv4_get_ip(netc_t *netc, uint8_t *ip) {
 void ipv4_set_ip(netc_t *netc, uint8_t *ip) {
 	struct ipv4_data *ipv4 = (struct ipv4_data *)netc->net_dev->info->ipv4_data;
 	memcpy(ipv4->ip_addr, ip, 4);
+}
+
+int ipv4_get_mtu(netc_t *netc) {
+	struct ipv4_data *ipv4 = (struct ipv4_data *)netc->net_dev->info->ipv4_data;
+	return ipv4->mtu;
 }

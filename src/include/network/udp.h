@@ -4,7 +4,7 @@
 #include "../stdint.h"
 #include "network.h"
 
-typedef struct {
+typedef struct udp_head_s {
 	uint16_t SourcePort;
 	uint16_t DestinationPort;
 	uint16_t Length;

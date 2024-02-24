@@ -1,3 +1,4 @@
+#include "kernel/wait_queue.h"
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <network/ipv4.h>
@@ -40,7 +41,7 @@ void udp_send(netc_t *netc, uint16_t *data, uint16_t datalen) {
 	uint32_t	chksum = 0, i;
 	udp_head_t *udp_head;
 	udp_conn_t *conn = (udp_conn_t *)netc->app_private;
-	uint16_t   *buf	 = kmalloc(sizeof(udp_head_t) + datalen);
+	uint16_t	 *buf	 = kmalloc(sizeof(udp_head_t) + datalen);
 	uint8_t		src_ip[4];
 	udp_head = (udp_head_t *)buf;
 	ipv4_get_ip(netc, src_ip);

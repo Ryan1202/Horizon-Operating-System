@@ -2,6 +2,8 @@
 #define TCP_H
 
 #include "../stdint.h"
+#include "kernel/list.h"
+#include "network.h"
 #include <kernel/fifo.h>
 
 #define TCP_FLAG_FIN  0x01
@@ -14,11 +16,15 @@
 #define TCP_FLAG_CWRC 0x80
 
 #define TCP_MAX_WINDOW_SIZE 65536
-#define TCP_MSL_MS			2 * 60 * 100
+#define TCP_MSL_MS			2 * 60 * 1000
+
+#define TCP_OPTION_END 0
+#define TCP_OPTION_NOP 1
+#define TCP_OPTION_MSS 2
 
 #define TCP_PORT_NR 65536
 
-typedef struct {
+typedef struct tcp_header_s {
 	uint16_t src_port, dst_port;
 	uint32_t seq;
 	uint32_t ack;
@@ -28,14 +34,6 @@ typedef struct {
 	uint16_t checksum;
 	uint16_t urgent_pointer;
 } __attribute__((packed)) tcp_header_t;
-
-typedef struct {
-	uint8_t *mem;
-	uint32_t size;
-	uint32_t idx_write;
-	uint32_t idx_send;
-	uint32_t idx_ack;
-} tcp_window_t;
 
 typedef enum {
 	TCP_STAT_CLOSED = 0,
@@ -57,7 +55,27 @@ typedef struct {
 	uint8_t		   dst_ip[4];
 	list_t		   list;
 
-	tcp_window_t  rwin, wwin;
+	uint8_t *header_buf;
+
+	uint16_t mss;
+
+	struct recv_win {
+		uint8_t *mem;
+		uint32_t size;
+		uint32_t head, tail; // 读窗口的头尾指针
+		uint32_t unacked;	 // 待确认的数据大小
+		uint32_t acked;		 // 已确认未读取的数据大小
+		uint32_t recved;	 // 已接收的数据大小
+	} rwin;
+
+	struct send_win {
+		uint8_t *mem;
+		uint32_t size;
+		uint32_t head, tail; // 写窗口的头尾指针
+		uint32_t unacked;	 // 未确认的数据大小
+		uint32_t sended;	 // 已发送的数据大小
+	} swin;
+
 	tcp_status_t  status;
 	uint32_t	  wait_ms, seq, ack;
 	struct timer *timer;
@@ -67,9 +85,11 @@ typedef struct {
 
 #define PROTOCOL_TCP 0x06
 void tcp_create(netc_t *netc);
-int	 tcp_bind(netc_t *netc, uint8_t ip[4], uint16_t src_port, uint16_t dst_port);
-int	 tcp_ipv4_connect(netc_t *netc);
+int	 tcp_bind(netc_t *netc, uint16_t src_port);
+int	 tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port);
 void tcp_ipv4_close(netc_t *netc);
-void tcp_read(uint8_t *buf, uint16_t offset, uint16_t length);
+void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8_t ip_len);
+int	 tcp_write(netc_t *netc, uint8_t *buf, uint32_t length);
+int	 tcp_read(netc_t *netc, uint8_t *buf, uint32_t length);
 
 #endif

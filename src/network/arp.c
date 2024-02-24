@@ -25,10 +25,7 @@ uint8_t *ip2mac(netc_t *netc, uint8_t *ip) {
 	wait_queue_init(&cache->wqm);
 	list_add_tail(&cache->list, &arp_cache_lh);
 	send_arp(netc, ip, ARP_REQUEST);
-	if (cache->mac[0] == 0) {
-		wait_queue_add(&cur->wqm, 0);
-		thread_block(TASK_BLOCKED);
-	}
+	while (cache->mac[0] == 0) {}
 	return cache->mac;
 }
 
@@ -50,7 +47,7 @@ void send_arp(netc_t *netc, uint8_t *dst_ip, uint16_t opcode) {
 }
 
 void arp_read(uint8_t *buf, uint16_t offset, uint16_t length) {
-	arp_pack_t	*arp;
+	arp_pack_t  *arp;
 	arp_cache_t *cur, *next;
 
 	arp			= (arp_pack_t *)(buf + offset);

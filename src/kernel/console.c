@@ -93,9 +93,10 @@ void console_input(char c)
  * @param c 字符
  * @param color 颜色
  */
-void print_char(char c, unsigned int color) {
+void print_char(unsigned char c, unsigned int color) {
 	int		 i, j, k;
 	uint32_t _color = color;
+	if (c > 127) { c = '?'; }
 	print_word(console.cur_x * 10 + 1, console.cur_y * 16, console.font + c * 16, _color);
 	console.cur_x++;
 	if (console.cur_x >= console.width) {
@@ -103,13 +104,16 @@ void print_char(char c, unsigned int color) {
 		console.cur_y++;
 	}
 	if (console.cur_y >= console.height) {
-		console.cur_y = console.height - 1;
-		console.cur_x = 0;
-		for (i = 16; i < console.height * 16; i++) {
-			for (j = 0; j < console.width * 10; j++) {
-				for (k = 0; k < VideoInfo.BitsPerPixel / 8; k++) {
-					console.vram[((i - 16) * VideoInfo.width + j) * (VideoInfo.BitsPerPixel / 8) + k] =
-						console.vram[(i * VideoInfo.width + j) * (VideoInfo.BitsPerPixel / 8) + k];
+		console.cur_y	   = console.height - 1;
+		console.cur_x	   = 0;
+		int height		   = console.height * 16;
+		int width		   = console.width * 10;
+		int byte_per_pixel = VideoInfo.BitsPerPixel / 8;
+		for (i = 16; i < height; i++) {
+			for (j = 0; j < width; j++) {
+				for (k = 0; k < byte_per_pixel; k++) {
+					console.vram[((i - 16) * VideoInfo.width + j) * byte_per_pixel + k] =
+						console.vram[(i * VideoInfo.width + j) * byte_per_pixel + k];
 				}
 			}
 		}
@@ -220,6 +224,8 @@ int printk(const char *fmt, ...) {
 			while (console.cur_x % 4) {
 				console.cur_x++;
 			}
+			break;
+		case '\r':
 			break;
 		default:
 			draw_rect(console.cur_x * 10, console.cur_y * 16, 10, 16, 0);

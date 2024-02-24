@@ -6,6 +6,7 @@
  * @date 2022-07-20
  */
 
+#include "kernel/list.h"
 #include <kernel/func.h>
 #include <kernel/memory.h>
 #include <kernel/wait_queue.h>
@@ -29,6 +30,17 @@ void wait_queue_init(wait_queue_manager_t *wqm) {
 	spinlock_init(&wqm->lock);
 	list_init(&wqm->list_head);
 	return;
+}
+
+/**
+ * @brief 检查等待队列是否为空
+ *
+ * @param wqm 等待队列管理结构
+ * @return true
+ * @return false
+ */
+bool wait_queue_empty(wait_queue_manager_t *wqm) {
+	return list_empty(&wqm->list_head);
 }
 
 /**
@@ -73,7 +85,7 @@ wait_queue_t *wait_queue_first(wait_queue_manager_t *wqm) {
  */
 void wait_queue_wakeup(wait_queue_manager_t *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
-	wait_queue_t  *wq		  = list_first_owner(&wqm->list_head, wait_queue_t, list);
+	wait_queue_t	 *wq		  = list_first_owner(&wqm->list_head, wait_queue_t, list);
 	struct task_s *thread	  = wq->thread;
 	int			   old_status = io_load_eflags();
 	spin_lock(&wqm->lock);
@@ -95,15 +107,21 @@ void wait_queue_wakeup(wait_queue_manager_t *wqm) {
  */
 void wait_queue_wakeup_all(wait_queue_manager_t *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
-	wait_queue_t  *cur, *next;
+	wait_queue_t	 *cur, *next;
 	struct task_s *thread;
+	int			   old_status = io_load_eflags();
 	spin_lock(&wqm->lock);
 	list_for_each_owner_safe (cur, next, &wqm->list_head, list) {
 		thread = cur->thread;
 		list_del(&cur->list);
+		if (cur->private_data != NULL) { kfree(cur->private_data); }
 		kfree(cur);
-		if (wqm->list_head.next != &wqm->list_head) { thread_unblock(thread); }
+		if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING ||
+			thread->status == TASK_HANGING) {
+			thread_unblock(thread);
+		}
 	}
 	spin_unlock(&wqm->lock);
+	io_store_eflags(old_status);
 	return;
 }

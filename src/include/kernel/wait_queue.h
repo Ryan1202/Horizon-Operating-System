@@ -1,6 +1,7 @@
 #ifndef _WAIT_QUEUE_H
 #define _WAIT_QUEUE_H
 
+#include "types.h"
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
 #include <kernel/thread.h>
@@ -12,12 +13,13 @@ typedef struct {
 
 typedef struct {
 	struct task_s *thread;
-	void		  *private_data;
+	void			 *private_data;
 	list_t		   list;
 } wait_queue_t;
 
 wait_queue_manager_t *create_wait_queue(void);
 void				  wait_queue_init(wait_queue_manager_t *wqm);
+bool				  wait_queue_empty(wait_queue_manager_t *wqm);
 wait_queue_t		 *wait_queue_add(wait_queue_manager_t *wqm, uint32_t size);
 wait_queue_t		 *wait_queue_first(wait_queue_manager_t *wqm);
 void				  wait_queue_wakeup(wait_queue_manager_t *wqm);

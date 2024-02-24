@@ -54,7 +54,7 @@ void timer_handler(int irq) {
 	}
 	if (timerctl.next > timerctl.count) { return; }
 	timer = timerctl.timers[0];
-	for (i = 0; i <= timerctl.using; i++) {
+	for (i = 0; i < timerctl.using; i++) {
 		if (timer->timeout > timerctl.count) { break; }
 		timer->flags = TIMER_UNUSED;
 		fifo_put(timer->fifo, timer->data);
@@ -82,7 +82,8 @@ struct timer *timer_alloc(void) {
 }
 
 void timer_free(struct timer *timer) {
-	timer->flags = 0;
+	if (timer->flags == TIMER_USING) { timerctl.using --; }
+	timer->flags = TIMER_FREE;
 	return;
 }
 
@@ -99,6 +100,7 @@ void timer_settime(struct timer *timer, unsigned int timeout) {
 	timer->flags   = TIMER_USING;
 	e			   = io_load_eflags();
 	io_cli();
+	timerctl.using ++;
 	if (timerctl.using == 1) {
 		timerctl.timers[0] = timer;
 		timer->next		   = 0;

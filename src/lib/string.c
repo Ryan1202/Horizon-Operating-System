@@ -113,7 +113,8 @@ int atoi(const char *src) {
 void *memset(void *src, uint8_t value, uint32_t size) {
 	uint8_t *s = (uint8_t *)src;
 	while (size > 0) {
-		*s++ = value;
+		*s = value;
+		s++;
 		--size;
 	}
 	return src;
@@ -122,7 +123,8 @@ void *memset(void *src, uint8_t value, uint32_t size) {
 void *memset16(void *src, uint16_t value, uint32_t size) {
 	uint16_t *s = (uint16_t *)src;
 	while (size-- > 0) {
-		*s++ = value;
+		*s = value;
+		s++;
 	}
 	return src;
 }
@@ -130,7 +132,8 @@ void *memset16(void *src, uint16_t value, uint32_t size) {
 void *memset32(void *src, uint32_t value, uint32_t size) {
 	uint32_t *s = (uint32_t *)src;
 	while (size-- > 0) {
-		*s++ = value;
+		*s = value;
+		s++;
 	}
 	return src;
 }
@@ -149,24 +152,29 @@ void memcpy(void *dst_, const void *src_, uint32_t size) {
 char *strcpy(char *dst_, const char *src_) {
 
 	char *r = dst_;
-	while ((*dst_++ = *src_++))
-		;
+	while ((*dst_ = *src_)) {
+		dst_++;
+		src_++;
+	}
 	return r;
 }
 
 char *strncpy(char *dst_, char *src_, int n) {
 
 	char *r = dst_;
-	while ((*dst_++ = *src_++) && n > 0)
+	while ((*dst_ = *src_) && n > 0) {
+		dst_++;
+		src_++;
 		n--;
+	}
 	return r;
 }
 
 uint32_t strlen(const char *str) {
 
 	const char *p = str;
-	while (*p++)
-		;
+	while (*p)
+		p++;
 	return (p - str - 1);
 }
 
@@ -217,8 +225,10 @@ char *strcat(char *strDest, const char *strSrc) {
 	while (*strDest) {
 		strDest++;
 	}
-	while ((*strDest++ = *strSrc++))
-		;
+	while ((*strDest = *strSrc)) {
+		strDest++;
+		strSrc++;
+	}
 	return (char *)address;
 }
 
@@ -248,7 +258,7 @@ char *strncat(char *dst, const char *src, int n) {
 	while (n && (*dst++ = *src++) != '\0') {
 		n--;
 	}
-	dst = '\0';
+	*dst = '\0';
 	return ret;
 }
 
@@ -315,7 +325,8 @@ int strmet(const char *src, char *buf, char ch) {
 
 	/* 没有遇到就一直复制直到字符串结束或者遇到 */
 	while (*p && *p != ch) {
-		*buf = *p++;
+		*buf = *p;
+		p++;
 		buf++;
 	}
 	/* 最后添加结束字符 */
