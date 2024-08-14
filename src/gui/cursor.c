@@ -4,13 +4,14 @@
  * @brief 光标管理
  * @version 0.1
  * @date 2022-08-19
- * 
+ *
  */
 #include <gui/cursor.h>
 #include <gui/graphic.h>
 #include <gui/input.h>
 #include <kernel/memory.h>
 
+// clang-format off
 char cursors[5][CURSOR_HEIGHT][CURSOR_WIDTH] = {
 	{
 		"*......................",
@@ -137,45 +138,36 @@ char cursors[5][CURSOR_HEIGHT][CURSOR_WIDTH] = {
 		"......................."
 	}
 };
+// clang-format on
 
-void init_cursor(struct gui_s *gui)
-{
-	struct layer_s *layer = create_layer(gui->width/2, gui->height/2, CURSOR_WIDTH, CURSOR_HEIGHT, gui->bpp);
-	gui->cursor = layer;
+void init_cursor(struct gui_s *gui) {
+	struct layer_s *layer =
+		create_layer(gui->width / 2, gui->height / 2, CURSOR_WIDTH, CURSOR_HEIGHT, gui->bpp);
+	gui->cursor	  = layer;
 	layer->inc_tp = 1;
-	int x, y;
+	int		  x, y;
 	uint32_t *buf = (uint32_t *)layer->buffer;
-	for (y = 0; y < CURSOR_HEIGHT; y++)
-	{
-		for (x = 0; x < CURSOR_WIDTH; x++)
-		{
-			buf[y*CURSOR_WIDTH + x] = 0xff000000;
+	for (y = 0; y < CURSOR_HEIGHT; y++) {
+		for (x = 0; x < CURSOR_WIDTH; x++) {
+			buf[y * CURSOR_WIDTH + x] = 0xff000000;
 		}
 	}
-	layer->did = alloc_id(&gui->idmm);
+	layer->did				   = alloc_id(&gui->idmm);
 	gui->vsb_layer[layer->did] = layer;
-	layer_set_z(gui, layer, gui->top+1);
+	layer_set_z(gui, layer, gui->top + 1);
 }
 
-void set_cursor_mode(struct layer_s *layer, enum cursor_status status)
-{
-	int x, y;
+void set_cursor_mode(struct layer_s *layer, enum cursor_status status) {
+	int		  x, y;
 	uint32_t *buf = (uint32_t *)layer->buffer;
-	for (y = 0; y < CURSOR_HEIGHT; y++)
-	{
-		for (x = 0; x < CURSOR_WIDTH; x++)
-		{
-			if (cursors[status][y][x] == '*')
-			{
-				buf[y*CURSOR_WIDTH + x] = 0;
-			}
-			else if (cursors[status][y][x] == '-')
-			{
-				buf[y*CURSOR_WIDTH + x] = 0xffffff;
-			}
-			else
-			{
-				buf[y*CURSOR_WIDTH + x] = 0xff000000;
+	for (y = 0; y < CURSOR_HEIGHT; y++) {
+		for (x = 0; x < CURSOR_WIDTH; x++) {
+			if (cursors[status][y][x] == '*') {
+				buf[y * CURSOR_WIDTH + x] = 0;
+			} else if (cursors[status][y][x] == '-') {
+				buf[y * CURSOR_WIDTH + x] = 0xffffff;
+			} else {
+				buf[y * CURSOR_WIDTH + x] = 0xff000000;
 			}
 		}
 	}
