@@ -33,7 +33,7 @@ driver_func_t mouse_driver = {
 };
 
 #define DRV_NAME "General PS/2 Driver(Mouse)"
-#define DEV_NAME "PS/2 Mouse"
+#define DEV_NAME "mouse"
 
 typedef struct {
 	int x, y;

@@ -90,9 +90,6 @@ static status_t keyboard_enter(driver_t *drv_obj) {
 	devext = devobj->device_extension;
 
 	fifo_init(&devext->keyfifo, 512, devext->keybuf);
-	i8042_send_cmd(I8042_CONFIG_WRITE);
-	i8042_wait_ctr_send_ready();
-	io_out8(I8042_PORT_DATA, 0x47);
 
 	devext->left_ctrl	= 0;
 	devext->left_shift	= 0;
