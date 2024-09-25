@@ -41,7 +41,8 @@
         "array": "c",
         "string_view": "c",
         "initializer_list": "c",
-        "utility": "c"
+        "utility": "c",
+        "cstdlib": "c"
     },
     "C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
         "clang-diagnostic-int-to-void-pointer-cast",
