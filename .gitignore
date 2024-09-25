@@ -60,3 +60,4 @@ fixdep
 *.log
 *.dat
 *.idx
+*.json

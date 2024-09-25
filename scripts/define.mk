@@ -62,11 +62,11 @@ export ECHO_RM ECHO_CC ECHO_CXX ECHO_AS ECHO_LD ECHO_AR ECHO_OUTPUT ECHO_HOSTCC
 CROSS_COMPILE	?=
 
 # Make variables (CC, etc...)
-AS			:=	$(CROSS_COMPILE)clang -x assembler-with-cpp
-CC			:=	$(CROSS_COMPILE)clang
-CPP			:=	$(CROSS_COMPILE)clang -E
-CXX			:=	$(CROSS_COMPILE)clang++
-LD			:=	$(CROSS_COMPILE)lld
+AS			:=	$(CROSS_COMPILE)gcc -x assembler-with-cpp
+CC			:=	$(CROSS_COMPILE)gcc
+CPP			:=	$(CROSS_COMPILE)gcc -E
+CXX			:=	$(CROSS_COMPILE)g++
+LD			:=	$(CROSS_COMPILE)ld
 AR			:=	$(CROSS_COMPILE)ar
 OC			:=	$(CROSS_COMPILE)objcopy
 OD			:=	$(CROSS_COMPILE)objdump
