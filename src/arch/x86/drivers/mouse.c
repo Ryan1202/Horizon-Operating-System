@@ -36,12 +36,12 @@ driver_func_t mouse_driver = {
 #define DRV_NAME "General PS/2 Driver(Mouse)"
 #define DEV_NAME "mouse"
 
-void mouse_handler(int irq) {
+void mouse_handler(device_t *devobj, int irq) {
 	fifo_put(&mouse_fifo, i8042_read_data());
 }
 
 static status_t mouse_enter(driver_t *drv_obj) {
-	int		*mouse_buf = kmalloc(128 * sizeof(int));
+	int		 *mouse_buf = kmalloc(128 * sizeof(int));
 	device_t *devobj;
 
 	device_create(drv_obj, 0, DEV_NAME, DEV_MOUSE, &devobj);
@@ -51,8 +51,7 @@ static status_t mouse_enter(driver_t *drv_obj) {
 	i8042_send_cmd(0xd4);
 	i8042_write_data(0xf4);
 
-	irq_enable(MOUSE_IRQ);
-	put_irq_handler(MOUSE_IRQ, mouse_handler);
+	device_register_irq(devobj, MOUSE_IRQ, mouse_handler);
 	return SUCCUESS;
 }
 
@@ -71,7 +70,9 @@ static status_t mouse_devctl(struct _device_s *dev, uint32_t func_num, uint32_t 
 static status_t mouse_exit(driver_t *drv_obj) {
 	device_t *devobj, *next;
 	// device_extension_t *ext;
-	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) { device_delete(devobj); }
+	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) {
+		device_delete(devobj);
+	}
 	string_del(&drv_obj->name);
 	return SUCCUESS;
 }
