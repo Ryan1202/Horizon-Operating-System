@@ -41,6 +41,11 @@ typedef struct {
 	int lbtn, mbtn, rbtn; // 左键 中键 右键
 } device_extension_t;
 
+void mouse_handler(device_t *devobj, int irq) {
+	device_extension_t *devext = (device_extension_t *)devobj->device_extension;
+	uint8_t				data   = i8042_read_data();
+}
+
 static status_t mouse_enter(driver_t *drv_obj) {
 	device_t		   *devobj;
 	device_extension_t *devext;
@@ -56,7 +61,7 @@ static status_t mouse_enter(driver_t *drv_obj) {
 	devext->mbtn  = 0;
 	devext->rbtn  = 0;
 
-	irq_enable(MOUSE_IRQ);
+	device_register_irq(devobj, MOUSE_IRQ, mouse_handler);
 	return SUCCUESS;
 }
 

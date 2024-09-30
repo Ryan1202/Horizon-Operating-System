@@ -94,7 +94,7 @@ static status_t i8042_enter(driver_t *drv_obj) {
 		uint8_t tmp = i8042_read_data();
 
 		i8042_send_cmd(I8042_CMD_WRITE);
-		i8042_write_data(tmp & ~(I8042_CFG_INT2 | I8042_CFG_CLK2));
+		i8042_write_data(tmp & ~I8042_CFG_INT2 | I8042_CFG_CLK2);
 	}
 
 	// 5.接口测试
@@ -120,26 +120,49 @@ static status_t i8042_enter(driver_t *drv_obj) {
 		// 6.启用端口
 		i8042_send_cmd(I8042_CMD_ENABLE_P1);
 		// 7.重置设备
-		i8042_send_cmd(I8042_CMD_RESET_DEV);
+		i8042_write_data(I8042_CMD_RESET_DEV);
 
 		for (i = 0; i < 2; i++) {
 			if (i8042_read_data() == 0xfc) { printk("[i8042]PS/2 Port1 Device reset failed!\n"); }
 		}
-		devext->p1_dev_type = i8042_read_data();
+		if (i8042_get_status(I8042_STAT_OUTBUF)) {
+			devext->p1_dev_type = i8042_read_data();
+		} else { // AT键盘没有设备类型的响应
+			devext->p2_dev_type = 0xff;
+			printk("[i8042]Found PS/2 device 1.Type: AT Keyboard\n");
+		}
 	}
 	if (devext->is_p2_avail) {
 		// 6.启用端口
 		i8042_send_cmd(I8042_CMD_ENABLE_P2);
+
+		i8042_send_cmd(I8042_CMD_READ);
+		uint8_t tmp = i8042_read_data();
+
+		i8042_send_cmd(I8042_CMD_WRITE);
+		i8042_write_data(tmp | I8042_CFG_INT2);
 		// 7.重置设备
 		i8042_send_cmd(I8042_CMD_SEND_TO_P2);
-		i8042_send_cmd(I8042_CMD_RESET_DEV);
+		i8042_write_data(I8042_CMD_RESET_DEV);
 
 		for (i = 0; i < 2; i++) {
 			if (i8042_read_data() == 0xfc) { printk("[i8042]PS/2 Port1 Device reset failed!\n"); }
 		}
-		devext->p1_dev_type = i8042_read_data();
+		if (i8042_get_status(I8042_STAT_OUTBUF)) {
+			devext->p2_dev_type = i8042_read_data();
+			if (devext->p2_dev_type == 0x00) {
+				printk("[i8042]Found PS/2 device 2.Type: Mouse\n");
+				i8042_send_cmd(I8042_CMD_SEND_TO_P2);
+				i8042_write_data(0xf4);
+				if (i8042_read_data() != 0xfa) { printk("[i8042]PS/2 Port2 Device: mouse enable failed!\n"); }
+			} else {
+				printk("[i8042]Found PS/2 device 2.Type: %#0X\n", devext->p2_dev_type);
+			}
+		} else { // AT键盘没有设备类型的响应
+			devext->p2_dev_type = 0xff;
+			printk("[i8042]Found PS/2 device 2.Type: AT Keyboard\n");
+		}
 	}
-
 	return SUCCUESS;
 }
 
