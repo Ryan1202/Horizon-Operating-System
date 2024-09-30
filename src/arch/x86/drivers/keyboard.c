@@ -102,7 +102,7 @@ static status_t keyboard_enter(driver_t *drv_obj) {
 	devext->caps_lock	= 0;
 	devext->scroll_lock = 0;
 
-	// keyboard_setleds(devext);
+	keyboard_setleds(devext);
 
 	device_register_irq(devobj, KEYBOARD_IRQ, keyboard_handler);
 	return SUCCUESS;

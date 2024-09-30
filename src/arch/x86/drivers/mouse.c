@@ -48,9 +48,6 @@ static status_t mouse_enter(driver_t *drv_obj) {
 
 	fifo_init(&mouse_fifo, 128, mouse_buf);
 
-	i8042_send_cmd(0xd4);
-	i8042_write_data(0xf4);
-
 	device_register_irq(devobj, MOUSE_IRQ, mouse_handler);
 	return SUCCUESS;
 }

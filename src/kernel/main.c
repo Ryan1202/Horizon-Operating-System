@@ -48,7 +48,6 @@ int main() {
 
 	thread_start("NetworkRxPacketProcess", THREAD_DEFAULT_PRIO, net_process_pack, NULL);
 
-	io_sti();
 	thread_start("GUI Main", 100, gui_start, 0);
 
 	for (;;) {
