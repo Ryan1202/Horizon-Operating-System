@@ -1,4 +1,5 @@
 #include "network/netpack.h"
+#include <bits.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
@@ -12,7 +13,7 @@
 uint8_t broadcast_ipv4_addr[4] = {0xff, 0xff, 0xff, 0xff};
 
 void ipv4_init(net_device_t *netdev) {
-	struct ipv4_data	 *data;
+	struct ipv4_data	*data;
 	struct network_info *net = netdev->info;
 
 	net->ipv4_data = kmalloc(sizeof(struct ipv4_data));
@@ -29,7 +30,7 @@ void ipv4_send_pack(netc_t *netc, uint8_t *dst_ip, uint8_t flags, uint8_t id, ui
 					uint8_t offset, uint8_t *data, uint16_t datalen) {
 	int				  i;
 	uint32_t		  chksum = 0;
-	ipv4_header_t	  *header;
+	ipv4_header_t	 *header;
 	net_device_t	 *net_dev = netc->net_dev;
 	struct ipv4_data *ipv4	  = (struct ipv4_data *)net_dev->info->ipv4_data;
 

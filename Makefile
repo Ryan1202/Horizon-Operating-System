@@ -94,6 +94,9 @@ qemu_dbg:
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
+	-usb \
+	-device usb-kbd \
+	-device usb-mouse \
 	-audio pa,model=sb16 \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
@@ -106,6 +109,8 @@ qemu:
 	-m 1024 \
 	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
+	-usb \
+	-device usb-mouse \
 	-audio pa,model=sb16 \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \

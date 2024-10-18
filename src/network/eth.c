@@ -1,3 +1,4 @@
+#include <bits.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/console.h>

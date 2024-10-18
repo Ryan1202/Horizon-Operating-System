@@ -15,31 +15,16 @@
 #define NET_FUNC_GET_MAC_ADDR 0x01
 #define NET_FUNC_SET_MAC_ADDR 0x02
 
-#define SWAP_WORD(n)  ((((n)&0xff) << 8) | (((n)&0xff00) >> 8))
-#define SWAP_DWORD(n) (SWAP_WORD((n)&0xffff) << 16 | SWAP_WORD(((n)&0xffff0000) >> 16))
-
-#ifdef ARCH_X86
-#define BE2HOST_WORD(n)	 SWAP_WORD(n)
-#define BE2HOST_DWORD(n) SWAP_DWORD(n)
-#define LE2HOST_WORD(n)	 (n)
-#define LE2HOST_DWORD(n) (n)
-
-#define HOST2BE_WORD(n)	 SWAP_WORD(n)
-#define HOST2BE_DWORD(n) SWAP_DWORD(n)
-#define HOST2LE_WORD(n)	 (n)
-#define HOST2LE_DWORD(n) (n)
-#endif
-
 struct network_info {
 	uint8_t mac[6];
-	void	 *ipv4_data;
-	void	 *dhcp_data;
+	void   *ipv4_data;
+	void   *dhcp_data;
 
 	list_t list;
 };
 
 typedef struct netc_s {
-	struct task_s		  *thread;
+	struct task_s		*thread;
 	struct net_device_s *net_dev;
 
 	spinlock_t spin_lock;
@@ -51,10 +36,10 @@ typedef struct netc_s {
 	uint16_t protocol;
 	uint16_t proto_id;
 	list_t	 proto_list;
-	void	 *proto_private;
+	void	*proto_private;
 	uint16_t app_protocl;
 	uint32_t app_proto_id;
-	void	 *app_private;
+	void	*app_private;
 
 	uint8_t	 dst_mac[6];
 	uint8_t *dst_laddr, dst_laddr_len;
@@ -62,7 +47,7 @@ typedef struct netc_s {
 
 typedef struct net_device_s {
 	struct network_info *info;
-	device_t			 *device;
+	device_t			*device;
 	int					 enable;
 
 	list_t list;

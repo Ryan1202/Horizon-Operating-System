@@ -1,17 +1,18 @@
-#include "kernel/memory.h"
-#include "kernel/thread.h"
-#include "network/netpack.h"
-#include "stdint.h"
+#include <bits.h>
 #include <drivers/pci.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
+#include <kernel/memory.h>
 #include <kernel/page.h>
 #include <kernel/spinlock.h>
+#include <kernel/thread.h>
 #include <kernel/wait_queue.h>
 #include <network/eth.h>
+#include <network/netpack.h>
 #include <network/network.h>
+#include <stdint.h>
 
 #include <drivers/network/rtl8139.h>
 #include <stdint.h>
@@ -95,15 +96,15 @@ struct chip_info {
 	uint32_t	hwverid;
 	uint32_t	flag;
 } chips[CHIP_INFO_NR] = {
-	{"RTL8139", 0b110000000 << 22, 0},
-	{"RTL8139A", 0b111000000 << 22, 0},
-	{"RTL8139A-G", 0b111010000 << 22, 0},
-	{"RTL8139B", 0b111100000 << 22, CHIP_HAS_LWAKE},
-	{"RTL8130", 0b111110000 << 22, CHIP_HAS_LWAKE},
-	{"RTL8139C", 0b111010000 << 22, CHIP_HAS_LWAKE},
-	{"RTL8100", 0b111100010 << 22, CHIP_HAS_LWAKE},
+	{	   "RTL8139", 0b110000000 << 22,			   0},
+	{	  "RTL8139A", 0b111000000 << 22,				0},
+	{	 "RTL8139A-G", 0b111010000 << 22,			  0},
+	{	  "RTL8139B", 0b111100000 << 22, CHIP_HAS_LWAKE},
+	{	   "RTL8130", 0b111110000 << 22, CHIP_HAS_LWAKE},
+	{	  "RTL8139C", 0b111010000 << 22, CHIP_HAS_LWAKE},
+	{	   "RTL8100", 0b111100010 << 22, CHIP_HAS_LWAKE},
 	{"RTL8100B/8139D", 0b111010001 << 22, CHIP_HAS_LWAKE},
-	{"RTL8101", 0b111010011 << 22, CHIP_HAS_LWAKE},
+	{	   "RTL8101", 0b111010011 << 22, CHIP_HAS_LWAKE},
 };
 
 void rtl8139_handler(device_t *devobj, int irq) {
@@ -156,7 +157,7 @@ void rtl8139_handler(device_t *devobj, int irq) {
 }
 
 static status_t rtl8139_enter(driver_t *drv_obj) {
-	device_t			 *devobj;
+	device_t		   *devobj;
 	device_extension_t *devext;
 	int					i;
 
@@ -263,8 +264,8 @@ static status_t rtl8139_open(struct _device_s *dev) {
 }
 
 static status_t rtl8139_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
-	device_extension_t	   *devext = dev->device_extension;
-	wait_queue_t			 *rq;
+	device_extension_t	  *devext = dev->device_extension;
+	wait_queue_t		  *rq;
 	struct read_request_s *rreq;
 
 	// rq			 = wait_queue_add(devext->rqm, sizeof(struct read_request_s));
@@ -278,7 +279,7 @@ static status_t rtl8139_read(struct _device_s *dev, uint8_t *buf, uint32_t offse
 
 static status_t rtl8139_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t *devext = dev->device_extension;
-	wait_queue_t		 *wq;
+	wait_queue_t	   *wq;
 	uint32_t			idx;
 
 	if (size > ETH_MAX_FRAME_SIZE) { return FAILED; }
@@ -334,7 +335,9 @@ static status_t rtl8139_close(struct _device_s *dev) {
 
 static status_t rtl8139_exit(driver_t *drv_obj) {
 	device_t *devobj, *next;
-	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) { device_delete(devobj); }
+	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) {
+		device_delete(devobj);
+	}
 	string_del(&drv_obj->name);
 	return SUCCUESS;
 }

@@ -79,5 +79,6 @@
     "clangd.arguments": [
         "--all-scopes-completion",
         "--completion-style=detailed",
-    ]
+    ],
+    "makefile.configureOnOpen": false
 }

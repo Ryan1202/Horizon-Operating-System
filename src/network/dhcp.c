@@ -1,3 +1,4 @@
+#include <bits.h>
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <network/dhcp.h>

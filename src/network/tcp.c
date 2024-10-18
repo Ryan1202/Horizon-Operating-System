@@ -1,6 +1,7 @@
 #include "kernel/list.h"
 #include "kernel/memory.h"
 #include "network/netpack.h"
+#include <bits.h>
 #include <drivers/pit.h>
 #include <kernel/func.h>
 #include <math.h>
@@ -41,7 +42,7 @@ uint16_t tcp_checksum(netc_t *netc, uint8_t dst_ip[4], uint8_t *buf, uint32_t le
 }
 
 int tcp_send_for_status_change(netc_t *netc, uint8_t *buf, int length) {
-	tcp_conn_t  *conn	= (tcp_conn_t *)netc->app_private;
+	tcp_conn_t	*conn	= (tcp_conn_t *)netc->app_private;
 	tcp_status_t status = conn->status;
 
 	netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, buf, length);
@@ -67,8 +68,8 @@ int tcp_send_for_status_change(netc_t *netc, uint8_t *buf, int length) {
 }
 
 int tcp_send(netc_t *netc, uint8_t *buf, int length) {
-	tcp_conn_t   *conn	  = (tcp_conn_t *)netc->app_private;
-	uint8_t		*sendbuf = kmalloc(sizeof(tcp_header_t) + length);
+	tcp_conn_t	 *conn	  = (tcp_conn_t *)netc->app_private;
+	uint8_t		 *sendbuf = kmalloc(sizeof(tcp_header_t) + length);
 	tcp_header_t *header  = (tcp_header_t *)sendbuf;
 
 	memcpy(header, conn->header_buf, sizeof(tcp_header_t));
@@ -111,7 +112,7 @@ int tcp_send(netc_t *netc, uint8_t *buf, int length) {
 }
 
 int wait_for_status_change(netc_t *netc) {
-	tcp_conn_t  *conn	= (tcp_conn_t *)netc->app_private;
+	tcp_conn_t	*conn	= (tcp_conn_t *)netc->app_private;
 	tcp_status_t status = conn->status;
 	int			 i		= 0;
 
@@ -205,7 +206,7 @@ int tcp_unbind(netc_t *netc) {
 
 int tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port) {
 	tcp_header_t *header;
-	tcp_conn_t   *conn;
+	tcp_conn_t	 *conn;
 	int			  tcp_length = sizeof(tcp_header_t) + 4;
 
 	conn			 = (tcp_conn_t *)netc->app_private;
@@ -264,7 +265,7 @@ int tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port) {
 
 int tcp_listen(netc_t *netc) {
 	tcp_header_t *header;
-	tcp_conn_t   *conn;
+	tcp_conn_t	 *conn;
 	int			  tcp_length = sizeof(tcp_header_t);
 
 	conn = (tcp_conn_t *)netc->app_private;
@@ -293,7 +294,7 @@ int tcp_listen(netc_t *netc) {
 
 void tcp_ipv4_close(netc_t *netc) {
 	tcp_header_t *header;
-	tcp_conn_t   *conn = (tcp_conn_t *)netc->app_private;
+	tcp_conn_t	 *conn = (tcp_conn_t *)netc->app_private;
 	header			   = (tcp_header_t *)conn->header_buf;
 
 	header->seq			   = HOST2BE_DWORD(conn->seq);
@@ -335,7 +336,7 @@ end:
 }
 
 void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8_t ip_len) {
-	netc_t	   *netc;
+	netc_t		 *netc;
 	tcp_header_t *tcp_head = (tcp_header_t *)(buf + offset);
 	uint16_t	  chksum   = tcp_head->checksum;
 	tcp_header_t *header;

@@ -51,6 +51,7 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+compile_commands.json
 
 # Others
 disk/

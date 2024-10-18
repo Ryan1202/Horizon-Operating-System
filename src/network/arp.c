@@ -1,3 +1,4 @@
+#include <bits.h>
 #include <kernel/driver.h>
 #include <network/arp.h>
 #include <network/eth.h>
@@ -47,7 +48,7 @@ void send_arp(netc_t *netc, uint8_t *dst_ip, uint16_t opcode) {
 }
 
 void arp_read(uint8_t *buf, uint16_t offset, uint16_t length) {
-	arp_pack_t  *arp;
+	arp_pack_t	*arp;
 	arp_cache_t *cur, *next;
 
 	arp			= (arp_pack_t *)(buf + offset);
