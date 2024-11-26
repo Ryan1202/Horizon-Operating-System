@@ -6,13 +6,13 @@ import argparse
 
 # 定义变量
 imagetool_path = 'tools/bin/imagetool'
-hd_img_path = './hd0.img'
+hd_img_path = 'hd0.img'
 hd_size = '64M'
 embed_area_size = '1M'
-boot_img_path = './boot.img'
-core_image_path = './core.img'
+boot_img_path = 'boot.img'
+core_image_path = 'core.img'
 disk_dir_path = 'disk'
-grub_cfg_path = './grub.cfg'
+grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
 grub_mkimage_path = "grub-mkimage"
 default_mods =\
@@ -68,9 +68,12 @@ def install_grub(disk_image_path, platform, fs, mods):
         run_command(f"{imagetool_path} {disk_image_path} format /p0/ {fs}")
 
     # 检查 boot.img 是否存在
-    if not os.path.isfile(disk_image_path):
+    if not os.path.isfile(boot_img_path):
         # 复制 boot.img
         grub_dir_path = "/usr/lib/grub/" + platform + "/"
+        if not os.path.isfile(grub_dir_path + 'boot.img'):
+            print(f"{grub_dir_path}boot.img不存在，请检查")
+            return
         shutil.copy(os.path.join(grub_dir_path, 'boot.img'), boot_img_path)
 
     # 创建 core.img
