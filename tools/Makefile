@@ -4,7 +4,7 @@ RM		=	rm
 
 OUTPUT_DIR = bin/
 
-IMAGETOOL_DIR = imagetool/
+IMAGETOOL_DIR = imagetool
 
 .PHONY: all
 
@@ -15,7 +15,7 @@ bin:
 
 imgtool:
 	cargo build --release --manifest-path $(IMAGETOOL_DIR)/Cargo.toml
-	cp	$(IMAGETOOL_DIR)target/release/imagetool $(OUTPUT_DIR)
+	cp	$(IMAGETOOL_DIR)/target/release/imagetool $(OUTPUT_DIR)
 
 clean:
 	cargo clean --manifest-path imagetool/Cargo.toml
