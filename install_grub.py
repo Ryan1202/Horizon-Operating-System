@@ -6,13 +6,13 @@ import argparse
 
 # 定义变量
 imagetool_path = 'tools/bin/imagetool'
-hd_img_path = './hd0.img'
+hd_img_path = 'hd0.img'
 hd_size = '64M'
 embed_area_size = '1M'
-boot_img_path = './boot.img'
-core_image_path = './core.img'
+boot_img_path = 'boot.img'
+core_image_path = 'core.img'
 disk_dir_path = 'disk'
-grub_cfg_path = './grub.cfg'
+grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
 grub_mkimage_path = "grub-mkimage"
 default_mods =\
