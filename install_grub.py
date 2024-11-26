@@ -76,6 +76,8 @@ def install_grub(disk_image_path, platform, fs, mods):
             return
         #shutil.copy(os.path.join(grub_dir_path, 'boot.img'), boot_img_path)
         run_command(f"cp {grub_dir_path}/boot.img {boot_img_path}")
+    else:
+        print(f"{boot_img_path}已存在")
 
     # 创建 core.img
     prefix_device = "(hd0,"
