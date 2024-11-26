@@ -1,13 +1,13 @@
 sinclude ../scripts/env.mk
 sinclude ../scripts/localenv.mk
 
-ifdef ARCH_X86
+ifeq ($(ARCH), x86)
 ARCH_DIR	:=	./arch/x86
 endif
 
 X_ASFLAGS	:= $(ENV_AFLAGS) -I $(ARCH_DIR)/include/ -g
 X_CFLAGS    := $(ENV_CFLAGS) -fno-strict-aliasing -g
-ifdef ARCH_X86
+ifeq ($(ARCH), x86)
 X_CFLAGS	+= -DARCH_X86
 endif
 

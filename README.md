@@ -18,14 +18,16 @@
 建议使用```VSCode```开发
 
 需要的工具(括号中为我使用的版本):
-- dd(8.30)
-- gcc(8.3.0)/clang(13.0.1)
-- kpartx
-- ld(2.31.1)/lld(13.0.1)
-- make(4.2.1)
-- mkfs(2.38.1)
-- nasm(2.14)
-- qemu-system-i386(7.1.0)
+- dd(9.4)
+- gcc(13.2.0)/clang(18.1.3)
+- ld(2.42)/lld(18.1.3)
+- make(4.3)
+- nasm(2.16.01)
+- qemu-system-i386(8.2.2)
+
+此外，还需要python(执行grub安装脚本)和rust(编译工具)环境
+- python(3.12.3)
+- rust：[Install Rust - Rust Programming Language(rust-lang.org)](https://www.rust-lang.org/tools/install)
 
 ### VSCode
 
@@ -51,14 +53,14 @@
 
 ### 虚拟硬盘
 
-> 创建
+> 创建包含grub的虚拟硬盘
 > ```
-> sudo make hd
+> make hd
 > ```
 >
-> 写入
+> 写入disk目录下的文件
 > ```
-> sudo make writehd
+> make writehd
 > ```
 
 ### 内核
@@ -69,7 +71,7 @@ make
 ```
 make lib
 ```
-### 用户程序
+### 应用程序
 ```
 make app
 ```
@@ -80,7 +82,7 @@ make app
 make run
 ```
 
-## 调试
+## 调试运行
 
 ```
 make run_dbg

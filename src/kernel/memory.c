@@ -10,7 +10,11 @@
 #include <kernel/memory.h>
 #include <kernel/page.h>
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
+
+uint32_t ards_addr	  = ARDS_ADDR;
+uint32_t ards_nr_addr = ARDS_NR;
 
 struct ards			 *ards;
 struct mmap			  phy_page_mmap;
@@ -20,13 +24,12 @@ struct memory_manage *memory_manage;
 uint32_t memory_total_size;
 
 void init_memory(void) {
-	uint16_t ards_nr = *((uint16_t *)ARDS_NR);	 // ards 结构数
-	ards			 = (struct ards *)ARDS_ADDR; // ards 地址
+	uint16_t ards_nr = *((uint16_t *)ards_nr_addr); // ards 结构数
+	ards			 = (struct ards *)ards_addr;	// ards 地址
 	int i;
 	for (i = 0; i < ards_nr; i++) {
 		// 寻找可用最大内存
 		if (ards->type == 1) {
-			// 冒泡排序获得最大内存
 			if (ards->base_low + ards->length_low > memory_total_size) {
 				memory_total_size = ards->base_low + ards->length_low;
 			}
@@ -34,19 +37,25 @@ void init_memory(void) {
 		ards++;
 	}
 
-	int page_bytes = (memory_total_size - PHY_MEM_BASE_ADDR - KERN_VIR_MEM_BASE_ADDR) / (PAGE_SIZE * 8);
+	int page_bytes =
+		(memory_total_size - PHY_MEM_BASE_ADDR - KERN_VIR_MEM_BASE_ADDR) /
+		(PAGE_SIZE * 8);
 
 	phy_page_mmap.bits = (unsigned char *)PHY_MEM_MMAP;
 	phy_page_mmap.len  = page_bytes;
 
 	vir_page_mmap.bits = (unsigned char *)VIR_MEM_MMAP;
-	vir_page_mmap.len  = PHY_MEM_MMAP_SIZE - (PHY_MEM_BASE_ADDR + KERN_VIR_MEM_BASE_ADDR) / (PAGE_SIZE * 8);
+	vir_page_mmap.len =
+		PHY_MEM_MMAP_SIZE -
+		(PHY_MEM_BASE_ADDR + KERN_VIR_MEM_BASE_ADDR) / (PAGE_SIZE * 8);
 
 	memset(phy_page_mmap.bits, 0, phy_page_mmap.len);
 	memset(vir_page_mmap.bits, 0, vir_page_mmap.len);
 
-	unsigned int memory_manage_pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
-	memory_manage					 = (struct memory_manage *)kernel_alloc_pages(memory_manage_pages);
+	unsigned int memory_manage_pages =
+		DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
+	memory_manage =
+		(struct memory_manage *)kernel_alloc_pages(memory_manage_pages);
 	memset(memory_manage, 0, memory_manage_pages * PAGE_SIZE);
 	for (i = 0; i < MEMORY_BLOCKS; i++) {
 		memory_manage->free_blocks[i].size	= 0; // 大小是页的数量
@@ -89,7 +98,7 @@ int mmap_search(struct mmap *btmp, unsigned int cnt) {
 
 void mmap_set(struct mmap *btmp, unsigned int bit_index, int value) {
 	unsigned int byte_idx = bit_index / 8; // 向下取整用于索引数组下标
-	unsigned int bit_odd  = bit_index % 8; // 取余用于索引数组内的位
+	unsigned int bit_odd = bit_index % 8; // 取余用于索引数组内的位
 
 	/* 一般都会用个0x1这样的数对字节中的位操作,
 	 * 将1任意移动后再取反,或者先取反再移位,可用来对位置0操作。*/
@@ -132,12 +141,13 @@ void *kmalloc(uint32_t size) {
 	if (size >= 2048) {
 		int pages = DIV_ROUND_UP(size, PAGE_SIZE); // 一共占多少个页
 		for (i = 0; i < MEMORY_BLOCKS; i++) {
-			if (memory_manage->free_blocks[i].flags == MEMORY_BLOCK_FREE) {					 // 找到
-				address								  = (uint32_t)kernel_alloc_pages(pages); // 分配页
+			if (memory_manage->free_blocks[i].flags ==
+				MEMORY_BLOCK_FREE) {						   // 找到
+				address = (uint32_t)kernel_alloc_pages(pages); // 分配页
 				memory_manage->free_blocks[i].address = address;
-				memory_manage->free_blocks[i].size	  = pages; // 大小是页的数量
-				memory_manage->free_blocks[i].flags	  = MEMORY_BLOCK_USING;
-				memory_manage->free_blocks[i].mode	  = MEMORY_BLOCK_MODE_BIG;
+				memory_manage->free_blocks[i].size = pages; // 大小是页的数量
+				memory_manage->free_blocks[i].flags = MEMORY_BLOCK_USING;
+				memory_manage->free_blocks[i].mode	= MEMORY_BLOCK_MODE_BIG;
 				// printk("Found pages ");
 				// printk("Alloc:%x idx:%d\n", address,i);
 				return (void *)address;
@@ -163,8 +173,9 @@ void *kmalloc(uint32_t size) {
 		// 第一次寻找，如果在块中没有找到，就打散一个页
 		for (i = 0; i < MEMORY_BLOCKS; i++) {
 			if (memory_manage->free_blocks[i].size == break_size &&
-				memory_manage->free_blocks[i].flags == MEMORY_BLOCK_FREE) { // 找到
-				address								= memory_manage->free_blocks[i].address;
+				memory_manage->free_blocks[i].flags ==
+					MEMORY_BLOCK_FREE) { // 找到
+				address = memory_manage->free_blocks[i].address;
 				memory_manage->free_blocks[i].flags = MEMORY_BLOCK_USING;
 				// printk("Found broken ");
 				// printk("Alloc:%x idx:%d\n", address,i);
@@ -178,7 +189,8 @@ void *kmalloc(uint32_t size) {
 
 		// 打散成break_cnt个
 		for (i = 0; i < MEMORY_BLOCKS; i++) {
-			if (memory_manage->free_blocks[i].flags == MEMORY_BLOCK_FREE) { // 找到一个可以被使用的
+			if (memory_manage->free_blocks[i].flags ==
+				MEMORY_BLOCK_FREE) { // 找到一个可以被使用的
 				// 地址增加
 
 				// 设置最终地址
@@ -197,8 +209,9 @@ void *kmalloc(uint32_t size) {
 		// 打散后的寻找
 		for (i = 0; i < MEMORY_BLOCKS; i++) {
 			if (memory_manage->free_blocks[i].size == break_size &&
-				memory_manage->free_blocks[i].flags == MEMORY_BLOCK_FREE) { // 找到
-				address								= memory_manage->free_blocks[i].address;
+				memory_manage->free_blocks[i].flags ==
+					MEMORY_BLOCK_FREE) { // 找到
+				address = memory_manage->free_blocks[i].address;
 				memory_manage->free_blocks[i].flags = MEMORY_BLOCK_USING;
 				// printk("Found new broken ");
 				// printk("Alloc:%x idx:%d\n", address,i);
@@ -217,11 +230,17 @@ int kfree(void *address) {
 		if (memory_manage->free_blocks[i].address == addr &&
 			memory_manage->free_blocks[i].flags == MEMORY_BLOCK_USING) { // 找到
 			if (memory_manage->free_blocks[i].mode == MEMORY_BLOCK_MODE_BIG) {
-				kernel_free_page(memory_manage->free_blocks[i].address, memory_manage->free_blocks[i].size);
-				memory_manage->free_blocks[i].size = 0; // 只有大块才需要重新设置size
-			} else if (memory_manage->free_blocks[i].mode == MEMORY_BLOCK_MODE_SMALL) {
+				kernel_free_page(
+					memory_manage->free_blocks[i].address,
+					memory_manage->free_blocks[i].size);
+				memory_manage->free_blocks[i].size =
+					0; // 只有大块才需要重新设置size
+			} else if (
+				memory_manage->free_blocks[i].mode == MEMORY_BLOCK_MODE_SMALL) {
 				// 小块内存就清空就是了
-				memset((void *)memory_manage->free_blocks[i].address, 0, memory_manage->free_blocks[i].size);
+				memset(
+					(void *)memory_manage->free_blocks[i].address, 0,
+					memory_manage->free_blocks[i].size);
 				// 存在一种情况，那就是所有被打散的内存都被释放后，可能需要释放那个页，目前还没有考虑它
 				// 小块不需要设置大小，因为就是打散了的块
 			}

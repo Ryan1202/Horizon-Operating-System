@@ -1,0 +1,5 @@
+[submodule "tools/imagetool"]
+	path = tools/imagetool
+	url = https://github.com/Ryan1202/imagetool
+[submodule "tools/imagetool/"]
+	ignore = untracked

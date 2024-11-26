@@ -55,6 +55,8 @@ compile_commands.json
 
 # Others
 disk/
+tools/bin/
+tools/imagetool/target/
 core
 fixdep
 *.img

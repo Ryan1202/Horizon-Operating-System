@@ -17,9 +17,13 @@
 
 void setup_page(void) {
 	uint32_t *pdt = (uint32_t *)PDT_PHY_ADDR;
-	memset((void *)PDT_PHY_ADDR, 0, PAGE_SIZE);			   // 清空数据
-	pdt[0] = (TBL_PHY_ADDR | SIGN_RW | SIGN_SYS | SIGN_P); // 第0个页(前4MB内存):GDT、BIOS、内核主程序
-	pdt[1023] = (PDT_PHY_ADDR | SIGN_RW | SIGN_SYS | SIGN_P); // 第1023个页(最后4MB内存):页表
+	memset((void *)PDT_PHY_ADDR, 0, PAGE_SIZE); // 清空数据
+	pdt[0] =
+		(TBL_PHY_ADDR | SIGN_RW | SIGN_SYS |
+		 SIGN_P); // 第0个页(前4MB内存):GDT、BIOS、内核主程序
+	pdt[1023] =
+		(PDT_PHY_ADDR | SIGN_RW | SIGN_SYS |
+		 SIGN_P); // 第1023个页(最后4MB内存):页表
 
 	// 映射低4MB内存
 	uint32_t  i, j;
@@ -47,13 +51,17 @@ void setup_page(void) {
 	}
 
 	// VRAM
-	uint32_t *vram_addr = (uint32_t *)(VIDEO_INFO_ADDR + 6);
-	uint32_t  size = (*(unsigned short *)(VIDEO_INFO_ADDR + 0)) * (*(unsigned short *)(VIDEO_INFO_ADDR + 2)) *
-					(*(uint32_t *)(VIDEO_INFO_ADDR + 4) / 8);
+	uint32_t vram_addr = (uint32_t)VideoInfo.vram;
+	uint32_t size =
+		VideoInfo.width * VideoInfo.height * (VideoInfo.BitsPerPixel / 8);
 	for (i = 1; i <= DIV_ROUND_UP(size, PAGE_SIZE * 1024); i++) {
-		pdt[i] = ((VRAM_PT_PHY_ADDR + (i - 1) * PAGE_SIZE) | SIGN_RW | SIGN_SYS | SIGN_P);
-		pt	   = (uint32_t *)(VRAM_PT_PHY_ADDR + ((i - 1) * PAGE_SIZE));
-		addr   = ((*vram_addr + (i - 1) * PAGE_SIZE * 1024) | SIGN_RW | SIGN_SYS | SIGN_P);
+		pdt[i] =
+			((VRAM_PT_PHY_ADDR + (i - 1) * PAGE_SIZE) | SIGN_RW | SIGN_SYS |
+			 SIGN_P);
+		pt = (uint32_t *)(VRAM_PT_PHY_ADDR + ((i - 1) * PAGE_SIZE));
+		addr =
+			((vram_addr + (i - 1) * PAGE_SIZE * 1024) | SIGN_RW | SIGN_SYS |
+			 SIGN_P);
 		for (j = 0; j < 1024; j++) {
 			pt[j] = addr;
 			addr += PAGE_SIZE;
@@ -71,7 +79,8 @@ void setup_page(void) {
  */
 uint32_t *pte_ptr(uint32_t vaddr) {
 	uint32_t *pte =
-		(uint32_t *)(0xffc00000 + (((vaddr & 0xffc00000) >> 10) + ((vaddr & 0x003ff000) >> 12) * 4));
+		(uint32_t *)(0xffc00000 + (((vaddr & 0xffc00000) >> 10) +
+								   ((vaddr & 0x003ff000) >> 12) * 4));
 	return pte;
 }
 
@@ -82,7 +91,8 @@ uint32_t *pte_ptr(uint32_t vaddr) {
  * @return uint32_t* 页目录表地址
  */
 uint32_t *pde_ptr(uint32_t vaddr) {
-	uint32_t *pde = (uint32_t *)((0xfffff000) + ((vaddr & 0xffc00000) >> 22) * 4);
+	uint32_t *pde =
+		(uint32_t *)((0xfffff000) + ((vaddr & 0xffc00000) >> 22) * 4);
 	return pde;
 }
 
@@ -93,9 +103,10 @@ uint32_t *pde_ptr(uint32_t vaddr) {
  * @return uint32_t 物理地址
  */
 uint32_t vir2phy(uint32_t vaddr) {
-	uint32_t *pte	   = pte_ptr(vaddr);
-	uint32_t  phy_addr = (uint32_t)(*pte & 0xfffff000); // 获取页表物理地址并去除属性
-	phy_addr += vaddr & 0x00000fff;						// 加上页表内偏移地址
+	uint32_t *pte = pte_ptr(vaddr);
+	uint32_t  phy_addr =
+		(uint32_t)(*pte & 0xfffff000); // 获取页表物理地址并去除属性
+	phy_addr += vaddr & 0x00000fff;	   // 加上页表内偏移地址
 	return (uint32_t)phy_addr;
 }
 
@@ -179,7 +190,8 @@ void *remap(uint32_t paddr, size_t size) {
 			for (j = 0; j < 1024; j++) {
 				pt = (uint32_t *)(0xffc00000 + i * 0x1000);
 				if (pt[j] == ((paddr + size - 1) & 0x003ff000)) {
-					return (void *)(i * 0x40000 + j * 0x1000 + (paddr & 0x0fff));
+					return (void *)(i * 0x40000 + j * 0x1000 +
+									(paddr & 0x0fff));
 				}
 			}
 		}
@@ -264,7 +276,9 @@ void *kernel_alloc_pages(int pages) {
 
 	vir_page_addr = alloc_vir_page(); // 分配一个虚拟地址的页
 
-	fill_vir_page_table(vir_page_addr, SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
+	fill_vir_page_table(
+		vir_page_addr,
+		SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
 
 	if (pages == 1) { // 如果只有一个页
 		memset((void *)vir_page_addr, 0, PAGE_SIZE);
@@ -274,7 +288,9 @@ void *kernel_alloc_pages(int pages) {
 	} else if (pages > 1) {
 		for (i = 1; i < pages; i++) {
 			vir_page_addr_more = alloc_vir_page(); // 分配一个虚拟地址的页
-			fill_vir_page_table(vir_page_addr_more, SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
+			fill_vir_page_table(
+				vir_page_addr_more,
+				SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
 		}
 		memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
 		io_store_eflags(old_status);
@@ -455,16 +471,20 @@ void *thread_alloc_page(struct task_s *thread, int pages) {
 
 	vir_page_addr = thread_alloc_vir_page(thread); // 分配一个虚拟地址的页
 
-	fill_vir_page_table(vir_page_addr, SIGN_USER); // 把页添加到当前页目录表系统中，使他可以被使用
+	fill_vir_page_table(
+		vir_page_addr,
+		SIGN_USER); // 把页添加到当前页目录表系统中，使他可以被使用
 
 	if (pages == 1) { // 如果只有一个页
 		memset((void *)vir_page_addr, 0, PAGE_SIZE);
 		return (void *)vir_page_addr;
 	} else if (pages > 1) {
 		for (i = 1; i < pages; i++) {
-			vir_page_addr_more = thread_alloc_vir_page(thread); // 分配一个虚拟地址的页
-			fill_vir_page_table(vir_page_addr_more,
-								SIGN_USER); // 把页添加到当前页目录表系统中，使他可以被使用
+			vir_page_addr_more =
+				thread_alloc_vir_page(thread); // 分配一个虚拟地址的页
+			fill_vir_page_table(
+				vir_page_addr_more,
+				SIGN_USER); // 把页添加到当前页目录表系统中，使他可以被使用
 		}
 		memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
 		return (void *)vir_page_addr;
@@ -506,24 +526,30 @@ void thread_free_page(struct task_s *thread, uint32_t vaddr, int pages) {
  *
  * @return 成功则返回0，失败则返回NULL
  */
-int thread_use_page(struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages) {
+int thread_use_page(
+	struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages) {
 	int i	= 0;
 	int idx = (vaddr - USER_VIR_MEM_BASE_ADDR) / PAGE_SIZE;
 	while (i < pages) {
-		if (thread->vir_page_mmap.bits[idx / 8] & (1 << (idx % 8))) { return -1; }
+		if (thread->vir_page_mmap.bits[idx / 8] & (1 << (idx % 8))) {
+			return -1;
+		}
 		mmap_set(&thread->vir_page_mmap, idx, 1);
 
 		uint32_t *pde, *pte;
-		// pde = thread->pgdir + (((vaddr & 0xffc00000) >> 10) + ((vaddr & 0x003ff000)>>12) * 4);
-		pde			= (uint32_t *)(((uint32_t)thread->pgdir) + ((vaddr & 0xffc00000) >> 22) * 4);
+		// pde = thread->pgdir + (((vaddr & 0xffc00000) >> 10) + ((vaddr &
+		// 0x003ff000)>>12) * 4);
+		pde			= (uint32_t *)(((uint32_t)thread->pgdir) +
+						   ((vaddr & 0xffc00000) >> 22) * 4);
 		uint32_t pt = *pde;
-		if ((pt & 0x00000001) != 0x00000001) {		  // 不存在页表
-			pt	 = alloc_mem_page();				  // 分配页表地址
-			*pde = pt | SIGN_P | SIGN_RW | SIGN_USER; // 填写页目录项为页表的地址
+		if ((pt & 0x00000001) != 0x00000001) { // 不存在页表
+			pt = alloc_mem_page();			   // 分配页表地址
+			*pde =
+				pt | SIGN_P | SIGN_RW | SIGN_USER; // 填写页目录项为页表的地址
 		}
 		pt	= (uint32_t)remap(pt & 0xfffff000, PAGE_SIZE);
 		pte = (uint32_t *)(pt + ((vaddr & 0x003ff000) >> 12) * 4);
-		if (((*pte) & 0x00000001) != 0x00000001) {		// 不存在页表项
+		if (((*pte) & 0x00000001) != 0x00000001) { // 不存在页表项
 			*pte = addr | SIGN_P | SIGN_RW | SIGN_USER; // 填写页表项为页的地址
 			addr += PAGE_SIZE;
 		}

@@ -1,25 +1,30 @@
-DD		=	dd
-CP		=	cp
+DD			=	dd
+CP			=	cp
+GRUB_MKIMG	=	grub-mkimage
+MKDIR		=	mkdir
+PYTHON		=	python
 
-ARCH_X86 := x86
+ARCH		:= x86
 
-export ARCH_X86
+export ARCH
 
-ifdef ARCH_X86
-QEMU	=	qemu-system-i386
+ifeq ($(ARCH), x86)
+	QEMU		=	qemu-system-i386
+	TARGET_PLATFORM	=	i386-pc
 endif
 
 FD_IMG		=	./horizon.img
 HD_IMG		=	./hd0.img
-HD_SIZE		=	64
+HD_SIZE		=	64M
+RESV_SIZE	=	1M
 
 APP_SRC		=	apps
 KERNEL_SRC	=	src
 TOOL_SRC	=	tools
 LIB_SRC		=	libs
-ARCH		=	$(KERNEL_SRC)/arch/x86
-BOOT_DIR	=	$(ARCH)/boot
-DRIVER_DIR	=	$(ARCH)/drivers
+ARCH_DIR	=	$(KERNEL_SRC)/arch/x86
+BOOT_DIR	=	$(ARCH_DIR)/boot
+DRIVER_DIR	=	$(ARCH_DIR)/drivers
 KERNEL_DIR	=	$(KERNEL_SRC)/kernel
 FS_DIR		=	$(KERNEL_DIR)/fs
 LIB_DIR		=	$(KERNEL_SRC)/lib
@@ -35,22 +40,21 @@ BOOT_BIN	=	$(BOOT_DIR)/boot.bin
 LOADER_BIN	=	$(BOOT_DIR)/loader.bin
 KERNEL_ELF	=	$(KERNEL_SRC)/kernel.elf
 
+IMAGETOOL	=	$(TOOL_SRC)/bin/imagetool
+
 .PHONY: cld
 
-cld: kernel libs writefd
+cld: tools kernel libs
 
-run: kernel libs writefd qemu
+run: tools kernel libs qemu
 
-run_dbg: kernel libs writefd qemu_dbg
+run_dbg: tools kernel libs qemu_dbg
 
 hd:
-	$(DD) if=/dev/zero of=$(HD_IMG) bs=1M count=$(HD_SIZE)
-	@parted $(HD_IMG) -s mklabel msdos mkpart primary fat32 0% 100%
-	@kpartx -av hd0.img
-	@umount /dev/mapper/loop0p1
-	@mkfs.vfat -F 32 /dev/mapper/loop0p1
-	@kpartx -d hd0.img
-	@chmod -R 777 $(HD_IMG)
+	$(PYTHON) ./install_grub.py \
+		--image $(HD_IMG) \
+		--fs fat32 \
+		--platform $(TARGET_PLATFORM)
 
 app:
 	$(MAKE) -s -C $(APP_SRC)
@@ -58,6 +62,7 @@ app:
 kernel:
 	$(MAKE) -s -C $(BOOT_DIR)
 	$(MAKE) -s -C $(KERNEL_SRC)
+	$(IMAGETOOL) $(HD_IMG) copy $(KERNEL_ELF) /p0/kernel.elf
 	
 tools:
 	$(MAKE) -s -C $(TOOL_SRC)
@@ -69,22 +74,17 @@ clean:
 	$(MAKE) -s -C $(APP_SRC) clean
 	$(MAKE) -s -C $(BOOT_DIR) clean
 	$(MAKE) -s -C $(KERNEL_SRC) clean
-	$(MAKE) -s -C $(TOOL_SRC) clean
 	$(MAKE) -s -C $(LIB_SRC) clean
 
-writefd:
-#先覆盖掉软盘内的内容再写入，在没有软盘映像时能创建映像
-	$(DD) if=/dev/zero of=$(FD_IMG) bs=512 count=2880 conv=notrunc
-	$(DD) if=$(BOOT_BIN) of=$(FD_IMG) bs=512 count=1 conv=notrunc
-	$(DD) if=$(LOADER_BIN) of=$(FD_IMG) bs=512 seek=$(LOADER_OFF) count=$(LOADER_CNTS) conv=notrunc
-	$(DD) if=$(KERNEL_ELF) of=$(FD_IMG) bs=512 seek=$(KERNEL_OFF) count=$(KERNEL_CNTS) conv=notrunc
+clean_all:
+	$(MAKE) -s -C $(APP_SRC) clean
+	$(MAKE) -s -C $(BOOT_DIR) clean
+	$(MAKE) -s -C $(KERNEL_SRC) clean
+	$(MAKE) -s -C $(LIB_SRC) clean
+	$(MAKE) -s -C $(TOOL_SRC) clean
 
-writehd:
-	@kpartx -av $(HD_IMG)
-	@mount /dev/mapper/loop1p1 /mnt
-	$(CP) -r $(DISK_DIR)/* /mnt
-	@umount /mnt
-	@kpartx -d $(HD_IMG)
+writehd: $(HD_IMG)
+	$(IMAGETOOL) $(HD_IMG) copy -r $(DISK_DIR) /p0/
 
 # qemu 7.1后取消了-soundhw，改用-audio
 qemu_dbg:
@@ -92,7 +92,6 @@ qemu_dbg:
 	-s -S \
 	-monitor stdio \
 	-m 1024 \
-	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
 	-usb \
 	-device usb-kbd \
@@ -101,13 +100,12 @@ qemu_dbg:
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
 	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
-	-boot a
+	-boot c
 	
 qemu:
 	$(QEMU) \
 	-monitor stdio \
 	-m 1024 \
-	-drive file=$(FD_IMG),index=0,if=floppy,format=raw \
 	-hda $(HD_IMG) \
 	-usb \
 	-device usb-mouse \
@@ -115,4 +113,4 @@ qemu:
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
 	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
-	-boot a
+	-boot c

@@ -1,11 +1,22 @@
-MAKE = make
+MAKE	=	make
+MKDIR	=	mkdir
+RM		=	rm
 
-IMAGETOOL_SRC = imagetool/
+OUTPUT_DIR = bin/
 
-.PHONY: imgtool
+IMAGETOOL_DIR = imagetool/
+
+.PHONY: all
+
+all: $(OUTPUT_DIR) imgtool
+
+$(OUTPUT_DIR):
+	$(MKDIR) $(OUTPUT_DIR)
 
 imgtool:
-	$(MAKE) -s -C $(IMAGETOOL_SRC)
+	cargo build --release --manifest-path $(IMAGETOOL_DIR)/Cargo.toml
+	cp	$(IMAGETOOL_DIR)target/release/imagetool $(OUTPUT_DIR)
 
 clean:
-	$(MAKE) -s -C $(IMAGETOOL_SRC) clean
+	cargo clean --manifest-path imagetool/Cargo.toml
+	$(RM) -rf $(OUTPUT_DIR)
