@@ -71,6 +71,9 @@ def install_grub(disk_image_path, platform, fs, mods):
     if not os.path.isfile(disk_image_path):
         # 复制 boot.img
         grub_dir_path = "/usr/lib/grub/" + platform + "/"
+        if not os.path.isfile(grub_dir_path + 'boot.img'):
+            print(f"{grub_dir_path}boot.img不存在，请检查")
+            return
         shutil.copy(os.path.join(grub_dir_path, 'boot.img'), boot_img_path)
 
     # 创建 core.img
