@@ -16,6 +16,7 @@ bin:
 imgtool:
 	cargo build --release --manifest-path $(IMAGETOOL_DIR)/Cargo.toml
 	cp	$(IMAGETOOL_DIR)/target/release/imagetool $(OUTPUT_DIR)
+	cargo clean --manifest-path imagetool/Cargo.toml
 
 clean:
 	cargo clean --manifest-path imagetool/Cargo.toml
