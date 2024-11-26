@@ -22,8 +22,8 @@ jobs:
       with:
         toolchain: stable
     - uses: actions/setup-python@v5.3.0
-    - name: make tools
-      run: make tools
+    - name: build tools
+      run: make tool
     - name: Generate Virtual Hard Disk with Grub
       run: make hd
     - name: Generate Virtual HD image with OS

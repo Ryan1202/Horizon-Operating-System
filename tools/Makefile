@@ -8,9 +8,9 @@ IMAGETOOL_DIR = imagetool/
 
 .PHONY: all
 
-all: $(OUTPUT_DIR) imgtool
+all: bin imgtool
 
-$(OUTPUT_DIR):
+bin:
 	$(MKDIR) $(OUTPUT_DIR)
 
 imgtool:

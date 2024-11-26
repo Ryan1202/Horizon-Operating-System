@@ -64,7 +64,7 @@ kernel:
 	$(MAKE) -s -C $(KERNEL_SRC)
 	$(IMAGETOOL) $(HD_IMG) copy $(KERNEL_ELF) /p0/kernel.elf
 	
-tools:
+tool:
 	$(MAKE) -s -C $(TOOL_SRC)
 
 lib:
