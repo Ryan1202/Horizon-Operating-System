@@ -40,7 +40,7 @@ struct vbe_control_info_block {
 	unsigned char  OemData[256];
 };
 
-struct video_info {
+struct VideoInfo {
 	unsigned short				   width, height;
 	unsigned short				   BitsPerPixel;
 	unsigned char				  *vram;
@@ -48,7 +48,7 @@ struct video_info {
 	struct vbe_control_info_block *vbe_conrtol_info;
 };
 
-extern struct video_info VideoInfo;
+extern struct VideoInfo video_info;
 
 // 写像素
 void write_pixel(int x, int y, unsigned int color);

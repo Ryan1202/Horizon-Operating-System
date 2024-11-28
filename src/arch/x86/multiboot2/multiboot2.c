@@ -9,10 +9,10 @@
 void multiboot2_loader(uint32_t eax, uint32_t ebx) {
 	if (eax != 0x36d76289) {
 		// 尝试输出
-		VideoInfo.vram		   = (uint8_t *)0xe0000000;
-		VideoInfo.width		   = 1024;
-		VideoInfo.height	   = 768;
-		VideoInfo.BitsPerPixel = 32;
+		video_info.vram			= (uint8_t *)0xe0000000;
+		video_info.width		= 1024;
+		video_info.height		= 768;
+		video_info.BitsPerPixel = 32;
 		print_string(
 			0, 0, 0xffffff, font16,
 			"Not booted by a multiboot2-compliant bootloader.");
@@ -31,17 +31,17 @@ void multiboot2_loader(uint32_t eax, uint32_t ebx) {
 		switch (type) {
 		case MBIT_FRAMEBUFER_INFO: {
 			struct framebuffer_tag *fb = (struct framebuffer_tag *)p;
-			VideoInfo.vram			   = (uint8_t *)fb->framebuffer_addr[0];
-			VideoInfo.width			   = fb->framebuffer_width;
-			VideoInfo.height		   = fb->framebuffer_height;
-			VideoInfo.BitsPerPixel	   = fb->framebuffer_bpp;
+			video_info.vram			   = (uint8_t *)fb->framebuffer_addr[0];
+			video_info.width		   = fb->framebuffer_width;
+			video_info.height		   = fb->framebuffer_height;
+			video_info.BitsPerPixel	   = fb->framebuffer_bpp;
 			break;
 		}
 		case MBIT_VBE_INFO: {
 			struct vbe_info_tag *vbe = (struct vbe_info_tag *)p;
-			VideoInfo.vbe_mode_info =
+			video_info.vbe_mode_info =
 				(struct vbe_mode_info_block *)vbe->vbe_mode_info;
-			VideoInfo.vbe_conrtol_info =
+			video_info.vbe_conrtol_info =
 				(struct vbe_control_info_block *)vbe->vbe_control_info;
 			break;
 		}

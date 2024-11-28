@@ -22,12 +22,12 @@ struct console console;
  *
  */
 void init_console(void) {
-	console.vram   = VideoInfo.vram;
+	console.vram   = video_info.vram;
 	console.font   = font16;
 	console.cur_x  = 0;
 	console.cur_y  = 0;
-	console.width  = VideoInfo.width / 10;
-	console.height = VideoInfo.height / 16;
+	console.width  = video_info.width / 10;
+	console.height = video_info.height / 16;
 	console.color  = 0xc0c0c0;
 	console.flag   = CMD_FLAG_OUTPUT;
 }
@@ -97,7 +97,9 @@ void print_char(unsigned char c, unsigned int color) {
 	int		 i, j, k;
 	uint32_t _color = color;
 	if (c > 127) { c = '?'; }
-	print_word(console.cur_x * 10 + 1, console.cur_y * 16, console.font + c * 16, _color);
+	print_word(
+		console.cur_x * 10 + 1, console.cur_y * 16, console.font + c * 16,
+		_color);
 	console.cur_x++;
 	if (console.cur_x >= console.width) {
 		console.cur_x = 0;
@@ -108,12 +110,15 @@ void print_char(unsigned char c, unsigned int color) {
 		console.cur_x	   = 0;
 		int height		   = console.height * 16;
 		int width		   = console.width * 10;
-		int byte_per_pixel = VideoInfo.BitsPerPixel / 8;
+		int byte_per_pixel = video_info.BitsPerPixel / 8;
 		for (i = 16; i < height; i++) {
 			for (j = 0; j < width; j++) {
 				for (k = 0; k < byte_per_pixel; k++) {
-					console.vram[((i - 16) * VideoInfo.width + j) * byte_per_pixel + k] =
-						console.vram[(i * VideoInfo.width + j) * byte_per_pixel + k];
+					console.vram
+						[((i - 16) * video_info.width + j) * byte_per_pixel +
+						 k] =
+						console.vram
+							[(i * video_info.width + j) * byte_per_pixel + k];
 				}
 			}
 		}
@@ -208,14 +213,18 @@ int printk(const char *fmt, ...) {
 			if (console.cur_y >= console.height) {
 				print_char('\n', color);
 				if (console.cur_y < 0) { console.cur_y = 0; }
-				if (console.flag == CMD_FLAG_INPUT) { console.start_y = console.cur_y; }
+				if (console.flag == CMD_FLAG_INPUT) {
+					console.start_y = console.cur_y;
+				}
 			}
 			break;
 		case '\b':
 			if (console.flag == CMD_FLAG_INPUT) {
-				if (console.cur_x != console.start_x && console.cur_y != console.start_y) {
+				if (console.cur_x != console.start_x &&
+					console.cur_y != console.start_y) {
 					console.cur_x--;
-					draw_rect(console.cur_x * 10, console.cur_y * 16, 10, 16, 0);
+					draw_rect(
+						console.cur_x * 10, console.cur_y * 16, 10, 16, 0);
 				}
 			}
 			break;
@@ -250,7 +259,8 @@ void print_hex(unsigned char *s, int length) {
 		printk("\nData is too long!\n");
 		return;
 	}
-	printk("\n          0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F  0123456789ABCDEF\n");
+	printk("\n          0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F  "
+		   "0123456789ABCDEF\n");
 	for (i = 0; i < DIV_ROUND_UP(length, 16); i++) {
 		printk("%08X ", i * 16);
 		for (j = 0; j < 16; j++) {

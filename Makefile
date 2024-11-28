@@ -44,13 +44,13 @@ IMAGETOOL	=	$(TOOL_SRC)/bin/imagetool
 
 .PHONY: cld
 
-cld: tools kernel libs
+cld: kernel libs
 
-run: tools kernel libs qemu
+run: kernel libs qemu
 
-run_dbg: tools kernel libs qemu_dbg
+run_dbg: kernel libs qemu_dbg
 
-hd:
+hd: tool
 	$(PYTHON) ./install_grub.py \
 		--image $(HD_IMG) \
 		--fs fat32 \

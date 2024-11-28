@@ -5,7 +5,7 @@ import struct
 import argparse
 
 # 定义变量
-imagetool_path = 'tools/bin/imagetool'
+imagetool_path = '\"tools/bin/imagetool\"'
 hd_img_path = 'hd0.img'
 hd_size = '64M'
 embed_area_size = '1M'
@@ -15,6 +15,7 @@ disk_dir_path = 'disk'
 grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
 grub_mkimage_path = "grub-mkimage"
+grub_dir_path = "/usr/lib/grub/"
 default_mods =\
 "minicmd normal gzio gcry_crc verifiers terminal \
 priority_queue gettext extcmd datetime crypto bufio boot \
@@ -70,7 +71,7 @@ def install_grub(disk_image_path, platform, fs, mods):
     # 检查 boot.img 是否存在
     if not os.path.isfile(boot_img_path):
         # 复制 boot.img
-        grub_dir_path = "/usr/lib/grub/" + platform + "/"
+        grub_dir_path += platform + "/"
         if not os.path.isfile(grub_dir_path + 'boot.img'):
             print(f"{grub_dir_path}boot.img不存在，请检查")
             return
@@ -99,5 +100,13 @@ if __name__ == "__main__":
     parser.add_argument("--fs", help="文件系统")
     parser.add_argument("--mods", help="要额外附加的模块", default=default_mods)
     args = parser.parse_args()
+
+    if os.name == 'nt':
+        print("检测到为Windows,请输入grub路径：")
+        path = input()
+        if path[-1] != '/':
+            path += '/'
+        grub_dir_path = path
+        grub_mkimage_path = path + grub_mkimage_path
 
     install_grub(args.image, args.platform, args.fs, args.mods)

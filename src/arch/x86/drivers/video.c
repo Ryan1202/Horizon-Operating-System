@@ -11,7 +11,7 @@
 #include <kernel/func.h>
 #include <stdint.h>
 
-struct video_info VideoInfo;
+struct VideoInfo video_info;
 
 /**
  * VIDEO_INFO_ADDR处存着loader保存的显示模式信息
@@ -21,7 +21,7 @@ struct video_info VideoInfo;
  * VIDEO_INFO_ADDR+6	显存物理地址
  * VIDEO_INFO_ADDR+10	显示模式的INFO_BLOCK
  *
- * 2024.11.25: VIDEO_INFO_ADDR已废弃，直接在平台初始化阶段赋值VideoInfo
+ * 2024.11.25: VIDEO_INFO_ADDR已废弃，直接在平台初始化阶段赋值video_info
  */
 
 #define SEG_ADDR2LINEAR_ADDR(addr)                              \
@@ -30,25 +30,25 @@ struct video_info VideoInfo;
 
 void init_video() {
 	// 因为VRAM地址在启用分页后发生了变化，所以要重新设置
-	VideoInfo.vram = (uint8_t *)VRAM_VIR_ADDR;
+	video_info.vram = (uint8_t *)VRAM_VIR_ADDR;
 
 	printk(
-		"Display mode: %d*%d %dbit\n", VideoInfo.width, VideoInfo.height,
-		VideoInfo.BitsPerPixel);
+		"Display mode: %d*%d %dbit\n", video_info.width, video_info.height,
+		video_info.BitsPerPixel);
 
-	VideoInfo.vbe_mode_info->OemStringPtr =
-		SEG_ADDR2LINEAR_ADDR(VideoInfo.vbe_mode_info->OemStringPtr);
-	VideoInfo.vbe_mode_info->VideoModePtr =
-		SEG_ADDR2LINEAR_ADDR(VideoInfo.vbe_mode_info->VideoModePtr);
-	VideoInfo.vbe_mode_info->OemVendorNamePtr =
-		SEG_ADDR2LINEAR_ADDR(VideoInfo.vbe_mode_info->OemVendorNamePtr);
-	VideoInfo.vbe_mode_info->OemProduceRevPtr =
-		SEG_ADDR2LINEAR_ADDR(VideoInfo.vbe_mode_info->OemProduceRevPtr);
-	VideoInfo.vbe_mode_info->OemProductNamePtr =
-		SEG_ADDR2LINEAR_ADDR(VideoInfo.vbe_mode_info->OemProductNamePtr);
+	video_info.vbe_mode_info->OemStringPtr =
+		SEG_ADDR2LINEAR_ADDR(video_info.vbe_mode_info->OemStringPtr);
+	video_info.vbe_mode_info->VideoModePtr =
+		SEG_ADDR2LINEAR_ADDR(video_info.vbe_mode_info->VideoModePtr);
+	video_info.vbe_mode_info->OemVendorNamePtr =
+		SEG_ADDR2LINEAR_ADDR(video_info.vbe_mode_info->OemVendorNamePtr);
+	video_info.vbe_mode_info->OemProduceRevPtr =
+		SEG_ADDR2LINEAR_ADDR(video_info.vbe_mode_info->OemProduceRevPtr);
+	video_info.vbe_mode_info->OemProductNamePtr =
+		SEG_ADDR2LINEAR_ADDR(video_info.vbe_mode_info->OemProductNamePtr);
 
 	// 如果是256色模式则设置调色板
-	if (VideoInfo.BitsPerPixel == 8) {
+	if (video_info.BitsPerPixel == 8) {
 		unsigned char table[216 * 3], *p;
 		int			  i, j, k, eflags;
 		for (i = 0; i < 6; i++) {
@@ -81,50 +81,50 @@ void init_video() {
 void show_vbeinfo() {
 	int i;
 
-	printk("VBE Version:%x\n", VideoInfo.vbe_mode_info->VbeVersion);
-	printk("OEMString:%s\n", VideoInfo.vbe_mode_info->OemStringPtr);
+	printk("VBE Version:%x\n", video_info.vbe_mode_info->VbeVersion);
+	printk("OEMString:%s\n", video_info.vbe_mode_info->OemStringPtr);
 
 	printk("VBE Capabilities:\n");
 	printk(
 		"    %s\n",
-		(VideoInfo.vbe_mode_info->Capabilities & 0x01
+		(video_info.vbe_mode_info->Capabilities & 0x01
 			 ? "DAC width is switchable to 8 bits per primary color"
 			 : "DAC is fixed width, with 6 bits per primary color"));
 	printk(
-		"    %s\n", (VideoInfo.vbe_mode_info->Capabilities & 0x02
+		"    %s\n", (video_info.vbe_mode_info->Capabilities & 0x02
 						 ? "Controller is not VGA compatible"
 						 : "Controller is VGA compatible"));
 	printk(
 		"    %s\n",
-		(VideoInfo.vbe_mode_info->Capabilities & 0x04
+		(video_info.vbe_mode_info->Capabilities & 0x04
 			 ? "When programming large blocks of information to the RAMDAC"
 			 : "Normal RAMDAC operation"));
 	printk(
 		"    %s\n",
-		(VideoInfo.vbe_mode_info->Capabilities & 0x08
+		(video_info.vbe_mode_info->Capabilities & 0x08
 			 ? "Hardware stereoscopic signaling supported by controller"
 			 : "No hardware stereoscopic signaling support"));
 	printk(
-		"    %s\n", (VideoInfo.vbe_mode_info->Capabilities & 0x10
+		"    %s\n", (video_info.vbe_mode_info->Capabilities & 0x10
 						 ? "Stereo signaling supported via VESA EVC"
 						 : "Stereo signaling supported via external VESA "
 						   "stereo connector"));
 
 	printk("VideoMode:\n");
 	for (i = 0;
-		 ((unsigned short *)VideoInfo.vbe_mode_info->VideoModePtr)[i] >= 0x100;
+		 ((unsigned short *)video_info.vbe_mode_info->VideoModePtr)[i] >= 0x100;
 		 i++) {
 		printk(
 			"%x ",
-			((unsigned short *)VideoInfo.vbe_mode_info->VideoModePtr)[i]);
+			((unsigned short *)video_info.vbe_mode_info->VideoModePtr)[i]);
 	}
 	printk("\n");
 
-	printk("VBE totalMemory:%dKB\n", VideoInfo.vbe_mode_info->TotalMemory);
-	printk("OEM SoftwareRev:%#x\n", VideoInfo.vbe_mode_info->OemSoftwareRev);
-	printk("OEM VendorName:%s\n", VideoInfo.vbe_mode_info->OemVendorNamePtr);
-	printk("OEM ProductName:%s\n", VideoInfo.vbe_mode_info->OemProductNamePtr);
-	printk("OEM ProduceRev:%s\n", VideoInfo.vbe_mode_info->OemProduceRevPtr);
+	printk("VBE totalMemory:%dKB\n", video_info.vbe_mode_info->TotalMemory);
+	printk("OEM SoftwareRev:%#x\n", video_info.vbe_mode_info->OemSoftwareRev);
+	printk("OEM VendorName:%s\n", video_info.vbe_mode_info->OemVendorNamePtr);
+	printk("OEM ProductName:%s\n", video_info.vbe_mode_info->OemProductNamePtr);
+	printk("OEM ProduceRev:%s\n", video_info.vbe_mode_info->OemProduceRevPtr);
 }
 
 /**
@@ -140,20 +140,20 @@ void write_pixel(int x, int y, unsigned int color) {
 	g = (unsigned char)(color >> 8);
 	b = (unsigned char)color;
 	unsigned char *vram =
-		(unsigned char *)(VideoInfo.vram + (y * VideoInfo.width + x) *
-											   (VideoInfo.BitsPerPixel / 8));
-	if (VideoInfo.BitsPerPixel == 32) {
+		(unsigned char *)(video_info.vram + (y * video_info.width + x) *
+												(video_info.BitsPerPixel / 8));
+	if (video_info.BitsPerPixel == 32) {
 		vram[0] = color & 0xff;
 		vram[1] = (color >> 8) & 0xff;
 		vram[2] = (color >> 16) & 0xff;
-	} else if (VideoInfo.BitsPerPixel == 24) {
+	} else if (video_info.BitsPerPixel == 24) {
 		vram[0] = color & 0xff;
 		vram[1] = (color >> 8) & 0xff;
 		vram[2] = (color >> 16) & 0xff;
-	} else if (VideoInfo.BitsPerPixel == 16) {
+	} else if (video_info.BitsPerPixel == 16) {
 		vram[0] = ((g * 63 / 255) & 0x7) << 5 | (b * 31 / 255);
 		vram[1] = (r * 31 / 255) << 3 | ((g * 63 / 255) & 0x38) >> 3;
-	} else if (VideoInfo.BitsPerPixel == 8) {
+	} else if (video_info.BitsPerPixel == 8) {
 		vram[0] = (r / 51) + (g / 51) * 6 + (b / 51) * 36;
 	}
 }
@@ -189,8 +189,8 @@ void print_word(int x, int y, unsigned char *ascii, unsigned int color) {
 	int	 i;
 	char d;
 	for (i = 0; i < 16; i++) {
-		// vram = (unsigned char *)(VideoInfo.vram + ((y+i)*VideoInfo.width +
-		// x)*(VideoInfo.BitsPerPixel/8));
+		// vram = (unsigned char *)(video_info.vram + ((y+i)*video_info.width +
+		// x)*(video_info.BitsPerPixel/8));
 		d = ascii[i];
 		if (d & 0x80) { write_pixel(x + 0, y + i, color); }
 		if (d & 0x40) { write_pixel(x + 1, y + i, color); }

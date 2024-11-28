@@ -11,7 +11,7 @@
 	global stack_exception
 	global general_protection
 	global page_fault
-	global IRQ_timer,	IRQ_pit,	IRQ_keyboard,			IRQ_ide0,	IRQ_ide1
+	global IRQ_timer,	IRQ_pit,	IRQ_keyboard,
 	global thread_intr_exit
 	global switch_to
 

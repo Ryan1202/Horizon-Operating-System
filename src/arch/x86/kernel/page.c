@@ -51,9 +51,9 @@ void setup_page(void) {
 	}
 
 	// VRAM
-	uint32_t vram_addr = (uint32_t)VideoInfo.vram;
+	uint32_t vram_addr = (uint32_t)video_info.vram;
 	uint32_t size =
-		VideoInfo.width * VideoInfo.height * (VideoInfo.BitsPerPixel / 8);
+		video_info.width * video_info.height * (video_info.BitsPerPixel / 8);
 	for (i = 1; i <= DIV_ROUND_UP(size, PAGE_SIZE * 1024); i++) {
 		pdt[i] =
 			((VRAM_PT_PHY_ADDR + (i - 1) * PAGE_SIZE) | SIGN_RW | SIGN_SYS |

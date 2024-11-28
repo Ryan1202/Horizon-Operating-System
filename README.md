@@ -50,6 +50,8 @@
 > ```
 > -soundhw sb16
 > ```
+> 
+> 使用WSL环境运行QEMU时可能需要手动配置`pulseaudio`，或者可以把qemu路径改为windows版qemu，如果不需要音频输出也可以直接删除这一行
 
 ### 虚拟硬盘
 
