@@ -11,24 +11,24 @@
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/thread.h>
-#include <math.h>
 
 #include <network/eth.h>
 #include <network/network.h>
 
 LIST_HEAD(driver_list_head);
-list_t irq_handler_lists[16] = {
-	LIST_HEAD_INIT(irq_handler_lists[0]),  LIST_HEAD_INIT(irq_handler_lists[1]),
-	LIST_HEAD_INIT(irq_handler_lists[2]),  LIST_HEAD_INIT(irq_handler_lists[3]),
-	LIST_HEAD_INIT(irq_handler_lists[4]),  LIST_HEAD_INIT(irq_handler_lists[5]),
-	LIST_HEAD_INIT(irq_handler_lists[6]),  LIST_HEAD_INIT(irq_handler_lists[7]),
-	LIST_HEAD_INIT(irq_handler_lists[8]),  LIST_HEAD_INIT(irq_handler_lists[9]),
-	LIST_HEAD_INIT(irq_handler_lists[10]), LIST_HEAD_INIT(irq_handler_lists[11]),
-	LIST_HEAD_INIT(irq_handler_lists[12]), LIST_HEAD_INIT(irq_handler_lists[13]),
-	LIST_HEAD_INIT(irq_handler_lists[14]), LIST_HEAD_INIT(irq_handler_lists[15]),
-};
+// list_t device_irq_lists[16] = {
+// 	LIST_HEAD_INIT(device_irq_lists[0]),  LIST_HEAD_INIT(device_irq_lists[1]),
+// 	LIST_HEAD_INIT(device_irq_lists[2]),  LIST_HEAD_INIT(device_irq_lists[3]),
+// 	LIST_HEAD_INIT(device_irq_lists[4]),  LIST_HEAD_INIT(device_irq_lists[5]),
+// 	LIST_HEAD_INIT(device_irq_lists[6]),  LIST_HEAD_INIT(device_irq_lists[7]),
+// 	LIST_HEAD_INIT(device_irq_lists[8]),  LIST_HEAD_INIT(device_irq_lists[9]),
+// 	LIST_HEAD_INIT(device_irq_lists[10]), LIST_HEAD_INIT(device_irq_lists[11]),
+// 	LIST_HEAD_INIT(device_irq_lists[12]), LIST_HEAD_INIT(device_irq_lists[13]),
+// 	LIST_HEAD_INIT(device_irq_lists[14]), LIST_HEAD_INIT(device_irq_lists[15]),
+// };
 
 struct index_node *dev;
 
@@ -41,6 +41,50 @@ struct file_operations device_fops = {
 	.seek  = fs_seek,
 };
 
+// --------new--------
+#include <kernel/device_driver.h>
+#include <kernel/driver_manager.h>
+#include <result.h>
+
+LIST_HEAD(startup_dm_lh);
+
+void print_driver_result(
+	DriverResult result, char *file, int line, char *func_with_args) {
+	if (result == DRIVER_RESULT_OK) return;
+	printk("[At file %s line%d: %s]", file, line, func_with_args);
+	switch (result) {
+		RESULT_CASE_PRINT(DRIVER_RESULT_OK)
+		RESULT_CASE_PRINT(DRIVER_RESULT_TIMEOUT)
+		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS)
+		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS)
+		RESULT_CASE_PRINT(DRIVER_RESULT_INVALID_IRQ_NUMBER)
+		RESULT_CASE_PRINT(DRIVER_RESULT_OUT_OF_MEMORY)
+		RESULT_CASE_PRINT(DRIVER_RESULT_BUS_DRIVER_ALREADY_EXIST)
+		RESULT_CASE_PRINT(DRIVER_RESULT_BUS_DRIVER_NOT_EXIST)
+		RESULT_CASE_PRINT(DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST)
+		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_MANAGER_NOT_EXIST)
+		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_NOT_EXIST)
+		RESULT_CASE_PRINT(DRIVER_RESULT_NULL_POINTER)
+		RESULT_CASE_PRINT(DRIVER_RESULT_UNSUPPORT_DEVICE)
+		RESULT_CASE_PRINT(DRIVER_RESULT_OTHER_ERROR)
+	}
+}
+
+DriverResult register_sub_driver(Driver *driver, SubDriver *sub_driver) {
+	sub_driver->driver = driver;
+
+	list_add(&sub_driver->sub_driver_list, &driver->sub_driver_lh);
+
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult unregister_sub_driver(Driver *driver, SubDriver *sub_driver) {
+	list_del(&sub_driver->sub_driver_list);
+
+	return DRIVER_RESULT_OK;
+}
+
+// --------old---------
 struct index_node *dev_open(char *path) {
 	struct index_node *inode = vfs_open(path);
 	if (inode == NULL) return NULL;
@@ -53,17 +97,18 @@ int dev_close(struct index_node *inode) {
 }
 
 int dev_read(struct index_node *inode, uint8_t *buffer, uint32_t length) {
-	return inode->device->drv_obj->function.driver_read(inode->device, (uint8_t *)buffer, inode->fp->offset,
-														length);
+	return inode->device->drv_obj->function.driver_read(
+		inode->device, (uint8_t *)buffer, inode->fp->offset, length);
 }
 
 int dev_write(struct index_node *inode, uint8_t *buffer, uint32_t length) {
-	return inode->device->drv_obj->function.driver_write(inode->device, (uint8_t *)buffer, inode->fp->offset,
-														 length);
+	return inode->device->drv_obj->function.driver_write(
+		inode->device, (uint8_t *)buffer, inode->fp->offset, length);
 }
 
 int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg) {
-	return inode->device->drv_obj->function.driver_devctl(inode->device, cmd, arg);
+	return inode->device->drv_obj->function.driver_devctl(
+		inode->device, cmd, arg);
 }
 
 void init_dm(void) {
@@ -94,14 +139,15 @@ status_t driver_create(driver_func_t func, char *driver_name) {
 }
 
 void driver_inited() {
-	driver_t *cur, *next;
-	list_for_each_owner_safe (cur, next, &driver_list_head, list) {
+	driver_t *cur;
+	list_for_each_owner (cur, &driver_list_head, list) {
 		if (cur->dm != NULL) { cur->dm->drv_inited(cur->dm); }
 	}
 }
 
-status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
-					   device_t **device) {
+status_t device_create(
+	driver_t *driver, unsigned long device_extension_size, char *name,
+	dev_type_t type, device_t **device) {
 	device_t *devobj = kmalloc(sizeof(device_t) + device_extension_size);
 	devobj->type	 = type;
 	spinlock_init(&devobj->lock);
@@ -143,31 +189,24 @@ void device_delete(device_t *device) {
 	kfree(device);
 }
 
-void device_register_irq(device_t *devobj, int irq, driver_irq_handler_t handler) {
+void device_register_irq(
+	device_t *devobj, int irq, driver_irq_handler_t handler) {
 	if (irq > 16) return;
-	if (list_empty(&irq_handler_lists[irq])) irq_enable(irq);
+	// if (list_empty(&device_irq_lists[irq])) irq_enable(irq);
 	dev_irq_t *dev_irq = kmalloc(sizeof(dev_irq_t));
 	dev_irq->devobj	   = devobj;
 	dev_irq->handler   = handler;
-	list_add_tail(&dev_irq->list, &irq_handler_lists[irq]);
+	// list_add_tail(&dev_irq->list, &device_irq_lists[irq]);
 }
 
 void device_unregister_irq(device_t *devobj, int irq) {
 	if (irq > 16) return;
-	if (list_empty(&irq_handler_lists[irq])) return;
+	// if (list_empty(&device_irq_lists[irq])) return;
 	dev_irq_t *dev_irq, *next;
-	list_for_each_owner_safe (dev_irq, next, &irq_handler_lists[irq], list) {
-		if (dev_irq->devobj == devobj) {
-			list_del(&dev_irq->list);
-			kfree(dev_irq);
-		}
+	// list_for_each_owner_safe (dev_irq, next, &device_irq_lists[irq], list) {
+	if (dev_irq->devobj == devobj) {
+		list_del(&dev_irq->list);
+		kfree(dev_irq);
 	}
-}
-
-void device_irq_handler(int irq) {
-	dev_irq_t *cur, *next;
-	if (list_empty(&irq_handler_lists[irq])) return;
-	list_for_each_owner_safe (cur, next, &irq_handler_lists[irq], list) {
-		cur->handler(cur->devobj, irq);
-	}
+	// }
 }

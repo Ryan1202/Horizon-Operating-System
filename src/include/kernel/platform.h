@@ -1,5 +1,6 @@
 #ifndef _PLATFORM_H
 
-void platform_init();
+void init_platform();
+void platform_init_and_start_devices();
 
 #endif

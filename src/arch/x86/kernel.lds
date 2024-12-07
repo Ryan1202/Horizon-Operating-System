@@ -1,6 +1,6 @@
 OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
 OUTPUT_ARCH(i386)
-ENTRY(_start)
+ENTRY(_start) /* start is at boot/xxx/xxx.S */
 
 PHDRS
 {
@@ -17,11 +17,12 @@ SECTIONS {
     . = 0x00100000;
 
     /* code segment */
-    .text ALIGN(4) : {
+    .text : {
+        . = ALIGN(4);   /* 4 bytes align */
         *(.text)
         *(.init.text)
 		*(.exit.text)
-    } :text
+    } : text
 
     .initcall ALIGN(8) :
 	{
@@ -29,7 +30,7 @@ SECTIONS {
 		KEEP(*(.initcall_0.text))
         KEEP(*(.initcall_1.text))
 		PROVIDE(__initcall_end = .);
-	} :text
+	} : text
 
 	.exitcall ALIGN(8) :
 	{
@@ -37,34 +38,17 @@ SECTIONS {
 		KEEP(*(.exitcall_0.text))
 		KEEP(*(.exitcall_1.text))
 		PROVIDE(__exitcall_end = .);
-	} :text
+	} : text
 
     /* data segment */
-    .data ALIGN(4) : {
+    .data : {
+        . = ALIGN(4);   /* 4 bytes align */
         *(.data)
-    } :data
+    } : data
 
     /* bss segement */
-    .bss ALIGN(4) : {
+    .bss : {
+        . = ALIGN(4);   /* 4 bytes align */
         *(.bss)
-    } :data
-    
-    . = ALIGN(4);
-    _end_of_file = .;  /* 标记文件结尾 */
-
-    . = ALIGN(4);
-    /DISCARD/ : {
-        *(.note*)
-        *(.comment)
-    }
-    .debug_aranges 0 (NOLOAD) : { *(.debug_aranges) }
-    .debug_info 0 (NOLOAD) : { *(.debug_info) }
-    .debug_abbrev 0 (NOLOAD) : { *(.debug_abbrev) }
-    .debug_line 0 (NOLOAD) : { *(.debug_line) }
-    .debug_str 0 (NOLOAD) : { *(.debug_str) }
-    .debug_addr 0 (NOLOAD) : { *(.debug_addr) }
-    .debug_line_str 0 (NOLOAD) : { *(.debug_line_str) }
-    .debug_rnglists 0 (NOLOAD) : { *(.debug_rnglists) }
-    .debug_str_offsets 0 (NOLOAD) : { *(.debug_str_offsets) }
-    .debug_loclists 0 (NOLOAD) : { *(.debug_loclists) }
+    } : data
 }

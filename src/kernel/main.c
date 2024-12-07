@@ -4,12 +4,19 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "driver/video_dm.h"
+#include <driver/interrupt_dm.h>
+#include <driver/timer_dm.h>
 #include <drivers/pci.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/app.h>
+#include <kernel/bus_driver.h>
 #include <kernel/console.h>
+#include <kernel/device_driver.h>
+#include <kernel/device_manager.h>
 #include <kernel/driver.h>
+#include <kernel/driver_manager.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/memory.h>
@@ -25,25 +32,31 @@
 #include <network/network.h>
 #include <network/tcp.h>
 #include <network/udp.h>
-#include <stdint.h>
-#include <string.h>
 
 void		   idle(void *arg);
 struct task_s *task_idle;
 
 int main() {
-	platform_init();
+	register_driver_manager(&device_driver_manager);
+	register_driver_manager(&bus_driver_manager);
+	register_device_manager(&interrupt_device_manager);
+	register_device_manager(&timer_device_manager);
+	register_device_manager(&video_device_manager);
+
+	init_platform();
+	platform_init_and_start_devices();
+
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0);
-	init_pci();
-	io_sti();
+	// init_pci();
+	// io_sti();
 	printk("Memory Size:%dM\n", get_memory_size());
-	init_vfs();
-	do_initcalls();
-	init_fs();
+	// init_vfs();
+	// do_initcalls();
+	// init_fs();
 
-	thread_start(
-		"NetworkRxPacketProcess", THREAD_DEFAULT_PRIO, net_process_pack, NULL);
+	// thread_start(
+	// 	"NetworkRxPacketProcess", THREAD_DEFAULT_PRIO, net_process_pack, NULL);
 
 	// int ret = dhcp_main(default_net_dev);
 	// while (ret == -4) {

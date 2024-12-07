@@ -50,18 +50,9 @@ struct VideoInfo {
 
 extern struct VideoInfo video_info;
 
-// 写像素
-void write_pixel(int x, int y, unsigned int color);
 // 获取显示模式信息
 void init_video(void);
 // 输出VBE信息
 void show_vbeinfo(void);
-// 输出字符
-void print_word(int x, int y, unsigned char *ascii, unsigned int color);
-// 输出字符串
-void print_string(
-	int x, int y, unsigned int color, unsigned char *font, char *string);
-
-void draw_rect(int x, int y, int width, int height, int color);
 
 #endif

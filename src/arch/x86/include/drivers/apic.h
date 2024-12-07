@@ -1,7 +1,9 @@
 #ifndef APIC_H
 #define APIC_H
 
-#define APIC_ID   0x20
+#include "kernel/driver.h"
+
+#define APIC_ID	  0x20
 #define APIC_Ver  0x30
 #define APIC_TPR  0x80
 #define APIC_APR  0x90
@@ -19,7 +21,7 @@
 
 #define APIC_INT_DISABLE 0x00010000
 
-#define APIC_ESR       0x280
+#define APIC_ESR	   0x280
 #define APIC_LVT_CMCI  0x2f0
 #define APIC_ICR_LOW   0x300
 #define APIC_ICR_HIGH  0x310
@@ -34,12 +36,62 @@
 #define APIC_TIMER_CCT 0x390
 #define APIC_TIMER_DCR 0x3E0
 
+#define APIC_BASE_MSR 0x1b
+#define X2APIC_ID_MSR 0x802
+
+// Interrupt Command Register
+#define APIC_ICR_DELIVERY_MODE_FIXED	(0b000 << 8)
+#define APIC_ICR_DELIVERY_MODE_LOW_PRIO (0b001 << 8)
+#define APIC_ICR_DELIVERY_MODE_SMI		(0b010 << 8)
+#define APIC_ICR_DELIVERY_MODE_NMI		(0b100 << 8)
+#define APIC_ICR_DELIVERY_MODE_INIT		(0b101 << 8)
+#define APIC_ICR_DELIVERY_MODE_STARTUP	(0b110 << 8)
+
+#define APIC_ICR_DEST_MODE_BIT		11
+#define APIC_ICR_DEST_MODE_PHYSICAL (0 << APIC_ICR_DEST_MODE_BIT)
+#define APIC_ICR_DEST_MODE_LOGICAL	(1 << APIC_ICR_DEST_MODE_BIT)
+
+#define APIC_ICR_STAT_BIT		   12
+#define APIC_ICR_STAT_IDLE		   (0 << APIC_ICR_STAT_BIT)
+#define APIC_ICR_STAT_SEND_PENDING (1 << APIC_ICR_STAT_BIT)
+
+#define APIC_ICR_LEVEL_BIT		14
+#define APIC_ICR_LEVEL_DEASSERT (0 << APIC_ICR_LEVEL_BIT)
+#define APIC_ICR_LEVEL_ASSERT	(1 << APIC_ICR_LEVEL_BIT)
+
+#define APIC_ICR_TRIGGER_MODE_BIT	15
+#define APIC_ICR_TRIGGER_MODE_EDGE	(0 << APIC_ICR_TRIGGER_MODE_BIT)
+#define APIC_ICR_TRIGGER_MODE_LEVEL (1 << APIC_ICR_TRIGGER_MODE_BIT)
+
+#define APIC_ICR_DEST_SHORTHAND_NO_SHORTHAND	   (0b00 << 18)
+#define APIC_ICR_DEST_SHORTHAND_SELF			   (0b01 << 18)
+#define APIC_ICR_DEST_SHORTHAND_ALL_INCLUDING_SELF (0b10 << 18)
+#define APIC_ICR_DEST_SHORTHAND_ALL_EXCLUDING_SELF (0b11 << 18)
+
+// Divide Configuration Register
+#define APIC_TIMER_DCR_DIVIDE_BY_2	 0b0000
+#define APIC_TIMER_DCR_DIVIDE_BY_4	 0b0001
+#define APIC_TIMER_DCR_DIVIDE_BY_8	 0b0010
+#define APIC_TIMER_DCR_DIVIDE_BY_16	 0b0011
+#define APIC_TIMER_DCR_DIVIDE_BY_32	 0b1000
+#define APIC_TIMER_DCR_DIVIDE_BY_64	 0b1001
+#define APIC_TIMER_DCR_DIVIDE_BY_128 0b1010
+#define APIC_TIMER_DCR_DIVIDE_BY_1	 0b1011
+
+// Timer LVT
+#define APIC_LVT_TIMER_MODE_ONESHOT		 (0b00 << 17)
+#define APIC_LVT_TIMER_MODE_PERIODIC	 (0b001 << 17)
+#define APIC_LVT_TIMER_MODE_TSC_DEADLINE (0b010 << 17)
+
+// MSR
+#define APIC_GLOBAL_ENABLE_BIT 11
+// SVIR
+#define APIC_SOFTWARE_ENABLE_BIT 8
+
 #define LAPIC_TIMER_IRQ 0
 
-void init_apic(void);
-void apic_enable_irq(int irq);
-void apic_eoi(void);
+extern struct Device apic_timer_device;
 
-extern char use_apic;
+DriverResult register_apic(void);
 
 #endif

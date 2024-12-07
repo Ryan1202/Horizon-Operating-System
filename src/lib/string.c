@@ -7,6 +7,7 @@
 
 #include <kernel/memory.h>
 #include <string.h>
+#include <types.h>
 
 /**
  * @brief 初始化字符串
@@ -140,7 +141,7 @@ void *memset32(void *src, uint32_t value, uint32_t size) {
 
 void memcpy(void *dst_, const void *src_, uint32_t size) {
 
-	uint8_t		*dst = dst_;
+	uint8_t		  *dst = dst_;
 	const uint8_t *src = src_;
 	while (size-- > 0) {
 		*dst = *src;
@@ -295,20 +296,20 @@ char *itoa16_align(char *str, int num) {
 	char *p = str;
 	char  ch;
 	int	  i;
-	//为0
+	// 为0
 	if (num == 0) {
 		*p++ = '0';
 	} else {						   // 4位4位的分解出来
-		for (i = 28; i >= 0; i -= 4) { //从最高得4位开始
-			ch = (num >> i) & 0xF;	   //取得4位
-			ch += '0';				   //大于0就+'0'变成ASICA的数字
-			if (ch > '9') {			   //大于9就加上7变成ASICA的字母
+		for (i = 28; i >= 0; i -= 4) { // 从最高得4位开始
+			ch = (num >> i) & 0xF;	   // 取得4位
+			ch += '0';				   // 大于0就+'0'变成ASICA的数字
+			if (ch > '9') {			   // 大于9就加上7变成ASICA的字母
 				ch += 7;
 			}
-			*p++ = ch; //指针地址上记录下来。
+			*p++ = ch; // 指针地址上记录下来。
 		}
 	}
-	*p = 0; //最后在指针地址后加个0用于字符串结束
+	*p = 0; // 最后在指针地址后加个0用于字符串结束
 	return str;
 }
 
@@ -338,19 +339,22 @@ int strmet(const char *src, char *buf, char ch) {
 char *strstr(const char *haystack, const char *needle) {
 	char *thaystack = (char *)haystack;
 	char *tneedle	= (char *)needle;
-	int	  i			= 0; // thaystack 主串的元素下标位置，从下标0开始找，可以通过变量进行设置，从其他下标开始找！
-	int	  j			= 0; // tneedle 子串的元素下标位置
+	int	  i =
+		0; // thaystack
+		   // 主串的元素下标位置，从下标0开始找，可以通过变量进行设置，从其他下标开始找！
+	int j = 0; // tneedle 子串的元素下标位置
 	while (i <= strlen(thaystack) - 1 && j <= strlen(tneedle) - 1) {
-		//字符相等，则继续匹配下一个字符
+		// 字符相等，则继续匹配下一个字符
 		if (thaystack[i] == tneedle[j]) {
 			i++;
 			j++;
-		} else { //在匹配过程中发现有一个字符和子串中的不等，马上回退到 下一个要匹配的位置
+		} else { // 在匹配过程中发现有一个字符和子串中的不等，马上回退到
+				 // 下一个要匹配的位置
 			i = i - j + 1;
 			j = 0;
 		}
 	}
-	//循环完了后j的值等于strlen(tneedle) 子串中的字符已经在主串中都连续匹配到了
+	// 循环完了后j的值等于strlen(tneedle) 子串中的字符已经在主串中都连续匹配到了
 	if (j == strlen(tneedle)) { return thaystack + i - strlen(tneedle); }
 
 	return NULL;
@@ -380,7 +384,7 @@ const char *strpbrk(const char *str1, const char *str2) {
 	const char *temp2 = str2;
 
 	while (*temp1 != '\0') {
-		temp2 = str2; //将str2 指针从新指向在字符串的首地址
+		temp2 = str2; // 将str2 指针从新指向在字符串的首地址
 		while (*temp2 != '\0') {
 			if (*temp2 == *temp1) return temp1;
 			else temp2++;

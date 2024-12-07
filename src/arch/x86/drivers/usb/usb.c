@@ -65,7 +65,8 @@ int usb_init_device(usb_hcd_t *hcd, usb_device_t *device) {
 	usb_show_device_descriptor(hcd, device, &ep, desc);
 	hcd->device_count++;
 	usb_set_address(hcd, device, &ep, hcd->device_count);
-	delay(2);
+	// TODO: Delay
+	// delay(2);
 
 	device->address = hcd->device_count;
 	usb_get_config_descriptor(hcd, device, &ep);

@@ -16,9 +16,9 @@
 
 #define PIC_EOI 0x20
 
+extern struct Device pic_device;
+
 void mask_8259a(void);
-void init_8259a(void);
-void pic_enable_irq(int irq);
-void pic_eoi(int irq);
+void register_pic(void);
 
 #endif

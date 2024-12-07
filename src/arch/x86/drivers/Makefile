@@ -13,6 +13,7 @@ SRC += pci.c
 SRC += pit.c
 SRC += smbios.c
 SRC += video.c
+SRC	+= vesa_display.c
 SRC	+= network/
 SRC += sound/
 SRC += usb/

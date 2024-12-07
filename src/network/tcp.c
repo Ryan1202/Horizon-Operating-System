@@ -1,3 +1,4 @@
+#include "driver/timer_dm.h"
 #include "kernel/list.h"
 #include "kernel/memory.h"
 #include "network/netpack.h"
@@ -19,7 +20,8 @@ LIST_HEAD(tcp_lh);
 const int rmem_defualt_size = 32768;
 const int wmem_defualt_size = 16384;
 
-uint16_t tcp_checksum(netc_t *netc, uint8_t dst_ip[4], uint8_t *buf, uint32_t length) {
+uint16_t tcp_checksum(
+	netc_t *netc, uint8_t dst_ip[4], uint8_t *buf, uint32_t length) {
 	int		 i;
 	uint8_t	 src_ip[4];
 	uint32_t chksum = 0;
@@ -48,22 +50,19 @@ int tcp_send_for_status_change(netc_t *netc, uint8_t *buf, int length) {
 	netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, buf, length);
 
 	conn->wait_ms = 600;
-	conn->timer	  = timer_alloc();
-	timer_init(conn->timer, &conn->fifo, 0);
-	fifo_init(&conn->fifo, 2, conn->fifo_buf);
-	timer_settime(conn->timer, conn->wait_ms / 10);
+	timer_init(&conn->timer);
+	delay_ms_async(&conn->timer, conn->wait_ms);
 	while (conn->status == status) {
-		if (fifo_status(&conn->fifo)) {
-			while (fifo_status(&conn->fifo))
-				fifo_get(&conn->fifo);
+		if (!timer_is_timeout(&conn->timer)) {
+			while (!timer_is_timeout(&conn->timer))
+				;
 			conn->wait_ms *= 2;
 			if (conn->wait_ms >= 120000) { return -1; }
 			netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, buf, length);
-			timer_settime(conn->timer, conn->wait_ms / 10);
+			delay_ms_async(&conn->timer, conn->wait_ms);
 		}
 	}
-	timer_free(conn->timer);
-	if (fifo_status(&conn->fifo)) fifo_get(&conn->fifo);
+	timer_init(&conn->timer);
 	return 0;
 }
 
@@ -74,40 +73,42 @@ int tcp_send(netc_t *netc, uint8_t *buf, int length) {
 
 	memcpy(header, conn->header_buf, sizeof(tcp_header_t));
 
-	header->seq			   = HOST2BE_DWORD(conn->seq);
-	header->ack			   = HOST2BE_DWORD(conn->ack);
-	header->flags		   = TCP_FLAG_PSH | TCP_FLAG_ACK;
-	header->ack			   = HOST2BE_DWORD(conn->ack);
-	header->window		   = HOST2BE_WORD(conn->rwin.size - conn->rwin.acked - conn->rwin.recved);
+	header->seq	  = HOST2BE_DWORD(conn->seq);
+	header->ack	  = HOST2BE_DWORD(conn->ack);
+	header->flags = TCP_FLAG_PSH | TCP_FLAG_ACK;
+	header->ack	  = HOST2BE_DWORD(conn->ack);
+	header->window =
+		HOST2BE_WORD(conn->rwin.size - conn->rwin.acked - conn->rwin.recved);
 	header->urgent_pointer = 0;
 
 	memcpy(sendbuf + sizeof(tcp_header_t), buf, length);
 	header->checksum = 0;
-	header->checksum = HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, sendbuf, sizeof(tcp_header_t) + length));
+	header->checksum = HOST2BE_WORD(tcp_checksum(
+		netc, conn->dst_ip, sendbuf, sizeof(tcp_header_t) + length));
 
 	conn->swin.unacked += length;
 	conn->swin.sended -= length;
 
-	netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, sendbuf, sizeof(tcp_header_t) + length);
+	netc_ip_send(
+		netc, conn->dst_ip, 0, PROTOCOL_TCP, sendbuf,
+		sizeof(tcp_header_t) + length);
 
 	conn->wait_ms = 600;
-	conn->timer	  = timer_alloc();
-	timer_init(conn->timer, &conn->fifo, 0);
-	fifo_init(&conn->fifo, 2, conn->fifo_buf);
-	timer_settime(conn->timer, conn->wait_ms / 10);
+	timer_init(&conn->timer);
+	delay_ms_async(&conn->timer, conn->wait_ms);
 	while (conn->swin.unacked) {
-		if (fifo_status(&conn->fifo)) {
-			while (fifo_status(&conn->fifo))
-				fifo_get(&conn->fifo);
+		if (!timer_is_timeout(&conn->timer)) {
+			while (!timer_is_timeout(&conn->timer))
+				;
 			conn->wait_ms *= 2;
 			if (conn->wait_ms >= 120000) { return -1; }
-			netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, sendbuf, sizeof(tcp_header_t) + length);
-			timer_settime(conn->timer, conn->wait_ms / 10);
+			netc_ip_send(
+				netc, conn->dst_ip, 0, PROTOCOL_TCP, sendbuf,
+				sizeof(tcp_header_t) + length);
+			delay_ms_async(&conn->timer, conn->wait_ms);
 		}
 	}
 	kfree(sendbuf);
-	timer_free(conn->timer);
-	if (fifo_status(&conn->fifo)) fifo_get(&conn->fifo);
 	return 0;
 }
 
@@ -117,27 +118,24 @@ int wait_for_status_change(netc_t *netc) {
 	int			 i		= 0;
 
 	conn->wait_ms = 1000;
-	conn->timer	  = timer_alloc();
-	timer_init(conn->timer, &conn->fifo, 0);
-	fifo_init(&conn->fifo, 2, conn->fifo_buf);
-	timer_settime(conn->timer, conn->wait_ms / 10);
+	timer_init(&conn->timer);
+	delay_ms_async(&conn->timer, conn->wait_ms);
 	while (conn->status == status) {
-		if (fifo_status(&conn->fifo)) {
-			while (fifo_status(&conn->fifo))
-				fifo_get(&conn->fifo);
+		if (!timer_is_timeout(&conn->timer)) {
+			while (!timer_is_timeout(&conn->timer))
+				;
 			i++;
 			if (i > 10) return -1;
 		}
 	}
-	timer_free(conn->timer);
-	if (fifo_status(&conn->fifo)) fifo_get(&conn->fifo);
 	return 0;
 }
 
 void tcp_analyse_option(netc_t *netc, uint8_t *buf) {
-	int			i			= 0;
-	tcp_conn_t *conn		= (tcp_conn_t *)netc->app_private;
-	uint8_t		option_size = (((tcp_header_t *)buf)->offset >> 4) * 4 - sizeof(tcp_header_t);
+	int			i	 = 0;
+	tcp_conn_t *conn = (tcp_conn_t *)netc->app_private;
+	uint8_t		option_size =
+		(((tcp_header_t *)buf)->offset >> 4) * 4 - sizeof(tcp_header_t);
 	buf += sizeof(tcp_header_t);
 
 	while (i < option_size) {
@@ -147,7 +145,8 @@ void tcp_analyse_option(netc_t *netc, uint8_t *buf) {
 		case TCP_OPTION_NOP:
 			break;
 		case TCP_OPTION_MSS:
-			conn->mss = MIN(conn->mss, BE2HOST_WORD(*(uint16_t *)(buf + i + 2)));
+			conn->mss =
+				MIN(conn->mss, BE2HOST_WORD(*(uint16_t *)(buf + i + 2)));
 			break;
 		default:
 			break;
@@ -229,11 +228,13 @@ int tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port) {
 	header->checksum	   = 0;
 
 	// 设置TCP Option最大分片大小(Maximum segment size)
-	conn->header_buf[sizeof(tcp_header_t) + 0]				   = TCP_OPTION_MSS;
-	conn->header_buf[sizeof(tcp_header_t) + 1]				   = 4; // 该Option长度为4字节
-	*(uint16_t *)(conn->header_buf + sizeof(tcp_header_t) + 2) = HOST2BE_WORD(1460);
+	conn->header_buf[sizeof(tcp_header_t) + 0] = TCP_OPTION_MSS;
+	conn->header_buf[sizeof(tcp_header_t) + 1] = 4; // 该Option长度为4字节
+	*(uint16_t *)(conn->header_buf + sizeof(tcp_header_t) + 2) =
+		HOST2BE_WORD(1460);
 
-	header->checksum = HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, tcp_length));
+	header->checksum = HOST2BE_WORD(
+		tcp_checksum(netc, conn->dst_ip, conn->header_buf, tcp_length));
 
 	conn->status = TCP_STAT_SYN_SENT;
 
@@ -243,7 +244,8 @@ int tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port) {
 	header->offset = (tcp_length / 4) << 4;
 	if (conn->status == TCP_STAT_CLOSED) {
 		kfree(conn->rwin.mem);
-		timer_free(conn->timer);
+		// Timer
+		// timer_free(conn->timer);
 		kfree(conn);
 		return -1;
 	}
@@ -257,8 +259,10 @@ int tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port) {
 	header->ack		 = HOST2BE_DWORD(conn->ack);
 	header->flags	 = TCP_FLAG_ACK;
 	header->checksum = 0;
-	header->checksum = HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, tcp_length));
-	netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf, tcp_length);
+	header->checksum = HOST2BE_WORD(
+		tcp_checksum(netc, conn->dst_ip, conn->header_buf, tcp_length));
+	netc_ip_send(
+		netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf, tcp_length);
 
 	return 0;
 }
@@ -284,7 +288,8 @@ int tcp_listen(netc_t *netc) {
 	header->window		   = HOST2BE_WORD(rmem_defualt_size);
 	header->urgent_pointer = 0;
 	header->checksum	   = 0;
-	header->checksum	   = HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, tcp_length));
+	header->checksum	   = HOST2BE_WORD(
+		  tcp_checksum(netc, conn->dst_ip, conn->header_buf, tcp_length));
 
 	conn->seq += 1;
 	tcp_send_for_status_change(netc, conn->header_buf, tcp_length);
@@ -297,13 +302,15 @@ void tcp_ipv4_close(netc_t *netc) {
 	tcp_conn_t	 *conn = (tcp_conn_t *)netc->app_private;
 	header			   = (tcp_header_t *)conn->header_buf;
 
-	header->seq			   = HOST2BE_DWORD(conn->seq);
-	header->ack			   = HOST2BE_DWORD(conn->ack);
-	header->flags		   = TCP_FLAG_FIN | TCP_FLAG_ACK;
-	header->window		   = HOST2BE_WORD(conn->rwin.size - conn->rwin.recved - conn->rwin.acked);
+	header->seq	  = HOST2BE_DWORD(conn->seq);
+	header->ack	  = HOST2BE_DWORD(conn->ack);
+	header->flags = TCP_FLAG_FIN | TCP_FLAG_ACK;
+	header->window =
+		HOST2BE_WORD(conn->rwin.size - conn->rwin.recved - conn->rwin.acked);
 	header->urgent_pointer = 0;
 	header->checksum	   = 0;
-	header->checksum = HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
+	header->checksum	   = HOST2BE_WORD(tcp_checksum(
+		  netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
 
 	conn->status = TCP_STAT_FIN_WAIT1;
 	conn->seq += 1;
@@ -317,25 +324,28 @@ void tcp_ipv4_close(netc_t *netc) {
 		header->ack		 = HOST2BE_DWORD(conn->ack);
 		header->flags	 = TCP_FLAG_ACK;
 		header->checksum = 0;
-		header->checksum =
-			HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
+		header->checksum = HOST2BE_WORD(tcp_checksum(
+			netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
 
-		netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf, sizeof(tcp_header_t));
+		netc_ip_send(
+			netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf,
+			sizeof(tcp_header_t));
 
 		conn->wait_ms = 2 * TCP_MSL_MS;
-		timer_settime(conn->timer, conn->wait_ms / 10);
-		while (!fifo_status(&conn->fifo))
+
+		delay_ms_async(&conn->timer, conn->wait_ms);
+		while (!timer_is_timeout(&conn->timer))
 			;
-		fifo_get(&conn->fifo);
 	}
 end:
 	kfree(conn->rwin.mem);
-	timer_free(conn->timer);
 	kfree(conn);
 	return;
 }
 
-void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8_t ip_len) {
+void tcp_recv(
+	uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip,
+	uint8_t ip_len) {
 	netc_t		 *netc;
 	tcp_header_t *tcp_head = (tcp_header_t *)(buf + offset);
 	uint16_t	  chksum   = tcp_head->checksum;
@@ -350,7 +360,8 @@ void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8
 	spin_lock(&tcp_lock);
 	list_for_each_owner_safe (cur, next, &tcp_lh, list) {
 		if (cur->src_port == dst_port) {
-			if ((cur->dst_port == src_port && memcmp(cur->dst_ip, ip, ip_len) == 0) ||
+			if ((cur->dst_port == src_port &&
+				 memcmp(cur->dst_ip, ip, ip_len) == 0) ||
 				cur->status == TCP_STAT_LISTEN) {
 				conn = cur;
 				flag = 0;
@@ -364,7 +375,10 @@ void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8
 	netc = conn->netc;
 
 	tcp_head->checksum = 0;
-	if (chksum != HOST2BE_WORD(tcp_checksum(netc, netc->dst_laddr, buf + offset, length))) { return; }
+	if (chksum != HOST2BE_WORD(tcp_checksum(
+					  netc, netc->dst_laddr, buf + offset, length))) {
+		return;
+	}
 	if (tcp_head->flags & TCP_FLAG_RST) { conn->status = TCP_STAT_CLOSED; }
 
 	header	 = (tcp_header_t *)conn->header_buf;
@@ -385,8 +399,9 @@ void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8
 		break;
 	case TCP_STAT_SYN_SENT:
 		if (tcp_head->flags & TCP_FLAG_SYN) {
-			conn->swin.size = MIN(wmem_defualt_size, BE2HOST_WORD(tcp_head->window));
-			conn->ack		= r_seq;
+			conn->swin.size =
+				MIN(wmem_defualt_size, BE2HOST_WORD(tcp_head->window));
+			conn->ack = r_seq;
 		}
 		if (tcp_head->flags & TCP_FLAG_ACK) {
 			if (conn->seq == r_ack) { conn->status = TCP_STAT_ESTABLISHED; }
@@ -406,13 +421,18 @@ void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8
 		// printk("TCP seq=%04X, ack=%04X\n", r_seq, r_ack);
 		if (len > 0) {
 			if (conn->rwin.recved + len < conn->rwin.size) {
-				memcpy(conn->rwin.mem + conn->rwin.head + conn->rwin.acked + conn->rwin.recved,
-					   buf + offset + head_len, len);
+				memcpy(
+					conn->rwin.mem + conn->rwin.head + conn->rwin.acked +
+						conn->rwin.recved,
+					buf + offset + head_len, len);
 			} else {
 				int tmp = conn->rwin.size - conn->rwin.recved;
-				memcpy(conn->rwin.mem + conn->rwin.head + conn->rwin.acked + conn->rwin.recved,
-					   buf + offset + head_len, tmp);
-				memcpy(conn->rwin.mem, buf + offset + head_len + tmp, len - tmp);
+				memcpy(
+					conn->rwin.mem + conn->rwin.head + conn->rwin.acked +
+						conn->rwin.recved,
+					buf + offset + head_len, tmp);
+				memcpy(
+					conn->rwin.mem, buf + offset + head_len + tmp, len - tmp);
 			}
 			conn->rwin.recved += len;
 		}
@@ -427,37 +447,46 @@ void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8
 				conn->swin.head = (conn->swin.head + tmp) % conn->swin.size;
 				conn->swin.tail = (conn->swin.tail + tmp) % conn->swin.size;
 			}
-			if ((add > 0 && list_empty(&net_rx_tcp_lh)) || tcp_head->flags & TCP_FLAG_PSH) {
-				header->seq			   = HOST2BE_DWORD(conn->seq);
-				header->ack			   = HOST2BE_DWORD(conn->ack + add);
-				header->flags		   = TCP_FLAG_ACK;
-				header->window		   = HOST2BE_WORD(conn->rwin.size - conn->rwin.recved);
+			if ((add > 0 && list_empty(&net_rx_tcp_lh)) ||
+				tcp_head->flags & TCP_FLAG_PSH) {
+				header->seq	  = HOST2BE_DWORD(conn->seq);
+				header->ack	  = HOST2BE_DWORD(conn->ack + add);
+				header->flags = TCP_FLAG_ACK;
+				header->window =
+					HOST2BE_WORD(conn->rwin.size - conn->rwin.recved);
 				header->urgent_pointer = 0;
 				header->checksum	   = 0;
-				header->checksum =
-					HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
-				conn->swin.head = (conn->swin.head + conn->rwin.unacked + add) % conn->swin.size;
-				conn->swin.tail = (conn->swin.tail + conn->rwin.unacked + add) % conn->swin.size;
+				header->checksum	   = HOST2BE_WORD(tcp_checksum(
+					  netc, conn->dst_ip, conn->header_buf,
+					  sizeof(tcp_header_t)));
+				conn->swin.head = (conn->swin.head + conn->rwin.unacked + add) %
+								  conn->swin.size;
+				conn->swin.tail = (conn->swin.tail + conn->rwin.unacked + add) %
+								  conn->swin.size;
 				// 发送ACK包表示确认收到
 				conn->rwin.acked += conn->rwin.unacked + add;
 				conn->rwin.recved -= conn->rwin.unacked + add;
 				conn->rwin.unacked = 0;
-				netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf, sizeof(tcp_header_t));
+				netc_ip_send(
+					netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf,
+					sizeof(tcp_header_t));
 			} else {
 				conn->rwin.unacked += add;
 			}
 		}
 		if (tcp_head->flags & TCP_FLAG_FIN) {
-			header->seq			   = HOST2BE_DWORD(conn->seq);
-			header->ack			   = HOST2BE_DWORD(conn->ack + len);
-			header->flags		   = TCP_FLAG_ACK;
-			header->window		   = HOST2BE_WORD(conn->rwin.size - conn->rwin.recved);
+			header->seq	   = HOST2BE_DWORD(conn->seq);
+			header->ack	   = HOST2BE_DWORD(conn->ack + len);
+			header->flags  = TCP_FLAG_ACK;
+			header->window = HOST2BE_WORD(conn->rwin.size - conn->rwin.recved);
 			header->urgent_pointer = 0;
 			header->checksum	   = 0;
 			header->flags |= TCP_FLAG_FIN;
-			header->checksum =
-				HOST2BE_WORD(tcp_checksum(netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
-			netc_ip_send(netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf, sizeof(tcp_header_t));
+			header->checksum = HOST2BE_WORD(tcp_checksum(
+				netc, conn->dst_ip, conn->header_buf, sizeof(tcp_header_t)));
+			netc_ip_send(
+				netc, conn->dst_ip, 0, PROTOCOL_TCP, conn->header_buf,
+				sizeof(tcp_header_t));
 			if (conn->swin.unacked == 0) {
 				conn->status = TCP_STAT_LAST_ACK;
 			} else {
@@ -471,12 +500,16 @@ void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8
 				conn->status = TCP_STAT_FIN_WAIT2;
 				kfree(conn->swin.mem);
 				conn->ack = r_seq;
-				if (tcp_head->flags & TCP_FLAG_FIN) { conn->status = TCP_STAT_TIME_WAIT; }
+				if (tcp_head->flags & TCP_FLAG_FIN) {
+					conn->status = TCP_STAT_TIME_WAIT;
+				}
 			}
 		}
 		break;
 	case TCP_STAT_FIN_WAIT2:
-		if (tcp_head->flags & TCP_FLAG_FIN) { conn->status = TCP_STAT_TIME_WAIT; }
+		if (tcp_head->flags & TCP_FLAG_FIN) {
+			conn->status = TCP_STAT_TIME_WAIT;
+		}
 		if (len == 0) { len = 1; }
 		break;
 	case TCP_STAT_LAST_ACK:
@@ -519,7 +552,8 @@ int tcp_read(netc_t *netc, uint8_t *buf, uint32_t length) {
 	int			i	 = 0;
 	while (conn->rwin.acked == 0) {
 		i++;
-		delay(1);
+		// TODO: Delay
+		// delay(1);
 		if (i == 1000) { break; }
 	}
 

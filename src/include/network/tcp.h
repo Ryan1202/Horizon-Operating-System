@@ -1,7 +1,7 @@
 #ifndef TCP_H
 #define TCP_H
 
-#include "../stdint.h"
+#include "driver/timer_dm.h"
 #include "kernel/list.h"
 #include "network.h"
 #include <kernel/fifo.h>
@@ -76,11 +76,9 @@ typedef struct {
 		uint32_t sended;	 // 已发送的数据大小
 	} swin;
 
-	tcp_status_t  status;
-	uint32_t	  wait_ms, seq, ack;
-	struct timer *timer;
-	struct fifo	  fifo;
-	int			  fifo_buf[2];
+	tcp_status_t status;
+	uint32_t	 wait_ms, seq, ack;
+	Timer		 timer;
 } tcp_conn_t;
 
 #define PROTOCOL_TCP 0x06
@@ -88,8 +86,10 @@ void tcp_create(netc_t *netc);
 int	 tcp_bind(netc_t *netc, uint16_t src_port);
 int	 tcp_ipv4_connect(netc_t *netc, uint8_t *ip, uint16_t dst_port);
 void tcp_ipv4_close(netc_t *netc);
-void tcp_recv(uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip, uint8_t ip_len);
-int	 tcp_write(netc_t *netc, uint8_t *buf, uint32_t length);
-int	 tcp_read(netc_t *netc, uint8_t *buf, uint32_t length);
+void tcp_recv(
+	uint8_t *buf, uint16_t offset, uint16_t length, uint8_t *ip,
+	uint8_t ip_len);
+int tcp_write(netc_t *netc, uint8_t *buf, uint32_t length);
+int tcp_read(netc_t *netc, uint8_t *buf, uint32_t length);
 
 #endif

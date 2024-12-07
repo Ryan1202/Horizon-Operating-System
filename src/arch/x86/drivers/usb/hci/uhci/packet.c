@@ -74,7 +74,8 @@ int uhci_wait_transfer(uhci_qh_t *qh) {
 	while (timeout > 0) {
 		if (td->active == 0) { return 1; }
 
-		delay(10 / 10);
+		// TODO: Delay
+		// delay(10 / 10);
 		timeout--;
 	}
 	printk("[UHCI]td %#08x(phy %#08x) timeout.", td, td->td_addr_phy);

@@ -3,9 +3,9 @@ Language:        Cpp
 # BasedOnStyle:  LLVM
 AlignAfterOpenBracket: AlwaysBreak
 AlignArrayOfStructures: Right
-AlignConsecutiveAssignments: true
+AlignConsecutiveAssignments: AcrossComments
 AlignConsecutiveBitFields: true
-AlignConsecutiveDeclarations: true
+AlignConsecutiveDeclarations: AcrossComments
 AlignConsecutiveMacros: true
 AlignEscapedNewlines: Left
 AlignOperands:   AlignAfterOperator
@@ -97,6 +97,7 @@ PenaltyReturnTypeOnItsOwnLine: 1000
 PenaltyIndentedWhitespace: 0
 PointerAlignment: Right
 PPIndentWidth:   -1
+QualifierAlignment: Left
 ReferenceAlignment: Pointer
 ReflowComments:  true
 SortIncludes:    true

@@ -5,6 +5,7 @@
  * @version 1.2
  * @date 2022-07-31
  */
+#include "driver/interrupt_dm.h"
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <drivers/pit.h>
@@ -337,27 +338,29 @@ void exception_handler(
 }
 
 void do_irq(int irq) {
-	if (use_apic) {
-		apic_eoi();
-	} else {
-		pic_eoi(irq);
-	}
+	// if (use_apic) {
+	// 	apic_eoi();
+	// } else {
+	// 	pic_eoi(irq);
+	// }
 	device_irq_handler(irq);
 	irq_table[irq](irq);
 }
 
 void default_irq_handler(int irq) {
-	if (use_apic) {
-		apic_eoi();
-	} else {
-		pic_eoi(irq);
-	}
+	// if (use_apic) {
+	// 	apic_eoi();
+	// } else {
+	// 	pic_eoi(irq);
+	// }
+	interrupt_eoi(irq);
 }
 
 void irq_enable(int irq) {
-	if (use_apic) {
-		apic_enable_irq(irq);
-	} else {
-		pic_enable_irq(irq);
-	}
+	// if (use_apic) {
+	// 	apic_enable_irq(irq);
+	// } else {
+	// 	pic_enable_irq(irq);
+	// }
+	interrupt_enable_irq(irq);
 }

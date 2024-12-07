@@ -11,7 +11,8 @@ void usb_init_hub(usb_hcd_t *hcd, usb_device_t *device) {
 	usb_endpoint_t ep = usb_default_ep;
 	hcd->device_count++;
 	usb_set_address(hcd, device, &ep, hcd->device_count);
-	delay(2);
+	// TODO: Delay
+	// delay(2);
 	device->address					= hcd->device_count;
 	struct usb_hub_descriptor *desc = usb_get_hub_descriptor(hcd, device, &ep);
 	usb_show_hub_descriptor(desc);
@@ -22,9 +23,10 @@ void usb_init_hub(usb_hcd_t *hcd, usb_device_t *device) {
 	for (i = 1; i <= desc->bNbrPorts; i++) {
 
 		usb_set_port_feature(hcd, device, &ep, i, HUB_FEAT_PORT_POWER);
-		delay(50 / 10);
+		// TODO: Delay
+		// delay(50 / 10);
 		usb_set_port_feature(hcd, device, &ep, i, HUB_FEAT_PORT_RESET);
-		delay(200 / 10);
+		// delay(200 / 10);
 
 		status = usb_get_port_status(hcd, device, &ep, i);
 		if (BIN_IS_EN(status, USB_PORT_STAT_CONNECTION)) {
@@ -33,7 +35,8 @@ void usb_init_hub(usb_hcd_t *hcd, usb_device_t *device) {
 															: USB_SPEED_FULL),
 				0);
 			usb_init_device(hcd, dev);
-			delay(100 / 10);
+			// TODO: Delay
+			// delay(100 / 10);
 		}
 	}
 }

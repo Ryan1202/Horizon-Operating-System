@@ -109,24 +109,31 @@ void mmap_set(struct mmap *btmp, unsigned int bit_index, int value) {
 	}
 }
 
-unsigned long alloc_vaddr(size_t size) {
-	size = ((size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
-	if (!size) return 0;
+int mmap_get(struct mmap *btmp, uint32_t bit_index) {
+	uint32_t byte_idx = bit_index / 8;
+	uint32_t bit_odd  = bit_index % 8;
+	return (btmp->bits[byte_idx] & (1 << bit_odd)) != 0;
+}
 
-	int pages = size / PAGE_SIZE;
+MemoryResult alloc_vaddr(size_t in_size, uint32_t *out_vaddr) {
+	in_size = ((in_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
+	if (!in_size) return MEMORY_RESULT_INVALID_INPUT;
+
+	uint32_t pages = in_size / PAGE_SIZE;
 
 	/* 扫描获取请求的页数 */
 	int idx = mmap_search(&vir_page_mmap, pages);
-	if (idx == -1) return 0;
+	if (idx == -1) return MEMORY_RESULT_OUT_OF_MEMORY;
 
 	int i;
-	/* 把已经扫描到的位置1，表明已经分配了 */
+	/* 把已经扫描到的位设置为1，表明已经分配了 */
 	for (i = 0; i < pages; i++) {
 		mmap_set(&vir_page_mmap, idx + i, 1);
 	}
 
 	/* 返还转换好的虚拟地址 */
-	return KERN_VIR_MEM_BASE_ADDR + VIR_MEM_BASE_ADDR + idx * PAGE_SIZE;
+	*out_vaddr = KERN_VIR_MEM_BASE_ADDR + VIR_MEM_BASE_ADDR + idx * PAGE_SIZE;
+	return MEMORY_RESULT_OK;
 }
 
 // 默认对齐32字节
@@ -137,6 +144,7 @@ void *kmalloc(uint32_t size) {
 	uint32_t break_cnt;	 // 要打碎成几块
 	void	*new_address;
 
+	if (size == 0) { return NULL; }
 	// 大于1024字节就用页
 	if (size >= 2048) {
 		int pages = DIV_ROUND_UP(size, PAGE_SIZE); // 一共占多少个页
@@ -197,11 +205,11 @@ void *kmalloc(uint32_t size) {
 				memory_manage->free_blocks[i].address = (uint32_t)new_address;
 				new_address += break_size;
 				// 设置size
-				memory_manage->free_blocks[i].size = break_size;
+				memory_manage->free_blocks[i].size	= break_size;
 				// 设置为可以分配
 				memory_manage->free_blocks[i].flags = MEMORY_BLOCK_FREE;
 				// 设置为小块模式
-				memory_manage->free_blocks[i].mode = MEMORY_BLOCK_MODE_SMALL;
+				memory_manage->free_blocks[i].mode	= MEMORY_BLOCK_MODE_SMALL;
 				break_cnt--;
 				if (break_cnt <= 0) { break; }
 			}
@@ -252,4 +260,17 @@ int kfree(void *address) {
 	}
 
 	return -1; // 失败
+}
+
+void print_memory_result(
+	MemoryResult result, char *file, int line, char *func_with_args) {
+
+	if (result == MEMORY_RESULT_OK) return;
+	printk("[At file %s line%d: %s]", file, line, func_with_args);
+	switch (result) {
+		RESULT_CASE_PRINT(MEMORY_RESULT_OK)
+		RESULT_CASE_PRINT(MEMORY_RESULT_INVALID_INPUT)
+		RESULT_CASE_PRINT(MEMORY_RESULT_OUT_OF_MEMORY)
+		RESULT_CASE_PRINT(MEMORY_RESULT_MEMORY_IS_USED)
+	}
 }

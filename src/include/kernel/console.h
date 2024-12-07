@@ -22,16 +22,6 @@
 #define COLOR_LYELLOW "<e>"
 #define COLOR_BWHITE  "<f>"
 
-struct console {
-	unsigned char *vram;
-	unsigned char *font;
-	int			   start_x, start_y;
-	int			   cur_x, cur_y;
-	int			   width, height;
-	int			   color;
-	int			   flag;
-};
-
 void init_console(void);
 void console_start(void);
 void console_set_cursor(int x, int y);

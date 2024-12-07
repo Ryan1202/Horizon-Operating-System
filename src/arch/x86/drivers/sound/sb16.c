@@ -45,7 +45,7 @@ static status_t sb16_enter(driver_t *drv_obj);
 static status_t sb16_exit(driver_t *drv_obj);
 status_t		sb16_open(device_t *device);
 status_t		sb16_close(device_t *device);
-status_t		sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size);
+status_t sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size);
 
 #define DRV_NAME "Sound Blaster 16 Driver"
 #define DEV_NAME "sb16"
@@ -53,13 +53,14 @@ status_t		sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size);
 #define DMA_MAX 4
 uint32_t data_len[DMA_MAX];
 
-driver_func_t sb16_driver = {.driver_enter	= sb16_enter,
-							 .driver_exit	= sb16_exit,
-							 .driver_open	= sb16_open,
-							 .driver_close	= sb16_close,
-							 .driver_read	= NULL,
-							 .driver_write	= sb16_write,
-							 .driver_devctl = NULL};
+driver_func_t sb16_driver = {
+	.driver_enter  = sb16_enter,
+	.driver_exit   = sb16_exit,
+	.driver_open   = sb16_open,
+	.driver_close  = sb16_close,
+	.driver_read   = NULL,
+	.driver_write  = sb16_write,
+	.driver_devctl = NULL};
 
 typedef struct {
 	int					  major_ver, minor_ver;
@@ -92,7 +93,8 @@ static status_t sb16_enter(driver_t *drv_obj) {
 	device_t		   *devobj;
 	device_extension_t *devext;
 
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_SOUND, &devobj);
+	device_create(
+		drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_SOUND, &devobj);
 	if (devobj == NULL) {
 		device_delete(devobj);
 		return FAILED;
@@ -158,7 +160,8 @@ void sb16_set_sample_rate(uint16_t samplerate) {
 
 status_t dsp_reset(void) {
 	io_out8(SB16_DSP_RESET, 1);
-	delay(1);
+	// TODO: Delay
+	// delay(1);
 	io_out8(SB16_DSP_RESET, 0);
 
 	int data = dsp_read();
@@ -182,7 +185,9 @@ void sb16_request(device_extension_t *devext) {
 	int length = data_len[devext->index_r];
 	if (devext->index_r == devext->index_w) { return; }
 
-	sb16_dma_config(0x05, (uint32_t)(0x800000 + devext->index_r * 0x10000), data_len[devext->index_r]);
+	sb16_dma_config(
+		0x05, (uint32_t)(0x800000 + devext->index_r * 0x10000),
+		data_len[devext->index_r]);
 	uint16_t sample_count = length / sizeof(int16_t) / 2 - 1;
 
 	dsp_write(0xb0);

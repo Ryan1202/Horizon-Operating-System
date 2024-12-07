@@ -68,7 +68,8 @@ void uhci_reset(uhci_t *devext) {
 
 	// io_out16(devext->io_base+UHCI_REG_USBINTR, 0); //禁用UHCI的所有中断
 	io_out16(devext->io_base + UHCI_REG_CMD, UHCI_CMD_GLBRESET);
-	delay(50 / 10); // 至少50ms
+	// TODO: Delay
+	// delay(50 / 10); // 至少50ms
 	io_out16(devext->io_base + UHCI_REG_CMD, 0);
 
 	devext->port_cnt =
@@ -137,20 +138,23 @@ void uhci_port_reset(uhci_t *devext, int port) {
 	uint32_t io_port = devext->io_base + UHCI_PORTSC1 + port * 2;
 
 	io_out16(io_port, UHCI_PORT_SC_RESET);
-	delay(50 / 10);
+	// TODO: Delay
+	// delay(50 / 10);
 	uint32_t value = io_in16(io_port);
 	io_out16(io_port, BIN_DIS(value, UHCI_PORT_SC_RESET));
 	do {
 		value = io_in16(io_port);
 	} while (BIN_IS_EN(value, UHCI_PORT_SC_RESET));
-	delay(10 / 10);
+	// TODO: Delay
+	// delay(10 / 10);
 
 	// 使能
 	io_out16(
 		io_port,
 		UHCI_PORT_SC_CONN_CHG | UHCI_PORT_SC_EN_CHG | UHCI_PORT_SC_ENABLE);
 	io_in16(io_port);
-	delay(10 / 10);
+	// TODO: Delay
+	// delay(10 / 10);
 }
 
 void uhci_port_init(usb_hcd_t *hcd, int port) {

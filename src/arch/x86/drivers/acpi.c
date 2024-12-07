@@ -5,6 +5,7 @@
  * @version 0.1
  * @date 2021-06
  */
+#include "kernel/memory.h"
 #include <drivers/acpi.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>
@@ -12,6 +13,7 @@
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/page.h>
+#include <stdint.h>
 #include <string.h>
 
 struct ACPI_RSDP *RSDP;
@@ -22,113 +24,104 @@ struct ACPI_RSDP *RSDP;
 static status_t acpi_enter(driver_t *drv_obj);
 static status_t acpi_exit(driver_t *drv_obj);
 
-typedef struct
-{
-    struct ACPI_RSDT *RSDT;
-    struct ACPI_FADT *FADT;
+typedef struct {
+	struct ACPI_RSDT *RSDT;
+	struct ACPI_FADT *FADT;
 } device_extension_t;
 
 driver_func_t acpi_driver = {
-    .driver_enter  = acpi_enter,
-    .driver_exit   = acpi_exit,
-    .driver_open   = NULL,
-    .driver_close  = NULL,
-    .driver_read   = NULL,
-    .driver_write  = NULL,
-    .driver_devctl = NULL
-};
+	.driver_enter  = acpi_enter,
+	.driver_exit   = acpi_exit,
+	.driver_open   = NULL,
+	.driver_close  = NULL,
+	.driver_read   = NULL,
+	.driver_write  = NULL,
+	.driver_devctl = NULL};
 
-char checksum(uint8_t *addr, uint32_t length)
-{
-    unsigned char sum = 0;
+char checksum(uint8_t *addr, uint32_t length) {
+	unsigned char sum = 0;
 
-    for (int i = 0; i < length; i++) {
-        sum += ((char *)addr)[i];
-    }
+	for (int i = 0; i < length; i++) {
+		sum += ((char *)addr)[i];
+	}
 
-    return sum == 0;
+	return sum == 0;
 }
 
-uint32_t *acpi_find_rsdp(void)
-{
-    uint32_t addr;
+uint32_t *acpi_find_rsdp(void) {
+	uint32_t addr;
 
-    for (addr = 0x000e0000; addr < 0x00100000; addr++) {
-        if (memcmp((void *)addr, "RSD PTR ", 8) == 0) {
-            if (checksum((uint8_t *)addr, ((struct ACPI_RSDP *)addr)->Length)) {
-                return (uint32_t *)addr;
-            }
-        }
-    }
-    return NULL;
+	for (addr = 0x000e0000; addr < 0x00100000; addr++) {
+		if (memcmp((void *)addr, "RSD PTR ", 8) == 0) {
+			if (checksum((uint8_t *)addr, ((struct ACPI_RSDP *)addr)->Length)) {
+				return (uint32_t *)addr;
+			}
+		}
+	}
+	return NULL;
 }
 
-uint32_t acpi_find_table(device_extension_t *devext, char *Signature)
-{
-    int                   i, length = (devext->RSDT->header.Length - sizeof(devext->RSDT->header)) / 4;
-    struct ACPISDTHeader *header;
-    for (i = 0; i < length; i++) {
-        header = remap(devext->RSDT->Entry + i * 4, sizeof(struct ACPISDTHeader));
-        if (memcmp(header->Signature, Signature, 4) == 0) {
-            return (uint32_t)header;
-        }
-    }
-    return 0;
+uint32_t acpi_find_table(device_extension_t *devext, char *Signature) {
+	int i, length =
+			   (devext->RSDT->header.Length - sizeof(devext->RSDT->header)) / 4;
+	struct ACPISDTHeader *header;
+	for (i = 0; i < length; i++) {
+		// TODO: memory result
+		MEMORY_RESULT_PRINT_CALL(
+			remap, devext->RSDT->Entry + i * 4, sizeof(struct ACPISDTHeader),
+			(uint32_t *)&header);
+		if (memcmp(header->Signature, Signature, 4) == 0) {
+			return (uint32_t)header;
+		}
+	}
+	return 0;
 }
 
-static status_t acpi_enter(driver_t *drv_obj)
-{
-    device_t           *devobj;
-    device_extension_t *devext;
+static status_t acpi_enter(driver_t *drv_obj) {
+	device_t		   *devobj;
+	device_extension_t *devext;
 
-    device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
-    if (drv_obj == NULL) {
-        return FAILED;
-    }
-    devext = devobj->device_extension;
-    if (devext == NULL) {
-        return FAILED;
-    }
+	device_create(
+		drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
+	if (drv_obj == NULL) { return FAILED; }
+	devext = devobj->device_extension;
+	if (devext == NULL) { return FAILED; }
 
-    RSDP = (struct ACPI_RSDP *)acpi_find_rsdp();
-    if (RSDP == NULL) {
-        return NODEV;
-    }
-    unsigned int *ptr = remap(RSDP->RsdtAddress, sizeof(struct ACPI_RSDT));
-    if (ptr == NULL) {
-        return FAILED;
-    }
-    devext->RSDT = (struct ACPI_RSDT *)ptr;
-    // checksum(RSDT, RSDT->header.Length);
-    if (!checksum((uint8_t *)devext->RSDT, devext->RSDT->header.Length))
-        return FAILED;
+	RSDP = (struct ACPI_RSDP *)acpi_find_rsdp();
+	if (RSDP == NULL) { return NODEV; }
+	uint32_t *ptr;
+	MEMORY_RESULT_PRINT_CALL(
+		remap, RSDP->RsdtAddress, sizeof(struct ACPI_RSDT), (uint32_t *)&ptr);
+	if (ptr == NULL) { return FAILED; }
+	devext->RSDT = (struct ACPI_RSDT *)ptr;
+	// checksum(RSDT, RSDT->header.Length);
+	if (!checksum((uint8_t *)devext->RSDT, devext->RSDT->header.Length))
+		return FAILED;
 
-    devext->FADT = (struct ACPI_FADT *)acpi_find_table(devext, "FACP");
-    if (devext->FADT == NULL) {
-        return FAILED;
-    }
-    if (!checksum((uint8_t *)devext->FADT, devext->FADT->h.Length))
-        return FAILED;
+	devext->FADT = (struct ACPI_FADT *)acpi_find_table(devext, "FACP");
+	if (devext->FADT == NULL) { return FAILED; }
+	if (!checksum((uint8_t *)devext->FADT, devext->FADT->h.Length))
+		return FAILED;
 
-    if (!(io_in16(devext->FADT->PM1aControlBlock) & 1)) {
-        if (devext->FADT->SMI_CommandPort && devext->FADT->AcpiEnable) {
-            io_out8(devext->FADT->SMI_CommandPort, devext->FADT->AcpiEnable);
-            int i;
-            for (i = 0; i < 300; i++) {
-                if (io_in16(devext->FADT->PM1aControlBlock) & 1)
-                    break;
-                delay(1);
-            }
-            if (devext->FADT->PM1bControlBlock) {
-                for (; i < 300; i++) {
-                    if (io_in16(devext->FADT->PM1bControlBlock) & 1)
-                        break;
-                    delay(1);
-                }
-            }
-        }
-    }
-    return SUCCUESS;
+	if (!(io_in16(devext->FADT->PM1aControlBlock) & 1)) {
+		if (devext->FADT->SMI_CommandPort && devext->FADT->AcpiEnable) {
+			io_out8(devext->FADT->SMI_CommandPort, devext->FADT->AcpiEnable);
+			int i;
+			for (i = 0; i < 300; i++) {
+				if (io_in16(devext->FADT->PM1aControlBlock) & 1) break;
+				// TODO: Delay
+				// delay(1);
+			}
+			if (devext->FADT->PM1bControlBlock) {
+				for (; i < 300; i++) {
+					if (io_in16(devext->FADT->PM1bControlBlock) & 1) break;
+					// TODO: Delay
+					// delay(1);
+				}
+			}
+		}
+	}
+	return SUCCUESS;
 }
 
 /*
@@ -137,8 +130,9 @@ static status_t acpi_enter(driver_t *drv_obj)
  * NameOP | \(可选) | _  | S  | 5  | _
  * 08     | 5A     | 5F | 53 | 35 | 5F
  * -----------------------------------
- * PackageOP | PkgLength | NumElements | prefix Num | prefix Num | prefix Num | prefix Num
- * 12        | 0A        | 04          | 0A     05  | 0A     05  | 0A     05  | 0A     05
+ * PackageOP | PkgLength | NumElements | prefix Num | prefix Num | prefix Num |
+ * prefix Num 12        | 0A        | 04          | 0A     05  | 0A     05  | 0A
+ * 05  | 0A     05
  * -----------------------------------
  * PkgLength: bit6~7为长度的字节数-1;bit4~5保留;bit0~3为长度的低4位
  * prefix:	0A Byte
@@ -151,59 +145,59 @@ static status_t acpi_enter(driver_t *drv_obj)
 /*
 void acpi_shutdown(device_extension_t *devext)
 {
-    int i;
-    uint16_t SLP_TYPa, SLP_TYPb;
-    struct ACPISDTHeader *header = (struct ACPISDTHeader *)acpi_find_table(devext, "DSDT");
+	int i;
+	uint16_t SLP_TYPa, SLP_TYPb;
+	struct ACPISDTHeader *header = (struct ACPISDTHeader
+*)acpi_find_table(devext, "DSDT");
 
-    char *S5Addr = (char *)header;
-    int dsdtLength = (header->Length - sizeof(struct ACPISDTHeader))/4;
+	char *S5Addr = (char *)header;
+	int dsdtLength = (header->Length - sizeof(struct ACPISDTHeader))/4;
 
-    for(i = 0; i < dsdtLength; i++)
-    {
-        if (memcmp(S5Addr, "_S5_", 4) == 0) break;
-        S5Addr++;
-    }
-    if (i < dsdtLength)
-    {
-        if ( ( *(S5Addr-1) == 0x08 || ( *(S5Addr-2) == 0x08 && *(S5Addr-1) == '\\') ) && *(S5Addr+4) == 0x12 )
-        {
-            S5Addr+=5;
-            S5Addr+=((*S5Addr&0xc0)>>6)+2;
+	for(i = 0; i < dsdtLength; i++)
+	{
+		if (memcmp(S5Addr, "_S5_", 4) == 0) break;
+		S5Addr++;
+	}
+	if (i < dsdtLength)
+	{
+		if ( ( *(S5Addr-1) == 0x08 || ( *(S5Addr-2) == 0x08 && *(S5Addr-1) ==
+'\\') ) && *(S5Addr+4) == 0x12 )
+		{
+			S5Addr+=5;
+			S5Addr+=((*S5Addr&0xc0)>>6)+2;
 
-            if (*S5Addr == 0x0a) S5Addr++;
-            SLP_TYPa = *(S5Addr)<<10;
-            S5Addr++;
+			if (*S5Addr == 0x0a) S5Addr++;
+			SLP_TYPa = *(S5Addr)<<10;
+			S5Addr++;
 
-            if (*S5Addr == 0x0a) S5Addr++;
-            SLP_TYPb = *(S5Addr)<<10;
-            S5Addr++;
-        }
-        // 关于PM1x_CNT_BLK的描述见 ACPI Specification Ver6.3 4.8.3.2.1
-        io_out16(devext->FADT->PM1aControlBlock, SLP_TYPa | 1<<13);
-        if (devext->FADT->PM1bControlBlock != 0)
-        {
-            io_out16(devext->FADT->PM1bControlBlock, SLP_TYPb | 1<<13);
-        }
-    }
+			if (*S5Addr == 0x0a) S5Addr++;
+			SLP_TYPb = *(S5Addr)<<10;
+			S5Addr++;
+		}
+		// 关于PM1x_CNT_BLK的描述见 ACPI Specification Ver6.3 4.8.3.2.1
+		io_out16(devext->FADT->PM1aControlBlock, SLP_TYPa | 1<<13);
+		if (devext->FADT->PM1bControlBlock != 0)
+		{
+			io_out16(devext->FADT->PM1bControlBlock, SLP_TYPb | 1<<13);
+		}
+	}
 }
 */
 
-static status_t acpi_exit(driver_t *drv_obj)
-{
-    device_t *devobj, *next;
-    // device_extension_t *ext;
-    list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) {
-        device_delete(devobj);
-    }
-    string_del(&drv_obj->name);
-    return SUCCUESS;
+static status_t acpi_exit(driver_t *drv_obj) {
+	device_t *devobj, *next;
+	// device_extension_t *ext;
+	list_for_each_owner_safe (devobj, next, &drv_obj->device_list, list) {
+		device_delete(devobj);
+	}
+	string_del(&drv_obj->name);
+	return SUCCUESS;
 }
 
-static __init void acpi_driver_entry(void)
-{
-    if (driver_create(acpi_driver, DRV_NAME) < 0) {
-        printk(COLOR_RED "[driver] %s driver create failed!\n", __func__);
-    }
+static __init void acpi_driver_entry(void) {
+	if (driver_create(acpi_driver, DRV_NAME) < 0) {
+		printk(COLOR_RED "[driver] %s driver create failed!\n", __func__);
+	}
 }
 
 driver_initcall(acpi_driver_entry);

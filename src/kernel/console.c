@@ -5,13 +5,28 @@
  * @version 0.3
  * @date 2022-07-15
  */
-#include <drivers/video.h>
+#include "driver/video_dm.h"
+#include <driver/video.h>
 #include <kernel/console.h>
 #include <kernel/font.h>
 #include <kernel/sync.h>
 #include <kernel/thread.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
+
+struct console {
+	struct VideoDevice *video_device;
+
+	uint8_t *vram;
+	uint8_t *cur_vram;
+	uint8_t *font;
+	int		 start_x, start_y;
+	int		 cur_x, cur_y;
+	int		 width, height;
+	int		 color;
+	int		 flag;
+};
 
 int			   command_length = 0;
 char		   command[CMD_MAX_LENGTH];
@@ -22,14 +37,17 @@ struct console console;
  *
  */
 void init_console(void) {
-	console.vram   = video_info.vram;
-	console.font   = font16;
-	console.cur_x  = 0;
-	console.cur_y  = 0;
-	console.width  = video_info.width / 10;
-	console.height = video_info.height / 16;
-	console.color  = 0xc0c0c0;
-	console.flag   = CMD_FLAG_OUTPUT;
+	video_get_video_device(0, &console.video_device);
+
+	console.vram	 = console.video_device->framebuffer_address;
+	console.cur_vram = console.vram;
+	console.font	 = font16;
+	console.cur_x	 = 0;
+	console.cur_y	 = 0;
+	console.width	 = console.video_device->mode_info.width / 10;
+	console.height	 = console.video_device->mode_info.height / 16;
+	console.color	 = 0xc0c0c0;
+	console.flag	 = CMD_FLAG_OUTPUT;
 }
 
 /**
@@ -87,6 +105,24 @@ void console_input(char c)
 }
 */
 
+void scroll_screen(void) {
+	int i, j;
+	int screen_width  = console.video_device->mode_info.width;
+	int screen_height = console.video_device->mode_info.height;
+	int bpp			  = console.video_device->mode_info.bytes_per_pixel;
+
+	uint32_t *dst = (uint32_t *)console.vram;
+	uint32_t *src = (uint32_t *)(console.vram + 16 * screen_width * bpp);
+	for (j = 0; j < console.height; j++) {
+		for (i = 0; i < screen_width * bpp * 16 / 4; i++) {
+			*dst = *src;
+			dst += 4;
+			src += 4;
+		}
+	}
+	draw_rect(console.video_device, 0, screen_height - 16, screen_width, 16, 0);
+}
+
 /**
  * @brief 打印一个字符
  *
@@ -94,36 +130,21 @@ void console_input(char c)
  * @param color 颜色
  */
 void print_char(unsigned char c, unsigned int color) {
-	int		 i, j, k;
-	uint32_t _color = color;
 	if (c > 127) { c = '?'; }
+	int bpp = console.video_device->mode_info.bytes_per_pixel;
 	print_word(
-		console.cur_x * 10 + 1, console.cur_y * 16, console.font + c * 16,
-		_color);
+		console.video_device->framebuffer_ops, &console.video_device->mode_info,
+		console.cur_vram + 1 * bpp, console.font + c * 16, color);
 	console.cur_x++;
+	console.cur_vram += 10 * bpp;
 	if (console.cur_x >= console.width) {
-		console.cur_x = 0;
+		int screen_width = console.video_device->mode_info.width;
+		console.cur_x	 = 0;
 		console.cur_y++;
+		console.cur_vram =
+			console.vram + console.cur_y * 16 * screen_width * bpp;
 	}
-	if (console.cur_y >= console.height) {
-		console.cur_y	   = console.height - 1;
-		console.cur_x	   = 0;
-		int height		   = console.height * 16;
-		int width		   = console.width * 10;
-		int byte_per_pixel = video_info.BitsPerPixel / 8;
-		for (i = 16; i < height; i++) {
-			for (j = 0; j < width; j++) {
-				for (k = 0; k < byte_per_pixel; k++) {
-					console.vram
-						[((i - 16) * video_info.width + j) * byte_per_pixel +
-						 k] =
-						console.vram
-							[(i * video_info.width + j) * byte_per_pixel + k];
-				}
-			}
-		}
-		draw_rect(0, console.height * 16 - 16, console.width * 10, 16, 0);
-	}
+	if (console.cur_y >= console.height) { scroll_screen(); }
 }
 
 /**
@@ -141,8 +162,10 @@ int printk(const char *fmt, ...) {
 	i = vsprintf(buf, fmt, arg);
 	va_end();
 
-	char *p	  = buf, c;
-	int	  len = i;
+	char *p			   = buf, c;
+	int	  len		   = i;
+	int	  bpp		   = console.video_device->mode_info.bytes_per_pixel;
+	int	  screen_width = console.video_device->mode_info.width;
 	while (len) {
 		c = *p++;
 		if (c == '<' && len == i) {
@@ -210,36 +233,47 @@ int printk(const char *fmt, ...) {
 		case '\n':
 			console.cur_y++;
 			console.cur_x = 0;
-			if (console.cur_y >= console.height) {
-				print_char('\n', color);
-				if (console.cur_y < 0) { console.cur_y = 0; }
-				if (console.flag == CMD_FLAG_INPUT) {
-					console.start_y = console.cur_y;
-				}
-			}
+			console.cur_vram =
+				console.vram + console.cur_y * 16 * screen_width * bpp;
 			break;
 		case '\b':
 			if (console.flag == CMD_FLAG_INPUT) {
 				if (console.cur_x != console.start_x &&
 					console.cur_y != console.start_y) {
 					console.cur_x--;
+					console.cur_vram -= 10 * bpp;
 					draw_rect(
-						console.cur_x * 10, console.cur_y * 16, 10, 16, 0);
+						console.video_device, console.cur_x * 10 + 1,
+						console.cur_y * 16, 8, 16, 0);
 				}
 			}
 			break;
 		case '\t':
-			if ((console.cur_x % 4) == 0) { console.cur_x += 4; }
-			while (console.cur_x % 4) {
-				console.cur_x++;
-			}
+			console.cur_x += 4 - console.cur_x & 3;
 			break;
 		case '\r':
 			break;
 		default:
-			draw_rect(console.cur_x * 10, console.cur_y * 16, 10, 16, 0);
+			draw_rect(
+				console.video_device, console.cur_x * 10, console.cur_y * 16,
+				10, 16, 0);
 			print_char(c, color);
 			break;
+		}
+		if (console.cur_x > console.width) {
+			console.cur_x = 0;
+			console.cur_y++;
+			console.cur_vram =
+				console.vram + console.cur_y * 16 * screen_width * bpp;
+		}
+		if (console.cur_y >= console.height) {
+			print_char('\n', color);
+			if (console.cur_y < 0) { console.cur_y = 0; }
+			if (console.flag == CMD_FLAG_INPUT) {
+				console.start_y = console.cur_y;
+			}
+			console.cur_vram =
+				console.vram + console.cur_y * 16 * screen_width * bpp;
 		}
 		len--;
 	}
