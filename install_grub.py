@@ -15,7 +15,6 @@ disk_dir_path = 'disk'
 grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
 grub_mkimage_path = "grub-mkimage"
-grub_dir_path = "/usr/lib/grub/"
 default_mods =\
 "minicmd normal gzio gcry_crc verifiers terminal \
 priority_queue gettext extcmd datetime crypto bufio boot \
@@ -45,7 +44,7 @@ def create_grub_directory(disk_image_path, disk_dir, grub_cfg_path):
     run_command(f"{imagetool_path} {disk_image_path} mkdir /p0/boot/grub/", hide=True)
     run_command(f"{imagetool_path} {disk_image_path} copy {grub_cfg_path} /p0/boot/grub/grub.cfg")
 
-def install_grub(disk_image_path, platform, fs, mods):
+def install_grub(disk_image_path, grub_dir_path, platform, fs, mods):
     # 检查 hd0.img 是否存在
     flag = True
     if os.path.isfile(disk_image_path):
@@ -96,11 +95,12 @@ def install_grub(disk_image_path, platform, fs, mods):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="安装GRUB到磁盘镜像")
     parser.add_argument("--image", help="磁盘映像路径", default=hd_img_path)
-    parser.add_argument("--platform", help="目标平台")
-    parser.add_argument("--fs", help="文件系统")
+    parser.add_argument("--platform", help="目标平台", required=True)
+    parser.add_argument("--fs", help="文件系统", required=True)
     parser.add_argument("--mods", help="要额外附加的模块", default=default_mods)
     args = parser.parse_args()
 
+    grub_dir_path = "/usr/lib/grub/"
     if os.name == 'nt':
         print("检测到为Windows,请输入grub路径：")
         path = input()
@@ -109,4 +109,4 @@ if __name__ == "__main__":
         grub_dir_path = path
         grub_mkimage_path = path + grub_mkimage_path
 
-    install_grub(args.image, args.platform, args.fs, args.mods)
+    install_grub(args.image, grub_dir_path, args.platform, args.fs, args.mods)

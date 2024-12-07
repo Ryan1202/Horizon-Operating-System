@@ -28,12 +28,11 @@ BusDriver platform_bus = {
 
 void init_platform() {
 	init_descriptor();
-	// init_video();
-	// init_console();
 	init_memory();
 
 	register_bus_driver(&platform_driver, &platform_bus);
 	read_features();
+
 	register_vesa_display();
 	register_pic();
 	register_apic();
