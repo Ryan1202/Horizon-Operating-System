@@ -16,11 +16,11 @@
 #include <kernel/func.h>
 #include <string.h>
 
-
 // ---------new---------
 #include <driver/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/driver_interface.h>
+#include <kernel/platform.h>
 #include <result.h>
 #include <stdint.h>
 
@@ -55,6 +55,7 @@ DeviceIrq pit_irq = {
 Driver		 pit_driver;
 DeviceDriver pit_device_driver = {
 	.name	  = STRING_INIT("PIT"),
+	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_TIMER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
@@ -77,6 +78,7 @@ TimerDevice pit_timer_device = {
 };
 
 void register_pit() {
+	register_driver(&pit_driver);
 	register_device_driver(&pit_driver, &pit_device_driver);
 	register_timer_device(&pit_device_driver, &pit_device, &pit_timer_device);
 }

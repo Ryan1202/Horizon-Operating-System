@@ -1,3 +1,4 @@
+#include "kernel/list.h"
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -13,24 +14,37 @@
 #include <kernel/feature.h>
 
 BusDriverOps platform_ops = {
+	.register_bus_hook	 = NULL,
+	.unregister_bus_hook = NULL,
+};
+BusOps platform_bus_ops = {
 	.register_device_hook	= NULL,
 	.unregister_device_hook = NULL,
 };
 
-Driver	  platform_driver;
-BusDriver platform_bus = {
+Driver platform_driver;
+Bus	   platform_bus = {
+	   .controller_device = NULL,
+	   .ops				  = &platform_bus_ops,
+};
+BusDriver platform_bus_driver = {
 	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
 	.bus_type		   = BUS_TYPE_PLATFORM,
 	.name			   = STRING_INIT("platform"),
 	.state			   = DRIVER_STATE_UNREGISTERED,
 	.private_data_size = 0,
+	.ops			   = &platform_ops,
 };
 
 void init_platform() {
 	init_descriptor();
 	init_memory();
 
-	register_bus_driver(&platform_driver, &platform_bus);
+	// 因为platform_bus是虚拟的，所以不需要注册device
+	register_bus_driver(&platform_driver, &platform_bus_driver);
+	list_init(&platform_bus_driver.bus_lh);
+	list_add_tail(&platform_bus.bus_list, &platform_bus_driver.bus_lh);
+
 	read_features();
 
 	register_vesa_display();

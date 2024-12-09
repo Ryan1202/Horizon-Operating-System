@@ -65,8 +65,9 @@ typedef struct Device {
 	void	*driver_manager_extension; // 设备管理器所需的扩展信息
 } Device;
 
+struct Bus;
 DriverResult register_device(
-	struct DeviceDriver *device_driver, Device *device);
+	struct DeviceDriver *device_driver, struct Bus *bus, Device *device);
 DriverResult unregister_device(
 	struct DeviceDriver *device_driver, Device *device);
 DriverResult init_device(Device *device);

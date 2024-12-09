@@ -6,8 +6,9 @@
  * @date 2022-07-20
  */
 
-#include "kernel/list.h"
+#include <kernel/driver_interface.h>
 #include <kernel/func.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/wait_queue.h>
 
@@ -17,7 +18,8 @@
  * @return wait_queue_manager_t* 等待队列的管理结构
  */
 wait_queue_manager_t *create_wait_queue(void) {
-	wait_queue_manager_t *wqm = (wait_queue_manager_t *)kmalloc(sizeof(wait_queue_manager_t));
+	wait_queue_manager_t *wqm =
+		(wait_queue_manager_t *)kmalloc(sizeof(wait_queue_manager_t));
 	return wqm;
 }
 
@@ -54,11 +56,14 @@ bool wait_queue_empty(wait_queue_manager_t *wqm) {
 wait_queue_t *wait_queue_add(wait_queue_manager_t *wqm, uint32_t size) {
 	wait_queue_t *wq = (wait_queue_t *)kmalloc(sizeof(wait_queue_t));
 	wq->thread		 = get_current_thread();
-	int old_status	 = io_load_eflags();
+	int old_status	 = load_interrupt_status();
+	disable_interrupt();
 	spin_lock(&wqm->lock);
+
 	list_add_tail(&wq->list, &wqm->list_head);
+
 	spin_unlock(&wqm->lock);
-	io_store_eflags(old_status);
+	store_interrupt_status(old_status);
 	if (size != 0) {
 		wq->private_data = kmalloc(size);
 	} else {
@@ -85,18 +90,23 @@ wait_queue_t *wait_queue_first(wait_queue_manager_t *wqm) {
  */
 void wait_queue_wakeup(wait_queue_manager_t *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
-	wait_queue_t	 *wq		  = list_first_owner(&wqm->list_head, wait_queue_t, list);
+	wait_queue_t  *wq = list_first_owner(&wqm->list_head, wait_queue_t, list);
 	struct task_s *thread	  = wq->thread;
-	int			   old_status = io_load_eflags();
+	int			   old_status = load_interrupt_status();
+	disable_interrupt();
 	spin_lock(&wqm->lock);
+
 	list_del(&wq->list);
 	if (wq->private_data != NULL) { kfree(wq->private_data); }
 	kfree(wq);
-	if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING || thread->status == TASK_HANGING) {
+
+	if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING ||
+		thread->status == TASK_HANGING) {
 		thread_unblock(thread);
 	}
+
 	spin_unlock(&wqm->lock);
-	io_store_eflags(old_status);
+	store_interrupt_status(old_status);
 	return;
 }
 
@@ -107,9 +117,12 @@ void wait_queue_wakeup(wait_queue_manager_t *wqm) {
  */
 void wait_queue_wakeup_all(wait_queue_manager_t *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
-	wait_queue_t	 *cur, *next;
+	wait_queue_t  *cur, *next;
 	struct task_s *thread;
-	int			   old_status = io_load_eflags();
+
+	int old_status = load_interrupt_status();
+	disable_interrupt();
+
 	spin_lock(&wqm->lock);
 	list_for_each_owner_safe (cur, next, &wqm->list_head, list) {
 		thread = cur->thread;
@@ -121,7 +134,8 @@ void wait_queue_wakeup_all(wait_queue_manager_t *wqm) {
 			thread_unblock(thread);
 		}
 	}
+
 	spin_unlock(&wqm->lock);
-	io_store_eflags(old_status);
+	store_interrupt_status(old_status);
 	return;
 }

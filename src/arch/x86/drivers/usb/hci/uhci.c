@@ -91,8 +91,8 @@ static status_t uhci_enter(driver_t *drv_obj) {
 	device_create(drv_obj, sizeof(uhci_t), DEV_NAME, DEV_USB, &devobj);
 	devext = devobj->device_extension;
 
-	devext->device =
-		pci_get_device_ByClassFull(UHCI_CLASSID, UHCI_SUBCLASSID, UHCI_PROGIF);
+	// devext->device =
+	// 	pci_get_device_ByClassFull(UHCI_CLASSID, UHCI_SUBCLASSID, UHCI_PROGIF);
 	if (devext->device == NULL) {
 		printk(COLOR_YELLOW "\n[UHCI]Cannot find UHCI controller!\n");
 		device_delete(devobj);
@@ -102,8 +102,8 @@ static status_t uhci_enter(driver_t *drv_obj) {
 
 	devext->io_base = devext->device->bar[4].base_addr & 0xfffffff0;
 
-	pci_enable_bus_mastering(devext->device);
-	pci_enable_io_space(devext->device);
+	// pci_enable_bus_mastering(devext->device);
+	// pci_enable_io_space(devext->device);
 
 	uhci_reset(devext);
 	uint16_t intr = io_in16(devext->io_base + UHCI_REG_USBINTR);

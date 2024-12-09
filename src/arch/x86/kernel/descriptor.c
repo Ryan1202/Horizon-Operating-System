@@ -5,7 +5,7 @@
  * @version 1.2
  * @date 2022-07-31
  */
-#include "driver/interrupt_dm.h"
+#include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <drivers/pit.h>

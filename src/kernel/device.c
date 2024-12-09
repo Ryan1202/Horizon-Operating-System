@@ -6,10 +6,11 @@
 #include <kernel/list.h>
 #include <result.h>
 
-DriverResult register_device(DeviceDriver *device_driver, Device *device) {
+DriverResult register_device(
+	DeviceDriver *device_driver, Bus *bus, Device *device) {
 	device->state = DEVICE_STATE_REGISTERED;
 	list_add_tail(&device->device_list, &device_driver->device_lh);
-	bus_register_device(device_driver);
+	bus_register_device(device_driver, bus);
 	return DRIVER_RESULT_OK;
 }
 

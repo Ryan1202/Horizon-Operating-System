@@ -40,6 +40,8 @@ volatile struct ioapic {
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
+#include <kernel/platform.h>
+
 DriverResult apic_init(Device *device);
 DriverResult apic_start(Device *device);
 DriverResult apic_stop(Device *device);
@@ -117,6 +119,7 @@ Driver apic_driver = {.name = STRING_INIT("APIC")};
 
 DeviceDriver apic_device_driver = {
 	.name	  = STRING_INIT("APIC"),
+	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_INTERRUPT_CONTROLLER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
@@ -135,6 +138,7 @@ InterruptDevice apic_interrupt_device = {
 
 DeviceDriver apic_timer_device_driver = {
 	.name	  = STRING_INIT("APIC Timer"),
+	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_TIMER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
@@ -172,6 +176,7 @@ void io_apic_write(uint32_t reg, uint32_t data) {
 }
 
 DriverResult register_apic(void) {
+	register_driver(&apic_driver);
 	register_device_driver(&apic_driver, &apic_device_driver);
 	register_device_driver(&apic_driver, &apic_timer_device_driver);
 	register_interrupt_device(
@@ -191,12 +196,14 @@ DriverResult apic_driver_init(struct DeviceDriver *driver) {
 		apic_info.apic_base		 = 0xfee00000;
 		apic_info.apic_base_high = low >> 12;
 
+		uint32_t tmp;
 		DRV_RESULT_PRINT_CALL(
 			driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff,
-			(uint32_t *)&apic_info.lapic_mmio);
+			&tmp);
+		apic_info.lapic_mmio = (uint32_t *)tmp;
 		DRV_RESULT_PRINT_CALL(
-			driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00,
-			(uint32_t *)apic_info.ioapic);
+			driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00, &tmp);
+		apic_info.ioapic = (struct ioapic *)tmp;
 
 		read_msr(X2APIC_ID_MSR, &apic_info.apic_id, &apic_info.apic_id_high);
 		apic_info.version = (lapic_read(APIC_Ver) & 0xff) |

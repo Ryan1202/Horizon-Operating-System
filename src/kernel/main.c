@@ -52,7 +52,7 @@ int main() {
 	// io_sti();
 	printk("Memory Size:%dM\n", get_memory_size());
 	// init_vfs();
-	// do_initcalls();
+	do_initcalls();
 	// init_fs();
 
 	// thread_start(

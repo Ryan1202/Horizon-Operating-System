@@ -1,11 +1,13 @@
-#include "kernel/device_driver.h"
-#include "kernel/list.h"
 #include <kernel/bus_driver.h>
+#include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_manager.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
+#include <kernel/wait_queue.h>
 
-BusDriver *bus_drivers[BUS_TYPE_MAX];
+BusDriver			*bus_drivers[BUS_TYPE_MAX];
+wait_queue_manager_t bus_wqm[BUS_TYPE_MAX];
 
 DriverResult bus_driver_manager_load(DriverManager *driver_manager);
 DriverResult bus_driver_manager_unload(DriverManager *driver_manager);
@@ -20,13 +22,12 @@ DriverManagerOps bus_driver_ops = {
 };
 
 typedef struct BusDriverManagerExt {
-	DeviceDriver *bus_controller_device;
 } BusDriverMangerExt;
 
 BusDriverMangerExt bus_driver_manager_ext;
 
 struct DriverManager bus_driver_manager = {
-	.type = DRIVER_TYPE_DEVICE_DRIVER,
+	.type = DRIVER_TYPE_BUS_DRIVER,
 
 	.ops = &bus_driver_ops,
 
@@ -34,7 +35,9 @@ struct DriverManager bus_driver_manager = {
 };
 
 DriverResult bus_driver_manager_load(DriverManager *driver_manager) {
-
+	for (int i = 0; i < BUS_TYPE_MAX; i++) {
+		wait_queue_init(&bus_wqm[i]);
+	}
 	return DRIVER_RESULT_OK;
 }
 
@@ -56,6 +59,8 @@ DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver) {
 
 	DRV_RESULT_DELIVER_CALL(register_sub_driver, driver, &bus_driver->driver);
 
+	bus_drivers[bus_driver->bus_type] = bus_driver;
+
 	return DRIVER_RESULT_OK;
 }
 
@@ -67,6 +72,13 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 	BusDriver *bus_driver = bus_drivers[type];
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
+	bus_drivers[bus_driver->driver_type] = NULL;
+
+	Bus *cur, *next;
+	list_for_each_owner_safe (cur, next, &bus_driver->bus_lh, bus_list) {
+		unregister_bus(cur);
+	}
+
 	DRV_RESULT_DELIVER_CALL(unregister_sub_driver, driver, &bus_driver->driver);
 
 	bus_driver->state = DRIVER_STATE_UNREGISTERED;
@@ -75,22 +87,54 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult bus_register_device(DeviceDriver *device_driver) {
+DriverResult register_bus(
+	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus) {
+	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+
+	bus->bus_driver		   = bus_driver;
+	bus->controller_device = bus_controller_device;
+	list_init(&bus->device_lh);
+	list_add_tail(&bus->bus_list, &bus_driver->bus_lh);
+	BUS_OPS_CALL(bus_driver, register_bus_hook, bus);
+
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult unregister_bus(Bus *bus) {
+	BusDriver *bus_driver = bus->bus_driver;
+	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+
+	// 取消注册bus下的所有device_driver
+	DeviceDriver *cur, *next;
+	list_for_each_owner_safe (cur, next, &bus->device_lh, bus_list) {
+		bus_unregister_device(cur);
+	}
+
+	BUS_OPS_CALL(bus_driver, unregister_bus_hook, bus);
+	list_del(&bus->bus_list);
+	bus->bus_driver = NULL;
+
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult bus_register_device(DeviceDriver *device_driver, Bus *bus) {
 	BusDriver *bus_driver = bus_drivers[device_driver->type];
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
-	list_add_tail(&device_driver->bus_list, &bus_driver->device_lh);
-	BUS_OPS_CALL(bus_driver, register_device_hook, device_driver);
+	device_driver->bus = bus;
+	list_add_tail(&device_driver->bus_list, &bus->device_lh);
+	BUS_OPS_CALL(bus, register_device_hook, device_driver);
 
 	return DRIVER_RESULT_OK;
 }
 
 DriverResult bus_unregister_device(DeviceDriver *device_driver) {
-	BusDriver *bus_driver = bus_drivers[device_driver->type];
-	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+	Bus *bus = device_driver->bus;
+	if (bus == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
-	BUS_OPS_CALL(bus_driver, unregister_device_hook, device_driver);
+	BUS_OPS_CALL(bus, unregister_device_hook, device_driver);
 	list_del(&device_driver->bus_list);
+	device_driver->bus = NULL;
 
 	return DRIVER_RESULT_OK;
 }

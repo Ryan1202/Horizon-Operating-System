@@ -19,6 +19,7 @@
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
+#include <kernel/platform.h>
 #include <result.h>
 
 DriverResult pic_init(Device *device);
@@ -49,6 +50,7 @@ Driver		 pic_driver		   = {.name = STRING_INIT("PIC")};
 DeviceDriver pic_device_driver = {
 	.name	  = STRING_INIT("PIC Driver"),
 	.type	  = DEVICE_TYPE_INTERRUPT_CONTROLLER,
+	.bus	  = &platform_bus,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
 	.ops	  = &pic_device_driver_ops,
@@ -68,6 +70,7 @@ InterruptDevice pic_interrupt_device = {
 };
 
 void register_pic(void) {
+	register_driver(&pic_driver);
 	register_device_driver(&pic_driver, &pic_device_driver);
 	register_interrupt_device(
 		&pic_device_driver, &pic_device, &pic_interrupt_device);

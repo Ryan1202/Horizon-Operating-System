@@ -1,7 +1,7 @@
 #ifndef _DRIVER_H
 #define _DRIVER_H
 
-#include <stdint.h>
+#include "stdint.h"
 #define DRIVER_MAX_NAME_LEN 64
 #define DEVICE_MAX_NAME_LEN 64
 
@@ -125,10 +125,15 @@ extern list_t startup_dm_lh;
 // 实体的驱动，管理着一个驱动下的所有类型的抽象驱动
 typedef struct Driver {
 	string_t name;
+	list_t	 driver_list;
 	list_t	 sub_driver_lh;
 	list_t	 remapped_memory_lh;
+
+	int						  dependency_count;
+	struct DriverDenpendency *dependencies;
 } Driver;
 
+struct DriverDenpendency;
 typedef struct SubDriver {
 	list_t	   list;
 	list_t	   sub_driver_list;
@@ -153,6 +158,8 @@ typedef enum DriverResult {
 	DRIVER_RESULT_OTHER_ERROR,
 } DriverResult;
 
+DriverResult register_driver(Driver *driver);
+DriverResult unregister_driver(Driver *driver);
 DriverResult register_sub_driver(Driver *driver, SubDriver *sub_driver);
 DriverResult unregister_sub_driver(Driver *driver, SubDriver *sub_driver);
 void		 print_driver_result(

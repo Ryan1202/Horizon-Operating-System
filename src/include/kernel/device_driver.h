@@ -35,12 +35,14 @@ typedef enum {
 	DRIVER_STATE_ACTIVE,	   // 驱动正在运行
 } DriverState;
 
+struct Bus;
 typedef struct DeviceDriver {
 	// 继承SubDriver特征
 	SubDriver driver;
 
 	list_t		   bus_list;
 	list_t		   device_lh;
+	struct Bus	  *bus;
 	string_t	   name;
 	DeviceType	   type;
 	DriverPriority priority;

@@ -17,6 +17,9 @@
 #define enable_interrupt()	io_sti()
 #define disable_interrupt() io_cli()
 
+#define load_interrupt_status()		   io_load_eflags();
+#define store_interrupt_status(status) io_store_eflags(status);
+
 #else
 #error Driver: Unsupport Architecture
 #endif
@@ -43,7 +46,8 @@ typedef struct DeviceIrq {
 #include "stdint.h"
 typedef struct DriverRemappedMemory {
 	list_t	 list;
-	uint32_t start;
+	uint32_t vir_start;
+	uint32_t phy_start;
 	uint32_t size;
 } DriverRemappedMemory;
 

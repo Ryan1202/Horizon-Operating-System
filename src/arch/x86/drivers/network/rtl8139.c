@@ -29,9 +29,10 @@
 
 #define CHIP_HAS_LWAKE 0x01
 
-#define IMR_ALL                                                                                        \
-	RTL8139_IMR_SERR | RTL8139_IMR_TimeOut | RTL8139_IMR_LenChg | RTL8139_IMR_FOVW | RTL8139_IMR_TER | \
-		RTL8139_IMR_TOK | RTL8139_IMR_RER | RTL8139_IMR_ROK
+#define IMR_ALL                                                   \
+	RTL8139_IMR_SERR | RTL8139_IMR_TimeOut | RTL8139_IMR_LenChg | \
+		RTL8139_IMR_FOVW | RTL8139_IMR_TER | RTL8139_IMR_TOK |    \
+		RTL8139_IMR_RER | RTL8139_IMR_ROK
 #define RXFTH_NONE RTL8139_RCR_RXFTH(0x07)
 
 #define RBLEN_64K 0x03
@@ -48,9 +49,12 @@ static status_t rtl8139_enter(driver_t *drv_obj);
 static status_t rtl8139_exit(driver_t *drv_obj);
 static status_t rtl8139_open(struct _device_s *dev);
 static status_t rtl8139_close(struct _device_s *dev);
-static status_t rtl8139_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-static status_t rtl8139_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t value);
+static status_t rtl8139_write(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+static status_t rtl8139_read(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+static status_t rtl8139_ioctl(
+	struct _device_s *dev, uint32_t func_num, uint32_t value);
 
 driver_func_t rtl8139_driver = {
 	.driver_enter  = rtl8139_enter,
@@ -114,11 +118,14 @@ void rtl8139_handler(device_t *devobj, int irq) {
 	int					i;
 
 	// printk("[RTL8139]Status:%#0x\t", status);
-	io_out16(devext->io_base + RTL8139_ISR,
-			 status & ~(RTL8139_ISR_FOVW | RTL8139_ISR_RXOVW | RTL8139_ISR_ROK | RTL8139_ISR_TER));
+	io_out16(
+		devext->io_base + RTL8139_ISR,
+		status & ~(RTL8139_ISR_FOVW | RTL8139_ISR_RXOVW | RTL8139_ISR_ROK |
+				   RTL8139_ISR_TER));
 	if (status & RTL8139_ISR_TOK) {
-		// if (!wait_queue_empty(devext->wqm)) { wait_queue_wakeup_all(devext->wqm); }
-		// printk("idx_w:%d idx_done:%d+1\n", devext->tx_idx_w, devext->tx_idx_done);
+		// if (!wait_queue_empty(devext->wqm)) {
+		// wait_queue_wakeup_all(devext->wqm); } printk("idx_w:%d
+		// idx_done:%d+1\n", devext->tx_idx_w, devext->tx_idx_done);
 		devext->tx_idx_done = (devext->tx_idx_done + 1) % TX_DESC_NR;
 		io_out16(devext->io_base + RTL8139_ISR, RTL8139_ISR_TOK);
 	}
@@ -130,10 +137,13 @@ void rtl8139_handler(device_t *devobj, int irq) {
 			rx_status = LE2HOST_DWORD(*(uint32_t *)(devext->rx_buffer + i));
 			length	  = (rx_status >> 16) - 4;
 			i += 4;
-			if (length >= sizeof(eth_frame_t) && (rx_status & RTL8139_RX_STAT_ROK)) {
+			if (length >= sizeof(eth_frame_t) &&
+				(rx_status & RTL8139_RX_STAT_ROK)) {
 				uint8_t *buffer = kmalloc(length);
 				if (i + length >= RTL8139_RECV_BUF_SIZE) {
-					memcpy(buffer, devext->rx_buffer + i, RTL8139_RECV_BUF_SIZE - i);
+					memcpy(
+						buffer, devext->rx_buffer + i,
+						RTL8139_RECV_BUF_SIZE - i);
 					i = RTL8139_RECV_BUF_SIZE - i;
 					memcpy(buffer + i, devext->rx_buffer + i, length - i);
 				} else {
@@ -141,11 +151,12 @@ void rtl8139_handler(device_t *devobj, int irq) {
 				}
 				net_rx_raw_pack(ETH_FRAME, buffer, length);
 			} else {
-				printk("[RTL8139]RX Error: status %04x,size %04x, cur %04x\n", rx_status, length + 4,
-					   devext->rx_offset);
+				printk(
+					"[RTL8139]RX Error: status %04x,size %04x, cur %04x\n",
+					rx_status, length + 4, devext->rx_offset);
 			}
-			devext->rx_offset =
-				(devext->rx_offset + length + 8 + 3) & ~3; // +8:4字节CRC和4字节包头；+3:4字节对齐用
+			devext->rx_offset = (devext->rx_offset + length + 8 + 3) &
+								~3; // +8:4字节CRC和4字节包头；+3:4字节对齐用
 			devext->rx_offset %= RTL8139_RECV_BUF_SIZE;
 			io_out16(devext->io_base + RTL8139_CAPR, devext->rx_offset - 0x10);
 			io_out16(devext->io_base + RTL8139_ISR, RTL8139_ISR_ROK);
@@ -161,19 +172,21 @@ static status_t rtl8139_enter(driver_t *drv_obj) {
 	device_extension_t *devext;
 	int					i;
 
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_ETH_NET, &devobj);
+	device_create(
+		drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_ETH_NET, &devobj);
 	devext = devobj->device_extension;
 
-	devext->device = pci_get_device_ById(RTL8139_VENDOR_ID, RTL8139_DEVICE_ID);
+	// devext->device = pci_get_device_ById(RTL8139_VENDOR_ID,
+	// RTL8139_DEVICE_ID);
 	if (devext->device == NULL) {
 		printk(COLOR_YELLOW "\n[RTL8139]Cannot find device!\n");
 		device_delete(devobj);
 		return NODEV;
 	}
 
-	pci_enable_bus_mastering(devext->device);
-	devext->io_base = pci_device_get_io_addr(devext->device);
-	devext->irq		= devext->device->irqline;
+	// pci_enable_bus_mastering(devext->device);
+	// devext->io_base = pci_device_get_io_addr(devext->device);
+	devext->irq = devext->device->irqline;
 
 	// 初始化RTL8139
 	io_out8(devext->io_base + RTL8139_CONFIG1, 0x00);	   // 通电
@@ -200,8 +213,10 @@ static status_t rtl8139_enter(driver_t *drv_obj) {
 	for (i = 0; i < 6; i++) {
 		devext->mac_addr[i] = io_in8(devext->io_base + RTL8139_IDRN(i));
 	}
-	printk("[RTL8139]MAC Address:%02x:%02x:%02x:%02x:%02x:%02x\n", devext->mac_addr[0], devext->mac_addr[1],
-		   devext->mac_addr[2], devext->mac_addr[3], devext->mac_addr[4], devext->mac_addr[5]);
+	printk(
+		"[RTL8139]MAC Address:%02x:%02x:%02x:%02x:%02x:%02x\n",
+		devext->mac_addr[0], devext->mac_addr[1], devext->mac_addr[2],
+		devext->mac_addr[3], devext->mac_addr[4], devext->mac_addr[5]);
 
 	io_out8(devext->io_base + RTL8139_9346CR, 0xc0); // Unlock
 
@@ -223,10 +238,14 @@ static status_t rtl8139_enter(driver_t *drv_obj) {
 	io_out16(devext->io_base + RTL8139_BMCR, 0x3100);
 	io_out8(devext->io_base + RTL8139_MSR, 0x40);
 
-	io_out32(devext->io_base + RTL8139_RCR, RXFTH_NONE | RBLEN | RTL8139_RCR_MXDMA(0x07) | RTL8139_RCR_AER |
-												RTL8139_RCR_AR | RTL8139_RCR_WRAP | RTL8139_RCR_AB |
-												RTL8139_RCR_AM | RTL8139_RCR_APM | RTL8139_RCR_AAP);
-	io_out32(devext->io_base + RTL8139_TCR, RTL8139_TCR_MXDMA(0x07) | RTL8139_TCR_TXRR(2));
+	io_out32(
+		devext->io_base + RTL8139_RCR,
+		RXFTH_NONE | RBLEN | RTL8139_RCR_MXDMA(0x07) | RTL8139_RCR_AER |
+			RTL8139_RCR_AR | RTL8139_RCR_WRAP | RTL8139_RCR_AB |
+			RTL8139_RCR_AM | RTL8139_RCR_APM | RTL8139_RCR_AAP);
+	io_out32(
+		devext->io_base + RTL8139_TCR,
+		RTL8139_TCR_MXDMA(0x07) | RTL8139_TCR_TXRR(2));
 
 	io_out32(devext->io_base + RTL8139_MARN(0), 0xffffffff);
 	io_out32(devext->io_base + RTL8139_MARN(4), 0xffffffff);
@@ -240,7 +259,9 @@ static status_t rtl8139_enter(driver_t *drv_obj) {
 	wait_queue_init(devext->wqm);
 	wait_queue_init(devext->rqm);
 
-	io_out8(devext->io_base + RTL8139_CR, RTL8139_CR_RE | RTL8139_CR_TE); // 允许接收和发送
+	io_out8(
+		devext->io_base + RTL8139_CR,
+		RTL8139_CR_RE | RTL8139_CR_TE); // 允许接收和发送
 	for (i = 0; i < TX_DESC_NR; i++) {
 		io_out32(devext->io_base + RTL8139_TSADN(i), devext->tx_buffer_phy[i]);
 		io_in32(devext->io_base + RTL8139_TSADN(i));
@@ -263,29 +284,31 @@ static status_t rtl8139_open(struct _device_s *dev) {
 	return SUCCUESS;
 }
 
-static status_t rtl8139_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
+static status_t rtl8139_read(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t	  *devext = dev->device_extension;
 	wait_queue_t		  *rq;
 	struct read_request_s *rreq;
 
-	// rq			 = wait_queue_add(devext->rqm, sizeof(struct read_request_s));
-	// rreq		 = (struct read_request_s *)rq->private_data;
-	// rreq->buffer = buf;
-	// rreq->length = size;
+	// rq			 = wait_queue_add(devext->rqm, sizeof(struct
+	// read_request_s)); rreq		 = (struct read_request_s
+	// *)rq->private_data; rreq->buffer = buf; rreq->length = size;
 	// thread_block(TASK_BLOCKED);
 
 	return SUCCUESS;
 }
 
-static status_t rtl8139_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
+static status_t rtl8139_write(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t *devext = dev->device_extension;
 	wait_queue_t	   *wq;
 	uint32_t			idx;
 
 	if (size > ETH_MAX_FRAME_SIZE) { return FAILED; }
 
-	// printk("                idx_w:%d idx_done:%d\n", devext->tx_idx_w, devext->tx_idx_done);
-	// while ((io_in32(devext->io_base + RTL8139_TSDN(devext->tx_idx_w)) & RTL8139_TSR_OWN))
+	// printk("                idx_w:%d idx_done:%d\n", devext->tx_idx_w,
+	// devext->tx_idx_done); while ((io_in32(devext->io_base +
+	// RTL8139_TSDN(devext->tx_idx_w)) & RTL8139_TSR_OWN))
 	// ;
 	while ((devext->tx_idx_w + 1) % TX_DESC_NR == devext->tx_idx_done) {}
 	idx				 = devext->tx_idx_w;
@@ -297,7 +320,8 @@ static status_t rtl8139_write(struct _device_s *dev, uint8_t *buf, uint32_t offs
 	return SUCCUESS;
 }
 
-static status_t rtl8139_ioctl(struct _device_s *dev, uint32_t func_num, uint32_t value) {
+static status_t rtl8139_ioctl(
+	struct _device_s *dev, uint32_t func_num, uint32_t value) {
 	int i;
 
 	device_extension_t *devext = dev->device_extension;

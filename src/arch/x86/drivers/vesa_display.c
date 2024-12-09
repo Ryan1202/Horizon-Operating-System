@@ -5,6 +5,7 @@
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
+#include <kernel/platform.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -30,6 +31,7 @@ Driver vesa_display_driver = {
 };
 DeviceDriver vesa_display_device_driver = {
 	.name	  = STRING_INIT("vesa display device driver"),
+	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_VIDEO,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
@@ -46,6 +48,7 @@ VideoDevice vesa_display_video_device = {
 };
 
 void register_vesa_display(void) {
+	register_driver(&vesa_display_driver);
 	register_device_driver(&vesa_display_driver, &vesa_display_device_driver);
 	register_video_device(
 		&vesa_display_device_driver, &vesa_display_device,

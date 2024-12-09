@@ -5,6 +5,7 @@
  * @version 0.3
  * @date 2022-07-20
  */
+#include "kernel/driver_dependency.h"
 #include <const.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
@@ -46,7 +47,7 @@ struct file_operations device_fops = {
 #include <kernel/driver_manager.h>
 #include <result.h>
 
-LIST_HEAD(startup_dm_lh);
+LIST_HEAD(driver_lh);
 
 void print_driver_result(
 	DriverResult result, char *file, int line, char *func_with_args) {
@@ -68,6 +69,19 @@ void print_driver_result(
 		RESULT_CASE_PRINT(DRIVER_RESULT_UNSUPPORT_DEVICE)
 		RESULT_CASE_PRINT(DRIVER_RESULT_OTHER_ERROR)
 	}
+}
+
+DriverResult register_driver(Driver *driver) {
+	list_init(&driver->sub_driver_lh);
+	list_init(&driver->remapped_memory_lh);
+	list_add_tail(&driver->driver_list, &driver_lh);
+	check_dependency(driver);
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult unregister_driver(Driver *driver) {
+	list_del(&driver->driver_list);
+	return DRIVER_RESULT_OK;
 }
 
 DriverResult register_sub_driver(Driver *driver, SubDriver *sub_driver) {

@@ -1,4 +1,5 @@
 #include "kernel/device.h"
+#include "kernel/list.h"
 #include <kernel/device_driver.h>
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
@@ -59,6 +60,7 @@ DriverResult register_device_driver(
 	DriverManager *manager = driver_managers[DRIVER_TYPE_DEVICE_DRIVER];
 	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
 
+	list_init(&device_driver->device_lh);
 	device_driver->private_data = kmalloc(device_driver->private_data_size);
 	device_driver->state		= DRIVER_STATE_REGISTERED;
 

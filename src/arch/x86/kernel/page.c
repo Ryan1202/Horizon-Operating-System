@@ -15,7 +15,6 @@
 #include <stdint.h>
 #include <string.h>
 
-
 extern struct VesaDisplayInfo vesa_display_info;
 
 void setup_page(void) {
@@ -187,14 +186,17 @@ MemoryResult remap(uint32_t in_paddr, size_t in_size, uint32_t *out_vaddr) {
 
 	if (!in_paddr || !in_size) { return MEMORY_RESULT_INVALID_INPUT; }
 
+	if (in_paddr + in_size < 0x400000) {
+		// 低4MB内存默认已经映射，直接返回
+		return in_paddr;
+	}
+
 	uint32_t vaddr;
 	MEMORY_RESULT_DELIVER_CALL(alloc_vaddr, in_size, &vaddr);
 	int old_status = io_load_eflags();
 	io_cli();
 	__remap(in_paddr, vaddr, in_size);
 	io_store_eflags(old_status);
-
-	__remap(in_paddr, vaddr, in_size);
 
 	io_sti();
 

@@ -253,23 +253,30 @@ typedef struct _device_extension_s {
 
 static status_t ide_enter(driver_t *drv_obj);
 static status_t ide_exit(driver_t *drv_obj);
-status_t		ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-status_t		ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-void			ide0_handler(device_t *devobj, int irq);
-void			ide1_handler(device_t *devobj, int irq);
-void			ide_reset_driver(struct ide_channel *channel);
-void			ide_select_device(device_extension_t *devext, char mode, unsigned char head);
-int				ide_pulling(struct ide_channel *channel, unsigned int advanced_check);
-int				ide_wait(device_extension_t *devext);
-void			ide_select_addressing_mode(device_extension_t *devext, unsigned int lba, unsigned char *mode,
-										   unsigned char *head, unsigned char *data);
-void			ide_select_sector(device_extension_t *devext, unsigned char mode, unsigned char *lba,
-								  unsigned int count);
-void			ide_select_cmd(unsigned char rw, unsigned char mode, unsigned char *cmd);
-int AtaTypeTransfer(device_extension_t *devext, unsigned char rw, unsigned int lba, unsigned int count,
-					void *buf);
-int PioDataTransfer(device_extension_t *devext, unsigned char rw, unsigned char mode, unsigned char *buf,
-					unsigned short count);
+status_t		ide_read(
+		   struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+status_t ide_write(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
+void ide0_handler(device_t *devobj, int irq);
+void ide1_handler(device_t *devobj, int irq);
+void ide_reset_driver(struct ide_channel *channel);
+void ide_select_device(
+	device_extension_t *devext, char mode, unsigned char head);
+int	 ide_pulling(struct ide_channel *channel, unsigned int advanced_check);
+int	 ide_wait(device_extension_t *devext);
+void ide_select_addressing_mode(
+	device_extension_t *devext, unsigned int lba, unsigned char *mode,
+	unsigned char *head, unsigned char *data);
+void ide_select_sector(
+	device_extension_t *devext, unsigned char mode, unsigned char *lba,
+	unsigned int count);
+void ide_select_cmd(unsigned char rw, unsigned char mode, unsigned char *cmd);
+int	 AtaTypeTransfer(
+	 device_extension_t *devext, unsigned char rw, unsigned int lba,
+	 unsigned int count, void *buf);
+int PioDataTransfer(
+	device_extension_t *devext, unsigned char rw, unsigned char mode,
+	unsigned char *buf, unsigned short count);
 
 uint8_t			   disk_count;
 struct ide_channel channels[2];
@@ -290,7 +297,8 @@ driver_func_t ide_driver = {
 #define DRV_NAME "General HardDisk Driver(IDE)"
 #define DEV_NAME "hd"
 
-int ide_read_identity_info(device_extension_t *devext, struct ide_channel *channel) {
+int ide_read_identity_info(
+	device_extension_t *devext, struct ide_channel *channel) {
 	devext->info = kmalloc(sizeof(struct ide_identify_info));
 	if (devext->info == NULL) {
 		printk("kmalloc for ide device info falied!\n");
@@ -300,7 +308,8 @@ int ide_read_identity_info(device_extension_t *devext, struct ide_channel *chann
 	ide_reset_driver(devext->channel);
 	ide_select_device(devext, 0, 0);
 
-	// while (!(io_in8(ATA_REG_STATUS(channel)) & ATA_STATUS_READY)) __asm__("nop\n\t");
+	// while (!(io_in8(ATA_REG_STATUS(channel)) & ATA_STATUS_READY))
+	// __asm__("nop\n\t");
 	IDE_SEND_CMD(channel, ATA_CMD_IDENTIFY); // 获取硬盘识别信息
 
 	ide_wait(devext);
@@ -314,7 +323,9 @@ int ide_read_identity_info(device_extension_t *devext, struct ide_channel *chann
 		return -1;
 	}
 	printk("\n");
-	port_insw(ATA_REG_DATA(devext->channel), (unsigned int)devext->info, sizeof(struct ide_identify_info));
+	port_insw(
+		ATA_REG_DATA(devext->channel), (unsigned int)devext->info,
+		sizeof(struct ide_identify_info));
 	return 0;
 }
 
@@ -324,26 +335,26 @@ static status_t ide_enter(driver_t *drv_obj) {
 	device_t		   *devobj;
 	device_extension_t *devext;
 
-	struct pci_device *device = pci_get_device_ByClass(IDE_CLASSCODE, IDE_SUBCLASS);
-	if (device == NULL) { return NODEV; }
+	// struct pci_device *device = pci_get_device_ByClass(IDE_CLASSCODE,
+	// IDE_SUBCLASS); if (device == NULL) { return NODEV; }
 
-	// 使用兼容模式（如支持）
-	if (device->prog_if & 0x01) {
-		if (device->prog_if & 0x02) {
-			pci_write8(device->bus, device->dev, device->function, PCI_REG_PROGIF, device->prog_if | 0x01);
-			device->prog_if = pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF);
-		} else {
-			return UNSUPPORT;
-		}
-	}
-	if (device->prog_if & 0x04) {
-		if (device->prog_if & 0x08) {
-			pci_write8(device->bus, device->dev, device->function, PCI_REG_PROGIF, device->prog_if | 0x04);
-			device->prog_if = pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF);
-		} else {
-			return UNSUPPORT;
-		}
-	}
+	// // 使用兼容模式（如支持）
+	// if (device->prog_if & 0x01) {
+	// 	if (device->prog_if & 0x02) {
+	// 		pci_write8(device->bus, device->dev, device->function,
+	// PCI_REG_PROGIF, device->prog_if | 0x01); 		device->prog_if =
+	// pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF); 	}
+	// else { 		return UNSUPPORT;
+	// 	}
+	// }
+	// if (device->prog_if & 0x04) {
+	// 	if (device->prog_if & 0x08) {
+	// 		pci_write8(device->bus, device->dev, device->function,
+	// PCI_REG_PROGIF, device->prog_if | 0x04); 		device->prog_if =
+	// pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF); 	}
+	// else { 		return UNSUPPORT;
+	// 	}
+	// }
 #ifdef IDE_DMA_MODE
 	if (!(device->prog_if & 0x80)) // 是否支持DMA
 	{
@@ -358,11 +369,12 @@ static status_t ide_enter(driver_t *drv_obj) {
 	channels[1].channel_num	   = 1;
 	channels[1].irq_num		   = IDE1_IRQ;
 	channels[0].selected_drive = channels[1].selected_drive = 0;
-	channels[0].bmr											= device->bar[4].base_addr;
-	channels[1].bmr											= channels[0].bmr;
+	// channels[0].bmr											=
+	// device->bar[4].base_addr; channels[1].bmr
+	// = channels[0].bmr;
 
-	pci_enable_bus_mastering(device);
-	pci_enable_io_space(device);
+	// pci_enable_bus_mastering(device);
+	// pci_enable_io_space(device);
 
 	while (i < IDE_MAX_CHANNEL_NUM) {
 		channel = &channels[i];
@@ -370,7 +382,9 @@ static status_t ide_enter(driver_t *drv_obj) {
 		while (j < IDE_MAX_DEV_PER_CNL) {
 			char devname[3] = {0};
 			sprintf(devname, "%s%d", DEV_NAME, i * 2 + j);
-			device_create(drv_obj, sizeof(device_extension_t), devname, DEV_STORAGE, &devobj);
+			device_create(
+				drv_obj, sizeof(device_extension_t), devname, DEV_STORAGE,
+				&devobj);
 			devext = devobj->device_extension;
 			if (devext == NULL) {
 				device_delete(devobj);
@@ -384,7 +398,7 @@ static status_t ide_enter(driver_t *drv_obj) {
 				device_register_irq(devobj, IDE1_IRQ, ide1_handler);
 			}
 
-			devext->device	  = device;
+			// devext->device	  = device;
 			devext->channel	  = channel;
 			devext->drive_num = j;
 			devext->type	  = IDE_ATA;
@@ -400,17 +414,21 @@ static status_t ide_enter(driver_t *drv_obj) {
 			wait_queue_init(devext->wqm);
 
 			devext->PRD = kmalloc(sizeof(struct physicalRegionDescriptor) * 64);
-			io_out32(IDE_BM_REG_PRDT_ADDR(channel), vir2phy((uint32_t)devext->PRD));
+			io_out32(
+				IDE_BM_REG_PRDT_ADDR(channel), vir2phy((uint32_t)devext->PRD));
 			io_out8(IDE_BM_REG_STATUS(channel), 1 << (j + 5));
 
-			devext->command_sets = (int)((devext->info->cmd_set1 << 16) + devext->info->cmd_set0);
+			devext->command_sets =
+				(int)((devext->info->cmd_set1 << 16) + devext->info->cmd_set0);
 
 			if (devext->command_sets & (1 << 26)) {
-				devext->size = ((unsigned int)devext->info->lba48sectors[1] << 16) +
-							   (unsigned int)devext->info->lba48sectors[0];
+				devext->size =
+					((unsigned int)devext->info->lba48sectors[1] << 16) +
+					(unsigned int)devext->info->lba48sectors[0];
 			} else {
-				devext->size = ((unsigned int)devext->info->lba28sectors[1] << 16) +
-							   (unsigned int)devext->info->lba28sectors[0];
+				devext->size =
+					((unsigned int)devext->info->lba28sectors[1] << 16) +
+					(unsigned int)devext->info->lba28sectors[0];
 			}
 			devext->size /= 2;
 
@@ -439,10 +457,13 @@ static status_t ide_exit(driver_t *drv_obj) {
 	return SUCCUESS;
 }
 
-status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
+status_t ide_read(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t *devext = dev->device_extension;
 	wait_queue_add(devext->wqm, 0);
-	if (devext->wqm->list_head.next->next != &devext->wqm->list_head) { thread_block(TASK_BLOCKED); }
+	if (devext->wqm->list_head.next->next != &devext->wqm->list_head) {
+		thread_block(TASK_BLOCKED);
+	}
 	int	  length	 = DIV_ROUND_UP(size, SECTOR_SIZE);
 	char *tmp_buffer = kmalloc(length * SECTOR_SIZE);
 	AtaTypeTransfer(devext, IDE_READ, offset, length, tmp_buffer);
@@ -452,10 +473,13 @@ status_t ide_read(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t s
 	return SUCCUESS;
 }
 
-status_t ide_write(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
+status_t ide_write(
+	struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t *devext = dev->device_extension;
 	wait_queue_add(devext->wqm, 0);
-	if (devext->wqm->list_head.next->next != &devext->wqm->list_head) { thread_block(TASK_BLOCKED); }
+	if (devext->wqm->list_head.next->next != &devext->wqm->list_head) {
+		thread_block(TASK_BLOCKED);
+	}
 	int		 length = DIV_ROUND_UP(size, SECTOR_SIZE);
 	uint8_t *tmp_buffer;
 	if (size % SECTOR_SIZE == 0) {
@@ -493,8 +517,11 @@ void ide_reset_driver(struct ide_channel *channel) {
 	io_out8(ATA_REG_CTL(channel), ctrl);
 }
 
-void ide_select_device(device_extension_t *devext, char mode, unsigned char head) {
-	io_out8(ATA_REG_DEVICE(devext->channel), (0xa0 | 0x40 | devext->drive_num << 4 | head));
+void ide_select_device(
+	device_extension_t *devext, char mode, unsigned char head) {
+	io_out8(
+		ATA_REG_DEVICE(devext->channel),
+		(0xa0 | 0x40 | devext->drive_num << 4 | head));
 	devext->channel->selected_drive = devext->drive_num;
 }
 
@@ -527,8 +554,9 @@ int ide_wait(device_extension_t *devext) {
 	return 0;
 }
 
-void ide_select_addressing_mode(device_extension_t *devext, unsigned int lba, unsigned char *mode,
-								unsigned char *head, unsigned char *data) {
+void ide_select_addressing_mode(
+	device_extension_t *devext, unsigned int lba, unsigned char *mode,
+	unsigned char *head, unsigned char *data) {
 	unsigned short cyl;
 	unsigned char  sector;
 	if (lba >= 0x10000000 && devext->capabilities & 0x200) {
@@ -563,8 +591,9 @@ void ide_select_addressing_mode(device_extension_t *devext, unsigned int lba, un
 	}
 }
 
-void ide_select_sector(device_extension_t *devext, unsigned char mode, unsigned char *lba,
-					   unsigned int count) {
+void ide_select_sector(
+	device_extension_t *devext, unsigned char mode, unsigned char *lba,
+	unsigned int count) {
 	struct ide_channel *channel = devext->channel;
 
 	/* 如果是LBA48就要写入24高端字节 */
@@ -609,8 +638,9 @@ void ide_select_cmd(unsigned char rw, unsigned char mode, unsigned char *cmd) {
 #endif
 }
 
-int PioDataTransfer(device_extension_t *devext, unsigned char rw, unsigned char mode, unsigned char *buf,
-					unsigned short count) {
+int PioDataTransfer(
+	device_extension_t *devext, unsigned char rw, unsigned char mode,
+	unsigned char *buf, unsigned short count) {
 	short		  i;
 	unsigned char error;
 	if (rw == IDE_READ) {
@@ -638,14 +668,17 @@ int PioDataTransfer(device_extension_t *devext, unsigned char rw, unsigned char 
 			// printk("write success! ");
 		}
 		/* 刷新写缓冲区 */
-		io_out8(ATA_REG_CMD(devext->channel), mode > 1 ? ATA_CMD_CACHE_FLUSH_EXT : ATA_CMD_CACHE_FLUSH);
+		io_out8(
+			ATA_REG_CMD(devext->channel),
+			mode > 1 ? ATA_CMD_CACHE_FLUSH_EXT : ATA_CMD_CACHE_FLUSH);
 		ide_pulling(devext->channel, 0);
 	}
 	return 0;
 }
 
-int AtaTypeTransfer(device_extension_t *devext, unsigned char rw, unsigned int lba, unsigned int count,
-					void *buf) {
+int AtaTypeTransfer(
+	device_extension_t *devext, unsigned char rw, unsigned int lba,
+	unsigned int count, void *buf) {
 
 	unsigned char  mode; /* 0: CHS, 1:LBA28, 2: LBA48 */
 	unsigned char  dma;	 /* 0: No DMA, 1: DMA */
@@ -696,7 +729,7 @@ int AtaTypeTransfer(device_extension_t *devext, unsigned char rw, unsigned int l
 		uint32_t status = io_in8(IDE_BM_REG_STATUS(channel));
 		io_out8(IDE_BM_REG_STATUS(channel), status | 0x06);
 #else
-		dma								   = 0;
+		dma = 0;
 #endif
 
 		/* 选择寻址模式 */
@@ -738,7 +771,9 @@ int AtaTypeTransfer(device_extension_t *devext, unsigned char rw, unsigned int l
 			io_out8(IDE_BM_REG_CMD(channel), tmp & 0xfe);
 		} else {
 			/* PIO模式数据传输 */
-			if ((err = PioDataTransfer(devext, rw, mode, _buf, todo))) { return err; }
+			if ((err = PioDataTransfer(devext, rw, mode, _buf, todo))) {
+				return err;
+			}
 			_buf += todo * SECTOR_SIZE;
 			done += todo;
 		}
