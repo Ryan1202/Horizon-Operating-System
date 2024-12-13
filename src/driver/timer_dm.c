@@ -4,6 +4,7 @@
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
+#include <kernel/thread.h>
 #include <math.h>
 #include <result.h>
 #include <stdint.h>
@@ -58,12 +59,14 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 	const int count =
 		sizeof(default_frequencies) / sizeof(typeof(default_frequencies[0]));
 	int freq;
-	int error = 0xfffffff;
+	int min_error = 0xfffffff; // 误差
 	int i;
 	for (i = 0; i < count; i++) {
-		if (timer_device->source_frequency % default_frequencies[i] < error) {
-			error = timer_device->source_frequency % default_frequencies[i];
-			freq  = default_frequencies[i];
+		int error = timer_device->source_frequency % default_frequencies[i];
+		if (error < min_error ||
+			(error == min_error && default_frequencies[i] > freq)) {
+			min_error = timer_device->source_frequency % default_frequencies[i];
+			freq	  = default_frequencies[i];
 		}
 	}
 	DRV_RESULT_DELIVER_CALL(timer_set_frequency, device, freq);
@@ -80,6 +83,15 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 		}
 	}
 	return DRIVER_RESULT_OK;
+}
+
+int timer_get_schedule_tick(int priority) {
+	if (priority <= 0) { return 0; }
+	TimerDevice *timer_device =
+		(TimerDevice *)timer_device_manager.private_data;
+	int ticks = priority * timer_device->current_frequency / 1000;
+	if (ticks == 0) { ticks = 1; } // 如果小于粒度，至少1个tick
+	return ticks;
 }
 
 DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
@@ -103,6 +115,20 @@ void timer_irq_handler(Device *device) {
 		if (cur->timeout > timer_device->counter) { break; }
 		list_del(&cur->list);
 		cur->timeout = 0;
+	}
+
+	if (!list_empty(&thread_all)) {
+		// 已启用多任务
+		if (device == timer_dm_ext.scheduler_timer) {
+			struct task_s *cur_thread = get_current_thread();
+			cur_thread->elapsed_ticks++;
+
+			if (cur_thread->ticks == 0) {
+				schedule();
+			} else {
+				cur_thread->ticks--;
+			}
+		}
 	}
 }
 
