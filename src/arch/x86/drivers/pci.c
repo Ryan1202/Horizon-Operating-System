@@ -36,130 +36,6 @@
 // 	}
 // }
 
-PCI_READ(8, uint8_t)
-PCI_READ(16, uint16_t)
-PCI_READ(32, uint32_t)
-PCI_WRITE(8, uint8_t)
-PCI_WRITE(16, uint16_t)
-PCI_WRITE(32, uint32_t)
-PCI_READ_DEVICE(8, uint8_t)
-PCI_READ_DEVICE(16, uint16_t)
-PCI_READ_DEVICE(32, uint32_t)
-PCI_WRITE_DEVICE(8, uint8_t)
-PCI_WRITE_DEVICE(16, uint16_t)
-PCI_WRITE_DEVICE(32, uint32_t)
-
-// struct pci_device *pci_get_device_ById(uint16_t vendorID, uint16_t deviceID)
-// { 	int				   i; 	struct pci_device *device;
-
-// 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
-// 		device = &pci_devices[i];
-// 		if (device->vendorID == vendorID && device->deviceID == deviceID) {
-// 			return device;
-// 		}
-// 	}
-// 	return NULL;
-// }
-
-// struct pci_device *pci_get_device_ByClassFull(
-// 	uint8_t classcode, uint8_t subclass, uint8_t progif) {
-// 	int				   i;
-// 	struct pci_device *device;
-
-// 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
-// 		device = &pci_devices[i];
-// 		if (device->classcode == classcode && device->subclass == subclass &&
-// 			device->prog_if == progif) {
-// 			return device;
-// 		}
-// 	}
-// 	return NULL;
-// }
-
-// struct pci_device *pci_get_device_ByClass(uint8_t classcode, uint8_t
-// subclass) { 	int				   i; 	struct pci_device *device;
-
-// 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
-// 		device = &pci_devices[i];
-// 		if (device->classcode == classcode && device->subclass == subclass) {
-// 			return device;
-// 		}
-// 	}
-// 	return NULL;
-// }
-
-void pci_enable_bus_mastering(struct pci_device *device) {
-	uint32_t value =
-		pci_read32(device->bus, device->dev, device->function, 0x04);
-	value |= 4;
-	pci_write32(device->bus, device->dev, device->function, 0x04, value);
-}
-
-void pci_enable_io_space(struct pci_device *device) {
-	uint32_t value =
-		pci_read32(device->bus, device->dev, device->function, 0x04);
-	value |= 1;
-	pci_write32(device->bus, device->dev, device->function, 0x04, value);
-}
-
-void pci_enable_mem_space(struct pci_device *device) {
-	uint32_t value =
-		pci_read32(device->bus, device->dev, device->function, 0x04);
-	value |= 2;
-	pci_write32(device->bus, device->dev, device->function, 0x04, value);
-}
-
-void fill_pci_device_info(
-	PciDevice *dev, uint8_t bus, uint8_t device, uint8_t func,
-	uint16_t vendorID, uint16_t deviceID, uint32_t classcode,
-	uint8_t revisionID, uint8_t multifunction, uint8_t header_type,
-	uint8_t bist, uint8_t latency_timer, uint8_t cache_line_size) {
-	int i;
-
-	dev->bus_num		 = bus;
-	dev->dev_num		 = device;
-	dev->function_num	 = func;
-	dev->vendor_id		 = vendorID;
-	dev->device_id		 = deviceID;
-	dev->classcode		 = classcode >> 16;
-	dev->subclass		 = (classcode & 0xff00) >> 8;
-	dev->prog_if		 = classcode & 0xff;
-	dev->revisionID		 = revisionID;
-	dev->multifunction	 = multifunction;
-	dev->header_type	 = header_type;
-	dev->bist			 = bist;
-	dev->latency_timer	 = latency_timer;
-	dev->cache_line_size = cache_line_size;
-
-	for (i = 0; i < PCI_MAX_BAR; i++) {
-		dev->common.bar[i].type = PCI_BAR_TYPE_INVALID;
-	}
-	dev->irqline = -1;
-}
-
-uint32_t pci_device_get_mem_addr(struct pci_device *dev) {
-	int i;
-
-	for (i = 0; i < PCI_MAX_BAR; i++) {
-		if (dev->bar[i].type == PCI_BAR_TYPE_MEM) {
-			return dev->bar[i].base_addr;
-		}
-	}
-	return -1;
-}
-
-uint32_t pci_device_get_io_addr(struct pci_device *dev) {
-	int i;
-
-	for (i = 0; i < PCI_MAX_BAR; i++) {
-		if (dev->bar[i].type == PCI_BAR_TYPE_IO) {
-			return dev->bar[i].base_addr;
-		}
-	}
-	return -1;
-}
-
-// --------new--------
 #include <kernel/bus_driver.h>
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
@@ -240,29 +116,114 @@ BusControllerDevice pci_bus_controller_device = {
 	.bus_controller_ops = &pci_controller_ops,
 };
 
-DriverResult pci_device_init(Device *device) {
+DEF_PCI_RW(8)
+DEF_PCI_RW(16)
+DEF_PCI_RW(32)
+DEF_PCI_RW_DEVICE(8)
+DEF_PCI_RW_DEVICE(16)
+DEF_PCI_RW_DEVICE(32)
+
+void fill_pci_device_info(
+	PciDevice *dev, uint8_t bus, uint8_t device, uint8_t func,
+	uint16_t vendorID, uint16_t deviceID, uint32_t classcode,
+	uint8_t revisionID, uint8_t multifunction, uint8_t header_type,
+	uint8_t bist, uint8_t latency_timer, uint8_t cache_line_size) {
 	int i;
-	for (i = 0; i < PCI_MAX_DEVICE; i++) {
-		pci_devices[i].status = PCI_DEVICE_STATUS_INVALID;
+
+	dev->bus_num		 = bus;
+	dev->dev_num		 = device;
+	dev->function_num	 = func;
+	dev->vendor_id		 = vendorID;
+	dev->device_id		 = deviceID;
+	dev->classcode		 = classcode >> 16;
+	dev->subclass		 = (classcode & 0xff00) >> 8;
+	dev->prog_if		 = classcode & 0xff;
+	dev->revision_id	 = revisionID;
+	dev->multifunction	 = multifunction;
+	dev->header_type	 = header_type;
+	dev->bist			 = bist;
+	dev->latency_timer	 = latency_timer;
+	dev->cache_line_size = cache_line_size;
+
+	for (i = 0; i < PCI_MAX_BAR; i++) {
+		dev->common.bar[i].type = PCI_BAR_TYPE_INVALID;
 	}
-	return DRIVER_RESULT_OK;
+	dev->irqline = -1;
+}
+void pci_enable_bus_mastering(PciDevice *pci_device) {
+	uint32_t value = pci_read32(
+		pci_device->bus_num, pci_device->dev_num, pci_device->function_num,
+		0x04);
+	value |= 4;
+	pci_write32(
+		pci_device->bus_num, pci_device->dev_num, pci_device->function_num,
+		0x04, value);
 }
 
-DriverResult pci_probe(BusDriver *bus_driver) {
-	PciDriver *pci_driver;
-	for (int i = 0; i < PCI_MAX_DEVICE; i++) {
-		if (pci_devices[i].status == PCI_DEVICE_STATUS_USING &&
-			pci_devices[i].pci_driver != NULL) {
-			pci_driver = pci_devices[i].pci_driver;
-			pci_driver->ops->probe(pci_driver, &pci_devices[i]);
+void pci_enable_io_space(PciDevice *pci_device) {
+	uint32_t value = pci_read32(
+		pci_device->bus_num, pci_device->dev_num, pci_device->function_num,
+		0x04);
+	value |= 1;
+	pci_write32(
+		pci_device->bus_num, pci_device->dev_num, pci_device->function_num,
+		0x04, value);
+}
+
+void pci_enable_mem_space(PciDevice *pci_device) {
+	uint32_t value = pci_read32(
+		pci_device->bus_num, pci_device->dev_num, pci_device->function_num,
+		0x04);
+	value |= 2;
+	pci_write32(
+		pci_device->bus_num, pci_device->dev_num, pci_device->function_num,
+		0x04, value);
+}
+
+uint32_t pci_device_get_mem_addr(PciDevice *pci_device) {
+	int i;
+
+	if (pci_device->header_type == 0x0) {
+		for (i = 0; i < PCI_MAX_BAR; i++) {
+			if (pci_device->common.bar[i].type == PCI_BAR_TYPE_MEM) {
+				return pci_device->common.bar[i].base_addr;
+			}
+		}
+	} else if (pci_device->header_type == 0x1) {
+		for (i = 0; i < 2; i++) {
+			if (pci_device->pci2pci_bridge.bar[i].type == PCI_BAR_TYPE_MEM) {
+				return pci_device->pci2pci_bridge.bar[i].base_addr;
+			}
 		}
 	}
-	return DRIVER_RESULT_OK;
+	return -1;
+}
+
+uint32_t pci_device_get_io_addr(PciDevice *pci_device) {
+	int i;
+
+	if (pci_device->header_type == 0x0) {
+		for (i = 0; i < PCI_MAX_BAR; i++) {
+			if (pci_device->common.bar[i].type == PCI_BAR_TYPE_IO) {
+				return pci_device->common.bar[i].base_addr;
+			}
+		}
+	} else if (pci_device->header_type == 0x1) {
+		for (i = 0; i < 2; i++) {
+			if (pci_device->pci2pci_bridge.bar[i].type == PCI_BAR_TYPE_IO) {
+				return pci_device->pci2pci_bridge.bar[i].base_addr;
+			}
+		}
+	}
+	return -1;
 }
 
 DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 	int		   i, j;
 	PciDevice *pci_device;
+	print_driver_info(
+		pci_driver, "device id\tvendor id\theader "
+					"type\tclasscode\tsubclass\tprogif\trevision id\n");
 	for (i = 0; i < PCI_MAX_DEV; i++) {
 		for (j = 0; j < PCI_MAX_FUNC; j++) {
 			DriverResult result =
@@ -283,6 +244,13 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 			}
 
 			bus_driver->device_count++;
+			print_driver_info(
+				pci_driver,
+				"%#06x\t\t%#06x\t\t%#04x\t\t%#04x\t\t%#04x\t\t%#04x\t%#04x\n",
+				pci_device->device_id, pci_device->vendor_id,
+				pci_device->header_type, pci_device->classcode,
+				pci_device->subclass, pci_device->prog_if,
+				pci_device->revision_id);
 			if (!pci_device->multifunction) {
 				// 没有多个功能就枚举下一个设备
 				break;
@@ -530,10 +498,6 @@ DriverResult pci_scan_device(
 	pci_device->irqline = value & 0xff;
 	pci_device->irqpin	= value >> 8;
 
-	// printk(
-	// 	"%#06x\t\t%#06x\t\t%#04x\t\t%#04x\t\t%#04x\t\t%#04x\t%#04x\n",
-	// deviceID, 	vendorID, header_type & (uint8_t)(~0x80), dev->classcode,
-	// dev->subclass, 	dev->prog_if, revisionID);
 	return DRIVER_RESULT_OK;
 }
 
@@ -578,6 +542,25 @@ DriverResult pci_register_driver(Driver *driver, PciDriver *pci_driver) {
 		pci_match(pci_driver, &pci_devices[i]);
 	}
 
+	return DRIVER_RESULT_OK;
+}
+DriverResult pci_device_init(Device *device) {
+	int i;
+	for (i = 0; i < PCI_MAX_DEVICE; i++) {
+		pci_devices[i].status = PCI_DEVICE_STATUS_INVALID;
+	}
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult pci_probe(BusDriver *bus_driver) {
+	PciDriver *pci_driver;
+	for (int i = 0; i < PCI_MAX_DEVICE; i++) {
+		if (pci_devices[i].status == PCI_DEVICE_STATUS_USING &&
+			pci_devices[i].pci_driver != NULL) {
+			pci_driver = pci_devices[i].pci_driver;
+			pci_driver->ops->probe(pci_driver, &pci_devices[i]);
+		}
+	}
 	return DRIVER_RESULT_OK;
 }
 

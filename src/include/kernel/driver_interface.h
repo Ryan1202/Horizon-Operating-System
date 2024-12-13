@@ -28,9 +28,9 @@
 #define print_error(str, ...) \
 	printk(COLOR_RED __FILE__ " Line %d: " str, __LINE__, ##__VA_ARGS__)
 #define print_device_info(device, str, ...) \
-	printk("[%s]" str, device->name.text, __VA_ARGS__)
+	printk("[%s]" str, device->name.text, ##__VA_ARGS__)
 #define print_driver_info(driver, str, ...) \
-	printk("[%s]" str, driver.name.text, __VA_ARGS__)
+	printk("[%s]" str, driver.name.text, ##__VA_ARGS__)
 
 #include "kernel/list.h"
 struct Device;

@@ -5,6 +5,7 @@
  * @version 0.3
  * @date 2022-07-20
  */
+#include "kernel/spinlock.h"
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/bus_driver.h>
@@ -19,6 +20,7 @@
 
 #include <network/eth.h>
 #include <network/network.h>
+#include <stdint.h>
 
 LIST_HEAD(driver_list_head);
 // list_t device_irq_lists[16] = {
@@ -156,22 +158,37 @@ void driver_start_thread(void *arg) {
 	check_dependency(driver);
 	driver_init(driver);
 
+	uint8_t end_flag = 0;
+
 	SubDriver *sub_driver;
 	list_for_each_owner (sub_driver, &driver->sub_driver_lh, sub_driver_list) {
-		thread_start(
+
+		struct task_s *task = thread_start(
 			"sub_driver_start_thread", THREAD_DEFAULT_PRIO,
 			sub_driver_start_thread, sub_driver);
+		thread_set_end_flag(task, &end_flag);
+	}
+
+	while (end_flag > 0) {
+		schedule();
 	}
 }
 
 DriverResult driver_start_all(void) {
+	uint8_t end_flag = 0;
 	Driver *driver;
 	list_for_each_owner (driver, &driver_lh, driver_list) {
 		if (driver->state == DRIVER_STATE_UNINITED) {
-			thread_start(
+
+			struct task_s *task = thread_start(
 				"driver_start_thread", THREAD_DEFAULT_PRIO, driver_start_thread,
 				driver);
+			thread_set_end_flag(task, &end_flag);
 		}
+	}
+
+	while (end_flag > 0) {
+		schedule();
 	}
 	return DRIVER_RESULT_OK;
 }

@@ -15,7 +15,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-
 struct console {
 	struct VideoDevice *video_device;
 
@@ -249,9 +248,12 @@ int printk(const char *fmt, ...) {
 				}
 			}
 			break;
-		case '\t':
-			console.cur_x += 4 - console.cur_x & 3;
+		case '\t': {
+			int tab = 4 - console.cur_x % 4;
+			console.cur_x += tab;
+			console.cur_vram += tab * 10 * bpp;
 			break;
+		}
 		case '\r':
 			break;
 		default:

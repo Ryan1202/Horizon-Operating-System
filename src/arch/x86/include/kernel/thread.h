@@ -64,6 +64,8 @@ struct task_s {
 	uint32_t	 *pgdir;
 	uint32_t	  stack_magic;
 
+	uint8_t *end_flag;
+
 	struct mmap			  vir_page_mmap;
 	struct memory_manage *memory_manage;
 
@@ -87,5 +89,6 @@ void thread_unblock(struct task_s *pthread);
 void init_task(void);
 void schedule(void);
 void init_thread_memory_manage(struct task_s *thread);
+void thread_set_end_flag(struct task_s *pthread, uint8_t *flag);
 
 #endif

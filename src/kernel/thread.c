@@ -16,6 +16,7 @@
 #include <kernel/sync.h>
 #include <kernel/thread.h>
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 struct task_s *main_thread;
@@ -148,6 +149,8 @@ void thread_exit(void) {
 	struct task_s *cur = get_current_thread();
 	cur->status		   = TASK_DIED;
 
+	(*cur->end_flag)--;
+
 	list_del(&cur->general_tag);
 	list_del(&cur->all_list_tag);
 
@@ -167,6 +170,11 @@ void thread_exit(void) {
 		process_activate(task_idle);
 		switch_to((int *)cur, (int *)task_idle);
 	}
+}
+
+void thread_set_end_flag(struct task_s *pthread, uint8_t *flag) {
+	(*flag)++;
+	pthread->end_flag = flag;
 }
 
 /**
