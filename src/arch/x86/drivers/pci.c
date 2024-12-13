@@ -5,7 +5,6 @@
  * @version 0.1
  * @date 2020-07
  */
-#include "kernel/wait_queue.h"
 #include <driver/bus_dm.h>
 #include <drivers/pci.h>
 #include <kernel/console.h>
@@ -14,6 +13,7 @@
 #include <kernel/driver_interface.h>
 #include <kernel/func.h>
 #include <kernel/memory.h>
+#include <stdint.h>
 #include <string.h>
 #include <types.h>
 
@@ -109,25 +109,30 @@ void pci_enable_mem_space(struct pci_device *device) {
 	pci_write32(device->bus, device->dev, device->function, 0x04, value);
 }
 
-void get_pci_device_info(
+void fill_pci_device_info(
 	PciDevice *dev, uint8_t bus, uint8_t device, uint8_t func,
 	uint16_t vendorID, uint16_t deviceID, uint32_t classcode,
-	uint8_t revisionID, uint8_t multifunction) {
+	uint8_t revisionID, uint8_t multifunction, uint8_t header_type,
+	uint8_t bist, uint8_t latency_timer, uint8_t cache_line_size) {
 	int i;
 
-	dev->bus_num	   = bus;
-	dev->dev_num	   = device;
-	dev->function_num  = func;
-	dev->vendorID	   = vendorID;
-	dev->deviceID	   = deviceID;
-	dev->classcode	   = classcode >> 16;
-	dev->subclass	   = (classcode & 0xff00) >> 8;
-	dev->prog_if	   = classcode & 0xff;
-	dev->revisionID	   = revisionID;
-	dev->multifunction = multifunction;
+	dev->bus_num		 = bus;
+	dev->dev_num		 = device;
+	dev->function_num	 = func;
+	dev->vendor_id		 = vendorID;
+	dev->device_id		 = deviceID;
+	dev->classcode		 = classcode >> 16;
+	dev->subclass		 = (classcode & 0xff00) >> 8;
+	dev->prog_if		 = classcode & 0xff;
+	dev->revisionID		 = revisionID;
+	dev->multifunction	 = multifunction;
+	dev->header_type	 = header_type;
+	dev->bist			 = bist;
+	dev->latency_timer	 = latency_timer;
+	dev->cache_line_size = cache_line_size;
 
 	for (i = 0; i < PCI_MAX_BAR; i++) {
-		dev->bar[i].type = PCI_BAR_TYPE_INVALID;
+		dev->common.bar[i].type = PCI_BAR_TYPE_INVALID;
 	}
 	dev->irqline = -1;
 }
@@ -160,10 +165,14 @@ uint32_t pci_device_get_io_addr(struct pci_device *dev) {
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
 #include <kernel/initcall.h>
+#include <math.h>
 
 PciDevice pci_devices[PCI_MAX_DEVICE];
 
+DriverResult pci_driver_init(Driver *driver);
 DriverResult pci_device_init(Device *device);
+DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus);
+DriverResult pci_init_bus(BusDriver *bus_driver);
 
 DeviceDriverOps pci_driver_ops = {
 	.register_driver_hook	= NULL,
@@ -179,10 +188,12 @@ DeviceOps pci_device_ops = {
 BusDriverOps pci_bus_driver_ops = {
 	.register_bus_hook	 = NULL,
 	.unregister_bus_hook = NULL,
+	.init				 = pci_init_bus,
 };
 BusOps pci_bus_ops = {
 	.register_device_hook	= NULL,
 	.unregister_device_hook = NULL,
+	.scan_bus				= pci_scan_bus,
 };
 BusControllerDeviceOps pci_controller_ops = {
 	.probe = NULL,
@@ -199,6 +210,7 @@ Driver pci_driver = {
 	.name			  = STRING_INIT("pci driver"),
 	.dependency_count = sizeof(pci_dependencies) / sizeof(DriverDependency),
 	.dependencies	  = pci_dependencies,
+	.init			  = pci_driver_init,
 };
 DeviceDriver pci_device_driver = {
 	.name			   = STRING_INIT("pci device driver"),
@@ -233,41 +245,80 @@ DriverResult pci_device_init(Device *device) {
 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
 		pci_devices[i].status = PCI_DEVICE_STATUS_INVALID;
 	}
-	wait_queue_wakeup_all(&bus_wqm[BUS_TYPE_PCI]);
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult pci_probe(Device *device) {
-	int	 i, j, k;
-	bool flag;
-	// printk("device id\tvendor id\theader "
-	// 	   "type\tclasscode\tsubclass\tprogif\trevision id\n");
-	for (i = 0; i < PCI_MAX_BUS; i++) {
-		Bus *bus = kmalloc(sizeof(Bus));
-		bus->ops = &pci_bus_ops;
-		flag	 = false;
-		for (j = 0; j < PCI_MAX_DEV; j++) {
-			for (k = 0; k < PCI_MAX_FUNC; k++) {
-				DriverResult result = pci_scan_device(bus, i, j, k);
-				if (result == DRIVER_RESULT_DEVICE_NOT_EXIST) {
-					continue;
-				} else if (result == DRIVER_RESULT_OK) {
-					flag = true;
-				} else if (result == DRIVER_RESULT_NULL_POINTER) {
-					print_error(
-						"pci_probe: pci device(%d:%d:%d) alloc failed!\n", i, j,
-						k);
-				}
-			}
-		}
-		if (flag) {
-			// 如果该总线下有设备则注册总线
-			register_bus(&pci_bus_driver, &pci_device, bus);
-		} else {
-			// 如果没有设备则释放内存
-			kfree(bus);
+DriverResult pci_probe(BusDriver *bus_driver) {
+	PciDriver *pci_driver;
+	for (int i = 0; i < PCI_MAX_DEVICE; i++) {
+		if (pci_devices[i].status == PCI_DEVICE_STATUS_USING &&
+			pci_devices[i].pci_driver != NULL) {
+			pci_driver = pci_devices[i].pci_driver;
+			pci_driver->ops->probe(pci_driver, &pci_devices[i]);
 		}
 	}
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
+	int		   i, j;
+	PciDevice *pci_device;
+	for (i = 0; i < PCI_MAX_DEV; i++) {
+		for (j = 0; j < PCI_MAX_FUNC; j++) {
+			DriverResult result =
+				pci_scan_device(bus, bus->bus_num, i, j, &pci_device);
+			if (result == DRIVER_RESULT_DEVICE_NOT_EXIST) {
+				continue;
+			} else if (result == DRIVER_RESULT_NULL_POINTER) {
+				print_error(
+					"pci_probe_bus: pci device(%d:%d:%d) alloc failed!\n",
+					bus->bus_num, i, j);
+				continue;
+			} else if (result == DRIVER_RESULT_UNSUPPORT_DEVICE) {
+				print_error(
+					"pci_probe_bus: pci device(%d:%d:%d) unsupport! Header "
+					"Type:%d\n",
+					bus->bus_num, i, j, pci_device->header_type);
+				continue;
+			}
+
+			bus_driver->device_count++;
+			if (!pci_device->multifunction) {
+				// 没有多个功能就枚举下一个设备
+				break;
+			}
+
+			if (pci_device->header_type == 1) { // 为PCI-to-PCI桥
+				bus_driver->bus_count =
+					MAX(bus_driver->bus_count,
+						pci_device->pci2pci_bridge.subordinate_bus_number);
+
+				Bus *new_bus		 = kmalloc(sizeof(Bus));
+				new_bus->ops		 = &pci_bus_ops;
+				new_bus->primary_bus = bus;
+				new_bus->bus_num =
+					pci_device->pci2pci_bridge.secondary_bus_number;
+				new_bus->subordinate_bus_num =
+					pci_device->pci2pci_bridge.subordinate_bus_number;
+
+				register_bus(bus_driver, bus->controller_device, new_bus);
+			}
+		}
+	}
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult pci_init_bus(BusDriver *bus_driver) {
+	pci_bus_driver.bus_count = 1; // 默认只有一个主总线
+
+	Bus *bus				 = kmalloc(sizeof(Bus));
+	bus->ops				 = &pci_bus_ops;
+	bus->bus_num			 = 0;
+	bus->subordinate_bus_num = 0;
+	bus->primary_bus		 = NULL;
+	register_bus(&pci_bus_driver, &pci_device, bus);
+	// printk("device id\tvendor id\theader "
+	// 	   "type\tclasscode\tsubclass\tprogif\trevision id\n");
 	return DRIVER_RESULT_OK;
 }
 
@@ -320,23 +371,32 @@ void get_pci_bar_info(PciDeviceBar *bar, uint32_t addr, uint32_t len) {
 }
 
 DriverResult pci_scan_device(
-	Bus *bus, uint8_t bus_num, uint8_t device_num, uint8_t function_num) {
+	Bus *bus, uint8_t bus_num, uint8_t device_num, uint8_t function_num,
+	PciDevice **out_pci_device) {
 	uint32_t value	  = pci_read32(bus_num, device_num, function_num, 0);
 	uint16_t vendorID = value & 0xffff;
 	uint16_t deviceID = value >> 16;
 	if (vendorID == 0xffff) { return DRIVER_RESULT_DEVICE_NOT_EXIST; }
-	value				= pci_read32(bus_num, device_num, function_num, 0x0c);
-	uint8_t header_type = value >> 16;
+
+	value				  = pci_read32(bus_num, device_num, function_num, 0x0c);
+	uint8_t bist		  = value >> 24;
+	uint8_t multifunction = (value >> 23) & 0x01;
+	uint8_t header_type	  = (value >> 16) & 0x7f;
+	uint8_t latency_timer = value >> 8;
+	uint8_t cache_line_size = value & 0xff;
+
 	value				= pci_read32(bus_num, device_num, function_num, 8);
 	uint32_t classcode	= value >> 8;
 	uint8_t	 revisionID = value & 0xff;
 
 	PciDevice *pci_device = pci_alloc_device();
 	if (pci_device == NULL) { return DRIVER_RESULT_NULL_POINTER; }
+	*out_pci_device	   = pci_device;
 	pci_device->device = NULL;
-	get_pci_device_info(
+	fill_pci_device_info(
 		pci_device, bus_num, device_num, function_num, vendorID, deviceID,
-		classcode, revisionID, header_type);
+		classcode, revisionID, multifunction, header_type, bist, latency_timer,
+		cache_line_size);
 
 	if (header_type == 0x00) {
 		int bar;
@@ -349,32 +409,191 @@ DriverResult pci_scan_device(
 			pci_write32(bus_num, device_num, function_num, PCI_BAR(bar), value);
 
 			if (len != 0 && len != 0xffffffff) {
-				get_pci_bar_info(&pci_device->bar[bar], value, len);
+				get_pci_bar_info(&pci_device->common.bar[bar], value, len);
 			}
 		}
-	}
 
-	value = pci_read32(bus_num, device_num, function_num, 0x3c) & 0xffff;
-	if ((value & 0xff) > 0 && (value & 0xff) < 32) {
-		pci_device->irqline = value & 0xff;
-		pci_device->irqpin	= value >> 8;
+		value = pci_read32(bus_num, device_num, function_num, 0x28);
+		pci_device->common.cardbus_cis_pointer = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x2c);
+		pci_device->common.subsystem_id		   = value >> 16;
+		pci_device->common.subsystem_vendor_id = value & 0xffff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x30);
+		pci_device->common.expension_rom_base_address = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x34);
+		pci_device->common.capabilities_pointer = value & 0xff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x3c);
+		pci_device->common.max_latency = value >> 24;
+		pci_device->common.min_grant   = value >> 16;
+	} else if (header_type == 0x01) {
+		int bar;
+		for (bar = 0; bar < 2; bar++) {
+			value = pci_read32(bus_num, device_num, function_num, PCI_BAR(bar));
+			pci_write32(
+				bus_num, device_num, function_num, PCI_BAR(bar), 0xffffffff);
+			uint32_t len =
+				pci_read32(bus_num, device_num, function_num, PCI_BAR(bar));
+			pci_write32(bus_num, device_num, function_num, PCI_BAR(bar), value);
+
+			if (len != 0 && len != 0xffffffff) {
+				get_pci_bar_info(&pci_device->common.bar[bar], value, len);
+			}
+		}
+
+		value = pci_read32(bus_num, device_num, function_num, 0x18);
+		pci_device->pci2pci_bridge.secondary_latency_timer = value >> 24;
+		pci_device->pci2pci_bridge.subordinate_bus_number  = value >> 16;
+		pci_device->pci2pci_bridge.secondary_bus_number	   = value >> 8;
+		pci_device->pci2pci_bridge.primary_bus_number	   = value & 0xff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x1c);
+		pci_device->pci2pci_bridge.secondary_status = value >> 16;
+		pci_device->pci2pci_bridge.io_limit			= value >> 8;
+		pci_device->pci2pci_bridge.io_base			= value & 0xff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x20);
+		pci_device->pci2pci_bridge.memory_limit = value >> 16;
+		pci_device->pci2pci_bridge.memory_base	= value & 0xffff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x24);
+		pci_device->pci2pci_bridge.prefetchable_memory_limit = value >> 16;
+		pci_device->pci2pci_bridge.prefetchable_memory_base	 = value & 0xffff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x28);
+		pci_device->pci2pci_bridge.prefetchable_base_upper = value;
+		value = pci_read32(bus_num, device_num, function_num, 0x2c);
+		pci_device->pci2pci_bridge.prefetchable_limit_upper = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x30);
+		pci_device->pci2pci_bridge.io_limit_upper = value >> 16;
+		pci_device->pci2pci_bridge.io_base_upper  = value & 0xffff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x34);
+		pci_device->pci2pci_bridge.capabilities_pointer = value & 0xff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x38);
+		pci_device->pci2pci_bridge.expension_rom_base_address = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x3c);
+		pci_device->pci2pci_bridge.bridge_control = value >> 16;
+	} else if (header_type == 0x02) {
+		value = pci_read32(bus_num, device_num, function_num, 0x10);
+		pci_device->pci2cardbus_bridge.cardbus_socket_base_address = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x14);
+		pci_device->pci2cardbus_bridge.secondary_status	   = value >> 16;
+		pci_device->pci2cardbus_bridge.capabilities_offset = value & 0xff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x18);
+		pci_device->pci2cardbus_bridge.cardbus_latency_timer  = value >> 24;
+		pci_device->pci2cardbus_bridge.subordiante_bus_number = value >> 16;
+		pci_device->pci2cardbus_bridge.cardbus_bus_number	  = value >> 8;
+		pci_device->pci2cardbus_bridge.pci_bus_number		  = value & 0xff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x1c);
+		pci_device->pci2cardbus_bridge.memory_base0 = value;
+		value = pci_read32(bus_num, device_num, function_num, 0x20);
+		pci_device->pci2cardbus_bridge.memory_limit0 = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x24);
+		pci_device->pci2cardbus_bridge.memory_base1 = value;
+		value = pci_read32(bus_num, device_num, function_num, 0x28);
+		pci_device->pci2cardbus_bridge.memory_limit1 = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x2c);
+		pci_device->pci2cardbus_bridge.io_base0 = value;
+		value = pci_read32(bus_num, device_num, function_num, 0x30);
+		pci_device->pci2cardbus_bridge.io_limit0 = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x34);
+		pci_device->pci2cardbus_bridge.io_base1 = value;
+		value = pci_read32(bus_num, device_num, function_num, 0x38);
+		pci_device->pci2cardbus_bridge.io_limit1 = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x40);
+		pci_device->pci2cardbus_bridge.subsystem_vendor_id = value >> 16;
+		pci_device->pci2cardbus_bridge.subsystem_device_id = value & 0xffff;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x44);
+		pci_device->pci2cardbus_bridge.legacy_base_address = value;
+
+		value = pci_read32(bus_num, device_num, function_num, 0x3c);
+		pci_device->pci2cardbus_bridge.bridge_control = value >> 16;
+	} else {
+		print_error("unsupport PCI Header Type: %d\n", header_type);
+		return DRIVER_RESULT_UNSUPPORT_DEVICE;
 	}
+	pci_device->irqline = value & 0xff;
+	pci_device->irqpin	= value >> 8;
 
 	// printk(
-	// 	"%#06x\t\t%#06x\t\t%#04x\t\t%#04x\t\t%#04x\t\t%#04x\t%#04x\n", deviceID,
-	// 	vendorID, header_type & (uint8_t)(~0x80), dev->classcode, dev->subclass,
-	// 	dev->prog_if, revisionID);
+	// 	"%#06x\t\t%#06x\t\t%#04x\t\t%#04x\t\t%#04x\t\t%#04x\t%#04x\n",
+	// deviceID, 	vendorID, header_type & (uint8_t)(~0x80), dev->classcode,
+	// dev->subclass, 	dev->prog_if, revisionID);
 	return DRIVER_RESULT_OK;
 }
 
-static __init void pci_driver_entry(void) {
-	register_driver(&pci_driver);
-	pci_device_driver.bus = pci_dependencies[0].out_bus;
-	register_device_driver(&pci_driver, &pci_device_driver);
-	register_bus_driver(&pci_driver, &pci_bus_driver);
-	register_bus_controller_device(
-		&pci_device_driver, &pci_bus_driver, &pci_device,
-		&pci_bus_controller_device);
+DriverResult pci_set_driver(PciDriver *pci_driver, PciDevice *pci_device) {
+	if (pci_device->pci_driver == NULL) {
+		pci_device->pci_driver = pci_driver;
+	} else {
+		return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+	}
+	return DRIVER_RESULT_OK;
 }
 
-driver_initcall(pci_driver_entry);
+DriverResult pci_match(PciDriver *pci_driver, PciDevice *pci_device) {
+	if (pci_driver->find_type == FIND_BY_VENDORID_DEVICEID) {
+		if (pci_device->vendor_id == pci_driver->vendor_device.vendorID &&
+			pci_device->device_id == pci_driver->vendor_device.deviceID) {
+			pci_device->pci_driver = pci_driver;
+			DRV_RESULT_DELIVER_CALL(pci_set_driver, pci_driver, pci_device);
+		}
+	} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
+		if (pci_device->classcode == pci_driver->class_subclass.classcode &&
+			pci_device->subclass == pci_driver->class_subclass.subclass) {
+			pci_device->pci_driver = pci_driver;
+			DRV_RESULT_DELIVER_CALL(pci_set_driver, pci_driver, pci_device);
+		}
+	} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF) {
+		if (pci_device->classcode ==
+				pci_driver->class_subclass_progif.classcode &&
+			pci_device->subclass ==
+				pci_driver->class_subclass_progif.subclass &&
+			pci_device->prog_if == pci_driver->class_subclass_progif.progif) {
+			pci_device->pci_driver = pci_driver;
+			DRV_RESULT_DELIVER_CALL(pci_set_driver, pci_driver, pci_device);
+		}
+	}
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult pci_register_driver(Driver *driver, PciDriver *pci_driver) {
+	int i;
+	for (i = 0; i < PCI_MAX_DEVICE; i++) {
+		pci_match(pci_driver, &pci_devices[i]);
+	}
+
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult pci_driver_init(Driver *driver) {
+	check_dependency(&pci_driver);
+	pci_device_driver.bus = pci_dependencies[0].out_bus;
+	DRV_RESULT_DELIVER_CALL(
+		register_bus_controller_device, &pci_device_driver, &pci_bus_driver,
+		&pci_device, &pci_bus_controller_device);
+	return DRIVER_RESULT_OK;
+}
+
+static __init void pci_initcall(void) {
+	register_driver(&pci_driver);
+	register_device_driver(&pci_driver, &pci_device_driver);
+	register_bus_driver(&pci_driver, &pci_bus_driver);
+}
+
+driver_initcall(pci_initcall);

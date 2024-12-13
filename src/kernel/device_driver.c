@@ -1,9 +1,9 @@
-#include "kernel/device.h"
-#include "kernel/list.h"
+#include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
 #include <kernel/driver_manager.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 
 DriverResult device_driver_manager_load(DriverManager *driver_manager);
@@ -62,12 +62,15 @@ DriverResult register_device_driver(
 
 	list_init(&device_driver->device_lh);
 	device_driver->private_data = kmalloc(device_driver->private_data_size);
-	device_driver->state		= DRIVER_STATE_REGISTERED;
+	device_driver->state		= DRIVER_STATE_UNINITED;
 
 	DM_OPS_CALL(manager, register_device_driver_hook, manager, device_driver);
 
 	DRV_RESULT_DELIVER_CALL(
-		register_sub_driver, driver, &device_driver->driver);
+		register_sub_driver, driver, &device_driver->subdriver,
+		DRIVER_TYPE_DEVICE_DRIVER);
+
+	device_driver->state = DRIVER_STATE_ACTIVE;
 
 	return DRIVER_RESULT_OK;
 }
@@ -79,7 +82,7 @@ DriverResult unregister_device_driver(
 	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
 
 	DRV_RESULT_DELIVER_CALL(
-		unregister_sub_driver, driver, &device_driver->driver);
+		unregister_sub_driver, driver, &device_driver->subdriver);
 
 	DM_OPS_CALL(manager, unregister_device_driver_hook, manager, device_driver);
 

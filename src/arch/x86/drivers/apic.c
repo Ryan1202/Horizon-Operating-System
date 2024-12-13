@@ -146,7 +146,7 @@ DeviceDriver apic_timer_device_driver = {
 };
 DeviceIrq apic_timer_irq = {
 	.device	 = &apic_timer_device,
-	.irq	 = PIC_PIT_IRQ,
+	.irq	 = 2,
 	.handler = apic_timer_irq_handler,
 };
 Device apic_timer_device = {
@@ -175,53 +175,66 @@ void io_apic_write(uint32_t reg, uint32_t data) {
 	apic_info.ioapic->data = data;
 }
 
-DriverResult register_apic(void) {
+void register_apic(void) {
 	register_driver(&apic_driver);
+	driver_init(&apic_driver);
 	register_device_driver(&apic_driver, &apic_device_driver);
 	register_device_driver(&apic_driver, &apic_timer_device_driver);
 	register_interrupt_device(
 		&apic_device_driver, &apic_device, &apic_interrupt_device);
 	register_timer_device(
 		&apic_device_driver, &apic_timer_device, &apic_timer_timer_device);
-	return DRIVER_RESULT_OK;
+}
+
+void x2apic_init(struct DeviceDriver *driver) {
+	apic_info.apic_type = APIC_TYPE_X2APIC;
+	// 还未实现x2apic支持，这里只是简单的初始化
+	uint32_t low, high;
+	read_msr(APIC_BASE_MSR, &low, &high);
+
+	apic_info.apic_base		 = 0xfee00000;
+	apic_info.apic_base_high = low >> 12;
+
+	uint32_t tmp;
+	DRV_RESULT_PRINT_CALL(
+		driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff, &tmp);
+	apic_info.lapic_mmio = (uint32_t *)tmp;
+	DRV_RESULT_PRINT_CALL(
+		driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00, &tmp);
+	apic_info.ioapic = (struct ioapic *)tmp;
+
+	read_msr(X2APIC_ID_MSR, &apic_info.apic_id, &apic_info.apic_id_high);
+	apic_info.version =
+		(lapic_read(APIC_Ver) & 0xff) | ((lapic_read(APIC_Ver) >> 16) & 0xff);
+}
+
+void xapic_init(struct DeviceDriver *driver) {
+	apic_info.apic_type = APIC_TYPE_XAPIC;
+	apic_info.apic_base = 0xfee00000;
+
+	DRV_RESULT_PRINT_CALL(
+		driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff,
+		(uint32_t *)&apic_info.lapic_mmio);
+	DRV_RESULT_PRINT_CALL(
+		driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00,
+		(uint32_t *)&apic_info.ioapic);
+
+	apic_info.apic_id		= lapic_read(APIC_ID) >> 24;
+	apic_info.version		= (lapic_read(APIC_Ver) & 0xff);
+	apic_info.max_lvt_entry = (lapic_read(APIC_Ver) >> 16) & 0xff;
 }
 
 DriverResult apic_driver_init(struct DeviceDriver *driver) {
+	/**
+	 * 所有文档都说要先屏蔽8259a的中断，直到我无数次触发#DF才知道为什么...
+	 * 防止apic完成初始化前触发中断无法正确处理导致异常
+	 */
 	if (cpu_check_feature(CPUID_FEAT_X2APIC)) {
-		apic_info.apic_type = APIC_TYPE_X2APIC;
-		// 还未实现x2apic支持，这里只是简单的初始化
-		uint32_t low, high;
-		read_msr(APIC_BASE_MSR, &low, &high);
-
-		apic_info.apic_base		 = 0xfee00000;
-		apic_info.apic_base_high = low >> 12;
-
-		uint32_t tmp;
-		DRV_RESULT_PRINT_CALL(
-			driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff,
-			&tmp);
-		apic_info.lapic_mmio = (uint32_t *)tmp;
-		DRV_RESULT_PRINT_CALL(
-			driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00, &tmp);
-		apic_info.ioapic = (struct ioapic *)tmp;
-
-		read_msr(X2APIC_ID_MSR, &apic_info.apic_id, &apic_info.apic_id_high);
-		apic_info.version = (lapic_read(APIC_Ver) & 0xff) |
-							((lapic_read(APIC_Ver) >> 16) & 0xff);
+		mask_8259a();
+		x2apic_init(driver);
 	} else if (cpu_check_feature(CPUID_FEAT_APIC)) {
-		apic_info.apic_type = APIC_TYPE_XAPIC;
-		apic_info.apic_base = 0xfee00000;
-
-		DRV_RESULT_PRINT_CALL(
-			driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff,
-			(uint32_t *)&apic_info.lapic_mmio);
-		DRV_RESULT_PRINT_CALL(
-			driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00,
-			(uint32_t *)&apic_info.ioapic);
-
-		apic_info.apic_id		= lapic_read(APIC_ID) >> 24;
-		apic_info.version		= (lapic_read(APIC_Ver) & 0xff);
-		apic_info.max_lvt_entry = (lapic_read(APIC_Ver) >> 16) & 0xff;
+		mask_8259a();
+		xapic_init(driver);
 	} else {
 		return DRIVER_RESULT_DEVICE_NOT_EXIST;
 	}
@@ -320,7 +333,7 @@ DriverResult apic_timer_calibrate(Device *device) {
 	lapic_write(APIC_LVT_TIMER, BIN_EN(data, BIT(16)));
 
 	uint32_t apic_timer_count = lapic_read(APIC_TIMER_CCT);
-	uint32_t freq			  = (0xffffffff - apic_timer_count) * (1000 / ms);
+	uint32_t freq			  = (0xffffffff - apic_timer_count) / ms * 1000;
 	apic_timer_timer_device.source_frequency = freq;
 	apic_timer_timer_device.min_frequency	 = DIV_ROUND_UP(freq, 0xffffffff);
 	apic_timer_timer_device.max_frequency	 = freq;
@@ -337,15 +350,13 @@ DriverResult apic_timer_init(Device *device) {
 }
 
 DriverResult apic_start(Device *device) {
-	/*打了个洞，不过都有APIC了至少得有PIC吧，问题不大
-	所有文档都指明了要先关闭8259A，那就关吧*/
-	mask_8259a();
-
 	enable_apic();
 	return DRIVER_RESULT_OK;
 }
 
 DriverResult apic_timer_start(Device *device) {
+	register_device_irq(apic_timer_device.irq);
+	interrupt_enable_irq(apic_timer_device.irq->irq);
 	uint32_t data = lapic_read(APIC_LVT_TIMER);
 	lapic_write(APIC_LVT_TIMER, BIN_DIS(data, BIT(16)));
 	return DRIVER_RESULT_OK;

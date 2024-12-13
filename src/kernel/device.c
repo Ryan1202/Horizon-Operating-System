@@ -42,6 +42,7 @@ DriverResult start_device(Device *device) {
 	DeviceManager *manager = device_managers[device->device_driver->type];
 	DEV_OPS_CALL(device, start, device);
 	DEVM_OPS_CALL(manager, start_device_hook, manager, device);
+	device->device_driver->subdriver.state = SUBDRIVER_STATE_READY;
 	return DRIVER_RESULT_OK;
 }
 

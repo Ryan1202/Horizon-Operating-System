@@ -5,6 +5,7 @@
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/wait_queue.h>
+#include <math.h>
 
 BusDriver			*bus_drivers[BUS_TYPE_MAX];
 wait_queue_manager_t bus_wqm[BUS_TYPE_MAX];
@@ -55,9 +56,12 @@ DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver) {
 	if (_bus_driver != NULL) return DRIVER_RESULT_BUS_DRIVER_ALREADY_EXIST;
 
 	bus_driver->private_data = kmalloc(bus_driver->private_data_size);
-	bus_driver->state		 = DRIVER_STATE_REGISTERED;
+	bus_driver->state		 = DRIVER_STATE_UNINITED;
+	list_init(&bus_driver->bus_lh);
 
-	DRV_RESULT_DELIVER_CALL(register_sub_driver, driver, &bus_driver->driver);
+	DRV_RESULT_DELIVER_CALL(
+		register_sub_driver, driver, &bus_driver->subdriver,
+		DRIVER_TYPE_BUS_DRIVER);
 
 	bus_drivers[bus_driver->bus_type] = bus_driver;
 
@@ -79,7 +83,8 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 		unregister_bus(cur);
 	}
 
-	DRV_RESULT_DELIVER_CALL(unregister_sub_driver, driver, &bus_driver->driver);
+	DRV_RESULT_DELIVER_CALL(
+		unregister_sub_driver, driver, &bus_driver->subdriver);
 
 	bus_driver->state = DRIVER_STATE_UNREGISTERED;
 	if (bus_driver->private_data != NULL) kfree(bus_driver->private_data);
@@ -90,6 +95,15 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 DriverResult register_bus(
 	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus) {
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+
+	Bus *primary_bus = bus->primary_bus;
+	Bus *tmp_bus	 = bus;
+	while (primary_bus != NULL) {
+		primary_bus->subordinate_bus_num =
+			MAX(primary_bus->subordinate_bus_num, tmp_bus->subordinate_bus_num);
+		tmp_bus		= primary_bus;
+		primary_bus = primary_bus->primary_bus;
+	}
 
 	bus->bus_driver		   = bus_driver;
 	bus->controller_device = bus_controller_device;

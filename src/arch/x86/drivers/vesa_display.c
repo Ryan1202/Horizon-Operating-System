@@ -49,6 +49,7 @@ VideoDevice vesa_display_video_device = {
 
 void register_vesa_display(void) {
 	register_driver(&vesa_display_driver);
+	driver_init(&vesa_display_driver);
 	register_device_driver(&vesa_display_driver, &vesa_display_device_driver);
 	register_video_device(
 		&vesa_display_device_driver, &vesa_display_device,

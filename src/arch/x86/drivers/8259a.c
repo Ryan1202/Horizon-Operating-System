@@ -71,6 +71,7 @@ InterruptDevice pic_interrupt_device = {
 
 void register_pic(void) {
 	register_driver(&pic_driver);
+	driver_init(&pic_driver);
 	register_device_driver(&pic_driver, &pic_device_driver);
 	register_interrupt_device(
 		&pic_device_driver, &pic_device, &pic_interrupt_device);

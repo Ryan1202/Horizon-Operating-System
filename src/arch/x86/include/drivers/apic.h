@@ -92,6 +92,6 @@
 
 extern struct Device apic_timer_device;
 
-DriverResult register_apic(void);
+void register_apic(void);
 
 #endif

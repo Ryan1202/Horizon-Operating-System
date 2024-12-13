@@ -29,16 +29,10 @@ typedef struct DeviceDriverOps {
 	DriverResult (*unregister_driver_hook)(struct DeviceDriver *driver);
 } DeviceDriverOps;
 
-typedef enum {
-	DRIVER_STATE_UNREGISTERED, // 驱动未注册
-	DRIVER_STATE_REGISTERED,   // 驱动已注册
-	DRIVER_STATE_ACTIVE,	   // 驱动正在运行
-} DriverState;
-
 struct Bus;
 typedef struct DeviceDriver {
 	// 继承SubDriver特征
-	SubDriver driver;
+	SubDriver subdriver;
 
 	list_t		   bus_list;
 	list_t		   device_lh;

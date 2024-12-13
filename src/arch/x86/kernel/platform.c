@@ -1,4 +1,3 @@
-#include "kernel/list.h"
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -12,6 +11,7 @@
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/feature.h>
+#include <kernel/list.h>
 
 BusDriverOps platform_ops = {
 	.register_bus_hook	 = NULL,
@@ -60,4 +60,6 @@ void platform_init_and_start_devices() {
 	interrupt_dm_start(); // 启动由interrupt_dm选择的中断控制器
 	DRV_RESULT_PRINT_CALL(init_and_start, &pit_device);
 	DRV_RESULT_PRINT_CALL(init_and_start, &apic_timer_device);
+
+	platform_bus_driver.subdriver.state = SUBDRIVER_STATE_READY;
 }

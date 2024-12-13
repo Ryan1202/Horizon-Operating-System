@@ -54,6 +54,7 @@ DriverResult register_timer_device(
 	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device);
 DriverResult timer_init(Timer *timer);
 void		 timer_irq_handler(Device *device);
+int			 timer_get_schedule_tick(int priority);
 DriverResult timer_set_frequency(Device *device, uint32_t frequency);
 void		 delay_ms(Timer *timer, uint32_t ms);
 void		 delay_ms_async(Timer *timer, uint32_t ms);

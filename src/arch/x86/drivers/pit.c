@@ -79,6 +79,7 @@ TimerDevice pit_timer_device = {
 
 void register_pit() {
 	register_driver(&pit_driver);
+	driver_init(&pit_driver);
 	register_device_driver(&pit_driver, &pit_device_driver);
 	register_timer_device(&pit_device_driver, &pit_device, &pit_timer_device);
 }

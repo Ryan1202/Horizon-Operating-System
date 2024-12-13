@@ -1,10 +1,10 @@
-#include "kernel/list.h"
-#include "kernel/thread.h"
-#include "kernel/wait_queue.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
+#include <kernel/list.h>
+#include <kernel/thread.h>
+#include <kernel/wait_queue.h>
 
 DriverResult check_dependency(Driver *driver) {
 	int				  count = driver->dependency_count;
@@ -18,8 +18,10 @@ DriverResult check_dependency(Driver *driver) {
 
 			Bus		  *bus;
 			BusDriver *bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
-			if (bus_driver == NULL) { // 总线驱动还没初始化
-				wait_queue_add(&bus_wqm[deps[i].dependency_in_bus.type], 0);
+			if (bus_driver == NULL ||
+				bus_driver->subdriver.state != SUBDRIVER_STATE_READY) {
+				// 总线驱动还没准备好则等待
+				wait_queue_add(&bus_driver->subdriver.wqm, 0);
 				thread_block(TASK_BLOCKED);
 				bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
 			}

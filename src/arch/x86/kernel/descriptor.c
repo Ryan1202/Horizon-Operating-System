@@ -343,6 +343,7 @@ void do_irq(int irq) {
 	// } else {
 	// 	pic_eoi(irq);
 	// }
+	interrupt_eoi(irq);
 	device_irq_handler(irq);
 	irq_table[irq](irq);
 }

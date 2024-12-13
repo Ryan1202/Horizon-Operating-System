@@ -1,6 +1,7 @@
 #ifndef _DRIVER_H
 #define _DRIVER_H
 
+#include "kernel/wait_queue.h"
 #include "stdint.h"
 #define DRIVER_MAX_NAME_LEN 64
 #define DEVICE_MAX_NAME_LEN 64
@@ -114,33 +115,6 @@ void driver_inited();
 
 #include "result.h"
 
-typedef enum {
-	DRIVER_TYPE_DEVICE_DRIVER = 0,
-	DRIVER_TYPE_BUS_DRIVER,
-	DRIVER_TYPE_MAX,
-} DriverType;
-
-extern list_t startup_dm_lh;
-
-// 实体的驱动，管理着一个驱动下的所有类型的抽象驱动
-typedef struct Driver {
-	string_t name;
-	list_t	 driver_list;
-	list_t	 sub_driver_lh;
-	list_t	 remapped_memory_lh;
-
-	int						  dependency_count;
-	struct DriverDenpendency *dependencies;
-} Driver;
-
-struct DriverDenpendency;
-typedef struct SubDriver {
-	list_t	   list;
-	list_t	   sub_driver_list;
-	Driver	  *driver;
-	DriverType type;
-} SubDriver;
-
 typedef enum DriverResult {
 	DRIVER_RESULT_OK,
 	DRIVER_RESULT_TIMEOUT,
@@ -149,6 +123,7 @@ typedef enum DriverResult {
 	DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST,
 	DRIVER_RESULT_DEVICE_MANAGER_NOT_EXIST,
 	DRIVER_RESULT_DEVICE_NOT_EXIST,
+	DRIVER_RESULT_DEVICE_DRIVER_CONFLICT,
 	DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS,
 	DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS,
 	DRIVER_RESULT_INVALID_IRQ_NUMBER,
@@ -158,10 +133,59 @@ typedef enum DriverResult {
 	DRIVER_RESULT_OTHER_ERROR,
 } DriverResult;
 
+typedef enum {
+	DRIVER_TYPE_DEVICE_DRIVER = 0,
+	DRIVER_TYPE_BUS_DRIVER,
+	DRIVER_TYPE_MAX,
+} DriverType;
+
+typedef enum {
+	DRIVER_STATE_UNREGISTERED, // 驱动未注册
+	DRIVER_STATE_UNINITED,	   // 驱动未初始化
+	DRIVER_STATE_ACTIVE,	   // 驱动正在运行
+} DriverState;
+
+typedef enum {
+	SUBDRIVER_STATE_UNREGISTERED, // 子驱动未注册
+	SUBDRIVER_STATE_UNREADY,	  // 子驱动未准备好
+	SUBDRIVER_STATE_READY,		  // 子驱动准备好
+} SubDriverState;
+
+// 实体的驱动，管理着一个驱动下的所有类型的抽象驱动
+typedef struct Driver {
+	string_t name;
+	list_t	 driver_list;
+	list_t	 sub_driver_lh;
+	list_t	 remapped_memory_lh;
+
+	DriverState state;
+
+	int						  dependency_count;
+	struct DriverDenpendency *dependencies;
+
+	DriverResult (*init)(struct Driver *driver);
+} Driver;
+
+struct DriverDenpendency;
+typedef struct SubDriver {
+	list_t		   list;
+	list_t		   sub_driver_list;
+	Driver		  *driver;
+	DriverType	   type;
+	SubDriverState state;
+
+	wait_queue_manager_t wqm;
+} SubDriver;
+
+extern list_t startup_dm_lh;
+
 DriverResult register_driver(Driver *driver);
 DriverResult unregister_driver(Driver *driver);
-DriverResult register_sub_driver(Driver *driver, SubDriver *sub_driver);
+DriverResult register_sub_driver(
+	Driver *driver, SubDriver *sub_driver, DriverType type);
 DriverResult unregister_sub_driver(Driver *driver, SubDriver *sub_driver);
+DriverResult driver_init(Driver *driver);
+DriverResult driver_start_all(void);
 void		 print_driver_result(
 			DriverResult result, char *file, int line, char *func_with_args);
 

@@ -5,13 +5,14 @@
  * @version 0.3
  * @date 2022-07-20
  */
-#include "kernel/driver_dependency.h"
-#include <const.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
+#include <kernel/bus_driver.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
+#include <kernel/driver_dependency.h>
+#include <kernel/driver_interface.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/thread.h>
@@ -56,6 +57,7 @@ void print_driver_result(
 	switch (result) {
 		RESULT_CASE_PRINT(DRIVER_RESULT_OK)
 		RESULT_CASE_PRINT(DRIVER_RESULT_TIMEOUT)
+		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_CONFLICT)
 		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS)
 		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS)
 		RESULT_CASE_PRINT(DRIVER_RESULT_INVALID_IRQ_NUMBER)
@@ -72,10 +74,11 @@ void print_driver_result(
 }
 
 DriverResult register_driver(Driver *driver) {
+
+	driver->state = DRIVER_STATE_UNINITED;
 	list_init(&driver->sub_driver_lh);
 	list_init(&driver->remapped_memory_lh);
 	list_add_tail(&driver->driver_list, &driver_lh);
-	check_dependency(driver);
 	return DRIVER_RESULT_OK;
 }
 
@@ -84,8 +87,11 @@ DriverResult unregister_driver(Driver *driver) {
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult register_sub_driver(Driver *driver, SubDriver *sub_driver) {
+DriverResult register_sub_driver(
+	Driver *driver, SubDriver *sub_driver, DriverType type) {
 	sub_driver->driver = driver;
+	sub_driver->state  = SUBDRIVER_STATE_UNREADY;
+	sub_driver->type   = type;
 
 	list_add(&sub_driver->sub_driver_list, &driver->sub_driver_lh);
 
@@ -95,6 +101,78 @@ DriverResult register_sub_driver(Driver *driver, SubDriver *sub_driver) {
 DriverResult unregister_sub_driver(Driver *driver, SubDriver *sub_driver) {
 	list_del(&sub_driver->sub_driver_list);
 
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult driver_init(Driver *driver) {
+	DriverResult result;
+	if (driver->init != NULL) {
+		result = driver->init(driver);
+		if (result != DRIVER_RESULT_OK) {
+			driver->state = DRIVER_STATE_UNREGISTERED;
+			unregister_driver(driver);
+			print_error(
+				"driver_init: driver %s init failed!\n", driver->name.text);
+			return result;
+		}
+	}
+	driver->state = DRIVER_STATE_ACTIVE;
+	return DRIVER_RESULT_OK;
+}
+
+void sub_driver_start_thread(void *arg) {
+	SubDriver *sub_driver = arg;
+	if (sub_driver->type == DRIVER_TYPE_DEVICE_DRIVER) {
+		DeviceDriver *device_driver =
+			container_of(sub_driver, DeviceDriver, subdriver);
+		Device *device;
+		list_for_each_owner (device, &device_driver->device_lh, device_list) {
+			if (device->ops->init != NULL) { device->ops->init(device); }
+			if (device->ops->start != NULL) { device->ops->start(device); }
+		}
+		device_driver->subdriver.state = SUBDRIVER_STATE_READY;
+	} else if (sub_driver->type == DRIVER_TYPE_BUS_DRIVER) {
+		BusDriver *bus_driver = container_of(sub_driver, BusDriver, subdriver);
+		if (bus_driver->ops->init != NULL) {
+			bus_driver->ops->init(bus_driver);
+		}
+
+		Bus *bus;
+		list_for_each_owner (bus, &bus_driver->bus_lh, bus_list) {
+			// 先等待Bus Controller Device就绪
+			while (bus->controller_device->device_driver->subdriver.state !=
+				   SUBDRIVER_STATE_READY) {
+				schedule();
+			}
+			if (bus->ops->scan_bus != NULL) {
+				bus->ops->scan_bus(bus_driver, bus);
+			}
+		}
+	}
+}
+
+void driver_start_thread(void *arg) {
+	Driver *driver = arg;
+	check_dependency(driver);
+	driver_init(driver);
+
+	SubDriver *sub_driver;
+	list_for_each_owner (sub_driver, &driver->sub_driver_lh, sub_driver_list) {
+		thread_start(
+			"sub_driver_start_thread", THREAD_DEFAULT_PRIO,
+			sub_driver_start_thread, sub_driver);
+	}
+}
+
+DriverResult driver_start_all(void) {
+	Driver *driver;
+	list_for_each_owner (driver, &driver_lh, driver_list) {
+		if (driver->state == DRIVER_STATE_UNINITED) {
+			thread_start(
+				"driver_start_thread", THREAD_DEFAULT_PRIO, driver_start_thread,
+				driver);
+		}
+	}
 	return DRIVER_RESULT_OK;
 }
 
@@ -133,21 +211,21 @@ status_t driver_create(driver_func_t func, char *driver_name) {
 	driver_t *drv_obj;
 	int		  status;
 
-	drv_obj = kmalloc(sizeof(driver_t));
-	if (drv_obj == NULL) { return FAILED; }
-	if (func.driver_enter == NULL) { return FAILED; }
-	list_init(&drv_obj->device_list);
-	list_init(&drv_obj->list);
-	drv_obj->function = func;
-	status			  = drv_obj->function.driver_enter(drv_obj);
-	if (status == NODEV) {
-		printk("[driver manager]Cannot found device:%s\n", driver_name);
-	} else if (status != SUCCUESS) {
-		return FAILED;
-	}
-	string_init(&drv_obj->name);
-	string_new(&drv_obj->name, driver_name, DRIVER_MAX_NAME_LEN);
-	list_add_tail(&drv_obj->list, &driver_list_head);
+	// drv_obj = kmalloc(sizeof(driver_t));
+	// if (drv_obj == NULL) { return FAILED; }
+	// if (func.driver_enter == NULL) { return FAILED; }
+	// list_init(&drv_obj->device_list);
+	// list_init(&drv_obj->list);
+	// drv_obj->function = func;
+	// status			  = drv_obj->function.driver_enter(drv_obj);
+	// if (status == NODEV) {
+	// 	printk("[driver manager]Cannot found device:%s\n", driver_name);
+	// } else if (status != SUCCUESS) {
+	// 	return FAILED;
+	// }
+	// string_init(&drv_obj->name);
+	// string_new(&drv_obj->name, driver_name, DRIVER_MAX_NAME_LEN);
+	// list_add_tail(&drv_obj->list, &driver_list_head);
 
 	return SUCCUESS;
 }

@@ -4,9 +4,9 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "driver/video_dm.h"
 #include <driver/interrupt_dm.h>
 #include <driver/timer_dm.h>
+#include <driver/video_dm.h>
 #include <drivers/pci.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
@@ -16,6 +16,7 @@
 #include <kernel/device_driver.h>
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
+#include <kernel/driver_interface.h>
 #include <kernel/driver_manager.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
@@ -32,6 +33,7 @@
 #include <network/network.h>
 #include <network/tcp.h>
 #include <network/udp.h>
+#include <stdint.h>
 
 void		   idle(void *arg);
 struct task_s *task_idle;
@@ -49,10 +51,11 @@ int main() {
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0);
 	// init_pci();
-	// io_sti();
+	io_sti();
 	printk("Memory Size:%dM\n", get_memory_size());
 	// init_vfs();
 	do_initcalls();
+	driver_start_all();
 	// init_fs();
 
 	// thread_start(
@@ -102,8 +105,10 @@ int main() {
 	}
 }
 
+extern uint32_t lapic_read(int index);
+
 void idle(void *arg) {
 	for (;;) {
-		io_hlt();
+		enable_interrupt();
 	}
 }

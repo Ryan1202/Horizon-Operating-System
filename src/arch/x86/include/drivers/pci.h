@@ -138,9 +138,12 @@ typedef struct PciDeviceBar {
 	uint32_t base_addr;
 	uint32_t length;
 } PciDeviceBar;
+
 typedef struct PciDevice {
 	Bus	   *bus;
 	Device *device;
+
+	struct PciDriver *pci_driver;
 
 	char status;
 
@@ -148,27 +151,128 @@ typedef struct PciDevice {
 	uint8_t dev_num;
 	uint8_t function_num;
 
-	uint16_t vendorID;
-	uint16_t deviceID;
+	uint16_t vendor_id;
+	uint16_t device_id;
 	uint8_t	 classcode;
 	uint8_t	 subclass;
 	uint8_t	 prog_if;
 	uint8_t	 revisionID;
+	uint8_t	 bist;
 	uint8_t	 multifunction;
+	uint8_t	 header_type;
+	uint8_t	 latency_timer;
+	uint8_t	 cache_line_size;
 	uint8_t	 irqline;
 	uint8_t	 irqpin;
 
-	PciDeviceBar bar[PCI_MAX_BAR];
+	union {
+		struct {
+			PciDeviceBar bar[PCI_MAX_BAR];
+
+			uint32_t cardbus_cis_pointer;
+			uint16_t subsystem_id;
+			uint16_t subsystem_vendor_id;
+			uint32_t expension_rom_base_address;
+			uint8_t	 capabilities_pointer;
+			uint8_t	 max_latency;
+			uint8_t	 min_grant;
+		} common;
+		struct {
+			PciDeviceBar bar[2];
+
+			uint8_t	 secondary_latency_timer;
+			uint8_t	 secondary_bus_number;
+			uint8_t	 subordinate_bus_number;
+			uint8_t	 primary_bus_number;
+			uint16_t secondary_status;
+
+			uint16_t io_base_upper;
+			uint16_t io_base;
+			uint16_t io_limit_upper;
+			uint16_t io_limit;
+
+			uint16_t memory_limit;
+			uint16_t memory_base;
+
+			uint32_t prefetchable_limit_upper;
+			uint16_t prefetchable_memory_limit;
+			uint32_t prefetchable_base_upper;
+			uint16_t prefetchable_memory_base;
+
+			uint8_t	 capabilities_pointer;
+			uint32_t expension_rom_base_address;
+			uint16_t bridge_control;
+		} pci2pci_bridge;
+		struct {
+			uint32_t cardbus_socket_base_address;
+			uint16	 secondary_status;
+			uint8_t	 capabilities_offset;
+			uint8_t	 cardbus_latency_timer;
+			uint8_t	 subordiante_bus_number;
+			uint8_t	 cardbus_bus_number;
+			uint8_t	 pci_bus_number;
+			uint32_t memory_base0;
+			uint32_t memory_limit0;
+			uint32_t memory_base1;
+			uint32_t memory_limit1;
+			uint32_t io_base0;
+			uint32_t io_limit0;
+			uint32_t io_base1;
+			uint32_t io_limit1;
+			uint16_t bridge_control;
+			uint16_t subsystem_vendor_id;
+			uint16_t subsystem_device_id;
+			uint32_t legacy_base_address;
+		} pci2cardbus_bridge;
+	};
 } PciDevice;
+
+typedef struct PciDriverOps {
+
+	DriverResult (*probe)(
+		struct PciDriver *pci_driver, struct PciDevice *pci_device);
+} PciDeviceOps;
+
+typedef struct PciDriver {
+	Driver		 *driver;
+	DeviceDriver *device_driver;
+
+	enum {
+		FIND_BY_CLASSCODE_SUBCLASS,
+		FIND_BY_CLASSCODE_SUBCLASS_PROGIF,
+		FIND_BY_VENDORID_DEVICEID,
+	} find_type;
+
+	union {
+		struct {
+			uint16_t vendorID;
+			uint16_t deviceID;
+		} vendor_device;
+		struct {
+			uint8_t classcode;
+			uint8_t subclass;
+		} class_subclass;
+		struct {
+			uint8_t classcode;
+			uint8_t subclass;
+			uint8_t progif;
+		} class_subclass_progif;
+	};
+	PciDevice *pci_device;
+
+	PciDeviceOps *ops;
+} PciDriver;
 
 PciDevice *pci_alloc_device(void);
 int		   pci_free_device(PciDevice *dev);
-void	   get_pci_device_info(
+void	   fill_pci_device_info(
 		  PciDevice *dev, uint8_t bus, uint8_t device, uint8_t func,
 		  uint16_t vendorID, uint16_t deviceID, uint32_t classcode,
-		  uint8_t revisionID, uint8_t multifunction);
+		  uint8_t revisionID, uint8_t multifunction, uint8_t header_type,
+		  uint8_t bist, uint8_t latency_timer, uint8_t cache_line_size);
 void		 get_pci_bar_info(PciDeviceBar *bar, uint32_t addr, uint32_t len);
 DriverResult pci_scan_device(
-	Bus *bus, uint8_t bus_num, uint8_t device_num, uint8_t function_num);
+	Bus *bus, uint8_t bus_num, uint8_t device_num, uint8_t function_num,
+	PciDevice **out_pci_device);
 
 #endif
