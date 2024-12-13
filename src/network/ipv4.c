@@ -1,4 +1,3 @@
-#include "network/netpack.h"
 #include <bits.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
@@ -6,6 +5,7 @@
 #include <kernel/spinlock.h>
 #include <network/eth.h>
 #include <network/ipv4.h>
+#include <network/netpack.h>
 #include <network/network.h>
 #include <network/tcp.h>
 #include <network/udp.h>
@@ -26,8 +26,9 @@ void ipv4_init(net_device_t *netdev) {
 	data->mtu -= 20; // 去掉ip头的长度
 }
 
-void ipv4_send_pack(netc_t *netc, uint8_t *dst_ip, uint8_t flags, uint8_t id, uint8_t ttl, uint8_t protocol,
-					uint8_t offset, uint8_t *data, uint16_t datalen) {
+void ipv4_send_pack(
+	netc_t *netc, uint8_t *dst_ip, uint8_t flags, uint8_t id, uint8_t ttl,
+	uint8_t protocol, uint8_t offset, uint8_t *data, uint16_t datalen) {
 	int				  i;
 	uint32_t		  chksum = 0;
 	ipv4_header_t	 *header;
@@ -53,15 +54,17 @@ void ipv4_send_pack(netc_t *netc, uint8_t *dst_ip, uint8_t flags, uint8_t id, ui
 	for (i = 0; i < 20 / sizeof(uint16_t); i++) {
 		chksum += BE2HOST_WORD(buf[i]);
 	}
-	header->HeaderChecksum = HOST2BE_WORD(~(uint16_t)((chksum & 0xffff) + (chksum >> 16)));
+	header->HeaderChecksum =
+		HOST2BE_WORD(~(uint16_t)((chksum & 0xffff) + (chksum >> 16)));
 
 	net_dev->net_write(netc, (uint8_t *)buf, datalen + 20);
 
 	kfree(buf);
 }
 
-int ipv4_send(netc_t *netc, uint8_t *dst_ip, uint8_t DF, uint8_t ttl, uint8_t protocol, uint8_t *data,
-			  uint32_t datalen) {
+int ipv4_send(
+	netc_t *netc, uint8_t *dst_ip, uint8_t DF, uint8_t ttl, uint8_t protocol,
+	uint8_t *data, uint32_t datalen) {
 	uint32_t		  i, id;
 	uint32_t		  len;
 	net_device_t	 *net_dev = netc->net_dev;
@@ -78,14 +81,18 @@ int ipv4_send(netc_t *netc, uint8_t *dst_ip, uint8_t DF, uint8_t ttl, uint8_t pr
 
 	while (len > ipv4->mtu) {
 		if (DF) { return -1; } // 不允许分片则直接退出
-		ipv4_send_pack(netc, dst_ip, 1, id, ttl, protocol, i * ipv4->mtu, data, ipv4->mtu);
+		ipv4_send_pack(
+			netc, dst_ip, 1, id, ttl, protocol, i * ipv4->mtu, data, ipv4->mtu);
 		i++;
 	}
-	ipv4_send_pack(netc, dst_ip, 0, id, ttl, protocol, i * ipv4->mtu, data, datalen % ipv4->mtu);
+	ipv4_send_pack(
+		netc, dst_ip, 0, id, ttl, protocol, i * ipv4->mtu, data,
+		datalen % ipv4->mtu);
 	return 0;
 }
 
-void ipv4_read(net_rx_pack_t *pack, uint8_t *buf, uint16_t offset, uint16_t length) {
+void ipv4_read(
+	net_rx_pack_t *pack, uint8_t *buf, uint16_t offset, uint16_t length) {
 	ipv4_header_t *header = (ipv4_header_t *)(buf + offset);
 
 	header->HeaderChecksum = BE2HOST_WORD(header->HeaderChecksum);
@@ -95,7 +102,9 @@ void ipv4_read(net_rx_pack_t *pack, uint8_t *buf, uint16_t offset, uint16_t leng
 
 	switch (header->Protocol) {
 	case PROTOCOL_TCP:
-		net_raw2tcp_pack(pack, 4, header->SourceAddress, offset + 20, header->TotalLength - 20);
+		net_raw2tcp_pack(
+			pack, 4, header->SourceAddress, offset + 20,
+			header->TotalLength - 20);
 		break;
 	case PROTOCOL_UDP:
 		net_raw2udp_pack(pack, offset + 20, header->TotalLength - 20);

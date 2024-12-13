@@ -5,8 +5,8 @@
  * @version 0.3
  * @date 2022-07-15
  */
-#include "driver/video_dm.h"
 #include <driver/video.h>
+#include <driver/video_dm.h>
 #include <kernel/console.h>
 #include <kernel/font.h>
 #include <kernel/sync.h>
@@ -14,6 +14,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+
 
 struct console {
 	struct VideoDevice *video_device;

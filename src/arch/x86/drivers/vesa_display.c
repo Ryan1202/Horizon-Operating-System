@@ -1,6 +1,6 @@
-#include "drivers/video.h"
 #include <driver/video_dm.h>
 #include <drivers/vesa_display.h>
+#include <drivers/video.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>

@@ -1,7 +1,7 @@
-#include "stdint.h"
 #include <drivers/usb/uhci.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
+#include <stdint.h>
 
 void uhci_skel_init(uhci_t *devext) {
 	int i;

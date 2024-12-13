@@ -1,7 +1,7 @@
-#include "kernel/list.h"
 #include <drivers/usb/func.h>
 #include <drivers/usb/usb.h>
 #include <kernel/console.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <stdint.h>
 

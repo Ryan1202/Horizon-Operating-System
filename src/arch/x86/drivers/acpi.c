@@ -5,13 +5,13 @@
  * @version 0.1
  * @date 2021-06
  */
-#include "kernel/memory.h"
 #include <drivers/acpi.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
+#include <kernel/memory.h>
 #include <kernel/page.h>
 #include <stdint.h>
 #include <string.h>

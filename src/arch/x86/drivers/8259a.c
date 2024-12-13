@@ -6,7 +6,6 @@
  * @date 2022-07-31
  *
  */
-#include "string.h"
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <kernel/descriptor.h>
@@ -21,6 +20,7 @@
 #include <kernel/driver_interface.h>
 #include <kernel/platform.h>
 #include <result.h>
+#include <string.h>
 
 DriverResult pic_init(Device *device);
 int			 pic_redirect_irq(InterruptDevice *device, int irq);

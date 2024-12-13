@@ -1,19 +1,18 @@
-#include "kernel/spinlock.h"
-#include "network/tcp.h"
-#include "network/udp.h"
-#include "stdint.h"
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
+#include <kernel/spinlock.h>
 #include <kernel/thread.h>
 #include <math.h>
 #include <network/eth.h>
 #include <network/ipv4.h>
 #include <network/netpack.h>
 #include <network/network.h>
+#include <network/tcp.h>
+#include <stdint.h>
 
 LIST_HEAD(net_rx_raw_pack_lh);
 LIST_HEAD(net_rx_tcp_lh);
@@ -30,7 +29,8 @@ void init_network(void) {
 	list_init(&eth_dm.dev_listhead);
 }
 
-netc_t *netc_create(net_device_t *net_dev, uint16_t protocol, uint16_t app_protocol) {
+netc_t *netc_create(
+	net_device_t *net_dev, uint16_t protocol, uint16_t app_protocol) {
 	netc_t *netc = kmalloc(sizeof(netc_t));
 
 	spinlock_init(&netc->spin_lock);
@@ -54,9 +54,13 @@ int netc_delete(netc_t *netc) {
 	return 0;
 }
 
-void netc_set_dest(netc_t *netc, uint8_t dst_mac[6], uint8_t *dst_laddr, uint8_t dst_laddr_len) {
+void netc_set_dest(
+	netc_t *netc, uint8_t dst_mac[6], uint8_t *dst_laddr,
+	uint8_t dst_laddr_len) {
 	memcpy(netc->dst_mac, dst_mac, 6);
-	if (dst_laddr != NULL) { memcpy(netc->dst_laddr, dst_laddr, dst_laddr_len); }
+	if (dst_laddr != NULL) {
+		memcpy(netc->dst_laddr, dst_laddr, dst_laddr_len);
+	}
 }
 
 int netc_read(netc_t *netc, uint8_t *buf, uint32_t size) {
@@ -82,8 +86,12 @@ void netc_drop_all(netc_t *netc) {
 	netc->recv_len	  = 0;
 }
 
-void netc_ip_send(netc_t *netc, uint8_t *ip, uint8_t DF, uint8_t proto, uint8_t *buf, uint32_t size) {
-	if (netc->protocol == ETH_TYPE_IPV4) { ipv4_send(netc, ip, DF, default_ttl, proto, buf, size); }
+void netc_ip_send(
+	netc_t *netc, uint8_t *ip, uint8_t DF, uint8_t proto, uint8_t *buf,
+	uint32_t size) {
+	if (netc->protocol == ETH_TYPE_IPV4) {
+		ipv4_send(netc, ip, DF, default_ttl, proto, buf, size);
+	}
 }
 
 int netc_get_mtu(netc_t *netc) {
@@ -100,7 +108,8 @@ void net_process_pack(void *arg) {
 	net_rx_pack_t *pack_cur, *next;
 	while (1) {
 		if (!list_empty(&net_rx_raw_pack_lh)) {
-			list_for_each_owner_safe (pack_cur, next, &net_rx_raw_pack_lh, list) {
+			list_for_each_owner_safe (
+				pack_cur, next, &net_rx_raw_pack_lh, list) {
 				list_del(&pack_cur->list);
 				switch (pack_cur->type) {
 				case ETH_FRAME:
@@ -112,8 +121,9 @@ void net_process_pack(void *arg) {
 			}
 			list_for_each_owner_safe (pack_cur, next, &net_rx_tcp_lh, list) {
 				list_del(&pack_cur->list);
-				tcp_recv(pack_cur->data, pack_cur->proto_start, pack_cur->data_len, pack_cur->src_ip_addr,
-						 pack_cur->src_ip_len);
+				tcp_recv(
+					pack_cur->data, pack_cur->proto_start, pack_cur->data_len,
+					pack_cur->src_ip_addr, pack_cur->src_ip_len);
 			}
 			// kfree(pack_cur->data);
 			kfree(pack_cur);
@@ -132,7 +142,9 @@ void net_rx_raw_pack(enum frame_type type, uint8_t *buf, uint32_t length) {
 	list_add_tail(&pack->list, &net_rx_raw_pack_lh);
 }
 
-void net_raw2tcp_pack(net_rx_pack_t *pack, uint8_t ip_len, uint8_t *ip_addr, uint32_t start, uint32_t len) {
+void net_raw2tcp_pack(
+	net_rx_pack_t *pack, uint8_t ip_len, uint8_t *ip_addr, uint32_t start,
+	uint32_t len) {
 	pack->proto_start = start;
 	pack->src_ip_len  = ip_len;
 	pack->src_ip_addr = ip_addr;

@@ -5,12 +5,13 @@
  * @version 0.1
  * @date 2021-06
  */
-#include "kernel/driver.h"
 #include <drivers/8042.h>
 #include <kernel/console.h>
+#include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <stdint.h>
+
 
 static status_t i8042_enter(driver_t *drv_obj);
 static status_t i8042_exit(driver_t *drv_obj);
@@ -42,7 +43,8 @@ int i8042_get_status(uint8_t type) {
 
 void i8042_wait_ctr_send_ready(void) {
 	for (;;) {
-		if ((io_in8(I8042_PORT_STAT) & I8042_STAT_INBUF) == 0) { // 输入缓存区为空
+		if ((io_in8(I8042_PORT_STAT) & I8042_STAT_INBUF) ==
+			0) { // 输入缓存区为空
 			return;
 		}
 	}
@@ -65,7 +67,8 @@ static status_t i8042_enter(driver_t *drv_obj) {
 	device_t		   *devobj;
 	device_extension_t *devext;
 
-	device_create(drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
+	device_create(
+		drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
 	devext = devobj->device_extension;
 
 	// 1.禁用设备
@@ -74,7 +77,9 @@ static status_t i8042_enter(driver_t *drv_obj) {
 
 	// 2.配置控制器
 	i8042_send_cmd(I8042_CMD_WRITE);
-	i8042_write_data(I8042_CFG_TRANS1 | I8042_CFG_SYS_FLAG | I8042_CFG_INT2 | I8042_CFG_INT1);
+	i8042_write_data(
+		I8042_CFG_TRANS1 | I8042_CFG_SYS_FLAG | I8042_CFG_INT2 |
+		I8042_CFG_INT1);
 
 	// 3.控制器自检
 	i8042_send_cmd(I8042_CMD_TEST_CTL);
@@ -123,7 +128,9 @@ static status_t i8042_enter(driver_t *drv_obj) {
 		i8042_write_data(I8042_CMD_RESET_DEV);
 
 		for (i = 0; i < 2; i++) {
-			if (i8042_read_data() == 0xfc) { printk("[i8042]PS/2 Port1 Device reset failed!\n"); }
+			if (i8042_read_data() == 0xfc) {
+				printk("[i8042]PS/2 Port1 Device reset failed!\n");
+			}
 		}
 		if (i8042_get_status(I8042_STAT_OUTBUF)) {
 			devext->p1_dev_type = i8042_read_data();
@@ -146,7 +153,9 @@ static status_t i8042_enter(driver_t *drv_obj) {
 		i8042_write_data(I8042_CMD_RESET_DEV);
 
 		for (i = 0; i < 2; i++) {
-			if (i8042_read_data() == 0xfc) { printk("[i8042]PS/2 Port1 Device reset failed!\n"); }
+			if (i8042_read_data() == 0xfc) {
+				printk("[i8042]PS/2 Port1 Device reset failed!\n");
+			}
 		}
 		if (i8042_get_status(I8042_STAT_OUTBUF)) {
 			devext->p2_dev_type = i8042_read_data();
@@ -154,9 +163,13 @@ static status_t i8042_enter(driver_t *drv_obj) {
 				printk("[i8042]Found PS/2 device 2.Type: Mouse\n");
 				i8042_send_cmd(I8042_CMD_SEND_TO_P2);
 				i8042_write_data(0xf4);
-				if (i8042_read_data() != 0xfa) { printk("[i8042]PS/2 Port2 Device: mouse enable failed!\n"); }
+				if (i8042_read_data() != 0xfa) {
+					printk("[i8042]PS/2 Port2 Device: mouse enable failed!\n");
+				}
 			} else {
-				printk("[i8042]Found PS/2 device 2.Type: %#0X\n", devext->p2_dev_type);
+				printk(
+					"[i8042]Found PS/2 device 2.Type: %#0X\n",
+					devext->p2_dev_type);
 			}
 		} else { // AT键盘没有设备类型的响应
 			devext->p2_dev_type = 0xff;

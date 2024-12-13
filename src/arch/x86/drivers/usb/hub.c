@@ -1,5 +1,4 @@
-#include "bits.h"
-#include "drivers/usb/uhci.h"
+#include <bits.h>
 #include <drivers/pit.h>
 #include <drivers/usb/func.h>
 #include <drivers/usb/hcd.h>
