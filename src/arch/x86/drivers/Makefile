@@ -16,3 +16,4 @@ SRC	+= vesa_display.c
 #SRC	+= network/
 #SRC += sound/
 #SRC += usb/
+SRC += disk/

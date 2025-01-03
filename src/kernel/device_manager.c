@@ -13,6 +13,7 @@ DriverResult register_device_manager(DeviceManager *manager) {
 		DRV_RESULT_DELIVER_CALL(unregister_device_manager, old_manager);
 	}
 
+	list_init(&manager->device_lh);
 	device_managers[manager->type] = manager;
 
 	DEVM_OPS_CALL(manager, dm_load_hook, manager);
@@ -22,7 +23,7 @@ DriverResult register_device_manager(DeviceManager *manager) {
 DriverResult unregister_device_manager(DeviceManager *manager) {
 	// 关闭所有设备
 	Device *cur;
-	list_for_each_owner (cur, &manager->device_driver_lh, device_list) {
+	list_for_each_owner (cur, &manager->device_lh, device_list) {
 		if (cur->state != DEVICE_STATE_UNREGISTERED) {
 			DEV_OPS_CALL(cur, destroy, cur);
 		}

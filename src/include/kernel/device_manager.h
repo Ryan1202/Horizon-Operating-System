@@ -30,7 +30,7 @@ typedef struct DeviceMangerOps {
 
 typedef struct DeviceManager {
 	list_t dm_list;
-	list_t device_driver_lh;
+	list_t device_lh;
 
 	DeviceType type;
 

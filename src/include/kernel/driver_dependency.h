@@ -4,7 +4,7 @@
 #include "kernel/bus_driver.h"
 #include "kernel/device_manager.h"
 
-typedef struct DriverDenpendency {
+typedef struct DriverDependency {
 	enum {
 		DRIVER_DEPENDENCY_TYPE_BUS,	   // 依赖某种总线
 		DRIVER_DEPENDENCY_TYPE_DEVICE, // 依赖某种设备类型

@@ -5,9 +5,9 @@
  * @date 2020-03
  */
 #include <driver/interrupt_dm.h>
+#include <driver/storage_dm.h>
 #include <driver/timer_dm.h>
 #include <driver/video_dm.h>
-#include <drivers/pci.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/app.h>
@@ -21,7 +21,7 @@
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/memory.h>
-#include <kernel/page.h>
+#include <kernel/periodic_task.h>
 #include <kernel/platform.h>
 #include <kernel/process.h>
 #include <kernel/thread.h>
@@ -33,7 +33,6 @@
 #include <network/network.h>
 #include <network/tcp.h>
 #include <network/udp.h>
-#include <stdint.h>
 
 void		   idle(void *arg);
 struct task_s *task_idle;
@@ -44,6 +43,7 @@ int main() {
 	register_device_manager(&interrupt_device_manager);
 	register_device_manager(&timer_device_manager);
 	register_device_manager(&video_device_manager);
+	register_device_manager(&storage_device_manager);
 
 	init_platform();
 	platform_init_and_start_devices();
@@ -56,6 +56,8 @@ int main() {
 	// init_vfs();
 	do_initcalls();
 	driver_start_all();
+	thread_start(
+		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
 	// init_fs();
 
 	// thread_start(
@@ -105,10 +107,8 @@ int main() {
 	}
 }
 
-extern uint32_t lapic_read(int index);
-
 void idle(void *arg) {
 	for (;;) {
-		enable_interrupt();
+		schedule();
 	}
 }

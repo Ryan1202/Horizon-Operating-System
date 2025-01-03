@@ -4,8 +4,6 @@
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
-#include <kernel/thread.h>
-#include <math.h>
 #include <result.h>
 #include <stdint.h>
 
@@ -24,10 +22,6 @@ DeviceManagerOps timer_dm_ops = {
 	.stop_device_hook	 = NULL,
 	.destroy_device_hook = NULL,
 };
-
-typedef struct TimerDeviceManager {
-	Device *scheduler_timer;
-} TimerDeviceManager;
 
 TimerDeviceManager timer_dm_ext;
 
@@ -54,7 +48,7 @@ DriverResult timer_dm_unload(DeviceManager *manager) {
 }
 
 DriverResult timer_device_init(DeviceManager *manager, Device *device) {
-	TimerDevice *timer_device = (TimerDevice *)device->driver_manager_extension;
+	TimerDevice *timer_device = (TimerDevice *)device->device_manager_extension;
 
 	const int count =
 		sizeof(default_frequencies) / sizeof(typeof(default_frequencies[0]));
@@ -77,7 +71,7 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 	} else {
 		TimerDevice *scheduler_timer_device =
 			(TimerDevice *)
-				timer_manager->scheduler_timer->driver_manager_extension;
+				timer_manager->scheduler_timer->device_manager_extension;
 		if (scheduler_timer_device->priority < timer_device->priority) {
 			timer_manager->scheduler_timer = device;
 		}
@@ -95,7 +89,7 @@ int timer_get_schedule_tick(int priority) {
 }
 
 DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
-	TimerDevice *timer_device = (TimerDevice *)device->driver_manager_extension;
+	TimerDevice *timer_device = (TimerDevice *)device->device_manager_extension;
 
 	TimerResult result =
 		timer_device->timer_ops->set_frequency(timer_device, frequency);
@@ -107,14 +101,18 @@ DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
 }
 
 void timer_irq_handler(Device *device) {
-	TimerDevice *timer_device = (TimerDevice *)device->driver_manager_extension;
+	TimerDevice *timer_device = (TimerDevice *)device->device_manager_extension;
 	timer_device->counter++;
 
 	Timer *cur, *next;
 	list_for_each_owner_safe (cur, next, &timer_device->timer_list_lh, list) {
 		if (cur->timeout > timer_device->counter) { break; }
 		list_del(&cur->list);
-		cur->timeout = 0;
+		if (cur->period) {
+			timer_set_timeout(cur, cur->period);
+		} else {
+			cur->timeout = 0;
+		}
 	}
 
 	if (!list_empty(&thread_all)) {
@@ -135,12 +133,12 @@ void timer_irq_handler(Device *device) {
 DriverResult register_timer_device(
 	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device) {
 
-	device->driver_manager_extension = timer_device;
+	device->device_manager_extension = timer_device;
 	timer_device->device			 = device;
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, device_driver->bus, device);
 	list_init(&timer_device->timer_list_lh);
-	list_add_tail(&device->dm_list, &timer_device_manager.device_driver_lh);
+	list_add_tail(&device->dm_list, &timer_device_manager.device_lh);
 
 	return DRIVER_RESULT_OK;
 }
@@ -157,56 +155,4 @@ DriverResult unregister_timer_device(
 	DRV_RESULT_DELIVER_CALL(unregister_device, device_driver, device);
 	list_del(&device->device_list);
 	return DRIVER_RESULT_OK;
-}
-
-DriverResult timer_init(Timer *timer) {
-	timer->timer_device =
-		timer_dm_ext.scheduler_timer->driver_manager_extension;
-	timer->timeout = 0;
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult timer_set_timeout(Timer *timer, uint32_t count) {
-	if (timer->timer_device == NULL) return DRIVER_RESULT_DEVICE_NOT_EXIST;
-	timer->timeout = timer->timer_device->counter + count;
-
-	// 在插入时排序
-	if (!list_empty(&timer->timer_device->timer_list_lh)) {
-		Timer *last_timer =
-			list_last_owner(&timer->timer_device->timer_list_lh, Timer, list);
-		while (last_timer->timeout > timer->timeout) {
-			last_timer = list_prev_onwer(last_timer, list);
-		}
-		list_add_after(&timer->list, &last_timer->list);
-	} else {
-		list_add_tail(&timer->list, &timer->timer_device->timer_list_lh);
-	}
-	return DRIVER_RESULT_OK;
-}
-
-uint32_t timer_count_ms(Timer *timer, uint32_t ms) {
-	uint32_t freq = timer->timer_device->current_frequency;
-	if (freq < 1000) {
-		return DIV_ROUND_UP(ms * freq, 1000);
-	} else {
-		return DIV_ROUND_UP(ms, (freq / 1000));
-	}
-}
-
-void delay_ms(Timer *timer, uint32_t ms) {
-	uint32_t count = timer_count_ms(timer, ms);
-	timer_set_timeout(timer, count);
-
-	while (timer->timeout != 0)
-		;
-}
-
-void delay_ms_async(Timer *timer, uint32_t ms) {
-	uint32_t count = timer_count_ms(timer, ms);
-	timer_set_timeout(timer, count);
-	// 设置完立即返回
-}
-
-bool timer_is_timeout(Timer *timer) {
-	return timer->timeout == 0;
 }

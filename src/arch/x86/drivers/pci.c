@@ -5,43 +5,26 @@
  * @version 0.1
  * @date 2020-07
  */
+#include "kernel/list.h"
 #include <driver/bus_dm.h>
 #include <drivers/pci.h>
+#include <kernel/bus_driver.h>
 #include <kernel/console.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
+#include <kernel/device_manager.h>
+#include <kernel/driver.h>
+#include <kernel/driver_dependency.h>
 #include <kernel/driver_interface.h>
 #include <kernel/func.h>
+#include <kernel/initcall.h>
 #include <kernel/memory.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
 
-// struct pci_device pci_devices[PCI_MAX_DEVICE];
-
-// void init_pci() {
-// 	int i, j, k;
-
-// 	printk("device id\tvendor id\theader "
-// 		   "type\tclasscode\tsubclass\tprogif\trevision id\n");
-// 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
-// 		pci_devices[i].status = PCI_DEVICE_STATUS_INVALID;
-// 	}
-// 	for (i = 0; i < PCI_MAX_BUS; i++) {
-// 		for (j = 0; j < PCI_MAX_DEV; j++) {
-// 			for (k = 0; k < PCI_MAX_FUNC; k++) {
-// 				pci_scan_device(i, j, k);
-// 			}
-// 		}
-// 	}
-// }
-
-#include <kernel/bus_driver.h>
-#include <kernel/device_manager.h>
-#include <kernel/driver.h>
-#include <kernel/driver_dependency.h>
-#include <kernel/initcall.h>
-#include <math.h>
+LIST_HEAD(pci_driver_lh);
 
 PciDevice pci_devices[PCI_MAX_DEVICE];
 
@@ -49,6 +32,7 @@ DriverResult pci_driver_init(Driver *driver);
 DriverResult pci_device_init(Device *device);
 DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus);
 DriverResult pci_init_bus(BusDriver *bus_driver);
+DriverResult pci_probe(BusDriver *bus_driver, Bus *bus);
 
 DeviceDriverOps pci_driver_ops = {
 	.register_driver_hook	= NULL,
@@ -70,6 +54,7 @@ BusOps pci_bus_ops = {
 	.register_device_hook	= NULL,
 	.unregister_device_hook = NULL,
 	.scan_bus				= pci_scan_bus,
+	.probe_device			= pci_probe,
 };
 BusControllerDeviceOps pci_controller_ops = {
 	.probe = NULL,
@@ -231,12 +216,12 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 			if (result == DRIVER_RESULT_DEVICE_NOT_EXIST) {
 				continue;
 			} else if (result == DRIVER_RESULT_NULL_POINTER) {
-				print_error(
+				print_error_with_position(
 					"pci_probe_bus: pci device(%d:%d:%d) alloc failed!\n",
 					bus->bus_num, i, j);
 				continue;
 			} else if (result == DRIVER_RESULT_UNSUPPORT_DEVICE) {
-				print_error(
+				print_error_with_position(
 					"pci_probe_bus: pci device(%d:%d:%d) unsupport! Header "
 					"Type:%d\n",
 					bus->bus_num, i, j, pci_device->header_type);
@@ -244,6 +229,7 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 			}
 
 			bus_driver->device_count++;
+			pci_device->status = PCI_DEVICE_STATUS_UNUSED;
 			print_driver_info(
 				pci_driver,
 				"%#06x\t\t%#06x\t\t%#04x\t\t%#04x\t\t%#04x\t\t%#04x\t%#04x\n",
@@ -492,58 +478,133 @@ DriverResult pci_scan_device(
 		value = pci_read32(bus_num, device_num, function_num, 0x3c);
 		pci_device->pci2cardbus_bridge.bridge_control = value >> 16;
 	} else {
-		print_error("unsupport PCI Header Type: %d\n", header_type);
+		print_error_with_position(
+			"unsupport PCI Header Type: %d\n", header_type);
 		return DRIVER_RESULT_UNSUPPORT_DEVICE;
 	}
 	pci_device->irqline = value & 0xff;
 	pci_device->irqpin	= value >> 8;
 
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult pci_set_driver(PciDriver *pci_driver, PciDevice *pci_device) {
-	if (pci_device->pci_driver == NULL) {
-		pci_device->pci_driver = pci_driver;
-	} else {
-		return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+	PciDriver *pci_driver;
+	list_for_each_owner (pci_driver, &pci_driver_lh, pci_driver_list) {
+		if (pci_driver->pci_device != NULL) { continue; }
+		if (pci_driver->find_type == FIND_BY_VENDORID_DEVICEID) {
+			if (pci_driver->vendor_device.vendor_id == vendorID &&
+				pci_driver->vendor_device.device_id == deviceID) {
+				pci_device->pci_driver = pci_driver;
+				pci_driver->pci_device = pci_device;
+				break;
+			}
+		} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
+			if (pci_driver->class_subclass.classcode == classcode &&
+				pci_driver->class_subclass.subclass == pci_device->subclass) {
+				pci_device->pci_driver = pci_driver;
+				pci_driver->pci_device = pci_device;
+				break;
+			}
+		} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF) {
+			if (pci_driver->class_subclass_progif.classcode == classcode &&
+				pci_driver->class_subclass_progif.subclass ==
+					pci_device->subclass &&
+				pci_driver->class_subclass_progif.progif ==
+					pci_device->prog_if) {
+				pci_device->pci_driver = pci_driver;
+				pci_driver->pci_device = pci_device;
+				break;
+			}
+		}
 	}
+
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult pci_match(PciDriver *pci_driver, PciDevice *pci_device) {
+bool pci_match_driver(PciDriver *pci_driver, PciDriver *new_pci_driver) {
+	if (new_pci_driver->find_type == FIND_BY_VENDORID_DEVICEID) {
+		if (new_pci_driver->vendor_device.vendor_id ==
+				pci_driver->vendor_device.vendor_id &&
+			new_pci_driver->vendor_device.device_id ==
+				pci_driver->vendor_device.device_id) {
+			return true;
+		}
+	} else if (new_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
+		if (new_pci_driver->class_subclass.classcode ==
+				pci_driver->class_subclass.classcode &&
+			new_pci_driver->class_subclass.subclass ==
+				pci_driver->class_subclass.subclass) {
+			return true;
+		}
+	} else if (new_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF) {
+		if (new_pci_driver->class_subclass_progif.classcode ==
+				pci_driver->class_subclass_progif.classcode &&
+			new_pci_driver->class_subclass_progif.subclass ==
+				pci_driver->class_subclass_progif.subclass &&
+			new_pci_driver->class_subclass_progif.progif ==
+				pci_driver->class_subclass_progif.progif) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool pci_match_device(PciDriver *pci_driver, PciDevice *pci_device) {
 	if (pci_driver->find_type == FIND_BY_VENDORID_DEVICEID) {
-		if (pci_device->vendor_id == pci_driver->vendor_device.vendorID &&
-			pci_device->device_id == pci_driver->vendor_device.deviceID) {
-			pci_device->pci_driver = pci_driver;
-			DRV_RESULT_DELIVER_CALL(pci_set_driver, pci_driver, pci_device);
+		if (pci_driver->vendor_device.vendor_id == pci_device->vendor_id &&
+			pci_driver->vendor_device.device_id == pci_device->device_id) {
+			return true;
 		}
 	} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
-		if (pci_device->classcode == pci_driver->class_subclass.classcode &&
-			pci_device->subclass == pci_driver->class_subclass.subclass) {
-			pci_device->pci_driver = pci_driver;
-			DRV_RESULT_DELIVER_CALL(pci_set_driver, pci_driver, pci_device);
+		if (pci_driver->class_subclass.classcode == pci_device->classcode &&
+			pci_driver->class_subclass.subclass == pci_device->subclass) {
+			return true;
 		}
 	} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF) {
-		if (pci_device->classcode ==
-				pci_driver->class_subclass_progif.classcode &&
-			pci_device->subclass ==
-				pci_driver->class_subclass_progif.subclass &&
-			pci_device->prog_if == pci_driver->class_subclass_progif.progif) {
-			pci_device->pci_driver = pci_driver;
-			DRV_RESULT_DELIVER_CALL(pci_set_driver, pci_driver, pci_device);
+		if (pci_driver->class_subclass_progif.classcode ==
+				pci_device->classcode &&
+			pci_driver->class_subclass_progif.subclass ==
+				pci_device->subclass &&
+			pci_driver->class_subclass_progif.progif == pci_device->prog_if) {
+			return true;
 		}
 	}
-	return DRIVER_RESULT_OK;
+	return false;
 }
 
-DriverResult pci_register_driver(Driver *driver, PciDriver *pci_driver) {
-	int i;
-	for (i = 0; i < PCI_MAX_DEVICE; i++) {
-		pci_match(pci_driver, &pci_devices[i]);
+DriverResult pci_register_driver(Driver *driver, PciDriver *new_pci_driver) {
+	PciDriver *old_pci_driver;
+	list_for_each_owner (old_pci_driver, &pci_driver_lh, pci_driver_list) {
+		if (new_pci_driver->find_type == old_pci_driver->find_type) {
+			if (pci_match_driver(old_pci_driver, new_pci_driver)) {
+				return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+			}
+			break;
+		} else if (
+			new_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF &&
+			old_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
+			if (new_pci_driver->class_subclass_progif.classcode ==
+					old_pci_driver->class_subclass_progif.classcode &&
+				new_pci_driver->class_subclass_progif.subclass ==
+					old_pci_driver->class_subclass_progif.subclass &&
+				new_pci_driver->class_subclass_progif.progif ==
+					old_pci_driver->class_subclass_progif.progif) {
+				list_del(&old_pci_driver->pci_driver_list);
+				break;
+			}
+		} else if (
+			new_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS &&
+			old_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF) {
+			if (new_pci_driver->class_subclass.classcode ==
+					old_pci_driver->class_subclass.classcode &&
+				new_pci_driver->class_subclass.subclass ==
+					old_pci_driver->class_subclass.subclass) {
+				return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+			}
+		}
 	}
 
+	list_add_tail(&new_pci_driver->pci_driver_list, &pci_driver_lh);
 	return DRIVER_RESULT_OK;
 }
+
 DriverResult pci_device_init(Device *device) {
 	int i;
 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
@@ -552,13 +613,19 @@ DriverResult pci_device_init(Device *device) {
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult pci_probe(BusDriver *bus_driver) {
+DriverResult pci_probe(BusDriver *bus_driver, Bus *bus) {
 	PciDriver *pci_driver;
 	for (int i = 0; i < PCI_MAX_DEVICE; i++) {
-		if (pci_devices[i].status == PCI_DEVICE_STATUS_USING &&
-			pci_devices[i].pci_driver != NULL) {
-			pci_driver = pci_devices[i].pci_driver;
-			pci_driver->ops->probe(pci_driver, &pci_devices[i]);
+		if (pci_devices[i].status == PCI_DEVICE_STATUS_UNUSED) {
+			list_for_each_owner (pci_driver, &pci_driver_lh, pci_driver_list) {
+				if (pci_match_device(pci_driver, &pci_devices[i])) {
+					pci_devices[i].status	  = PCI_DEVICE_STATUS_USING;
+					pci_devices[i].pci_driver = pci_driver;
+					pci_devices[i].bus		  = bus;
+					pci_driver->pci_device	  = &pci_devices[i];
+					pci_driver->ops->probe(&pci_devices[i]);
+				}
+			}
 		}
 	}
 	return DRIVER_RESULT_OK;

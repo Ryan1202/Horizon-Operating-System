@@ -29,8 +29,8 @@
 
 #define BIN_EN(n, x)	 ((n) | x)
 #define BIN_DIS(n, x)	 ((n) & ~x)
-#define BIN_IS_DIS(n, x) (!BIN_EN(n, x))
-#define BIN_IS_EN(n, x)	 (!BIN_IS_DIS(n, x))
+#define BIN_IS_DIS(n, x) (!((n) & (x)))
+#define BIN_IS_EN(n, x)	 ((!BIN_IS_DIS(n, x)))
 
 #endif
 

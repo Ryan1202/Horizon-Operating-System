@@ -113,11 +113,11 @@ void scroll_screen(void) {
 
 	uint32_t *dst = (uint32_t *)console.vram;
 	uint32_t *src = (uint32_t *)(console.vram + 16 * screen_width * bpp);
-	for (j = 0; j < console.height; j++) {
+	for (j = 0; j < console.height - 1; j++) {
 		for (i = 0; i < screen_width * bpp * 16 / 4; i++) {
 			*dst = *src;
-			dst += 4;
-			src += 4;
+			dst += 1;
+			src += 1;
 		}
 	}
 	draw_rect(console.video_device, 0, screen_height - 16, screen_width, 16, 0);
@@ -272,6 +272,9 @@ int printk(const char *fmt, ...) {
 		if (console.cur_y >= console.height) {
 			print_char('\n', color);
 			if (console.cur_y < 0) { console.cur_y = 0; }
+			if (console.cur_y > console.height - 1) {
+				console.cur_y = console.height - 1;
+			}
 			if (console.flag == CMD_FLAG_INPUT) {
 				console.start_y = console.cur_y;
 			}

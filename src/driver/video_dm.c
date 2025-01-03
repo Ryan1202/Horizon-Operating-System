@@ -44,8 +44,8 @@ DriverResult video_dm_unload(DeviceManager *manager) {
 
 DriverResult register_video_device(
 	DeviceDriver *device_driver, Device *device, VideoDevice *video_device) {
-	device->driver_manager_extension = video_device;
-	if (device->driver_manager_extension == NULL) {
+	device->device_manager_extension = video_device;
+	if (device->device_manager_extension == NULL) {
 		return DRIVER_RESULT_OUT_OF_MEMORY;
 	}
 	video_device->device = device;
@@ -53,7 +53,7 @@ DriverResult register_video_device(
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, device_driver->bus, device);
 	list_init(&video_device->video_list_lh);
-	list_add_tail(&device->dm_list, &video_device_manager.device_driver_lh);
+	list_add_tail(&device->dm_list, &video_device_manager.device_lh);
 
 	return DRIVER_RESULT_OK;
 }
@@ -65,7 +65,7 @@ DriverResult unregister_video_devce(
 }
 
 DriverResult video_device_start(DeviceManager *manager, Device *device) {
-	VideoDevice *video_device = (VideoDevice *)device->driver_manager_extension;
+	VideoDevice *video_device = (VideoDevice *)device->device_manager_extension;
 
 	if (video_dm_ext.main_display_device == NULL) {
 		video_dm_ext.main_display_device = device;
@@ -92,15 +92,14 @@ DriverResult video_get_video_device(int in_index, VideoDevice **out_device) {
 	Device *device;
 	if (in_index == 0) {
 		*out_device =
-			video_dm_ext.main_display_device->driver_manager_extension;
+			video_dm_ext.main_display_device->device_manager_extension;
 		return DRIVER_RESULT_OK;
 	}
 	int i = 0;
-	list_for_each_owner (
-		device, &video_device_manager.device_driver_lh, dm_list) {
+	list_for_each_owner (device, &video_device_manager.device_lh, dm_list) {
 		if (device == video_dm_ext.main_display_device) { continue; }
 		if (i == in_index) {
-			*out_device = device->driver_manager_extension;
+			*out_device = device->device_manager_extension;
 			return DRIVER_RESULT_OK;
 		}
 		i++;

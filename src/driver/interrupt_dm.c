@@ -35,29 +35,29 @@ struct DeviceManager interrupt_device_manager = {
  */
 DriverResult check_intterupt_ops(InterruptDevice *interrupt_device) {
 	if (!interrupt_device->interrupt_ops) {
-		print_error(
+		print_error_with_position(
 			"%s has no operations\n", interrupt_device->device->name.text);
 		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->disable_irq) {
-		print_error(
+		print_error_with_position(
 			"%s has no disable_irq operation\n",
 			interrupt_device->device->name.text);
 		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->enable_irq) {
-		print_error(
+		print_error_with_position(
 			"%s has no enable_irq operation\n",
 			interrupt_device->device->name.text);
 		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->eoi) {
-		print_error(
+		print_error_with_position(
 			"%s has no eoi operation\n", interrupt_device->device->name.text);
 		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->redirect_irq) {
-		print_error(
+		print_error_with_position(
 			"%s has no redirect_irq operation\n",
 			interrupt_device->device->name.text);
 		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
@@ -73,7 +73,7 @@ DriverResult register_interrupt_device(
 
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, device_driver->bus, device);
-	list_add_tail(&device->dm_list, &interrupt_device_manager.device_driver_lh);
+	list_add_tail(&device->dm_list, &interrupt_device_manager.device_lh);
 
 	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
 	if (manager->current_device) {
@@ -105,13 +105,13 @@ DriverResult unregister_interrupt_device(
 		// 寻找替代的设备
 		InterruptDevice *new_interrupt_device;
 		list_for_each_owner (
-			cur, &interrupt_device_manager.device_driver_lh, device_list) {
+			cur, &interrupt_device_manager.device_lh, device_list) {
 			if (cur != device) {
 				if (new_interrupt_device == NULL) {
-					new_interrupt_device = cur->driver_manager_extension;
+					new_interrupt_device = cur->device_manager_extension;
 				} else {
 					InterruptDevice *cur_interrupt_device =
-						(InterruptDevice *)cur->driver_manager_extension;
+						(InterruptDevice *)cur->device_manager_extension;
 					if (cur_interrupt_device->priority >
 						new_interrupt_device->priority) {
 						new_interrupt_device = cur_interrupt_device;

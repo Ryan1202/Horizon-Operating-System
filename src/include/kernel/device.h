@@ -1,12 +1,16 @@
 #ifndef _DEVICE_H
 #define _DEVICE_H
 
+#include "driver/transfer.h"
 #include "kernel/driver.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
 #include "stdint.h"
 #include "string.h"
+#include "types.h"
 
+#define device_print_error(device, str, ...) \
+	print_error(device->name.text, str, ##__VA_ARGS__)
 // 调用后自动传递错误
 #define DEV_OPS_CALL(dm, func, ...)                               \
 	{                                                             \
@@ -49,6 +53,13 @@ typedef enum {
 
 struct DeviceDriver;
 
+typedef struct ChildDevice {
+	bool		   is_using;
+	uint32_t	   id;
+	struct Device *parent;
+	void		  *private_data;
+} ChildDevice;
+
 typedef struct Device {
 	list_t				 device_list;
 	list_t				 dm_list;
@@ -57,12 +68,16 @@ typedef struct Device {
 	struct DeviceDriver *device_driver;
 
 	DeviceIrq *irq;
-
+	Transfer  *transfer;
 	DeviceOps *ops;
+
+	uint32_t	 max_child_device;
+	ChildDevice *child_devices;
+	void	   **child_private_data;
 
 	void	*private_data;
 	uint32_t private_data_size;
-	void	*driver_manager_extension; // 设备管理器所需的扩展信息
+	void	*device_manager_extension; // 设备管理器所需的扩展信息
 } Device;
 
 struct Bus;
@@ -70,6 +85,8 @@ DriverResult register_device(
 	struct DeviceDriver *device_driver, struct Bus *bus, Device *device);
 DriverResult unregister_device(
 	struct DeviceDriver *device_driver, Device *device);
+DriverResult unregister_child_device(ChildDevice *child_device);
+DriverResult register_child_device(Device *device, int private_data_size);
 DriverResult init_device(Device *device);
 DriverResult init_and_start(Device *device);
 

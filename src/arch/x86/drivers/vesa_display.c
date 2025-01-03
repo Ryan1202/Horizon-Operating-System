@@ -76,7 +76,7 @@ DriverResult vesa_display_device_init(Device *device) {
 
 DriverResult vesa_display_device_start(Device *device) {
 	vesa_display_info.vram				   = (uint8_t *)VRAM_VIR_ADDR;
-	VideoDevice *video_device			   = device->driver_manager_extension;
+	VideoDevice *video_device			   = device->device_manager_extension;
 	video_device->mode_info.width		   = vesa_display_info.width;
 	video_device->mode_info.height		   = vesa_display_info.height;
 	video_device->mode_info.bits_per_pixel = vesa_display_info.BitsPerPixel;

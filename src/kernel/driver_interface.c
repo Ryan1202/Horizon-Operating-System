@@ -20,7 +20,7 @@ list_t device_irq_lists[16] = {
 
 DriverResult register_device_irq(DeviceIrq *dev_irq) {
 	if (dev_irq->irq > 16) {
-		print_error("invalid irq number:%d\n", dev_irq->irq);
+		print_error_with_position("invalid irq number:%d\n", dev_irq->irq);
 		return DRIVER_RESULT_INVALID_IRQ_NUMBER;
 	}
 	dev_irq->irq = interrupt_redirect_irq(dev_irq->irq);

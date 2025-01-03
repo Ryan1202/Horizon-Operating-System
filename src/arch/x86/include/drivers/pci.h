@@ -65,7 +65,8 @@
 	}
 
 #define PCI_DEVICE_STATUS_INVALID 0
-#define PCI_DEVICE_STATUS_USING	  1
+#define PCI_DEVICE_STATUS_UNUSED  1
+#define PCI_DEVICE_STATUS_USING	  2
 #define PCI_BAR_TYPE_INVALID	  0
 #define PCI_BAR_TYPE_MEM		  1
 #define PCI_BAR_TYPE_IO			  2
@@ -183,11 +184,12 @@ typedef struct PciDevice {
 
 typedef struct PciDriverOps {
 
-	DriverResult (*probe)(
-		struct PciDriver *pci_driver, struct PciDevice *pci_device);
-} PciDeviceOps;
+	DriverResult (*probe)(struct PciDevice *pci_device);
+} PciDriverOps;
 
 typedef struct PciDriver {
+	list_t pci_driver_list;
+
 	Driver		 *driver;
 	DeviceDriver *device_driver;
 
@@ -199,8 +201,8 @@ typedef struct PciDriver {
 
 	union {
 		struct {
-			uint16_t vendorID;
-			uint16_t deviceID;
+			uint16_t vendor_id;
+			uint16_t device_id;
 		} vendor_device;
 		struct {
 			uint8_t classcode;
@@ -214,25 +216,37 @@ typedef struct PciDriver {
 	};
 	PciDevice *pci_device;
 
-	PciDeviceOps *ops;
+	PciDriverOps *ops;
 } PciDriver;
 
-PciDevice *pci_alloc_device(void);
-int		   pci_free_device(PciDevice *dev);
-void	   fill_pci_device_info(
-		  PciDevice *dev, uint8_t bus, uint8_t device, uint8_t func,
-		  uint16_t vendorID, uint16_t deviceID, uint32_t classcode,
-		  uint8_t revisionID, uint8_t multifunction, uint8_t header_type,
-		  uint8_t bist, uint8_t latency_timer, uint8_t cache_line_size);
+extern list_t pci_driver_lh;
+extern Driver pci_driver;
+
+DriverResult pci_set_driver(PciDriver *pci_driver, PciDevice *pci_device);
+PciDevice	*pci_alloc_device(void);
+int			 pci_free_device(PciDevice *dev);
+void		 fill_pci_device_info(
+			PciDevice *dev, uint8_t bus, uint8_t device, uint8_t func,
+			uint16_t vendorID, uint16_t deviceID, uint32_t classcode,
+			uint8_t revisionID, uint8_t multifunction, uint8_t header_type,
+			uint8_t bist, uint8_t latency_timer, uint8_t cache_line_size);
 void		 get_pci_bar_info(PciDeviceBar *bar, uint32_t addr, uint32_t len);
 DriverResult pci_scan_device(
 	Bus *bus, uint8_t bus_num, uint8_t device_num, uint8_t function_num,
 	PciDevice **out_pci_device);
 
-uint32_t pci_device_get_mem_addr(PciDevice *pci_device);
-void	 pci_enable_mem_space(PciDevice *pci_device);
-void	 pci_enable_io_space(PciDevice *pci_device);
-void	 pci_enable_bus_mastering(PciDevice *pci_device);
-uint32_t pci_device_get_io_addr(PciDevice *pci_device);
+uint8_t	 pci_device_read8(PciDevice *device, uint8_t offset);
+uint16_t pci_device_read16(PciDevice *device, uint8_t offset);
+uint32_t pci_device_read32(PciDevice *device, uint8_t offset);
+void	 pci_device_write8(PciDevice *device, uint8_t offset, uint8_t value);
+void	 pci_device_write16(PciDevice *device, uint8_t offset, uint16_t value);
+void	 pci_device_write32(PciDevice *device, uint8_t offset, uint32_t value);
+
+DriverResult pci_register_driver(Driver *driver, PciDriver *new_pci_driver);
+uint32_t	 pci_device_get_mem_addr(PciDevice *pci_device);
+void		 pci_enable_mem_space(PciDevice *pci_device);
+void		 pci_enable_io_space(PciDevice *pci_device);
+void		 pci_enable_bus_mastering(PciDevice *pci_device);
+uint32_t	 pci_device_get_io_addr(PciDevice *pci_device);
 
 #endif

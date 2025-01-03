@@ -9,4 +9,6 @@
 #define true  1
 #define false 0
 
+#define offset_t uint64_t
+
 #endif /*_TYPES_H_*/

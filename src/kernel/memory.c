@@ -232,6 +232,7 @@ void *kmalloc(uint32_t size) {
 }
 
 int kfree(void *address) {
+	if (address == NULL) { return 0; }
 	int		 i;
 	uint32_t addr = (uint32_t)address;
 	for (i = 0; i < MEMORY_BLOCKS; i++) {

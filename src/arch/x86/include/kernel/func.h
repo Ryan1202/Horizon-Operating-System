@@ -26,16 +26,39 @@ void io_sti(void);
 void io_hlt(void);
 void io_stihlt(void);
 
-static inline void get_cpuid(unsigned int Mop, unsigned int Sop, unsigned int *a, unsigned int *b,
-							 unsigned int *c, unsigned int *d) {
-	__asm__ __volatile__("cpuid	\n\t" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "0"(Mop), "2"(Sop));
+static inline void get_cpuid(
+	unsigned int Mop, unsigned int Sop, unsigned int *a, unsigned int *b,
+	unsigned int *c, unsigned int *d) {
+	__asm__ __volatile__("cpuid	\n\t"
+						 : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d)
+						 : "0"(Mop), "2"(Sop));
 }
 
 static inline void ltr(unsigned short sel) {
 	__asm__ __volatile__("ltr %0" ::"r"(sel));
 }
+static inline void io_stream_in8(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        insb;\n\t \
+        mfence;" ::"d"(port),
+						 "D"(buffer), "c"(nr)
+						 : "memory");
+}
 
-static inline void port_insw(unsigned int port, unsigned int buffer, unsigned int nr) {
+static inline void io_stream_out8(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        outsb;\n\t \
+        mfence;\n\t" ::"d"(port),
+						 "S"(buffer), "c"(nr)
+						 : "memory");
+}
+
+static inline void io_stream_in16(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
 	__asm__ __volatile__("cld;\n\t \
         rep;\n\t \
         insw;\n\t \
@@ -44,10 +67,31 @@ static inline void port_insw(unsigned int port, unsigned int buffer, unsigned in
 						 : "memory");
 }
 
-static inline void port_outsw(unsigned int port, unsigned int buffer, unsigned int nr) {
+static inline void io_stream_out16(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
 	__asm__ __volatile__("cld;\n\t \
         rep;\n\t \
         outsw;\n\t \
+        mfence;\n\t" ::"d"(port),
+						 "S"(buffer), "c"(nr)
+						 : "memory");
+}
+
+static inline void io_stream_in32(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        insl;\n\t \
+        mfence;\n\t" ::"d"(port),
+						 "S"(buffer), "c"(nr)
+						 : "memory");
+}
+
+static inline void io_stream_out32(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        outsl;\n\t \
         mfence;\n\t" ::"d"(port),
 						 "S"(buffer), "c"(nr)
 						 : "memory");

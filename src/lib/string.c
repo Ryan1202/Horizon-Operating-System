@@ -30,6 +30,7 @@ void string_init(string_t *string) {
  */
 int string_new(string_t *string, char *text, unsigned int max_len) {
 	if (string == NULL || text == NULL || max_len < 1) { return -1; }
+	max_len += 1;
 	string->text = kmalloc(max_len);
 
 	if (string->text == NULL) { return -1; }

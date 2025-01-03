@@ -38,6 +38,7 @@ typedef struct BusOps {
 	DriverResult (*unregister_device_hook)(struct DeviceDriver *device_driver);
 
 	DriverResult (*scan_bus)(struct BusDriver *bus_driver, struct Bus *bus);
+	DriverResult (*probe_device)(struct BusDriver *bus_driver, struct Bus *bus);
 } BusOps;
 
 typedef struct BusDriver {

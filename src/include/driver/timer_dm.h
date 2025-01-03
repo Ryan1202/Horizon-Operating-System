@@ -46,7 +46,12 @@ typedef struct Timer {
 
 	TimerDevice *timer_device;
 	uint32_t	 timeout;
+	uint32_t	 period;
 } Timer;
+
+typedef struct TimerDeviceManager {
+	Device *scheduler_timer;
+} TimerDeviceManager;
 
 extern struct DeviceManager timer_device_manager;
 
@@ -59,5 +64,6 @@ DriverResult timer_set_frequency(Device *device, uint32_t frequency);
 void		 delay_ms(Timer *timer, uint32_t ms);
 void		 delay_ms_async(Timer *timer, uint32_t ms);
 bool		 timer_is_timeout(Timer *timer);
+DriverResult timer_set_timeout(Timer *timer, uint32_t count);
 
 #endif

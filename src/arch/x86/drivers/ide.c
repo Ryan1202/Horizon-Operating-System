@@ -323,7 +323,7 @@ int ide_read_identity_info(
 		return -1;
 	}
 	printk("\n");
-	port_insw(
+	io_stream_in16(
 		ATA_REG_DATA(devext->channel), (unsigned int)devext->info,
 		sizeof(struct ide_identify_info));
 	return 0;
@@ -343,7 +343,7 @@ static status_t ide_enter(driver_t *drv_obj) {
 	// 	if (device->prog_if & 0x02) {
 	// 		pci_write8(device->bus, device->dev, device->function,
 	// PCI_REG_PROGIF, device->prog_if | 0x01); 		device->prog_if =
-	// pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF); 	}
+	// pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF); }
 	// else { 		return UNSUPPORT;
 	// 	}
 	// }
@@ -351,7 +351,7 @@ static status_t ide_enter(driver_t *drv_obj) {
 	// 	if (device->prog_if & 0x08) {
 	// 		pci_write8(device->bus, device->dev, device->function,
 	// PCI_REG_PROGIF, device->prog_if | 0x04); 		device->prog_if =
-	// pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF); 	}
+	// pci_read8(device->bus, device->dev, device->function, PCI_REG_PROGIF); }
 	// else { 		return UNSUPPORT;
 	// 	}
 	// }
@@ -651,7 +651,8 @@ int PioDataTransfer(
 				ide_reset_driver(devext->channel);
 				return error;
 			}
-			port_insw(ATA_REG_DATA(devext->channel), (unsigned int)buf, 256);
+			io_stream_in16(
+				ATA_REG_DATA(devext->channel), (unsigned int)buf, 256);
 			buf += SECTOR_SIZE;
 		}
 	} else {
@@ -663,7 +664,8 @@ int PioDataTransfer(
 				return error;
 			}
 			/* 把数据写入端口，完成1个扇区后会产生一次中断 */
-			port_outsw(ATA_REG_DATA(devext->channel), (unsigned int)buf, 256);
+			io_stream_out16(
+				ATA_REG_DATA(devext->channel), (unsigned int)buf, 256);
 			buf += SECTOR_SIZE;
 			// printk("write success! ");
 		}

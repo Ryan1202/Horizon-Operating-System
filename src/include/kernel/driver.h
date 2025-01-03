@@ -126,6 +126,7 @@ typedef enum DriverResult {
 	DRIVER_RESULT_DEVICE_DRIVER_CONFLICT,
 	DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS,
 	DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS,
+	DRIVER_RESULT_NO_VALID_CHILD_DEVICE,
 	DRIVER_RESULT_INVALID_IRQ_NUMBER,
 	DRIVER_RESULT_OUT_OF_MEMORY,
 	DRIVER_RESULT_NULL_POINTER,
@@ -160,8 +161,8 @@ typedef struct Driver {
 
 	DriverState state;
 
-	int						  dependency_count;
-	struct DriverDenpendency *dependencies;
+	int						 dependency_count;
+	struct DriverDependency *dependencies;
 
 	DriverResult (*init)(struct Driver *driver);
 } Driver;

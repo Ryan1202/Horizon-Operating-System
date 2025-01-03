@@ -6,6 +6,7 @@
  * @date 2022-07-20
  */
 #include "kernel/spinlock.h"
+#include "kernel/wait_queue.h"
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/bus_driver.h>
@@ -62,6 +63,7 @@ void print_driver_result(
 		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_CONFLICT)
 		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS)
 		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS)
+		RESULT_CASE_PRINT(DRIVER_RESULT_NO_VALID_CHILD_DEVICE)
 		RESULT_CASE_PRINT(DRIVER_RESULT_INVALID_IRQ_NUMBER)
 		RESULT_CASE_PRINT(DRIVER_RESULT_OUT_OF_MEMORY)
 		RESULT_CASE_PRINT(DRIVER_RESULT_BUS_DRIVER_ALREADY_EXIST)
@@ -95,6 +97,7 @@ DriverResult register_sub_driver(
 	sub_driver->state  = SUBDRIVER_STATE_UNREADY;
 	sub_driver->type   = type;
 
+	wait_queue_init(&sub_driver->wqm);
 	list_add(&sub_driver->sub_driver_list, &driver->sub_driver_lh);
 
 	return DRIVER_RESULT_OK;
@@ -113,7 +116,7 @@ DriverResult driver_init(Driver *driver) {
 		if (result != DRIVER_RESULT_OK) {
 			driver->state = DRIVER_STATE_UNREGISTERED;
 			unregister_driver(driver);
-			print_error(
+			print_error_with_position(
 				"driver_init: driver %s init failed!\n", driver->name.text);
 			return result;
 		}
@@ -146,8 +149,12 @@ void sub_driver_start_thread(void *arg) {
 				   SUBDRIVER_STATE_READY) {
 				schedule();
 			}
+			wait_queue_wakeup_all(&bus_driver->subdriver.wqm);
 			if (bus->ops->scan_bus != NULL) {
 				bus->ops->scan_bus(bus_driver, bus);
+			}
+			if (bus->ops->probe_device != NULL) {
+				bus->ops->probe_device(bus_driver, bus);
 			}
 		}
 	}
