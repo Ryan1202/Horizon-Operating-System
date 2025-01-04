@@ -12,6 +12,7 @@ typedef struct StorageRequest {
 	list_t	 list;
 	bool	 rw;
 	uint8_t *buf;
+	uint8_t *dma_buf;
 	uint32_t offset;
 	uint64_t position;
 	uint32_t count;
