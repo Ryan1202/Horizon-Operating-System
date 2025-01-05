@@ -58,7 +58,7 @@ extern struct DeviceDriver			 ide_controller_device_driver;
 extern struct BusControllerDeviceOps ide_bus_controller_device_ops;
 
 int	 ide_wait(IdeChannel *channel);
-void ide_print_error(IdeChannel *channel, char *source);
+void ide_print_error(IdeChannel *channel);
 void ide_reset_drive(IdeChannel *channel);
 void ide_select_device(IdeChannel *channel, int device_num);
 

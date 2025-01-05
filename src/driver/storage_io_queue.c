@@ -1,7 +1,6 @@
 #include <driver/storage_dm.h>
 #include <driver/storage_io_queue.h>
 #include <kernel/list.h>
-#include <stdint.h>
 
 void storage_add_request(
 	StorageDevice *storage_device, StorageRequest *request) {

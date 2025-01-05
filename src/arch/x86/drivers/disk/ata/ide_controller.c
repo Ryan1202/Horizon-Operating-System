@@ -142,34 +142,32 @@ DriverResult ide_controller_init(Device *device) {
 	return DRIVER_RESULT_OK;
 }
 
-void ide_print_error(IdeChannel *channel, char *source) {
+void ide_print_error(IdeChannel *channel) {
 	int status = io_in_byte(channel->io_base + ATA_REG_STATUS);
 	if (status & ATA_STATUS_DF) {
-		print_error(source, "Device Fault!\n");
+		print_error("IDE", "Device Fault!\n");
 	} else if (status & ATA_STATUS_ERR) {
 		int err = io_in_byte(channel->io_base + ATA_REG_ERROR);
 		if (err & ATA_ERROR_AMNF) {
-			print_error(source, "No Address Mark Found\n");
+			print_error("IDE", "No Address Mark Found\n");
 		}
 		if (err & ATA_ERROR_TK0NF) {
-			print_error(source, "No Media or Media Mark Found\n");
+			print_error("IDE", "No Media or Media Mark Found\n");
 		}
-		if (err & ATA_ERROR_ABRT) { print_error(source, "Command Aborted\n"); }
+		if (err & ATA_ERROR_ABRT) { print_error("IDE", "Command Aborted\n"); }
 		if (err & ATA_ERROR_MCR) {
-			print_error(source, "No Media or Media Error\n");
+			print_error("IDE", "No Media or Media Error\n");
 		}
-		if (err & ATA_ERROR_IDNF) {
-			print_error(source, "ID mark not Found\n");
-		}
+		if (err & ATA_ERROR_IDNF) { print_error("IDE", "ID mark not Found\n"); }
 		if (err & ATA_ERROR_MC) {
-			print_error(source, "No Media or Media Error\n");
+			print_error("IDE", "No Media or Media Error\n");
 		}
 		if (err & ATA_ERROR_UNC) {
-			print_error(source, "Uncorrectable Data Error\n");
+			print_error("IDE", "Uncorrectable Data Error\n");
 		}
-		if (err & ATA_ERROR_BBK) { print_error(source, "Bad Sectors\n"); }
+		if (err & ATA_ERROR_BBK) { print_error("IDE", "Bad Sectors\n"); }
 	} else if (status & ATA_STATUS_DRQ) {
-		print_error(source, "Reads Nothing\n");
+		print_error("IDE", "Reads Nothing\n");
 	}
 }
 

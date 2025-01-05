@@ -57,27 +57,25 @@ Transfer ide_transfer = {
 	.type_out = TRANSFER_TYPE_BLOCK,
 };
 
-void ide_channel0_handler(Device *device) {
-	IdeChannel *ide_channel = device->child_private_data[0];
-
-	int status = io_in_byte(ide_channel->io_base + ATA_REG_ALTSTATUS);
+void ide_handle_interrupt(IdeChannel *channel) {
+	int status = io_in_byte(channel->io_base + ATA_REG_ALTSTATUS);
 	if (BIN_IS_EN(status, ATA_STATUS_ERR)) {
 		print_error("IDE", "IDE device error!");
+		ide_print_error(channel);
 	}
 
-	IdeDevice *ide_device =
-		ide_channel->ide_devices[ide_channel->selected_device];
-	StorageRequest *request		= ide_device->current_request;
+	IdeDevice	   *ide_device = channel->ide_devices[channel->selected_device];
+	StorageRequest *request	   = ide_device->current_request;
 	ide_device->current_request = NULL;
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
-		uint8_t data = io_in_byte(ide_channel->bmide + IDE_REG_BM_STATUS);
+		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
 		io_out_byte(
-			ide_channel->bmide + IDE_REG_BM_STATUS,
+			channel->bmide + IDE_REG_BM_STATUS,
 			BIN_EN(data, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR));
 
-		data = io_in_byte(ide_channel->bmide + IDE_REG_BM_COMMAND);
+		data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
 		io_out_byte(
-			ide_channel->bmide + IDE_REG_BM_COMMAND,
+			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
 		if (request->rw == 0 && request->dma_buf != request->buf) {
@@ -87,7 +85,16 @@ void ide_channel0_handler(Device *device) {
 	}
 	storage_finish_request(request);
 }
+
+void ide_channel0_handler(Device *device) {
+	IdeChannel *ide_channel = device->child_private_data[0];
+
+	ide_handle_interrupt(ide_channel);
+}
 void ide_channel1_handler(Device *device) {
+	IdeChannel *ide_channel = device->child_private_data[1];
+
+	ide_handle_interrupt(ide_channel);
 }
 
 void ide_sync(IdeChannel *channel) {
