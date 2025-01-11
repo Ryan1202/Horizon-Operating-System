@@ -2,11 +2,24 @@
 #include <driver/storage_io_queue.h>
 #include <kernel/list.h>
 
+bool storage_try_merge_request(
+	StorageRequest *new_request, StorageRequest *request) {
+	if (new_request->rw == request->rw) {
+		if (new_request->position + new_request->count >= request->position &&
+			new_request->position <= request->position + request->count) {
+			new_request->count += request->count;
+			return true;
+		}
+	}
+	return false;
+}
+
 void storage_add_request(
 	StorageDevice *storage_device, StorageRequest *request) {
 	StorageRequest *req;
 	request->storage_device = storage_device;
 	list_for_each_owner (req, &storage_device->io_queue_lh, list) {
+		if (storage_try_merge_request(request, req)) { return; }
 		if (req->position > request->position) {
 			list_add_before(&request->list, &req->list);
 			return;

@@ -8,8 +8,7 @@
 
 typedef enum StorageDeviceType {
 	STORAGE_DEVICE_TYPE_UNKNOWN,
-	STORAGE_DEVICE_TYPE_ATA,
-	STORAGE_DEVICE_TYPE_SCSI,
+	STORAGE_DEVICE_TYPE_HARDDISK,
 } StorageDeviceType;
 
 struct StorageDevice;

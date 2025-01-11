@@ -171,7 +171,7 @@ void ide_device_probe(IdeChannel *channel) {
 		string_new(&device->name, "IDE HardDisk", 13);
 
 		StorageDevice *storage_device = kmalloc(sizeof(StorageDevice));
-		storage_device->type		  = STORAGE_DEVICE_TYPE_ATA;
+		storage_device->type		  = STORAGE_DEVICE_TYPE_HARDDISK;
 		storage_device->ops			  = &ide_storage_device_ops;
 
 		register_storage_device(&ide_device_driver, device, storage_device);
