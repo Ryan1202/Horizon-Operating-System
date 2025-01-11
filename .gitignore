@@ -54,7 +54,7 @@ dkms.conf
 compile_commands.json
 
 # Others
-disk/
+/disk/
 tools/bin/
 tools/imagetool/target/
 core
