@@ -78,10 +78,8 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
-		if (request->rw == 0 && request->dma_buf != request->buf) {
-			memcpy(request->buf, request->dma_buf, request->count * 512);
-		}
-		kfree(request->dma_buf);
+		if (request->rw == 0) { storage_solve_read_request(request); }
+		kfree(request->real_buf);
 	}
 	storage_finish_request(request);
 }
@@ -173,6 +171,7 @@ void ide_device_probe(IdeChannel *channel) {
 		StorageDevice *storage_device = kmalloc(sizeof(StorageDevice));
 		storage_device->type		  = STORAGE_DEVICE_TYPE_HARDDISK;
 		storage_device->ops			  = &ide_storage_device_ops;
+		storage_device->block_size	  = 512;
 
 		register_storage_device(&ide_device_driver, device, storage_device);
 
@@ -275,13 +274,13 @@ void ide_device_set_dma(IdeDevice *device, StorageRequest *request) {
 	PhysicalRegionDescriptorTable *prdt = channel->prdt;
 
 	uint8_t *buffer;
-	buffer			 = (uint32_t)request->buf & 3
-						 ? kmalloc(request->count * 512) // 未对齐则另外分配
-						 : request->buf; // 传入的缓冲区已对齐则直接使用
-	request->dma_buf = buffer;
-	prdt->base_addr	 = vir2phy((uint32_t)buffer);
-	prdt->count		 = request->count * 512;
-	prdt->sign		 = BIT(15);
+	buffer			  = (uint32_t)request->buf & 3
+						  ? kmalloc(request->count * 512) // 未对齐则另外分配
+						  : request->buf; // 传入的缓冲区已对齐则直接使用
+	request->real_buf = buffer;
+	prdt->base_addr	  = vir2phy((uint32_t)buffer);
+	prdt->count		  = request->count * 512;
+	prdt->sign		  = BIT(15);
 
 	io_out_dword(channel->bmide + IDE_REG_BM_PRDT, vir2phy((uint32_t)prdt));
 
@@ -318,6 +317,8 @@ DriverResult ide_device_read_sectors(
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
 		ide_device_set_dma(ide_device, request);
 	}
+	request->real_buf =
+		(request->real_buf == NULL) ? request->buf : request->real_buf;
 
 	ide_select_device(channel, ide_device->device_num);
 	ide_wait(channel);
@@ -370,9 +371,7 @@ DriverResult ide_device_write_sectors(
 
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
 		ide_device_set_dma(ide_device, request);
-		if (request->dma_buf != request->buf) {
-			memcpy(request->dma_buf, request->buf, request->count * 512);
-		}
+		storage_solve_write_request(request);
 	}
 
 	ide_select_device(channel, ide_device->device_num);

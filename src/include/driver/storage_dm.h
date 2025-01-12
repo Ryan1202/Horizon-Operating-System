@@ -5,6 +5,7 @@
 #include "kernel/device_manager.h"
 #include "kernel/driver.h"
 #include "kernel/periodic_task.h"
+#include <stdint.h>
 
 typedef enum StorageDeviceType {
 	STORAGE_DEVICE_TYPE_UNKNOWN,
@@ -25,6 +26,8 @@ typedef struct StorageDevice {
 	Device			 *device;
 	StorageDeviceType type;
 	StorageDeviceOps *ops;
+
+	uint32_t block_size;
 
 	PeriodicTask periodic_task;
 	list_t		 io_queue_lh;

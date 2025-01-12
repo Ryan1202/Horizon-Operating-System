@@ -5,6 +5,7 @@
  * @version 0.1
  * @date 2021-06
  */
+#include <driver/timer_dm.h>
 #include <drivers/acpi.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>
@@ -80,6 +81,9 @@ uint32_t acpi_find_table(device_extension_t *devext, char *Signature) {
 static status_t acpi_enter(driver_t *drv_obj) {
 	device_t		   *devobj;
 	device_extension_t *devext;
+	Timer				timer;
+
+	timer_init(&timer);
 
 	device_create(
 		drv_obj, sizeof(device_extension_t), DEV_NAME, DEV_MANAGER, &devobj);
@@ -109,14 +113,12 @@ static status_t acpi_enter(driver_t *drv_obj) {
 			int i;
 			for (i = 0; i < 300; i++) {
 				if (io_in16(devext->FADT->PM1aControlBlock) & 1) break;
-				// TODO: Delay
-				// delay(1);
+				delay_ms(&timer, 1);
 			}
 			if (devext->FADT->PM1bControlBlock) {
 				for (; i < 300; i++) {
 					if (io_in16(devext->FADT->PM1bControlBlock) & 1) break;
-					// TODO: Delay
-					// delay(1);
+					delay_ms(&timer, 1);
 				}
 			}
 		}

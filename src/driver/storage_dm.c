@@ -12,14 +12,15 @@
 #include <math.h>
 #include <result.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <types.h>
 
 extern void storage_periodic_task(void *arg);
 
 DriverResult storage_device_block_read(
-	Device *device, uint8_t *buf, offset_t offset, size_t size);
+	Device *device, uint8_t *buf, uint32_t position, size_t count);
 DriverResult storage_device_block_write(
-	Device *device, uint8_t *buf, offset_t offset, size_t size);
+	Device *device, uint8_t *buf, uint32_t position, size_t count);
 
 DeviceManagerOps storage_dm_ops = {
 	.dm_load_hook	= NULL,
@@ -74,31 +75,35 @@ DriverResult unregister_storage_device(
 }
 
 DriverResult storage_device_block_read(
-	Device *device, uint8_t *buf, offset_t offset, size_t size) {
+	Device *device, uint8_t *buf, uint32_t position, size_t count) {
+	StorageDevice *storage_device = device->device_manager_extension;
 
 	StorageRequest *request = kmalloc(sizeof(StorageRequest));
 	request->rw				= false;
 	request->buf			= buf;
-	request->offset			= offset % 512;
-	request->position		= offset / 512;
-	request->count = DIV_ROUND_UP(offset + size, 512) - request->position;
+	request->position		= position;
+	request->count =
+		DIV_ROUND_UP(position + count, storage_device->block_size) -
+		request->position;
 
-	storage_add_request(device->device_manager_extension, request);
+	storage_add_request(storage_device, request);
 
 	return DRIVER_RESULT_OK;
 }
 
 DriverResult storage_device_block_write(
-	Device *device, uint8_t *buf, offset_t offset, size_t size) {
+	Device *device, uint8_t *buf, uint32_t position, size_t count) {
+	StorageDevice *storage_device = device->device_manager_extension;
 
 	StorageRequest *request = kmalloc(sizeof(StorageRequest));
 	request->rw				= true;
 	request->buf			= buf;
-	request->offset			= offset % 512;
-	request->position		= offset / 512;
-	request->count = DIV_ROUND_UP(offset + size, 512) - request->position;
+	request->position		= position;
+	request->count =
+		DIV_ROUND_UP(position + count, storage_device->block_size) -
+		request->position;
 
-	storage_add_request(device->device_manager_extension, request);
+	storage_add_request(storage_device, request);
 
 	return DRIVER_RESULT_OK;
 }

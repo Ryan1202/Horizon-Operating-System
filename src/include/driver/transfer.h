@@ -3,13 +3,12 @@
 
 #include "kernel/driver.h"
 #include "stdint.h"
-#include "types.h"
 
 struct Device;
 typedef DriverResult (*BlockTransferIn)(
-	struct Device *device, uint8_t *buf, offset_t offset, size_t size);
+	struct Device *device, uint8_t *buf, uint32_t position, size_t count);
 typedef DriverResult (*BlockTransferOut)(
-	struct Device *device, uint8_t *buf, offset_t offset, size_t size);
+	struct Device *device, uint8_t *buf, uint32_t position, size_t count);
 
 typedef DriverResult (*StreamTransferIn)(
 	struct Device *device, uint8_t *buf, size_t size);
