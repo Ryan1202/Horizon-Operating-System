@@ -68,4 +68,11 @@ DriverResult	  driver_remap_memory(
 		 Driver *in_driver, uint32_t in_physical_address, uint32_t in_size,
 		 uint32_t *out_virtual_address);
 
+#define kmalloc_from_template(template)            \
+	({                                             \
+		void *data = kmalloc(sizeof(template));    \
+		memcpy(data, &template, sizeof(template)); \
+		data;                                      \
+	})
+
 #endif

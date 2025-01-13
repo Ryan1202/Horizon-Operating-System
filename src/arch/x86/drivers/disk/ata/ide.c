@@ -57,6 +57,20 @@ Transfer ide_transfer = {
 	.type_out = TRANSFER_TYPE_BLOCK,
 };
 
+Device ide_device_template = {
+	.name			   = STRING_INIT("IDE Harddisk"),
+	.transfer		   = &ide_transfer,
+	.state			   = DEVICE_STATE_UNREGISTERED,
+	.device_driver	   = &ide_device_driver,
+	.ops			   = &ide_device_ops,
+	.private_data_size = sizeof(IdeDevice),
+};
+StorageDevice storage_device_template = {
+	.block_size = 512,
+	.type		= STORAGE_DEVICE_TYPE_HARDDISK,
+	.ops		= &ide_storage_device_ops,
+};
+
 void ide_handle_interrupt(IdeChannel *channel) {
 	int status = io_in_byte(channel->io_base + ATA_REG_ALTSTATUS);
 	if (BIN_IS_EN(status, ATA_STATUS_ERR)) {
@@ -160,18 +174,9 @@ void ide_device_probe(IdeChannel *channel) {
 			sizeof(AtaIdentifyInfo) / 2);
 
 		// 6.注册设备
-		Device *device			  = kmalloc(sizeof(Device));
-		device->ops				  = &ide_device_ops;
-		device->state			  = DEVICE_STATE_UNREGISTERED;
-		device->device_driver	  = &ide_device_driver;
-		device->private_data_size = sizeof(IdeDevice);
-		device->transfer		  = &ide_transfer;
-		string_new(&device->name, "IDE HardDisk", 13);
-
-		StorageDevice *storage_device = kmalloc(sizeof(StorageDevice));
-		storage_device->type		  = STORAGE_DEVICE_TYPE_HARDDISK;
-		storage_device->ops			  = &ide_storage_device_ops;
-		storage_device->block_size	  = 512;
+		Device		  *device = kmalloc_from_template(ide_device_template);
+		StorageDevice *storage_device =
+			kmalloc_from_template(storage_device_template);
 
 		register_storage_device(&ide_device_driver, device, storage_device);
 
