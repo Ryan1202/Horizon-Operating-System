@@ -5,10 +5,21 @@
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
+#include <objects/object.h>
 #include <result.h>
+#include <string.h>
 
+/**
+ * @brief 注册设备
+ *
+ * @param device_driver
+ * @param name 无空格的设备名，如未提供则不会被添加到对象树中
+ * @param bus
+ * @param device
+ * @return DriverResult
+ */
 DriverResult register_device(
-	DeviceDriver *device_driver, Bus *bus, Device *device) {
+	DeviceDriver *device_driver, string_t *name, Bus *bus, Device *device) {
 
 	device->state = DEVICE_STATE_REGISTERED;
 
@@ -28,6 +39,13 @@ DriverResult register_device(
 	list_add_tail(&device->device_list, &device_driver->device_lh);
 
 	bus_register_device(device_driver, bus);
+
+	if (name != NULL && name->text != NULL && name->length != 0) {
+		Object *object =
+			create_object(&device_object, name, OBJECT_TYPE_DEVICE);
+		object->value.device = device;
+	}
+
 	return DRIVER_RESULT_OK;
 }
 

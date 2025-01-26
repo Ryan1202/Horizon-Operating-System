@@ -36,10 +36,13 @@ BusDriver platform_bus_driver = {
 	.ops			   = &platform_ops,
 };
 
-void init_platform() {
+// 完成一些平台必要的准备工作
+void platform_early_init() {
+	// 初始化段描述符和中断描述符
 	init_descriptor();
-	init_memory();
+}
 
+void platform_init() {
 	// 因为platform_bus是虚拟的，所以不需要注册device
 	register_bus_driver(&platform_driver, &platform_bus_driver);
 	list_init(&platform_bus_driver.bus_lh);
@@ -53,7 +56,7 @@ void init_platform() {
 	register_pit();
 }
 
-void platform_init_and_start_devices() {
+void platform_start_devices() {
 	init_and_start(&vesa_display_device);
 	init_console();
 	print_features();

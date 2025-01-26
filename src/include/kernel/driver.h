@@ -152,9 +152,9 @@ typedef enum {
 	SUBDRIVER_STATE_READY,		  // 子驱动准备好
 } SubDriverState;
 
-// 实体的驱动，管理着一个驱动下的所有类型的抽象驱动
+// 描述驱动程序的结构，管理着一个驱动下的所有类型的抽象驱动
 typedef struct Driver {
-	string_t name;
+	string_t short_name;
 	list_t	 driver_list;
 	list_t	 sub_driver_lh;
 	list_t	 remapped_memory_lh;
@@ -187,8 +187,11 @@ DriverResult register_sub_driver(
 DriverResult unregister_sub_driver(Driver *driver, SubDriver *sub_driver);
 DriverResult driver_init(Driver *driver);
 DriverResult driver_start_all(void);
+void		 add_driver_objects(void);
 void		 print_driver_result(
 			DriverResult result, char *file, int line, char *func_with_args);
+
+extern struct Object driver_object;
 
 #define DRV_PRINT_RESULT(result, func, ...) \
 	print_driver_result(result, __FILE__, __LINE__, #func "(" #__VA_ARGS__ ")");

@@ -57,6 +57,8 @@ TimerResult	 apic_timer_set_frequency(
 	 TimerDevice *timer_device, uint32_t frequency);
 void apic_timer_irq_handler(Device *device);
 
+extern Driver core_driver;
+
 typedef struct ApicInfo {
 	enum {
 		APIC_TYPE_XAPIC,
@@ -114,8 +116,6 @@ DeviceOps apic_timer_device_ops = {
 TimerOps apic_timer_ops = {
 	.set_frequency = apic_timer_set_frequency,
 };
-
-Driver apic_driver = {.name = STRING_INIT("APIC")};
 
 DeviceDriver apic_device_driver = {
 	.name	  = STRING_INIT("APIC"),
@@ -176,10 +176,8 @@ void io_apic_write(uint32_t reg, uint32_t data) {
 }
 
 void register_apic(void) {
-	register_driver(&apic_driver);
-	driver_init(&apic_driver);
-	register_device_driver(&apic_driver, &apic_device_driver);
-	register_device_driver(&apic_driver, &apic_timer_device_driver);
+	register_device_driver(&core_driver, &apic_device_driver);
+	register_device_driver(&core_driver, &apic_timer_device_driver);
 	register_interrupt_device(
 		&apic_device_driver, &apic_device, &apic_interrupt_device);
 	register_timer_device(
@@ -197,10 +195,10 @@ void x2apic_init(struct DeviceDriver *driver) {
 
 	uint32_t tmp;
 	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff, &tmp);
+		driver_remap_memory, &core_driver, apic_info.apic_base, 0x3ff, &tmp);
 	apic_info.lapic_mmio = (uint32_t *)tmp;
 	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00, &tmp);
+		driver_remap_memory, &core_driver, 0xfec00000, 0xfff00, &tmp);
 	apic_info.ioapic = (struct ioapic *)tmp;
 
 	read_msr(X2APIC_ID_MSR, &apic_info.apic_id, &apic_info.apic_id_high);
@@ -213,10 +211,10 @@ void xapic_init(struct DeviceDriver *driver) {
 	apic_info.apic_base = 0xfee00000;
 
 	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &apic_driver, apic_info.apic_base, 0x3ff,
+		driver_remap_memory, &core_driver, apic_info.apic_base, 0x3ff,
 		(uint32_t *)&apic_info.lapic_mmio);
 	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &apic_driver, 0xfec00000, 0xfff00,
+		driver_remap_memory, &core_driver, 0xfec00000, 0xfff00,
 		(uint32_t *)&apic_info.ioapic);
 
 	apic_info.apic_id		= lapic_read(APIC_ID) >> 24;

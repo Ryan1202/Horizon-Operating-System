@@ -32,6 +32,8 @@ DriverResult pit_start(Device *device);
 DriverResult pit_stop(Device *device);
 void		 pit_irq_handler(Device *device);
 
+extern Driver core_driver;
+
 DeviceDriverOps pit_driver_ops = {
 	.register_driver_hook	= NULL,
 	.unregister_driver_hook = NULL,
@@ -52,7 +54,6 @@ DeviceIrq pit_irq = {
 	.handler = pit_irq_handler,
 };
 
-Driver		 pit_driver;
 DeviceDriver pit_device_driver = {
 	.name	  = STRING_INIT("PIT"),
 	.bus	  = &platform_bus,
@@ -62,6 +63,7 @@ DeviceDriver pit_device_driver = {
 	.ops	  = &pit_driver_ops,
 };
 Device pit_device = {
+	.name			   = STRING_INIT("PIT"),
 	.device_driver	   = &pit_device_driver,
 	.ops			   = &pit_device_ops,
 	.irq			   = &pit_irq,
@@ -78,9 +80,7 @@ TimerDevice pit_timer_device = {
 };
 
 void register_pit() {
-	register_driver(&pit_driver);
-	driver_init(&pit_driver);
-	register_device_driver(&pit_driver, &pit_device_driver);
+	register_device_driver(&core_driver, &pit_device_driver);
 	register_timer_device(&pit_device_driver, &pit_device, &pit_timer_device);
 }
 

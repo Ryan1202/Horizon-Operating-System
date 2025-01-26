@@ -23,7 +23,7 @@ DriverDependency ata_dependencies[] = {
 };
 
 Driver ata_driver = {
-	.name			  = STRING_INIT("ATA Driver"),
+	.short_name		  = STRING_INIT("AtaDriver"),
 	.dependency_count = sizeof(ata_dependencies) / sizeof(DriverDependency),
 	.dependencies	  = ata_dependencies,
 };

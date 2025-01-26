@@ -8,9 +8,10 @@
 
 #define DIV_ROUND_UP(X, STEP) ((X + STEP - 1) / (STEP))
 
-int min(int a, int b);
-int max(int a, int b);
-int abs(int n);
-int pow(int x, int y);
+int			 min(int a, int b);
+int			 max(int a, int b);
+int			 abs(int n);
+int			 pow(int x, int y);
+unsigned int find_next_pow_of_2(unsigned int n);
 
 #endif

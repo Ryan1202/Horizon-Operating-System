@@ -82,7 +82,8 @@ typedef struct Device {
 
 struct Bus;
 DriverResult register_device(
-	struct DeviceDriver *device_driver, struct Bus *bus, Device *device);
+	struct DeviceDriver *device_driver, string_t *name, struct Bus *bus,
+	Device *device);
 DriverResult unregister_device(
 	struct DeviceDriver *device_driver, Device *device);
 DriverResult unregister_child_device(ChildDevice *child_device);

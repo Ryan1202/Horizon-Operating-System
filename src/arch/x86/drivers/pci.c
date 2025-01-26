@@ -68,13 +68,13 @@ DriverDependency pci_dependencies[] = {
 	 },
 };
 Driver pci_driver = {
-	.name			  = STRING_INIT("pci driver"),
+	.short_name		  = STRING_INIT("PciDriver"),
 	.dependency_count = sizeof(pci_dependencies) / sizeof(DriverDependency),
 	.dependencies	  = pci_dependencies,
 	.init			  = pci_driver_init,
 };
 DeviceDriver pci_device_driver = {
-	.name			   = STRING_INIT("pci device driver"),
+	.name			   = STRING_INIT("PCI Device Driver"),
 	.bus			   = NULL,
 	.type			   = DEVICE_TYPE_BUS_CONTROLLER,
 	.state			   = DRIVER_STATE_UNREGISTERED,
@@ -82,13 +82,13 @@ DeviceDriver pci_device_driver = {
 	.ops			   = &pci_driver_ops,
 };
 Device pci_device = {
-	.name			   = STRING_INIT("pci controller"),
+	.name			   = STRING_INIT("PCI Controller"),
 	.state			   = DEVICE_STATE_UNREGISTERED,
 	.private_data_size = 0,
 	.ops			   = &pci_device_ops,
 };
 BusDriver pci_bus_driver = {
-	.name			   = STRING_INIT("pci"),
+	.name			   = STRING_INIT("PCI"),
 	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
 	.bus_type		   = BUS_TYPE_PCI,
 	.state			   = DRIVER_STATE_UNREGISTERED,
@@ -96,6 +96,7 @@ BusDriver pci_bus_driver = {
 	.ops			   = &pci_bus_driver_ops,
 };
 BusControllerDevice pci_bus_controller_device = {
+	.short_name			= STRING_INIT("PCI"),
 	.device				= &pci_device,
 	.bus_driver			= &pci_bus_driver,
 	.bus_controller_ops = &pci_controller_ops,

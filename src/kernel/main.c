@@ -4,6 +4,9 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "driver/storage_io_queue.h"
+#include "kernel/list.h"
+#include "objects/object.h"
 #include <driver/interrupt_dm.h>
 #include <driver/storage_dm.h>
 #include <driver/timer_dm.h>
@@ -33,11 +36,16 @@
 #include <network/network.h>
 #include <network/tcp.h>
 #include <network/udp.h>
+#include <objects/object.h>
+#include <stdint.h>
 
 void		   idle(void *arg);
 struct task_s *task_idle;
+extern Driver  core_driver;
 
 int main() {
+	platform_early_init();
+
 	register_driver_manager(&device_driver_manager);
 	register_driver_manager(&bus_driver_manager);
 	register_device_manager(&interrupt_device_manager);
@@ -45,8 +53,14 @@ int main() {
 	register_device_manager(&video_device_manager);
 	register_device_manager(&storage_device_manager);
 
-	init_platform();
-	platform_init_and_start_devices();
+	init_memory();
+	init_object_tree();
+
+	register_driver(&core_driver);
+	driver_init(&core_driver);
+
+	platform_init();
+	platform_start_devices();
 
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0);
@@ -58,6 +72,37 @@ int main() {
 	driver_start_all();
 	thread_start(
 		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
+
+	// uint8_t buf1[512], buf2[512];
+	// Device *device =
+	// 	list_first_owner(&storage_device_manager.device_lh, Device, dm_list);
+	// StorageRequest request1 = {
+	// 	.storage_device = device->device_manager_extension,
+	// 	.rw				= 0,
+	// 	.buf			= buf1,
+	// 	.position		= 0,
+	// 	.count			= 1,
+	// 	.is_finished	= 0,
+	// };
+	// StorageRequest request2 = {
+	// 	.storage_device = device->device_manager_extension,
+	// 	.rw				= 0,
+	// 	.buf			= buf2,
+	// 	.position		= 1,
+	// 	.count			= 1,
+	// 	.is_finished	= 0,
+	// };
+	// storage_add_request(device->device_manager_extension, &request1);
+	// storage_add_request(device->device_manager_extension, &request2);
+	// while (!(request1.is_finished && request2.is_finished)) {
+	// 	schedule();
+	// }
+	// print_hex(buf1, 512);
+	// print_hex(buf2, 512);
+
+	show_object_tree();
+
+	// storage_add_request(device->device_manager_extension, &request);
 	// init_fs();
 
 	// thread_start(

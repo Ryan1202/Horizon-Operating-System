@@ -3,12 +3,14 @@
 
 #include "kernel/bus_driver.h"
 #include "kernel/device.h"
+#include "string.h"
 
 typedef struct BusControllerDeviceOps {
 	void (*probe)(Device *device);
 } BusControllerDeviceOps;
 
 typedef struct BusControllerDevice {
+	string_t				short_name;
 	Device				   *device;
 	BusDriver			   *bus_driver;
 	BusControllerDeviceOps *bus_controller_ops;

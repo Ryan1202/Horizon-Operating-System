@@ -45,6 +45,36 @@ int string_new(string_t *string, char *text, unsigned int max_len) {
 }
 
 /**
+ * @brief 新建带数字后缀的字符串
+ *
+ * @param string
+ * @param text 文本
+ * @param text_len 文本长度
+ * @param number 数字
+ * @return int
+ */
+int string_new_with_number(
+	string_t *string, char *text, int text_len, int number) {
+
+	// 计算数字长度
+	int len = 0;
+	int x	= number;
+	do {
+		len++;
+		x /= 10;
+	} while (x > 0);
+
+	string_new(string, text, text_len + len);
+	x = number;
+	for (int i = text_len + len - 1; i >= text_len; i--) {
+		string->text[i] = '0' + x % 10;
+		x /= 10;
+	}
+
+	return 0;
+}
+
+/**
  * @brief 删除字符串
  *
  * @param string 要删除的字符串

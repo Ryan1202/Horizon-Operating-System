@@ -28,6 +28,8 @@ DriverResult pic_enable_irq(InterruptDevice *device, int irq);
 DriverResult pic_disable_irq(InterruptDevice *device, int irq);
 void		 pic_eoi(InterruptDevice *device, int irq);
 
+extern Driver core_driver;
+
 DeviceDriverOps pic_device_driver_ops = {
 	.register_driver_hook	= NULL,
 	.unregister_driver_hook = NULL,
@@ -46,7 +48,6 @@ InterruptDeviceOps pic_interrupt_ops = {
 	.redirect_irq = pic_redirect_irq,
 };
 
-Driver		 pic_driver		   = {.name = STRING_INIT("PIC")};
 DeviceDriver pic_device_driver = {
 	.name	  = STRING_INIT("PIC Driver"),
 	.type	  = DEVICE_TYPE_INTERRUPT_CONTROLLER,
@@ -70,9 +71,7 @@ InterruptDevice pic_interrupt_device = {
 };
 
 void register_pic(void) {
-	register_driver(&pic_driver);
-	driver_init(&pic_driver);
-	register_device_driver(&pic_driver, &pic_device_driver);
+	register_device_driver(&core_driver, &pic_device_driver);
 	register_interrupt_device(
 		&pic_device_driver, &pic_device, &pic_interrupt_device);
 }

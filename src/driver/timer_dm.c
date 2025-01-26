@@ -135,8 +135,7 @@ DriverResult register_timer_device(
 
 	device->device_manager_extension = timer_device;
 	timer_device->device			 = device;
-	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, device_driver->bus, device);
+
 	list_init(&timer_device->timer_list_lh);
 	list_add_tail(&device->dm_list, &timer_device_manager.device_lh);
 

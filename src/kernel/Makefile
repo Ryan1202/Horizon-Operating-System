@@ -20,7 +20,6 @@ SRC		+=	app.c
 SRC		+=	elf.c
 SRC		+=	wait_queue.c
 SRC		+=	periodic_task.c
-SRC		+=	objects.c
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 

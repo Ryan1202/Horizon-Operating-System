@@ -1,3 +1,4 @@
+#include "string.h"
 #include <driver/storage_dm.h>
 #include <driver/storage_io_queue.h>
 #include <driver/transfer.h>
@@ -28,6 +29,7 @@ DeviceManagerOps storage_dm_ops = {
 };
 
 typedef struct StorageDeviceManager {
+	uint8_t device_count;
 } StorageDeviceManager;
 
 StorageDeviceManager storage_dm_ext;
@@ -54,8 +56,10 @@ DriverResult register_storage_device(
 	device->device_manager_extension = storage_device;
 	list_init(&storage_device->io_queue_lh);
 
+	string_t name;
+	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, device_driver->bus, device);
+		register_device, device_driver, &name, device_driver->bus, device);
 	list_add_tail(&device->dm_list, &storage_device_manager.device_lh);
 
 	storage_device->periodic_task.func = storage_periodic_task;

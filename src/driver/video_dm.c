@@ -5,6 +5,7 @@
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <result.h>
+#include <string.h>
 
 DriverResult video_device_start(DeviceManager *manager, Device *device);
 
@@ -50,8 +51,13 @@ DriverResult register_video_device(
 	}
 	video_device->device = device;
 
+	string_t name;
+	string_new_with_number(
+		&name, "Video", 5, video_dm_ext.video_device_count++);
+
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, device_driver->bus, device);
+		register_device, device_driver, &name, device_driver->bus, device);
+
 	list_init(&video_device->video_list_lh);
 	list_add_tail(&device->dm_list, &video_device_manager.device_lh);
 

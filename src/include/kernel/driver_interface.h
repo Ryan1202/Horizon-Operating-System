@@ -40,7 +40,7 @@
 #define print_device_info(device, str, ...) \
 	printk("[%s]" str, device->name.text, ##__VA_ARGS__)
 #define print_driver_info(driver, str, ...) \
-	printk("[%s]" str, driver.name.text, ##__VA_ARGS__)
+	printk("[%s]" str, driver.short_name.text, ##__VA_ARGS__)
 
 #include "kernel/list.h"
 struct Device;

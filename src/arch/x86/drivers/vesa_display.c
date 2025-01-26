@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 
+extern Driver		   core_driver;
 struct VesaDisplayInfo vesa_display_info;
 
 DriverResult vesa_display_device_init(Device *device);
@@ -26,11 +27,8 @@ DeviceOps vesa_display_device_ops = {
 	.status	 = NULL,
 };
 
-Driver vesa_display_driver = {
-	.name = STRING_INIT("vesa display driver"),
-};
 DeviceDriver vesa_display_device_driver = {
-	.name	  = STRING_INIT("vesa display device driver"),
+	.name	  = STRING_INIT("VESA Display Device Driver"),
 	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_VIDEO,
 	.priority = DRIVER_PRIORITY_BASIC,
@@ -38,7 +36,7 @@ DeviceDriver vesa_display_device_driver = {
 	.ops	  = &vesa_display_driver_ops,
 };
 Device vesa_display_device = {
-	.name			   = STRING_INIT("vesa display"),
+	.name			   = STRING_INIT("Vesa Display"),
 	.device_driver	   = &vesa_display_device_driver,
 	.ops			   = &vesa_display_device_ops,
 	.private_data_size = 0,
@@ -48,9 +46,7 @@ VideoDevice vesa_display_video_device = {
 };
 
 void register_vesa_display(void) {
-	register_driver(&vesa_display_driver);
-	driver_init(&vesa_display_driver);
-	register_device_driver(&vesa_display_driver, &vesa_display_device_driver);
+	register_device_driver(&core_driver, &vesa_display_device_driver);
 	register_video_device(
 		&vesa_display_device_driver, &vesa_display_device,
 		&vesa_display_video_device);

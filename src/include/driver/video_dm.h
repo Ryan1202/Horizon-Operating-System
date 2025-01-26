@@ -26,6 +26,7 @@ typedef struct VideoDevice {
 
 typedef struct VideoDeviceManager {
 	Device *main_display_device;
+	uint8_t video_device_count;
 } VideoDeviceManager;
 
 extern struct DeviceManager video_device_manager;

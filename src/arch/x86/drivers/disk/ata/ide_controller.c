@@ -38,6 +38,14 @@ DeviceOps ide_controller_device_ops = {
 	.destroy = NULL,
 	.status	 = NULL,
 };
+Device ide_controller_device_templete = {
+	.name			   = STRING_INIT("IDE Controller"),
+	.state			   = DEVICE_STATE_UNREGISTERED,
+	.device_driver	   = &ide_controller_device_driver,
+	.ops			   = &ide_controller_device_ops,
+	.max_child_device  = 2,
+	.private_data_size = sizeof(IdeControllerInfo),
+};
 
 PciDriverOps ide_pci_driver_ops = {
 	.probe = ide_controller_probe,
@@ -67,14 +75,9 @@ void ide_detect_channel_mode(
 }
 
 DriverResult ide_controller_probe(PciDevice *pci_device) {
-	Device *device = kmalloc(sizeof(Device));
-	string_new(&device->name, "IDE Controller", 15);
-	device->state			  = DEVICE_STATE_UNREGISTERED;
-	device->ops				  = &ide_controller_device_ops;
-	device->device_driver	  = &ide_controller_device_driver;
-	device->private_data_size = sizeof(IdeControllerInfo);
-	device->max_child_device  = 2;
-	register_device(&ide_controller_device_driver, pci_device->bus, device);
+	Device *device = kmalloc_from_template(ide_controller_device_templete);
+	register_device(
+		&ide_controller_device_driver, NULL, pci_device->bus, device);
 
 	IdeControllerInfo *info = device->private_data;
 	info->pci_device		= pci_device;

@@ -26,6 +26,8 @@ typedef struct _string {
 
 void string_init(string_t *string);
 int	 string_new(string_t *string, char *text, unsigned int max_len);
+int	 string_new_with_number(
+	 string_t *string, char *text, int text_len, int number);
 void string_del(string_t *string);
 int	 string_cpy(string_t *dest, string_t *src);
 

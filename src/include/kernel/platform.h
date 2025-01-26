@@ -2,7 +2,8 @@
 
 extern struct Bus platform_bus;
 
-void init_platform();
-void platform_init_and_start_devices();
+void platform_early_init();
+void platform_init();
+void platform_start_devices();
 
 #endif

@@ -71,8 +71,6 @@ DriverResult register_interrupt_device(
 	interrupt_device->device = device;
 	DRV_RESULT_DELIVER_CALL(check_intterupt_ops, interrupt_device);
 
-	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, device_driver->bus, device);
 	list_add_tail(&device->dm_list, &interrupt_device_manager.device_lh);
 
 	InterruptDeviceManager *manager = interrupt_device_manager.private_data;

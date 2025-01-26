@@ -5,8 +5,6 @@
  * @version 0.3
  * @date 2022-07-20
  */
-#include "kernel/spinlock.h"
-#include "kernel/wait_queue.h"
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/bus_driver.h>
@@ -17,23 +15,16 @@
 #include <kernel/driver_interface.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
+#include <kernel/spinlock.h>
 #include <kernel/thread.h>
+#include <kernel/wait_queue.h>
 
 #include <network/eth.h>
 #include <network/network.h>
+#include <objects/object.h>
 #include <stdint.h>
 
 LIST_HEAD(driver_list_head);
-// list_t device_irq_lists[16] = {
-// 	LIST_HEAD_INIT(device_irq_lists[0]),  LIST_HEAD_INIT(device_irq_lists[1]),
-// 	LIST_HEAD_INIT(device_irq_lists[2]),  LIST_HEAD_INIT(device_irq_lists[3]),
-// 	LIST_HEAD_INIT(device_irq_lists[4]),  LIST_HEAD_INIT(device_irq_lists[5]),
-// 	LIST_HEAD_INIT(device_irq_lists[6]),  LIST_HEAD_INIT(device_irq_lists[7]),
-// 	LIST_HEAD_INIT(device_irq_lists[8]),  LIST_HEAD_INIT(device_irq_lists[9]),
-// 	LIST_HEAD_INIT(device_irq_lists[10]), LIST_HEAD_INIT(device_irq_lists[11]),
-// 	LIST_HEAD_INIT(device_irq_lists[12]), LIST_HEAD_INIT(device_irq_lists[13]),
-// 	LIST_HEAD_INIT(device_irq_lists[14]), LIST_HEAD_INIT(device_irq_lists[15]),
-// };
 
 struct index_node *dev;
 
@@ -52,6 +43,12 @@ struct file_operations device_fops = {
 #include <result.h>
 
 LIST_HEAD(driver_lh);
+
+Driver core_driver = {
+	.short_name = STRING_INIT("CoreDriver"),
+	.init		= NULL,
+	.state		= DRIVER_STATE_UNINITED,
+};
 
 void print_driver_result(
 	DriverResult result, char *file, int line, char *func_with_args) {
@@ -83,6 +80,10 @@ DriverResult register_driver(Driver *driver) {
 	list_init(&driver->sub_driver_lh);
 	list_init(&driver->remapped_memory_lh);
 	list_add_tail(&driver->driver_list, &driver_lh);
+
+	Object *object =
+		create_object(&driver_object, &driver->short_name, OBJECT_TYPE_DRIVER);
+	object->value.driver = driver;
 	return DRIVER_RESULT_OK;
 }
 
@@ -117,7 +118,8 @@ DriverResult driver_init(Driver *driver) {
 			driver->state = DRIVER_STATE_UNREGISTERED;
 			unregister_driver(driver);
 			print_error_with_position(
-				"driver_init: driver %s init failed!\n", driver->name.text);
+				"driver_init: driver %s init failed!\n",
+				driver->short_name.text);
 			return result;
 		}
 	}
