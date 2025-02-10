@@ -5,6 +5,7 @@
 #include "kernel/driver.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
+#include "objects/object.h"
 #include "stdint.h"
 #include "string.h"
 #include "types.h"
@@ -60,12 +61,19 @@ typedef struct ChildDevice {
 	void		  *private_data;
 } ChildDevice;
 
+struct Bus;
+
 typedef struct Device {
+	list_t				 bus_list;
 	list_t				 device_list;
 	list_t				 dm_list;
 	string_t			 name;
 	DeviceState			 state;
 	struct DeviceDriver *device_driver;
+
+	struct Bus *bus;
+
+	Object *object;
 
 	DeviceIrq *irq;
 	Transfer  *transfer;
@@ -80,7 +88,6 @@ typedef struct Device {
 	void	*device_manager_extension; // 设备管理器所需的扩展信息
 } Device;
 
-struct Bus;
 DriverResult register_device(
 	struct DeviceDriver *device_driver, string_t *name, struct Bus *bus,
 	Device *device);

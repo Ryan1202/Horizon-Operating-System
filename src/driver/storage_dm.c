@@ -59,7 +59,7 @@ DriverResult register_storage_device(
 	string_t name;
 	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, &name, device_driver->bus, device);
+		register_device, device_driver, &name, device->bus, device);
 	list_add_tail(&device->dm_list, &storage_device_manager.device_lh);
 
 	storage_device->periodic_task.func = storage_periodic_task;

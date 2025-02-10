@@ -19,10 +19,12 @@
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/memory.h>
+#include <kernel/platform.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
+
 
 LIST_HEAD(pci_driver_lh);
 
@@ -84,6 +86,7 @@ DeviceDriver pci_device_driver = {
 Device pci_device = {
 	.name			   = STRING_INIT("PCI Controller"),
 	.state			   = DEVICE_STATE_UNREGISTERED,
+	.bus			   = &platform_bus,
 	.private_data_size = 0,
 	.ops			   = &pci_device_ops,
 };

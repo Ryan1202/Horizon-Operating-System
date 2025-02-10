@@ -10,6 +10,7 @@
 #include <kernel/driver_interface.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
+#include <kernel/platform.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
@@ -174,7 +175,8 @@ void ide_device_probe(IdeChannel *channel) {
 			sizeof(AtaIdentifyInfo) / 2);
 
 		// 6.注册设备
-		Device		  *device = kmalloc_from_template(ide_device_template);
+		Device *device = kmalloc_from_template(ide_device_template);
+		device->bus	   = &platform_bus; // TODO: BUS
 		StorageDevice *storage_device =
 			kmalloc_from_template(storage_device_template);
 

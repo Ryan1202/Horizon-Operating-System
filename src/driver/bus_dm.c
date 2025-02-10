@@ -35,6 +35,6 @@ DriverResult register_bus_controller_device(
 
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, &bus_controller_device->short_name,
-		device_driver->bus, device);
+		device->bus, device);
 	return DRIVER_RESULT_OK;
 }

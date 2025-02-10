@@ -5,7 +5,8 @@
 #include "kernel/driver.h"
 #include "kernel/driver_manager.h"
 #include "kernel/list.h"
-#include "kernel/wait_queue.h"
+#include "objects/object.h"
+#include "string.h"
 #include <stdint.h>
 
 #define BUS_OPS_CALL(bus, func, ...)                               \
@@ -34,8 +35,8 @@ typedef struct BusDriverOps {
 } BusDriverOps;
 
 typedef struct BusOps {
-	DriverResult (*register_device_hook)(struct DeviceDriver *device_driver);
-	DriverResult (*unregister_device_hook)(struct DeviceDriver *device_driver);
+	DriverResult (*register_device_hook)(struct Device *device);
+	DriverResult (*unregister_device_hook)(struct Device *device);
 
 	DriverResult (*scan_bus)(struct BusDriver *bus_driver, struct Bus *bus);
 	DriverResult (*probe_device)(struct BusDriver *bus_driver, struct Bus *bus);
@@ -51,6 +52,8 @@ typedef struct BusDriver {
 	DriverType	driver_type;
 	BusType		bus_type;
 	DriverState state;
+
+	Object *object;
 
 	uint32_t bus_count;
 	uint32_t device_count;
@@ -68,6 +71,10 @@ typedef struct Bus {
 	Device	   *controller_device;
 	struct Bus *primary_bus;
 
+	string_t name;
+	Object	*object;
+
+	uint32_t last_device_num;
 	uint32_t bus_num;
 	uint32_t subordinate_bus_num;
 
@@ -82,7 +89,7 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type);
 DriverResult register_bus(
 	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus);
 DriverResult unregister_bus(Bus *bus);
-DriverResult bus_register_device(DeviceDriver *device_driver, Bus *bus);
-DriverResult bus_unregister_device(DeviceDriver *device_driver);
+DriverResult bus_register_device(Device *device, Bus *bus);
+DriverResult bus_unregister_device(Device *device);
 
 #endif

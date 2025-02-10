@@ -4,6 +4,7 @@
 #include "kernel/device.h"
 #include "kernel/driver.h"
 #include "kernel/list.h"
+#include "objects/object.h"
 #include "stdint.h"
 #include "string.h"
 
@@ -41,6 +42,8 @@ typedef struct DeviceDriver {
 	DeviceType	   type;
 	DriverPriority priority;
 	DriverState	   state;
+
+	Object *object;
 
 	DeviceDriverOps *ops;
 

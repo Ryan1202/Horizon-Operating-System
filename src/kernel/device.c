@@ -38,12 +38,12 @@ DriverResult register_device(
 	}
 	list_add_tail(&device->device_list, &device_driver->device_lh);
 
-	bus_register_device(device_driver, bus);
+	bus_register_device(device, bus);
 
 	if (name != NULL && name->text != NULL && name->length != 0) {
 		Object *object =
-			create_object(&device_object, name, OBJECT_TYPE_DEVICE);
-		object->value.device = device;
+			create_object(&device_object, name, OBJECT_TYPE_SYM_LINK);
+		object->value.sym_link = device->object;
 	}
 
 	return DRIVER_RESULT_OK;
@@ -51,7 +51,7 @@ DriverResult register_device(
 
 DriverResult unregister_device(DeviceDriver *device_driver, Device *device) {
 	device->state = DEVICE_STATE_REGISTERED;
-	bus_unregister_device(device_driver);
+	bus_unregister_device(device);
 	list_del(&device->device_list);
 	return DRIVER_RESULT_OK;
 }

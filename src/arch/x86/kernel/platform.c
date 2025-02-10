@@ -1,3 +1,7 @@
+#include "driver/bus_dm.h"
+#include "kernel/memory.h"
+#include "objects/object.h"
+#include "string.h"
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -22,18 +26,19 @@ BusOps platform_bus_ops = {
 	.unregister_device_hook = NULL,
 };
 
-Driver platform_driver;
-Bus	   platform_bus = {
-	   .controller_device = NULL,
-	   .ops				  = &platform_bus_ops,
-};
+Driver	  platform_driver;
 BusDriver platform_bus_driver = {
 	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
 	.bus_type		   = BUS_TYPE_PLATFORM,
-	.name			   = STRING_INIT("platform"),
+	.name			   = STRING_INIT("Platform"),
 	.state			   = DRIVER_STATE_UNREGISTERED,
 	.private_data_size = 0,
 	.ops			   = &platform_ops,
+};
+Bus platform_bus = {
+	.controller_device = NULL,
+	.bus_driver		   = &platform_bus_driver,
+	.ops			   = &platform_bus_ops,
 };
 
 // 完成一些平台必要的准备工作
@@ -45,6 +50,7 @@ void platform_early_init() {
 void platform_init() {
 	// 因为platform_bus是虚拟的，所以不需要注册device
 	register_bus_driver(&platform_driver, &platform_bus_driver);
+	platform_bus.object = platform_bus_driver.object;
 	list_init(&platform_bus_driver.bus_lh);
 	list_add_tail(&platform_bus.bus_list, &platform_bus_driver.bus_lh);
 

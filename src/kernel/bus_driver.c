@@ -1,3 +1,7 @@
+#include "kernel/driver_interface.h"
+#include "objects/object.h"
+#include "objects/types.h"
+#include "string.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
@@ -65,6 +69,9 @@ DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver) {
 
 	bus_drivers[bus_driver->bus_type] = bus_driver;
 
+	bus_driver->object =
+		create_object_directory(&bus_object, &bus_driver->name);
+
 	return DRIVER_RESULT_OK;
 }
 
@@ -75,6 +82,8 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 
 	BusDriver *bus_driver = bus_drivers[type];
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+
+	// TODO: delete_object(&bus_driver->object);
 
 	bus_drivers[bus_driver->driver_type] = NULL;
 
@@ -105,10 +114,14 @@ DriverResult register_bus(
 		primary_bus = primary_bus->primary_bus;
 	}
 
+	string_new_with_number(&bus->name, "", 0, bus->bus_num);
 	bus->bus_driver		   = bus_driver;
 	bus->controller_device = bus_controller_device;
 	list_init(&bus->device_lh);
 	list_add_tail(&bus->bus_list, &bus_driver->bus_lh);
+
+	bus->object = create_object_directory(bus_driver->object, &bus->name);
+
 	BUS_OPS_CALL(bus_driver, register_bus_hook, bus);
 
 	return DRIVER_RESULT_OK;
@@ -118,8 +131,10 @@ DriverResult unregister_bus(Bus *bus) {
 	BusDriver *bus_driver = bus->bus_driver;
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
+	// TODO: delete_object(&bus->object);
+
 	// 取消注册bus下的所有device_driver
-	DeviceDriver *cur, *next;
+	Device *cur, *next;
 	list_for_each_owner_safe (cur, next, &bus->device_lh, bus_list) {
 		bus_unregister_device(cur);
 	}
@@ -131,24 +146,31 @@ DriverResult unregister_bus(Bus *bus) {
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult bus_register_device(DeviceDriver *device_driver, Bus *bus) {
-	BusDriver *bus_driver = bus_drivers[device_driver->type];
+DriverResult bus_register_device(Device *device, Bus *bus) {
+	BusDriver *bus_driver = bus->bus_driver;
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
-	device_driver->bus = bus;
-	list_add_tail(&device_driver->bus_list, &bus->device_lh);
-	BUS_OPS_CALL(bus, register_device_hook, device_driver);
+	device->bus = bus;
+	list_add_tail(&device->bus_list, &bus->device_lh);
+	BUS_OPS_CALL(bus, register_device_hook, device);
+
+	string_t *name = kmalloc(sizeof(string_t));
+	string_new_with_number(name, "", 0, bus->last_device_num++);
+	device->object = create_object(bus->object, name, OBJECT_TYPE_DEVICE);
+	device->object->value.device = device;
 
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult bus_unregister_device(DeviceDriver *device_driver) {
-	Bus *bus = device_driver->bus;
+DriverResult bus_unregister_device(Device *device) {
+	Bus *bus = device->bus;
 	if (bus == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
-	BUS_OPS_CALL(bus, unregister_device_hook, device_driver);
-	list_del(&device_driver->bus_list);
-	device_driver->bus = NULL;
+	BUS_OPS_CALL(bus, unregister_device_hook, device);
+	list_del(&device->bus_list);
+	device->bus = NULL;
+
+	// TODO: delete_object(&device_driver->object);
 
 	return DRIVER_RESULT_OK;
 }

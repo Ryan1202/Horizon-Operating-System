@@ -10,6 +10,11 @@
 
 Object root_object = {
 	.name = STRING_INIT(""), // 根对象的名字不会起到任何作用，所以设为空
+	.type	= OBJECT_TYPE_DIRECTORY,
+	.parent = NULL,
+};
+Object bus_object = {
+	.name = STRING_INIT("Bus"),
 	.type = OBJECT_TYPE_DIRECTORY,
 };
 Object driver_object = {
@@ -43,9 +48,11 @@ ObjectResult init_object_directory(Object *object, size_t block_size) {
  */
 ObjectResult init_object_tree() {
 	init_object_directory(&root_object, OBJECT_DIR_SIZE_SMALL);
+	init_object_directory(&bus_object, OBJECT_DIR_SIZE_SMALL);
 	init_object_directory(&driver_object, OBJECT_DIR_SIZE_LARGE);
 	init_object_directory(&device_object, OBJECT_DIR_SIZE_LARGE);
 	add_object(&root_object, &driver_object);
+	add_object(&root_object, &bus_object);
 	add_object(&root_object, &device_object);
 
 	init_builtin_types();
@@ -57,6 +64,7 @@ ObjectResult add_object(Object *parent, Object *child) {
 		return OBJECT_ERROR_INVALID_OPERATION;
 	}
 
+	child->parent = parent;
 	append_object(parent, child);
 
 	return OBJECT_OK;
@@ -84,6 +92,13 @@ Object *create_object_directory(Object *parent, string_t *name) {
 	return object;
 }
 
+void print_symbol_link(Object *object) {
+	if (object != NULL && object != &root_object) {
+		print_symbol_link(object->parent);
+		printk("\\%s", object->name.text);
+	}
+}
+
 void print_object_directory(Object *object, int level) {
 	for (int i = 0; i < object->value.directory.children->size; i++) {
 		Object *child =
@@ -91,7 +106,12 @@ void print_object_directory(Object *object, int level) {
 		for (int j = 0; j < level; j++) {
 			printk("|\t");
 		}
-		printk("|-%s\n", child->name.text);
+		printk("|-%s", child->name.text);
+		if (child->type == OBJECT_TYPE_SYM_LINK) {
+			printk("\t->\t");
+			print_symbol_link(child->value.sym_link);
+		}
+		printk("\n");
 		if (child->type == OBJECT_TYPE_DIRECTORY) {
 			print_object_directory(child, level + 1);
 		}
