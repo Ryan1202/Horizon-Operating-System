@@ -64,7 +64,6 @@ int main() {
 
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0);
-	// init_pci();
 	io_sti();
 	printk("Memory Size:%dM\n", get_memory_size());
 	// init_vfs();
@@ -73,9 +72,12 @@ int main() {
 	thread_start(
 		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
 
-	// uint8_t buf1[512], buf2[512];
-	// Device *device =
-	// 	list_first_owner(&storage_device_manager.device_lh, Device, dm_list);
+	// Object		*object;
+	// ObjectResult result =
+	// 	open_object_by_ascii_path("\\Device\\Storage0", &object);
+	// if (result != OBJECT_OK) { printk("Open Storage0 Error!\n"); }
+	// uint8_t		   buf1[512], buf2[512];
+	// Device		  *device	= object->value.device;
 	// StorageRequest request1 = {
 	// 	.storage_device = device->device_manager_extension,
 	// 	.rw				= 0,
@@ -100,7 +102,7 @@ int main() {
 	// print_hex(buf1, 512);
 	// print_hex(buf2, 512);
 
-	show_object_tree();
+	// show_object_tree();
 
 	// storage_add_request(device->device_manager_extension, &request);
 	// init_fs();

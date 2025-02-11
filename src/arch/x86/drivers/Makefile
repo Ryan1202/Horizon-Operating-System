@@ -6,7 +6,6 @@ SRC += cpufreq.c
 SRC += disk.c
 SRC += pci.c
 SRC += dma.c
-#SRC += ide.c
 #SRC += keyboard.c
 #SRC += mouse.c
 SRC += msr.c

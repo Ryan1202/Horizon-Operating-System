@@ -2,7 +2,6 @@
 #define _OBJECT_H
 
 #include "dyn_array.h"
-#include "result.h"
 #include "stdint.h"
 #include "string.h"
 
@@ -10,6 +9,8 @@ typedef enum ObjectResult {
 	OBJECT_OK,
 	OBJECT_ERROR_MEMORY,
 	OBJECT_ERROR_INVALID_OPERATION,
+	OBJECT_ERROR_CANNOT_FIND,
+	OBJECT_ERROR_ILLEGAL_ARGUMENT,
 } ObjectResult;
 
 #define OBJECT_DIR_SIZE_SMALL  8
@@ -63,6 +64,10 @@ extern Object device_object;
 ObjectResult init_object_tree();
 ObjectResult add_object(Object *parent, Object *child);
 ObjectResult init_object_directory(Object *object, size_t block_size);
+ObjectResult open_oringinal_object_by_ascii_path(
+	char *path, Object **out_object);
+// 通过ASCII路径打开对象，对于符号链接会自动解析
+ObjectResult open_object_by_ascii_path(char *path, Object **object);
 Object		*create_object(Object *parent, string_t *name, ObjectType type);
 Object		*create_object_directory(Object *parent, string_t *name);
 void		 show_object_tree();

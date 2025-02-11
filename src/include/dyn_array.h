@@ -2,6 +2,7 @@
 #define _DYN_ARRAY_H
 
 #include "stdint.h"
+#include "types.h"
 
 typedef struct DynArray {
 	struct DynArrayBlock *first_block;
@@ -21,6 +22,13 @@ struct DynArrayBlock {
 DynArray			 *dyn_array_new(size_t element_size, size_t block_size);
 struct DynArrayBlock *dyn_array_find_block(DynArray *dyn_array, size_t idx);
 void				 *dyn_array_new_item_addr(DynArray *dyn_array);
+
+void *dyn_array_next_ptr(
+	DynArray *dyn_array, struct DynArrayBlock **block, int *block_index,
+	int *block_offset);
+bool dyn_array_is_end(
+	DynArray *dyn_array, struct DynArrayBlock *block, int block_index,
+	int block_offset);
 
 #define dyn_array_get(arr, type, idx)                                         \
 	(type)({                                                                  \
@@ -46,5 +54,14 @@ void				 *dyn_array_new_item_addr(DynArray *dyn_array);
 		*addr	   = value;                        \
 		(arr)->size++;                             \
 	}
+
+#define dyn_array_foreach(arr, type, var)                             \
+	struct DynArrayBlock *_block		= (arr)->first_block;         \
+	int					  _block_index	= 0;                          \
+	int					  _block_offset = 1;                          \
+	for (var = *((type *)_block->data);                               \
+		 !dyn_array_is_end(arr, _block, _block_index, _block_offset); \
+		 var = *((type *)dyn_array_next_ptr(                          \
+			 arr, &_block, &_block_index, &_block_offset)))
 
 #endif

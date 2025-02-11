@@ -63,3 +63,29 @@ void *dyn_array_new_item_addr(DynArray *dyn_array) {
 	return block->data +
 		   (dyn_array->size % dyn_array->block_size) * dyn_array->element_size;
 }
+
+// 以下两个函数都是为foreach服务的
+
+void *dyn_array_next_ptr(
+	DynArray *dyn_array, struct DynArrayBlock **block, int *block_index,
+	int *block_offset) {
+
+	struct DynArrayBlock *current_block = *block;
+	int					  offset		= *block_offset;
+
+	if (offset + 1 < dyn_array->block_size) {
+		(*block_offset)++;
+	} else {
+		(*block_index)++;
+		*block_offset = 0;
+		*block		  = (*block)->next;
+	}
+	return (void *)current_block->data + offset * dyn_array->element_size;
+}
+
+bool dyn_array_is_end(
+	DynArray *dyn_array, struct DynArrayBlock *block, int block_index,
+	int block_offset) {
+	return block == NULL &&
+		   block_offset == dyn_array->size % dyn_array->block_size;
+}

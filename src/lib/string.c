@@ -64,9 +64,10 @@ int string_new_with_number(
 		x /= 10;
 	} while (x > 0);
 
-	int ret = string_new(string, text, text_len + len);
+	int ret = string_new(string, text, text_len + len + 1);
 	if (ret != 0) { return ret; }
-	string->length = text_len + len;
+	string->length					 = text_len + len + 1;
+	string->text[string->length - 1] = '\0';
 
 	x = number;
 	for (int i = text_len + len - 1; i >= text_len; i--) {

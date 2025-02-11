@@ -59,6 +59,60 @@ ObjectResult init_object_tree() {
 	return OBJECT_OK;
 }
 
+ObjectResult find_object_by_name(
+	Object *parent, Object **out_child, string_t *name) {
+	Object *child;
+	dyn_array_foreach(parent->value.directory.children, Object *, child) {
+		if (child->name.length == name->length &&
+			strncmp(child->name.text, name->text, name->length) == 0) {
+			*out_child = child;
+			return OBJECT_OK;
+		}
+	}
+	return OBJECT_ERROR_CANNOT_FIND;
+}
+
+ObjectResult open_oringinal_object_by_ascii_path(
+	char *path, Object **out_object) {
+	// 必须从根对象开始
+	if (path[0] != '\\') { return OBJECT_ERROR_ILLEGAL_ARGUMENT; }
+	path++;
+
+	char	 ascii_name[256];
+	string_t name	= {0, 0, ascii_name};
+	Object	*object = &root_object;
+	while (*path) {
+		int i = 0;
+		while (*path != '\0' && *path != '\\') {
+			ascii_name[i] = *path;
+			path++;
+			i++;
+		}
+		if (*path == '\\') { path++; }
+		ascii_name[i]	= '\0';
+		name.length		= i + 1;
+		name.max_length = i + 1;
+
+		Object		*child;
+		ObjectResult result = find_object_by_name(object, &child, &name);
+		if (result != OBJECT_OK) { return result; }
+
+		object = child;
+	}
+	*out_object = object;
+	return OBJECT_OK;
+}
+
+ObjectResult open_object_by_ascii_path(char *path, Object **object) {
+	ObjectResult result = open_oringinal_object_by_ascii_path(path, object);
+	if (result == OBJECT_OK) {
+		while ((*object)->type == OBJECT_TYPE_SYM_LINK) {
+			*object = (*object)->value.sym_link;
+		}
+	}
+	return result;
+}
+
 ObjectResult add_object(Object *parent, Object *child) {
 	if (parent->type != OBJECT_TYPE_DIRECTORY) {
 		return OBJECT_ERROR_INVALID_OPERATION;
