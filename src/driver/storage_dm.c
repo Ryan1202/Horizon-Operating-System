@@ -1,7 +1,6 @@
-#include "string.h"
 #include <driver/storage_dm.h>
+#include <driver/storage_io.h>
 #include <driver/storage_io_queue.h>
-#include <driver/transfer.h>
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -11,9 +10,12 @@
 #include <kernel/list.h>
 #include <kernel/periodic_task.h>
 #include <math.h>
+#include <objects/object.h>
+#include <objects/transfer.h>
 #include <result.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <types.h>
 
 extern void storage_periodic_task(void *arg);
@@ -47,12 +49,6 @@ DriverResult register_storage_device(
 	StorageDevice *storage_device) {
 	storage_device->device = device;
 
-	if (device->transfer->type_in == TRANSFER_TYPE_BLOCK) {
-		device->transfer->in.block = storage_device_block_read;
-	}
-	if (device->transfer->type_out == TRANSFER_TYPE_BLOCK) {
-		device->transfer->out.block = storage_device_block_write;
-	}
 	device->device_manager_extension = storage_device;
 	list_init(&storage_device->io_queue_lh);
 
@@ -61,6 +57,11 @@ DriverResult register_storage_device(
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, &name, device->bus, device);
 	list_add_tail(&device->dm_list, &storage_device_manager.device_lh);
+
+	device->object->in.block			 = storage_transfer;
+	device->object->in.is_transfer_done	 = storage_is_transfer_done;
+	device->object->out.block			 = storage_transfer;
+	device->object->out.is_transfer_done = storage_is_transfer_done;
 
 	storage_device->periodic_task.func = storage_periodic_task;
 	storage_device->periodic_task.arg  = storage_device;

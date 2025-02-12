@@ -3,7 +3,6 @@
 #include <driver/storage_dm.h>
 #include <driver/storage_io_queue.h>
 #include <driver/timer_dm.h>
-#include <driver/transfer.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
@@ -11,6 +10,7 @@
 #include <kernel/memory.h>
 #include <kernel/page.h>
 #include <kernel/platform.h>
+#include <objects/transfer.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
@@ -53,14 +53,9 @@ DeviceDriver ide_device_driver = {
 	.state	  = DRIVER_STATE_UNREGISTERED,
 	.ops	  = &ide_device_driver_ops,
 };
-Transfer ide_transfer = {
-	.type_in  = TRANSFER_TYPE_BLOCK,
-	.type_out = TRANSFER_TYPE_BLOCK,
-};
 
 Device ide_device_template = {
 	.name			   = STRING_INIT("IDE Harddisk"),
-	.transfer		   = &ide_transfer,
 	.state			   = DEVICE_STATE_UNREGISTERED,
 	.device_driver	   = &ide_device_driver,
 	.ops			   = &ide_device_ops,

@@ -1,11 +1,11 @@
 #ifndef _DEVICE_H
 #define _DEVICE_H
 
-#include "driver/transfer.h"
 #include "kernel/driver.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
 #include "objects/object.h"
+#include "objects/transfer.h"
 #include "stdint.h"
 #include "string.h"
 #include "types.h"
@@ -76,7 +76,6 @@ typedef struct Device {
 	Object *object;
 
 	DeviceIrq *irq;
-	Transfer  *transfer;
 	DeviceOps *ops;
 
 	uint32_t	 max_child_device;

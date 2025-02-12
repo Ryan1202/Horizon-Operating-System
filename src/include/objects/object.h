@@ -2,6 +2,7 @@
 #define _OBJECT_H
 
 #include "dyn_array.h"
+#include "objects/transfer.h"
 #include "stdint.h"
 #include "string.h"
 
@@ -33,6 +34,8 @@ typedef struct Object {
 	ObjectType type;
 
 	struct Object *parent;
+	TransferIn	   in;
+	TransferOut	   out;
 	union {
 		uint32_t type;
 		struct {

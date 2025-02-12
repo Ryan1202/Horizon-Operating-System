@@ -4,6 +4,6 @@ SRC += video_dm.c
 SRC += video.c
 SRC += bus_dm.c
 SRC += storage_dm.c
-SRC += transfer.c
 SRC += storage_io_queue.c
+SRC += storage_io.c
 SRC += timer.c

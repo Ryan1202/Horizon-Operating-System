@@ -7,6 +7,7 @@
 #include "driver/storage_io_queue.h"
 #include "kernel/list.h"
 #include "objects/object.h"
+#include "objects/transfer.h"
 #include <driver/interrupt_dm.h>
 #include <driver/storage_dm.h>
 #include <driver/timer_dm.h>
@@ -72,35 +73,19 @@ int main() {
 	thread_start(
 		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
 
+	// void		*handle = NULL;
 	// Object		*object;
 	// ObjectResult result =
 	// 	open_object_by_ascii_path("\\Device\\Storage0", &object);
 	// if (result != OBJECT_OK) { printk("Open Storage0 Error!\n"); }
-	// uint8_t		   buf1[512], buf2[512];
-	// Device		  *device	= object->value.device;
-	// StorageRequest request1 = {
-	// 	.storage_device = device->device_manager_extension,
-	// 	.rw				= 0,
-	// 	.buf			= buf1,
-	// 	.position		= 0,
-	// 	.count			= 1,
-	// 	.is_finished	= 0,
-	// };
-	// StorageRequest request2 = {
-	// 	.storage_device = device->device_manager_extension,
-	// 	.rw				= 0,
-	// 	.buf			= buf2,
-	// 	.position		= 1,
-	// 	.count			= 1,
-	// 	.is_finished	= 0,
-	// };
-	// storage_add_request(device->device_manager_extension, &request1);
-	// storage_add_request(device->device_manager_extension, &request2);
-	// while (!(request1.is_finished && request2.is_finished)) {
-	// 	schedule();
-	// }
-	// print_hex(buf1, 512);
-	// print_hex(buf2, 512);
+	// uint8_t buf[512];
+	// TRANSFER_IN_BLOCK(object)(object, TRANSFER_IN, buf, 0, 1, &handle);
+
+	// bool is_done;
+	// do {
+	// 	TRANSFER_IN_IS_DONE(object)(object, &handle, &is_done);
+	// } while (!is_done);
+	// print_hex(buf, 512);
 
 	// show_object_tree();
 

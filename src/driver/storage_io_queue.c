@@ -1,4 +1,3 @@
-#include "types.h"
 #include <driver/storage_dm.h>
 #include <driver/storage_io_queue.h>
 #include <kernel/list.h>
@@ -6,6 +5,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include <types.h>
 
 bool storage_try_merge_request(
 	StorageRequest *new_request, StorageRequest *request) {
