@@ -26,9 +26,11 @@ typedef enum ObjectType {
 	OBJECT_TYPE_FILE,		 // 表示该对象是一个文件
 	OBJECT_TYPE_VALUE,		 // 表示该对象是一个值
 	OBJECT_TYPE_SYM_LINK,	 // 表示该对象是一个符号链接
+	OBJECT_TYPE_PARTITION,	 // 表示该对象是一个分区
 	OBJECT_TYPE_BUILTIN_MAX, // 表示对象系统内建类型数量的最大值
 } ObjectType;
 
+struct Partition;
 typedef struct Object {
 	string_t   name;
 	ObjectType type;
@@ -55,7 +57,8 @@ typedef struct Object {
 				size_t	 integer;
 			};
 		} value;
-		struct Object *sym_link;
+		struct Object	 *sym_link;
+		struct Partition *partition;
 	} value;
 } Object;
 
@@ -71,8 +74,8 @@ ObjectResult open_oringinal_object_by_ascii_path(
 	char *path, Object **out_object);
 // 通过ASCII路径打开对象，对于符号链接会自动解析
 ObjectResult open_object_by_ascii_path(char *path, Object **object);
-Object		*create_object(Object *parent, string_t *name, ObjectType type);
-Object		*create_object_directory(Object *parent, string_t *name);
+Object		*create_object(Object *parent, string_t name, ObjectType type);
+Object		*create_object_directory(Object *parent, string_t name);
 void		 show_object_tree();
 
 #define append_object(parent, child) \

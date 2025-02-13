@@ -4,12 +4,9 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "driver/storage_io_queue.h"
-#include "kernel/list.h"
-#include "objects/object.h"
-#include "objects/transfer.h"
 #include <driver/interrupt_dm.h>
-#include <driver/storage_dm.h>
+#include <driver/storage/storage_dm.h>
+#include <driver/storage/storage_io_queue.h>
 #include <driver/timer_dm.h>
 #include <driver/video_dm.h>
 #include <fs/fs.h>
@@ -24,6 +21,7 @@
 #include <kernel/driver_manager.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/periodic_task.h>
 #include <kernel/platform.h>
@@ -38,6 +36,7 @@
 #include <network/tcp.h>
 #include <network/udp.h>
 #include <objects/object.h>
+#include <objects/transfer.h>
 #include <stdint.h>
 
 void		   idle(void *arg);
@@ -67,11 +66,11 @@ int main() {
 	task_idle = thread_start("Idle", 1, idle, 0);
 	io_sti();
 	printk("Memory Size:%dM\n", get_memory_size());
+	thread_start(
+		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
 	// init_vfs();
 	do_initcalls();
 	driver_start_all();
-	thread_start(
-		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
 
 	// void		*handle = NULL;
 	// Object		*object;
@@ -87,7 +86,7 @@ int main() {
 	// } while (!is_done);
 	// print_hex(buf, 512);
 
-	// show_object_tree();
+	show_object_tree();
 
 	// storage_add_request(device->device_manager_extension, &request);
 	// init_fs();

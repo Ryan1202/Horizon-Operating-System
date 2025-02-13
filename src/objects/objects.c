@@ -124,11 +124,11 @@ ObjectResult add_object(Object *parent, Object *child) {
 	return OBJECT_OK;
 }
 
-Object *create_object(Object *parent, string_t *name, ObjectType type) {
+Object *create_object(Object *parent, string_t name, ObjectType type) {
 	Object *object = kmalloc(sizeof(Object));
 	if (object == NULL) { return NULL; }
 
-	object->name   = *name;
+	object->name   = name;
 	object->type   = type;
 	object->parent = parent;
 
@@ -137,7 +137,7 @@ Object *create_object(Object *parent, string_t *name, ObjectType type) {
 	return object;
 }
 
-Object *create_object_directory(Object *parent, string_t *name) {
+Object *create_object_directory(Object *parent, string_t name) {
 	Object *object = create_object(parent, name, OBJECT_TYPE_DIRECTORY);
 	if (object == NULL) { return NULL; }
 

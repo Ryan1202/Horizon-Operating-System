@@ -1,7 +1,7 @@
 #include <bits.h>
 #include <driver/interrupt_dm.h>
-#include <driver/storage_dm.h>
-#include <driver/storage_io_queue.h>
+#include <driver/storage/storage_dm.h>
+#include <driver/storage/storage_io_queue.h>
 #include <driver/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -89,7 +89,7 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
 		if (request->rw == 0) { storage_solve_read_request(request); }
-		kfree(request->real_buf);
+		if (request->buf != request->real_buf) { kfree(request->real_buf); }
 	}
 	storage_finish_request(request);
 }
@@ -121,7 +121,8 @@ void ide_device_probe(IdeChannel *channel) {
 
 	timer_init(&channel->timer);
 	channel->device_count = 0;
-	// ide_reset_drive(channel);
+
+	Device *device[2] = {NULL, NULL};
 	for (i = 0; i < 2; i++) {
 		// 1.选择设备
 		ide_select_device(channel, i);
@@ -170,15 +171,15 @@ void ide_device_probe(IdeChannel *channel) {
 			sizeof(AtaIdentifyInfo) / 2);
 
 		// 6.注册设备
-		Device *device = kmalloc_from_template(ide_device_template);
-		device->bus	   = &platform_bus; // TODO: BUS
+		device[i]	   = kmalloc_from_template(ide_device_template);
+		device[i]->bus = &platform_bus; // TODO: BUS
 		StorageDevice *storage_device =
 			kmalloc_from_template(storage_device_template);
 
-		register_storage_device(&ide_device_driver, device, storage_device);
+		register_storage_device(&ide_device_driver, device[i], storage_device);
 
-		IdeDevice *ide_device		= device->private_data;
-		ide_device->device			= device;
+		IdeDevice *ide_device		= device[i]->private_data;
+		ide_device->device			= device[i];
 		ide_device->channel			= channel;
 		ide_device->type			= type;
 		ide_device->info			= identify;
@@ -186,7 +187,6 @@ void ide_device_probe(IdeChannel *channel) {
 		ide_device->current_request = NULL;
 
 		channel->ide_devices[i] = ide_device;
-		init_and_start(device);
 
 		channel->device_count++;
 	}
@@ -197,6 +197,10 @@ void ide_device_probe(IdeChannel *channel) {
 			BIN_DIS(data, ATA_CONTROL_NIEN));
 		channel->prdt = kmalloc(sizeof(PhysicalRegionDescriptorTable));
 		interrupt_enable_irq(channel->irq->irq);
+
+		for (i = 0; i < 2; i++) {
+			if (device[i] != NULL) { init_and_start(device[i]); }
+		}
 	}
 }
 

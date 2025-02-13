@@ -69,8 +69,7 @@ DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver) {
 
 	bus_drivers[bus_driver->bus_type] = bus_driver;
 
-	bus_driver->object =
-		create_object_directory(&bus_object, &bus_driver->name);
+	bus_driver->object = create_object_directory(&bus_object, bus_driver->name);
 
 	return DRIVER_RESULT_OK;
 }
@@ -120,7 +119,7 @@ DriverResult register_bus(
 	list_init(&bus->device_lh);
 	list_add_tail(&bus->bus_list, &bus_driver->bus_lh);
 
-	bus->object = create_object_directory(bus_driver->object, &bus->name);
+	bus->object = create_object_directory(bus_driver->object, bus->name);
 
 	BUS_OPS_CALL(bus_driver, register_bus_hook, bus);
 
@@ -154,8 +153,8 @@ DriverResult bus_register_device(Device *device, Bus *bus) {
 	list_add_tail(&device->bus_list, &bus->device_lh);
 	BUS_OPS_CALL(bus, register_device_hook, device);
 
-	string_t *name = kmalloc(sizeof(string_t));
-	string_new_with_number(name, "", 0, bus->last_device_num++);
+	string_t name;
+	string_new_with_number(&name, "", 0, bus->last_device_num++);
 	device->object = create_object(bus->object, name, OBJECT_TYPE_DEVICE);
 	device->object->value.device = device;
 

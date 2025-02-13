@@ -19,7 +19,7 @@
  * @return DriverResult
  */
 DriverResult register_device(
-	DeviceDriver *device_driver, string_t *name, Bus *bus, Device *device) {
+	DeviceDriver *device_driver, string_t name, Bus *bus, Device *device) {
 
 	device->state = DEVICE_STATE_REGISTERED;
 
@@ -40,7 +40,7 @@ DriverResult register_device(
 
 	bus_register_device(device, bus);
 
-	if (name != NULL && name->text != NULL && name->length != 0) {
+	if (name.text != NULL && name.length != 0) {
 		Object *object =
 			create_object(&device_object, name, OBJECT_TYPE_SYM_LINK);
 		object->value.sym_link = device->object;

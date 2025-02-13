@@ -2,9 +2,9 @@
  * 默认的存储设备IO实现
  */
 #include "kernel/device.h"
-#include <driver/storage_dm.h>
-#include <driver/storage_io.h>
-#include <driver/storage_io_queue.h>
+#include <driver/storage/storage_dm.h>
+#include <driver/storage/storage_io.h>
+#include <driver/storage/storage_io_queue.h>
 #include <kernel/memory.h>
 #include <objects/object.h>
 #include <objects/transfer.h>

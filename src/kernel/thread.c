@@ -257,10 +257,11 @@ void init_task(void) {
  *
  */
 void schedule(void) {
+	io_cli();
 	struct task_s *cur = get_current_thread();
 	if (cur->status == TASK_RUNNING) {
 		if (list_find(&cur->general_tag, &thread_ready)) {
-			printk("error!\n");
+			printk("Error:Current thread is in thread_ready list!\n");
 			while (1)
 				;
 		}
@@ -270,7 +271,8 @@ void schedule(void) {
 	}
 	struct task_s *next;
 	next = list_first_owner(&thread_ready, struct task_s, general_tag);
-	if (list_length(&thread_ready) > 1) {
+	io_sti();
+	if (next != cur) {
 		list_del(thread_ready.next);
 		next->status = TASK_RUNNING;
 

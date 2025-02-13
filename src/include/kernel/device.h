@@ -88,7 +88,7 @@ typedef struct Device {
 } Device;
 
 DriverResult register_device(
-	struct DeviceDriver *device_driver, string_t *name, struct Bus *bus,
+	struct DeviceDriver *device_driver, string_t name, struct Bus *bus,
 	Device *device);
 DriverResult unregister_device(
 	struct DeviceDriver *device_driver, Device *device);

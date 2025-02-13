@@ -1,5 +1,5 @@
-#include <driver/storage_dm.h>
-#include <driver/storage_io_queue.h>
+#include <driver/storage/storage_dm.h>
+#include <driver/storage/storage_io_queue.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <math.h>

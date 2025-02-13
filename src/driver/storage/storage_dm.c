@@ -1,6 +1,7 @@
-#include <driver/storage_dm.h>
-#include <driver/storage_io.h>
-#include <driver/storage_io_queue.h>
+#include <driver/storage/disk/mbr.h>
+#include <driver/storage/storage_dm.h>
+#include <driver/storage/storage_io.h>
+#include <driver/storage/storage_io_queue.h>
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -8,8 +9,8 @@
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
 #include <kernel/list.h>
+#include <kernel/memory.h>
 #include <kernel/periodic_task.h>
-#include <math.h>
 #include <objects/object.h>
 #include <objects/transfer.h>
 #include <result.h>
@@ -18,16 +19,14 @@
 #include <string.h>
 #include <types.h>
 
-extern void storage_periodic_task(void *arg);
-
-DriverResult storage_device_block_read(
-	Device *device, uint8_t *buf, uint32_t position, size_t count);
-DriverResult storage_device_block_write(
-	Device *device, uint8_t *buf, uint32_t position, size_t count);
+extern void	 storage_periodic_task(void *arg);
+DriverResult start_storage_device(DeviceManager *manager, Device *device);
 
 DeviceManagerOps storage_dm_ops = {
-	.dm_load_hook	= NULL,
-	.dm_unload_hook = NULL,
+	.dm_load_hook	   = NULL,
+	.dm_unload_hook	   = NULL,
+	.start_device_hook = start_storage_device,
+	.stop_device_hook  = NULL,
 };
 
 typedef struct StorageDeviceManager {
@@ -55,7 +54,7 @@ DriverResult register_storage_device(
 	string_t name;
 	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, &name, device->bus, device);
+		register_device, device_driver, name, device->bus, device);
 	list_add_tail(&device->dm_list, &storage_device_manager.device_lh);
 
 	device->object->in.block			 = storage_transfer;
@@ -66,6 +65,8 @@ DriverResult register_storage_device(
 	storage_device->periodic_task.func = storage_periodic_task;
 	storage_device->periodic_task.arg  = storage_device;
 	periodic_task_add(&storage_device->periodic_task);
+
+	storage_device->object = create_object_directory(&device_object, name);
 
 	return DRIVER_RESULT_OK;
 }
@@ -79,36 +80,22 @@ DriverResult unregister_storage_device(
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult storage_device_block_read(
-	Device *device, uint8_t *buf, uint32_t position, size_t count) {
+DriverResult start_storage_device(DeviceManager *manager, Device *device) {
 	StorageDevice *storage_device = device->device_manager_extension;
+	void		  *handle;
+	storage_device->superblock = kmalloc(2 * 512);
+	storage_transfer(
+		device->object, TRANSFER_IN, storage_device->superblock, 0, 2, &handle);
 
-	StorageRequest *request = kmalloc(sizeof(StorageRequest));
-	request->rw				= false;
-	request->buf			= buf;
-	request->position		= position;
-	request->count =
-		DIV_ROUND_UP(position + count, storage_device->block_size) -
-		request->position;
+	bool is_done;
+	do {
+		storage_is_transfer_done(device->object, &handle, &is_done);
+	} while (!is_done);
 
-	storage_add_request(storage_device, request);
-
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult storage_device_block_write(
-	Device *device, uint8_t *buf, uint32_t position, size_t count) {
-	StorageDevice *storage_device = device->device_manager_extension;
-
-	StorageRequest *request = kmalloc(sizeof(StorageRequest));
-	request->rw				= true;
-	request->buf			= buf;
-	request->position		= position;
-	request->count =
-		DIV_ROUND_UP(position + count, storage_device->block_size) -
-		request->position;
-
-	storage_add_request(storage_device, request);
-
+	if (storage_device->type == STORAGE_DEVICE_TYPE_HARDDISK) {
+		if (disk_is_mbr(storage_device)) {
+			parse_mbr_partition_table(storage_device);
+		}
+	}
 	return DRIVER_RESULT_OK;
 }

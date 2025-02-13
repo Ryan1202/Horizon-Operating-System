@@ -31,6 +31,11 @@ typedef struct StorageDevice {
 
 	PeriodicTask periodic_task;
 	list_t		 io_queue_lh;
+
+	uint8_t *superblock;
+
+	// 存储设备的分区目录对象
+	Object *object;
 } StorageDevice;
 
 typedef struct StorageDeviceDriver {

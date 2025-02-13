@@ -82,7 +82,7 @@ DriverResult register_driver(Driver *driver) {
 	list_add_tail(&driver->driver_list, &driver_lh);
 
 	Object *object =
-		create_object(&driver_object, &driver->short_name, OBJECT_TYPE_DRIVER);
+		create_object(&driver_object, driver->short_name, OBJECT_TYPE_DRIVER);
 	object->value.driver = driver;
 	return DRIVER_RESULT_OK;
 }

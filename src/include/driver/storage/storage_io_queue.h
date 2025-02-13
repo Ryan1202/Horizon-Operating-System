@@ -1,7 +1,7 @@
 #ifndef _STORAGE_IO_QUEUE_H
 #define _STORAGE_IO_QUEUE_H
 
-#include "driver/storage_dm.h"
+#include "driver/storage/storage_dm.h"
 #include "kernel/list.h"
 #include "stdint.h"
 #include "types.h"

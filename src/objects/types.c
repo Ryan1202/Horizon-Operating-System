@@ -12,7 +12,7 @@ Object object_builtin_types[OBJECT_TYPE_BUILTIN_MAX] = {
 	DEFINE_OBJECT_TYPE(TYPE),	  DEFINE_OBJECT_TYPE(DIRECTORY),
 	DEFINE_OBJECT_TYPE(DRIVER),	  DEFINE_OBJECT_TYPE(DEVICE),
 	DEFINE_OBJECT_TYPE(FILE),	  DEFINE_OBJECT_TYPE(VALUE),
-	DEFINE_OBJECT_TYPE(SYM_LINK),
+	DEFINE_OBJECT_TYPE(SYM_LINK), DEFINE_OBJECT_TYPE(PARTITION),
 };
 
 Object object_type_directory = {
@@ -33,7 +33,7 @@ ObjectResult init_builtin_types() {
 	return OBJECT_OK;
 }
 
-Object *create_object_type(string_t *name) {
+Object *create_object_type(string_t name) {
 	Object *object =
 		create_object(&object_type_directory, name, OBJECT_TYPE_TYPE);
 	if (object == NULL) { return NULL; }
