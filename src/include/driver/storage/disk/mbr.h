@@ -4,14 +4,12 @@
 #include <driver/storage/storage_dm.h>
 
 typedef struct {
-	uint8_t	 boot_indicator;
-	uint8_t	 starting_head;
-	uint16_t starting_sector_cylinder;
-	uint8_t	 system_id;
-	uint8_t	 ending_head;
-	uint16_t ending_sector_cylinder;
-	uint32_t starting_lba;
-	uint32_t size_in_lba;
+	uint8_t	 sign;
+	uint8_t	 start_chs[3];
+	uint8_t	 fs_type;
+	uint8_t	 end_chs[3];
+	uint32_t start_lba;
+	uint32_t size;
 } __attribute__((packed)) MBRPartitionEntry;
 
 bool disk_is_mbr(StorageDevice *storage_device);

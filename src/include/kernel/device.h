@@ -5,7 +5,6 @@
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
 #include "objects/object.h"
-#include "objects/transfer.h"
 #include "stdint.h"
 #include "string.h"
 #include "types.h"

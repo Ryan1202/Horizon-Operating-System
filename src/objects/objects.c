@@ -60,13 +60,16 @@ ObjectResult init_object_tree() {
 }
 
 ObjectResult find_object_by_name(
-	Object *parent, Object **out_child, string_t *name) {
+	Object *parent, Object **out_child, string_t *name, bool is_directory) {
 	Object *child;
 	dyn_array_foreach(parent->value.directory.children, Object *, child) {
 		if (child->name.length == name->length &&
 			strncmp(child->name.text, name->text, name->length) == 0) {
-			*out_child = child;
-			return OBJECT_OK;
+			if ((child->type == OBJECT_TYPE_DIRECTORY && is_directory) ||
+				(child->type != OBJECT_TYPE_DIRECTORY && !is_directory)) {
+				*out_child = child;
+				return OBJECT_OK;
+			}
 		}
 	}
 	return OBJECT_ERROR_CANNOT_FIND;
@@ -88,13 +91,18 @@ ObjectResult open_oringinal_object_by_ascii_path(
 			path++;
 			i++;
 		}
-		if (*path == '\\') { path++; }
+		bool is_directory = false;
+		if (*path == '\\') {
+			is_directory = true;
+			path++;
+		}
 		ascii_name[i]	= '\0';
 		name.length		= i + 1;
 		name.max_length = i + 1;
 
 		Object		*child;
-		ObjectResult result = find_object_by_name(object, &child, &name);
+		ObjectResult result =
+			find_object_by_name(object, &child, &name, is_directory);
 		if (result != OBJECT_OK) { return result; }
 
 		object = child;
