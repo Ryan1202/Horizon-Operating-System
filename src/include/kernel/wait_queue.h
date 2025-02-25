@@ -9,20 +9,15 @@
 typedef struct {
 	spinlock_t lock;
 	list_t	   list_head;
-} wait_queue_manager_t;
+} WaitQueue;
 
-typedef struct {
-	struct task_s *thread;
-	void			 *private_data;
-	list_t		   list;
-} wait_queue_t;
+typedef struct task_s WaitQueueItem;
 
-wait_queue_manager_t *create_wait_queue(void);
-void				  wait_queue_init(wait_queue_manager_t *wqm);
-bool				  wait_queue_empty(wait_queue_manager_t *wqm);
-wait_queue_t		 *wait_queue_add(wait_queue_manager_t *wqm, uint32_t size);
-wait_queue_t		 *wait_queue_first(wait_queue_manager_t *wqm);
-void				  wait_queue_wakeup(wait_queue_manager_t *wqm);
-void				  wait_queue_wakeup_all(wait_queue_manager_t *wqm);
+void		   wait_queue_init(WaitQueue *wq);
+bool		   wait_queue_empty(WaitQueue *wq);
+void		   wait_queue_add(WaitQueue *wq);
+WaitQueueItem *wait_queue_first(WaitQueue *wq);
+void		   wait_queue_wakeup(WaitQueue *wq);
+void		   wait_queue_wakeup_all(WaitQueue *wq);
 
 #endif
