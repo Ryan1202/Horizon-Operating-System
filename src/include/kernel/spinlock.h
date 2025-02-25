@@ -1,7 +1,7 @@
 #ifndef _SPINLOCK_H
 #define _SPINLOCK_H
 
-typedef int spinlock_t;
+typedef volatile int spinlock_t;
 
 #define SPINLOCK(lock) spinlock_t lock = 0;
 
@@ -20,7 +20,7 @@ static inline void spin_lock(spinlock_t *lock) {
 	}
 }
 
-static inline void spin_unlock(spinlock_t __volatile__ *lock) {
+static inline void spin_unlock(volatile spinlock_t *lock) {
 	__asm__ __volatile__("" ::: "memory");
 	*lock = 0;
 }
