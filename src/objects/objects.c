@@ -107,6 +107,7 @@ ObjectResult open_oringinal_object_by_ascii_path(
 
 		object = child;
 	}
+	object->reference++;
 	*out_object = object;
 	return OBJECT_OK;
 }
@@ -136,13 +137,25 @@ Object *create_object(Object *parent, string_t name, ObjectType type) {
 	Object *object = kmalloc(sizeof(Object));
 	if (object == NULL) { return NULL; }
 
-	object->name   = name;
-	object->type   = type;
-	object->parent = parent;
+	object->name	  = name;
+	object->type	  = type;
+	object->parent	  = parent;
+	object->reference = 0;
 
 	add_object(parent, object);
 
 	return object;
+}
+
+void object_close(Object *object) {
+	object->reference--;
+	if (object->reference != 0) return;
+	if (object->release_data != NULL) { object->release_data(object); }
+	if (object->type == OBJECT_TYPE_DIRECTORY) {
+		dyn_array_delete(object->value.directory.children);
+	}
+	dyn_array_remove(object->parent->value.directory.children, object);
+	kfree(object);
 }
 
 Object *create_object_directory(Object *parent, string_t name) {

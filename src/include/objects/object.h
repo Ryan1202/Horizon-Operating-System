@@ -27,6 +27,7 @@ typedef enum ObjectType {
 	OBJECT_TYPE_VALUE,		 // 表示该对象是一个值
 	OBJECT_TYPE_SYM_LINK,	 // 表示该对象是一个符号链接
 	OBJECT_TYPE_PARTITION,	 // 表示该对象是一个分区
+	OBJECT_TYPE_VOLUME,		 // 表示该对象是一个卷
 	OBJECT_TYPE_BUILTIN_MAX, // 表示对象系统内建类型数量的最大值
 } ObjectType;
 
@@ -38,14 +39,22 @@ typedef struct Object {
 	struct Object *parent;
 	TransferIn	   in;
 	TransferOut	   out;
+
+	uint32_t reference;
+
 	union {
 		uint32_t type;
 		struct {
+			void	 *data;
 			DynArray *children;
 		} directory;
 		struct Driver *driver;
 		struct Device *device;
 		struct {
+			void  *data;
+			size_t size;
+			size_t offset;
+			void  *buffer;
 		} file;
 		struct {
 			enum {
@@ -59,7 +68,10 @@ typedef struct Object {
 		} value;
 		struct Object	 *sym_link;
 		struct Partition *partition;
+		struct Volume	 *volume;
 	} value;
+
+	void (*release_data)(struct Object *object);
 } Object;
 
 extern Object root_object;
@@ -76,6 +88,7 @@ ObjectResult open_oringinal_object_by_ascii_path(
 ObjectResult open_object_by_ascii_path(char *path, Object **object);
 Object		*create_object(Object *parent, string_t name, ObjectType type);
 Object		*create_object_directory(Object *parent, string_t name);
+void		 object_close(Object *object);
 void		 show_object_tree();
 
 #define append_object(parent, child) \

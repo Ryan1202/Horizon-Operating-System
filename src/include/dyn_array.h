@@ -14,14 +14,17 @@ typedef struct DynArray {
 	size_t element_size;
 } DynArray;
 
-struct DynArrayBlock {
+typedef struct DynArrayBlock {
 	struct DynArrayBlock *next;
 	void				 *data;
-};
+	int					  left_space;
+} DynArrayBlock;
 
 DynArray			 *dyn_array_new(size_t element_size, size_t block_size);
+void				  dyn_array_delete(DynArray *dyn_array);
 struct DynArrayBlock *dyn_array_find_block(DynArray *dyn_array, size_t idx);
 void				 *dyn_array_new_item_addr(DynArray *dyn_array);
+void				  dyn_array_remove(DynArray *dyn_array, void *item);
 
 void *dyn_array_next_ptr(
 	DynArray *dyn_array, struct DynArrayBlock **block, int *block_index,
