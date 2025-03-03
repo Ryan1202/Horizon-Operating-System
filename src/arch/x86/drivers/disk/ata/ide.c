@@ -397,6 +397,7 @@ DriverResult ide_device_write_sectors(
 	ide_wait(channel);
 	io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
 
+	ide_device->current_request = request;
 	if (ide_device->mode == TRANSFER_MODE_PIO) {
 		ide_device_send_pio(
 			ide_device, (uint32_t *)request->buf, request->count);
