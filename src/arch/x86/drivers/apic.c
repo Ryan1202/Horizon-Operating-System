@@ -309,7 +309,7 @@ DriverResult apic_init(Device *device) {
 	lapic_write(APIC_TPR, 0);
 
 	for (int i = 0; i < apic_info.max_lvt_entry; i++) {
-		apic_disable_irq(device->device_manager_extension, 0x20 + i);
+		apic_disable_irq(device->dm_ext, 0x20 + i);
 	}
 	return DRIVER_RESULT_OK;
 }

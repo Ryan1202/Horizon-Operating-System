@@ -10,8 +10,8 @@
 DriverResult video_device_start(DeviceManager *manager, Device *device);
 
 DeviceManagerOps video_dm_ops = {
-	.dm_load_hook	= NULL,
-	.dm_unload_hook = NULL,
+	.dm_load   = NULL,
+	.dm_unload = NULL,
 
 	.init_device_hook	 = NULL,
 	.start_device_hook	 = video_device_start,
@@ -21,7 +21,7 @@ DeviceManagerOps video_dm_ops = {
 
 VideoDeviceManager video_dm_ext;
 
-struct DeviceManager video_device_manager = {
+struct DeviceManager video_dm = {
 	.type = DEVICE_TYPE_VIDEO,
 
 	.ops = &video_dm_ops,
@@ -45,10 +45,8 @@ DriverResult video_dm_unload(DeviceManager *manager) {
 
 DriverResult register_video_device(
 	DeviceDriver *device_driver, Device *device, VideoDevice *video_device) {
-	device->device_manager_extension = video_device;
-	if (device->device_manager_extension == NULL) {
-		return DRIVER_RESULT_OUT_OF_MEMORY;
-	}
+	device->dm_ext = video_device;
+	if (device->dm_ext == NULL) { return DRIVER_RESULT_OUT_OF_MEMORY; }
 	video_device->device = device;
 
 	string_t name;
@@ -59,7 +57,7 @@ DriverResult register_video_device(
 		register_device, device_driver, name, device_driver->bus, device);
 
 	list_init(&video_device->video_list_lh);
-	list_add_tail(&device->dm_list, &video_device_manager.device_lh);
+	list_add_tail(&device->dm_list, &video_dm.device_lh);
 
 	return DRIVER_RESULT_OK;
 }
@@ -71,7 +69,7 @@ DriverResult unregister_video_devce(
 }
 
 DriverResult video_device_start(DeviceManager *manager, Device *device) {
-	VideoDevice *video_device = (VideoDevice *)device->device_manager_extension;
+	VideoDevice *video_device = (VideoDevice *)device->dm_ext;
 
 	if (video_dm_ext.main_display_device == NULL) {
 		video_dm_ext.main_display_device = device;
@@ -97,15 +95,14 @@ DriverResult video_device_start(DeviceManager *manager, Device *device) {
 DriverResult video_get_video_device(int in_index, VideoDevice **out_device) {
 	Device *device;
 	if (in_index == 0) {
-		*out_device =
-			video_dm_ext.main_display_device->device_manager_extension;
+		*out_device = video_dm_ext.main_display_device->dm_ext;
 		return DRIVER_RESULT_OK;
 	}
 	int i = 0;
-	list_for_each_owner (device, &video_device_manager.device_lh, dm_list) {
+	list_for_each_owner (device, &video_dm.device_lh, dm_list) {
 		if (device == video_dm_ext.main_display_device) { continue; }
 		if (i == in_index) {
-			*out_device = device->device_manager_extension;
+			*out_device = device->dm_ext;
 			return DRIVER_RESULT_OK;
 		}
 		i++;

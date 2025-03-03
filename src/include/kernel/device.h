@@ -22,7 +22,7 @@
 typedef enum {
 	DEVICE_TYPE_UNKNOWN = 0,
 	DEVICE_TYPE_INTERRUPT_CONTROLLER,
-	DEVICE_TYPE_TIMER,
+	DEVICE_TYPE_TIMER, // 定时器设备
 	DEVICE_TYPE_VIDEO,
 	DEVICE_TYPE_STORAGE,
 	DEVICE_TYPE_MOUSE,
@@ -30,6 +30,7 @@ typedef enum {
 	DEVICE_TYPE_SOUND,
 	DEVICE_TYPE_BUS_CONTROLLER,
 	DEVICE_TYPE_ETHERNET,
+	DEVICE_TYPE_TIME, // 时间设备（如：Unix时间戳/UTC时间）
 	DEVICE_TYPE_MAX,
 } DeviceType;
 
@@ -83,7 +84,7 @@ typedef struct Device {
 
 	void	*private_data;
 	uint32_t private_data_size;
-	void	*device_manager_extension; // 设备管理器所需的扩展信息
+	void	*dm_ext; // 设备管理器所需的扩展信息
 } Device;
 
 DriverResult register_device(

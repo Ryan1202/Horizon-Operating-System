@@ -16,7 +16,7 @@ DriverResult register_device_manager(DeviceManager *manager) {
 	list_init(&manager->device_lh);
 	device_managers[manager->type] = manager;
 
-	DEVM_OPS_CALL(manager, dm_load_hook, manager);
+	DEVM_OPS_CALL(manager, dm_load, manager);
 	return DRIVER_RESULT_OK;
 }
 
@@ -28,7 +28,7 @@ DriverResult unregister_device_manager(DeviceManager *manager) {
 			DEV_OPS_CALL(cur, destroy, cur);
 		}
 	}
-	DEVM_OPS_CALL(manager, dm_unload_hook, manager);
+	DEVM_OPS_CALL(manager, dm_unload, manager);
 	// 从链表中删除
 	list_del(&manager->dm_list);
 

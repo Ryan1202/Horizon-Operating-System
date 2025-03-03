@@ -29,7 +29,7 @@ typedef struct VideoDeviceManager {
 	uint8_t video_device_count;
 } VideoDeviceManager;
 
-extern struct DeviceManager video_device_manager;
+extern struct DeviceManager video_dm;
 
 DriverResult register_video_device(
 	DeviceDriver *device_driver, Device *device, VideoDevice *video_device);

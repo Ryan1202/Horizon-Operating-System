@@ -36,7 +36,7 @@ DriverResult device_driver_manager_load(DriverManager *driver_manager) {
 	for (int i = 0; i < DEVICE_TYPE_MAX; i++) {
 		DeviceManager *device_manager = device_managers[i];
 		if (device_manager != NULL) {
-			DEVM_OPS_CALL(device_manager, dm_load_hook, device_manager);
+			DEVM_OPS_CALL(device_manager, dm_load, device_manager);
 		}
 	}
 
@@ -47,7 +47,7 @@ DriverResult device_driver_manager_unload(DriverManager *driver_manager) {
 	for (int i = 0; i < DEVICE_TYPE_MAX; i++) {
 		DeviceManager *device_manager = device_managers[i];
 		if (device_manager != NULL) {
-			DEVM_OPS_CALL(device_manager, dm_unload_hook, device_manager);
+			DEVM_OPS_CALL(device_manager, dm_unload, device_manager);
 		}
 	}
 

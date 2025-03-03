@@ -53,7 +53,7 @@ typedef struct TimerDeviceManager {
 	Device *scheduler_timer;
 } TimerDeviceManager;
 
-extern struct DeviceManager timer_device_manager;
+extern struct DeviceManager timer_dm;
 
 DriverResult register_timer_device(
 	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device);

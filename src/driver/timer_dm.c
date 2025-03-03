@@ -14,8 +14,8 @@ DriverResult timer_dm_unload(DeviceManager *manager);
 DriverResult timer_device_init(DeviceManager *manager, Device *device);
 
 DeviceManagerOps timer_dm_ops = {
-	.dm_load_hook	= timer_dm_load,
-	.dm_unload_hook = timer_dm_unload,
+	.dm_load   = timer_dm_load,
+	.dm_unload = timer_dm_unload,
 
 	.init_device_hook	 = timer_device_init,
 	.start_device_hook	 = NULL,
@@ -25,7 +25,7 @@ DeviceManagerOps timer_dm_ops = {
 
 TimerDeviceManager timer_dm_ext;
 
-struct DeviceManager timer_device_manager = {
+struct DeviceManager timer_dm = {
 	.type = DEVICE_TYPE_TIMER,
 
 	.ops = &timer_dm_ops,
@@ -48,7 +48,7 @@ DriverResult timer_dm_unload(DeviceManager *manager) {
 }
 
 DriverResult timer_device_init(DeviceManager *manager, Device *device) {
-	TimerDevice *timer_device = (TimerDevice *)device->device_manager_extension;
+	TimerDevice *timer_device = (TimerDevice *)device->dm_ext;
 
 	const int count =
 		sizeof(default_frequencies) / sizeof(typeof(default_frequencies[0]));
@@ -70,8 +70,7 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 		timer_manager->scheduler_timer = device;
 	} else {
 		TimerDevice *scheduler_timer_device =
-			(TimerDevice *)
-				timer_manager->scheduler_timer->device_manager_extension;
+			(TimerDevice *)timer_manager->scheduler_timer->dm_ext;
 		if (scheduler_timer_device->priority < timer_device->priority) {
 			timer_manager->scheduler_timer = device;
 		}
@@ -81,15 +80,14 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 
 int timer_get_schedule_tick(int priority) {
 	if (priority <= 0) { return 0; }
-	TimerDevice *timer_device =
-		(TimerDevice *)timer_device_manager.private_data;
-	int ticks = priority * timer_device->current_frequency / 1000;
+	TimerDevice *timer_device = (TimerDevice *)timer_dm.private_data;
+	int			 ticks = priority * timer_device->current_frequency / 1000;
 	if (ticks == 0) { ticks = 1; } // 如果小于粒度，至少1个tick
 	return ticks;
 }
 
 DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
-	TimerDevice *timer_device = (TimerDevice *)device->device_manager_extension;
+	TimerDevice *timer_device = (TimerDevice *)device->dm_ext;
 
 	TimerResult result =
 		timer_device->timer_ops->set_frequency(timer_device, frequency);
@@ -101,7 +99,7 @@ DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
 }
 
 void timer_irq_handler(Device *device) {
-	TimerDevice *timer_device = (TimerDevice *)device->device_manager_extension;
+	TimerDevice *timer_device = (TimerDevice *)device->dm_ext;
 	timer_device->counter++;
 
 	Timer *cur, *next;
@@ -133,11 +131,11 @@ void timer_irq_handler(Device *device) {
 DriverResult register_timer_device(
 	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device) {
 
-	device->device_manager_extension = timer_device;
-	timer_device->device			 = device;
+	device->dm_ext		 = timer_device;
+	timer_device->device = device;
 
 	list_init(&timer_device->timer_list_lh);
-	list_add_tail(&device->dm_list, &timer_device_manager.device_lh);
+	list_add_tail(&device->dm_list, &timer_dm.device_lh);
 
 	return DRIVER_RESULT_OK;
 }

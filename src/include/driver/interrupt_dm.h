@@ -26,7 +26,7 @@ DriverResult register_interrupt_device(
 	DeviceDriver *device_driver, Device *device,
 	InterruptDevice *interrupt_device);
 
-extern struct DeviceManager interrupt_device_manager;
+extern struct DeviceManager interrupt_dm;
 
 DriverResult interrupt_dm_start();
 uint32_t	 interrupt_redirect_irq(int irq);

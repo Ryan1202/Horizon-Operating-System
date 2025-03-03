@@ -28,14 +28,14 @@ LIST_HEAD(driver_list_head);
 
 struct index_node *dev;
 
-struct file_operations device_fops = {
-	.open  = dev_open,
-	.close = dev_close,
-	.read  = dev_read,
-	.write = dev_write,
-	.ioctl = dev_ioctl,
-	.seek  = fs_seek,
-};
+// struct file_operations device_fops = {
+// 	.open  = dev_open,
+// 	.close = dev_close,
+// 	.read  = dev_read,
+// 	.write = dev_write,
+// 	.ioctl = dev_ioctl,
+// 	.seek  = fs_seek,
+// };
 
 // --------new--------
 #include <kernel/device_driver.h>
@@ -98,7 +98,7 @@ DriverResult register_sub_driver(
 	sub_driver->state  = SUBDRIVER_STATE_UNREADY;
 	sub_driver->type   = type;
 
-	wait_queue_init(&sub_driver->wqm);
+	wait_queue_init(&sub_driver->wq);
 	list_add(&sub_driver->sub_driver_list, &driver->sub_driver_lh);
 
 	return DRIVER_RESULT_OK;
@@ -151,7 +151,7 @@ void sub_driver_start_thread(void *arg) {
 				   SUBDRIVER_STATE_READY) {
 				schedule();
 			}
-			wait_queue_wakeup_all(&bus_driver->subdriver.wqm);
+			wait_queue_wakeup_all(&bus_driver->subdriver.wq);
 			if (bus->ops->scan_bus != NULL) {
 				bus->ops->scan_bus(bus_driver, bus);
 			}
@@ -204,10 +204,10 @@ DriverResult driver_start_all(void) {
 
 // --------old---------
 struct index_node *dev_open(char *path) {
-	struct index_node *inode = vfs_open(path);
-	if (inode == NULL) return NULL;
-	else inode->device->drv_obj->function.driver_open(inode->device);
-	return inode;
+	// struct index_node *inode = vfs_open(path);
+	// if (inode == NULL) return NULL;
+	// else inode->device->drv_obj->function.driver_open(inode->device);
+	// return inode;
 }
 
 int dev_close(struct index_node *inode) {
@@ -289,9 +289,9 @@ status_t device_create(
 		eth_dm.dm_register(&eth_dm, devobj, name);
 		driver->dm = &eth_dm;
 	} else {
-		devobj->inode		  = vfs_create(name, ATTR_DEV, dev);
+		// devobj->inode		  = vfs_create(name, ATTR_DEV, dev);
 		devobj->inode->device = devobj;
-		devobj->inode->f_ops  = device_fops;
+		// devobj->inode->f_ops  = device_fops;
 		devobj->inode->fp	  = kmalloc(sizeof(struct file));
 	}
 

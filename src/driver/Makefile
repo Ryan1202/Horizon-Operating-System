@@ -5,3 +5,4 @@ SRC += video_dm.c
 SRC += video.c
 SRC += bus_dm.c
 SRC += timer.c
+SRC += time_dm.c

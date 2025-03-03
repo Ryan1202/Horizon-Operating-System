@@ -15,8 +15,8 @@
 struct DeviceManager;
 
 typedef struct DeviceMangerOps {
-	DriverResult (*dm_load_hook)(struct DeviceManager *manager);
-	DriverResult (*dm_unload_hook)(struct DeviceManager *manager);
+	DriverResult (*dm_load)(struct DeviceManager *manager);
+	DriverResult (*dm_unload)(struct DeviceManager *manager);
 
 	DriverResult (*init_device_hook)(
 		struct DeviceManager *manager, Device *device);

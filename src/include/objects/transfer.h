@@ -65,16 +65,24 @@ typedef struct TransferOut {
 	};
 } TransferOut;
 
-#define TRANSFER_IN_BLOCK(object)	   ((object)->in.block)
-#define TRANSFER_IN_STREAM(object)	   ((object)->in.stream)
-#define TRANSFER_IN_INTTERRUPT(object) ((object)->in.interrupt)
+#define TRANSFER_IN_BLOCK(object, ...) \
+	((object)->in.block(object, TRANSFER_IN, __VA_ARGS__))
+#define TRANSFER_IN_STREAM(object, ...) \
+	((object)->in.stream(object, TRANSFER_IN, __VA_ARGS__))
+#define TRANSFER_IN_INTTERRUPT(object, ...) \
+	((object)->in.interrupt(object, __VA_ARGS__))
 
-#define TRANSFER_IN_IS_DONE(object) ((object)->in.is_transfer_done)
+#define TRANSFER_IN_IS_DONE(object, ...) \
+	((object)->in.is_transfer_done(object, __VA_ARGS__))
 
-#define TRANSFER_OUT_BLOCK(object)		((object)->in.block)
-#define TRANSFER_OUT_STREAM(object)		((object)->in.stream)
-#define TRANSFER_OUT_INTTERRUPT(object) ((object)->in.interrupt)
+#define TRANSFER_OUT_BLOCK(object, ...) \
+	((object)->in.block(object, TRANSFER_OUT, __VA_ARGS__))
+#define TRANSFER_OUT_STREAM(object, ...) \
+	((object)->in.stream(object, TRANSFER_OUT, __VA_ARGS__))
+#define TRANSFER_OUT_INTTERRUPT(object, ...) \
+	((object)->in.interrupt(object, __VA_ARGS__))
 
-#define TRANSFER_OUT_IS_DONE(object) ((object)->in.is_transfer_done)
+#define TRANSFER_OUT_IS_DONE(object, ...) \
+	((object)->in.is_transfer_done(object, __VA_ARGS__))
 
 #endif

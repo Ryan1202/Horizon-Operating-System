@@ -4,7 +4,9 @@
 #include "kernel/device_driver.h"
 #include "kernel/device_manager.h"
 #include "kernel/driver.h"
+#include "kernel/list.h"
 #include "kernel/periodic_task.h"
+#include "string.h"
 #include <stdint.h>
 
 typedef enum StorageDeviceType {
@@ -27,12 +29,16 @@ typedef struct StorageDevice {
 	StorageDeviceType type;
 	StorageDeviceOps *ops;
 
+	string_t name;
+
 	uint32_t block_size;
 
 	PeriodicTask periodic_task;
 	list_t		 io_queue_lh;
 
 	uint8_t *superblock;
+
+	list_t block_cache_lh;
 
 	// 存储设备的分区目录对象
 	Object *object;
@@ -45,7 +51,7 @@ typedef struct StorageDeviceDriver {
 	StorageDeviceOps *ops;
 } StorageDeviceDriver;
 
-extern DeviceManager storage_device_manager;
+extern DeviceManager storage_dm;
 
 DriverResult register_storage_device(
 	DeviceDriver *device_driver, Device *device, StorageDevice *storage_device);

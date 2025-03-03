@@ -8,8 +8,8 @@
 DriverResult bus_controller_start(DeviceManager *manager, Device *device);
 
 DeviceManagerOps bus_controller_dm_ops = {
-	.dm_load_hook	= NULL,
-	.dm_unload_hook = NULL,
+	.dm_load   = NULL,
+	.dm_unload = NULL,
 };
 
 typedef struct BusControllerDeviceManager {

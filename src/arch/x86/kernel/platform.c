@@ -5,6 +5,7 @@
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
+#include <drivers/cmos.h>
 #include <drivers/pit.h>
 #include <drivers/vesa_display.h>
 #include <drivers/video.h>
@@ -60,6 +61,7 @@ void platform_init() {
 	register_pic();
 	register_apic();
 	register_pit();
+	register_cmos();
 }
 
 void platform_start_devices() {
@@ -69,6 +71,7 @@ void platform_start_devices() {
 	interrupt_dm_start(); // 启动由interrupt_dm选择的中断控制器
 	DRV_RESULT_PRINT_CALL(init_and_start, &pit_device);
 	DRV_RESULT_PRINT_CALL(init_and_start, &apic_timer_device);
+	DRV_RESULT_PRINT_CALL(init_and_start, &rtc_device);
 
 	platform_bus_driver.subdriver.state = SUBDRIVER_STATE_READY;
 }

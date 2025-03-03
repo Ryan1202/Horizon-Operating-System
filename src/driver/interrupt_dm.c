@@ -12,8 +12,8 @@
 DriverResult interrupt_start(DeviceManager *manager, Device *device);
 
 DeviceManagerOps interrupt_dm_ops = {
-	.dm_load_hook	= NULL,
-	.dm_unload_hook = NULL,
+	.dm_load   = NULL,
+	.dm_unload = NULL,
 };
 
 typedef struct InterruptDeviceManager {
@@ -22,7 +22,7 @@ typedef struct InterruptDeviceManager {
 
 InterruptDeviceManager interrupt_dm_ext;
 
-struct DeviceManager interrupt_device_manager = {
+struct DeviceManager interrupt_dm = {
 	.type = DEVICE_TYPE_INTERRUPT_CONTROLLER,
 
 	.ops = &interrupt_dm_ops,
@@ -71,9 +71,9 @@ DriverResult register_interrupt_device(
 	interrupt_device->device = device;
 	DRV_RESULT_DELIVER_CALL(check_intterupt_ops, interrupt_device);
 
-	list_add_tail(&device->dm_list, &interrupt_device_manager.device_lh);
+	list_add_tail(&device->dm_list, &interrupt_dm.device_lh);
 
-	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
+	InterruptDeviceManager *manager = interrupt_dm.private_data;
 	if (manager->current_device) {
 		if (interrupt_device->priority > manager->current_device->priority) {
 			if (manager->current_device->device->state == DEVICE_STATE_ACTIVE) {
@@ -94,7 +94,7 @@ DriverResult unregister_interrupt_device(
 	DeviceDriver *device_driver, Device *device,
 	InterruptDevice *interrupt_device) {
 
-	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
+	InterruptDeviceManager *manager = interrupt_dm.private_data;
 	Device				   *cur;
 
 	DEV_OPS_CALL(device, stop, device);
@@ -102,14 +102,13 @@ DriverResult unregister_interrupt_device(
 	if (manager->current_device == interrupt_device) {
 		// 寻找替代的设备
 		InterruptDevice *new_interrupt_device;
-		list_for_each_owner (
-			cur, &interrupt_device_manager.device_lh, device_list) {
+		list_for_each_owner (cur, &interrupt_dm.device_lh, device_list) {
 			if (cur != device) {
 				if (new_interrupt_device == NULL) {
-					new_interrupt_device = cur->device_manager_extension;
+					new_interrupt_device = cur->dm_ext;
 				} else {
 					InterruptDevice *cur_interrupt_device =
-						(InterruptDevice *)cur->device_manager_extension;
+						(InterruptDevice *)cur->dm_ext;
 					if (cur_interrupt_device->priority >
 						new_interrupt_device->priority) {
 						new_interrupt_device = cur_interrupt_device;
@@ -151,13 +150,13 @@ DriverResult interrupt_dm_start() {
 }
 
 uint32_t interrupt_redirect_irq(int irq) {
-	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
+	InterruptDeviceManager *manager			 = interrupt_dm.private_data;
 	InterruptDevice		   *interrupt_device = manager->current_device;
 	return interrupt_device->interrupt_ops->redirect_irq(interrupt_device, irq);
 }
 
 DriverResult interrupt_enable_irq(int irq) {
-	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
+	InterruptDeviceManager *manager			 = interrupt_dm.private_data;
 	InterruptDevice		   *interrupt_device = manager->current_device;
 	DRV_RESULT_DELIVER_CALL(
 		interrupt_device->interrupt_ops->enable_irq, interrupt_device, irq);
@@ -165,7 +164,7 @@ DriverResult interrupt_enable_irq(int irq) {
 }
 
 DriverResult interrupt_disable_irq(int irq) {
-	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
+	InterruptDeviceManager *manager			 = interrupt_dm.private_data;
 	InterruptDevice		   *interrupt_device = manager->current_device;
 	DRV_RESULT_DELIVER_CALL(
 		interrupt_device->interrupt_ops->disable_irq, interrupt_device, irq);
@@ -173,7 +172,7 @@ DriverResult interrupt_disable_irq(int irq) {
 }
 
 void interrupt_eoi(int irq) {
-	InterruptDeviceManager *manager = interrupt_device_manager.private_data;
+	InterruptDeviceManager *manager			 = interrupt_dm.private_data;
 	InterruptDevice		   *interrupt_device = manager->current_device;
 	interrupt_device->interrupt_ops->eoi(interrupt_device, irq);
 }

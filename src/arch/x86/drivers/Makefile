@@ -12,6 +12,7 @@ SRC += msr.c
 SRC += pit.c
 SRC += smbios.c
 SRC	+= vesa_display.c
+SRC += cmos.c
 #SRC	+= network/
 #SRC += sound/
 #SRC += usb/

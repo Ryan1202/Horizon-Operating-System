@@ -6,9 +6,8 @@
 extern TimerDeviceManager timer_dm_ext;
 
 DriverResult timer_init(Timer *timer) {
-	timer->timer_device =
-		timer_dm_ext.scheduler_timer->device_manager_extension;
-	timer->timeout = 0;
+	timer->timer_device = timer_dm_ext.scheduler_timer->dm_ext;
+	timer->timeout		= 0;
 	return DRIVER_RESULT_OK;
 }
 
