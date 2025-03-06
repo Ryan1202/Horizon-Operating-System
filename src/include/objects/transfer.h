@@ -1,7 +1,6 @@
 #ifndef _TRANSFER_H
 #define _TRANSFER_H
 
-#include "result.h"
 #include "stdint.h"
 #include <types.h>
 
@@ -22,9 +21,15 @@ typedef enum {
 struct Object;
 typedef TransferResult (*BlockTransfer)(
 	struct Object *object, TransferDirection direction, uint8_t *buf,
+	uint32_t position, size_t count);
+typedef TransferResult (*BlockTransferAsync)(
+	struct Object *object, TransferDirection direction, uint8_t *buf,
 	uint32_t position, size_t count, void **handle);
 
 typedef TransferResult (*StreamTransfer)(
+	struct Object *object, TransferDirection direction, uint8_t *buf,
+	size_t size);
+typedef TransferResult (*StreamTransferAsync)(
 	struct Object *object, TransferDirection direction, uint8_t *buf,
 	size_t size, void **handle);
 
@@ -54,6 +59,10 @@ typedef struct TransferIn {
 		StreamTransfer	  stream;
 		InterruptTransfer interrupt;
 	};
+	union {
+		BlockTransferAsync	block_async;
+		StreamTransferAsync stream_async;
+	};
 } TransferIn;
 
 typedef struct TransferOut {
@@ -63,12 +72,20 @@ typedef struct TransferOut {
 		BlockTransfer  block;
 		StreamTransfer stream;
 	};
+	union {
+		BlockTransferAsync	block_async;
+		StreamTransferAsync stream_async;
+	};
 } TransferOut;
 
 #define TRANSFER_IN_BLOCK(object, ...) \
 	((object)->in.block(object, TRANSFER_IN, __VA_ARGS__))
+#define TRANSFER_IN_BLOCK_ASYNC(object, ...) \
+	((object)->in.block_async(object, TRANSFER_IN, __VA_ARGS__))
 #define TRANSFER_IN_STREAM(object, ...) \
 	((object)->in.stream(object, TRANSFER_IN, __VA_ARGS__))
+#define TRANSFER_IN_STREAM_ASYNC(object, ...) \
+	((object)->in.stream_async(object, TRANSFER_IN, __VA_ARGS__))
 #define TRANSFER_IN_INTTERRUPT(object, ...) \
 	((object)->in.interrupt(object, __VA_ARGS__))
 
@@ -77,8 +94,12 @@ typedef struct TransferOut {
 
 #define TRANSFER_OUT_BLOCK(object, ...) \
 	((object)->in.block(object, TRANSFER_OUT, __VA_ARGS__))
+#define TRANSFER_OUT_BLOCK_ASYNC(object, ...) \
+	((object)->in.block_async(object, TRANSFER_OUT, __VA_ARGS__))
 #define TRANSFER_OUT_STREAM(object, ...) \
 	((object)->in.stream(object, TRANSFER_OUT, __VA_ARGS__))
+#define TRANSFER_OUT_STREAM_ASYNC(object, ...) \
+	((object)->in.stream_async(object, TRANSFER_OUT, __VA_ARGS__))
 #define TRANSFER_OUT_INTTERRUPT(object, ...) \
 	((object)->in.interrupt(object, __VA_ARGS__))
 

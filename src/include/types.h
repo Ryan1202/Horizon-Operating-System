@@ -11,4 +11,7 @@
 
 #define offset_t uint64_t
 
+#define PRIVATE static
+#define PUBLIC
+
 #endif /*_TYPES_H_*/

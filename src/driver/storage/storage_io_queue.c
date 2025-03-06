@@ -1,3 +1,5 @@
+#include "kernel/block_cache.h"
+#include "kernel/rwlock.h"
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
 #include <kernel/list.h>
@@ -55,6 +57,10 @@ void storage_add_request(
 	StorageRequest *req;
 	request->storage_device = storage_device;
 	request->is_finished	= 0;
+	if (list_empty(&storage_device->io_queue_lh)) {
+		storage_submit_request(request);
+		return;
+	}
 	list_for_each_owner (req, &storage_device->io_queue_lh, list) {
 		if (storage_try_merge_request(request, req)) { return; }
 		if (req->position > request->position) {
@@ -68,11 +74,23 @@ void storage_add_request(
 void storage_periodic_task(void *arg) {
 	StorageDevice *storage_device = (StorageDevice *)arg;
 
-	if (!storage_device->ops->is_busy(storage_device) &&
-		!list_empty(&storage_device->io_queue_lh)) {
-		StorageRequest *request = list_first_owner(
-			&storage_device->io_queue_lh, StorageRequest, list);
-		storage_submit_request(request);
+	if (!storage_device->ops->is_busy(storage_device)) {
+		if (!list_empty(&storage_device->io_queue_lh)) {
+			StorageRequest *request = list_first_owner(
+				&storage_device->io_queue_lh, StorageRequest, list);
+			storage_submit_request(request);
+		} else if (
+			storage_device->block_cache_lh.next != NULL &&
+			!list_empty(&storage_device->block_cache_lh)) {
+			BlockCacheEntry *entry = list_first_owner(
+				&storage_device->block_cache_lh, BlockCacheEntry, list);
+			rwlock_read_lock(&entry->lock);
+			entry->cache->write(
+				entry, entry->cache->size, entry->cache->private_data);
+			list_del(&entry->list);
+			entry->dirty = false;
+			rwlock_read_unlock(&entry->lock);
+		}
 	}
 }
 

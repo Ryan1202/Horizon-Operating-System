@@ -4,7 +4,6 @@
 #include "kernel/driver.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
-#include "objects/object.h"
 #include "stdint.h"
 #include "string.h"
 #include "types.h"
@@ -52,8 +51,6 @@ typedef enum {
 	DEVICE_STATE_ERROR,		   // 设备错误
 } DeviceState;
 
-struct DeviceDriver;
-
 typedef struct ChildDevice {
 	bool		   is_using;
 	uint32_t	   id;
@@ -62,7 +59,8 @@ typedef struct ChildDevice {
 } ChildDevice;
 
 struct Bus;
-
+struct Object;
+struct DeviceDriver;
 typedef struct Device {
 	list_t				 bus_list;
 	list_t				 device_list;
@@ -73,7 +71,7 @@ typedef struct Device {
 
 	struct Bus *bus;
 
-	Object *object;
+	struct Object *object;
 
 	DeviceIrq *irq;
 	DeviceOps *ops;

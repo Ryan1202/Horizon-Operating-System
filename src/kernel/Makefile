@@ -20,6 +20,9 @@ SRC		+=	app.c
 SRC		+=	elf.c
 SRC		+=	wait_queue.c
 SRC		+=	periodic_task.c
+SRC		+=	block_cache.c
+SRC		+=	rwlock.c
+SRC		+=	condvar.c
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 

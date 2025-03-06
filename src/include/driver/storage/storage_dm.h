@@ -1,7 +1,6 @@
 #ifndef _STORAGE_DM_H
 #define _STORAGE_DM_H
 
-#include "kernel/device_driver.h"
 #include "kernel/device_manager.h"
 #include "kernel/driver.h"
 #include "kernel/list.h"
@@ -24,6 +23,7 @@ typedef struct StorageDeviceOps {
 	bool (*is_busy)(struct StorageDevice *storage_device);
 } StorageDeviceOps;
 
+struct Object;
 typedef struct StorageDevice {
 	Device			 *device;
 	StorageDeviceType type;
@@ -41,7 +41,7 @@ typedef struct StorageDevice {
 	list_t block_cache_lh;
 
 	// 存储设备的分区目录对象
-	Object *object;
+	struct Object *object;
 } StorageDevice;
 
 typedef struct StorageDeviceDriver {
@@ -54,8 +54,10 @@ typedef struct StorageDeviceDriver {
 extern DeviceManager storage_dm;
 
 DriverResult register_storage_device(
-	DeviceDriver *device_driver, Device *device, StorageDevice *storage_device);
+	struct DeviceDriver *device_driver, Device *device,
+	StorageDevice *storage_device);
 DriverResult unregister_storage_device(
-	DeviceDriver *device_driver, Device *device, StorageDevice *storage_device);
+	struct DeviceDriver *device_driver, Device *device,
+	StorageDevice *storage_device);
 
 #endif

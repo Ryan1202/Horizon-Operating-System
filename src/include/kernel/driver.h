@@ -175,7 +175,7 @@ typedef struct SubDriver {
 	DriverType	   type;
 	SubDriverState state;
 
-	wait_queue_manager_t wqm;
+	WaitQueue wq;
 } SubDriver;
 
 extern list_t startup_dm_lh;

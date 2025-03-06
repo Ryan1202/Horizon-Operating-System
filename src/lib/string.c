@@ -78,6 +78,35 @@ int string_new_with_number(
 	return 0;
 }
 
+int string_new_with_string_number(
+	string_t *string, char *text, int text_len, char *append_text,
+	int append_text_len, int number) {
+
+	// 计算数字长度
+	int len = 0;
+	int x	= number;
+	do {
+		len++;
+		x /= 10;
+	} while (x > 0);
+
+	int ret = string_new(string, text, text_len + append_text_len + len + 1);
+	if (ret != 0) { return ret; }
+	string->length					 = text_len + append_text_len + len + 1;
+	string->text[string->length - 1] = '\0';
+
+	strncpy(string->text + text_len, append_text, append_text_len);
+
+	x = number;
+	for (int i = text_len + append_text_len + len - 1;
+		 i >= text_len + append_text_len; i--) {
+		string->text[i] = '0' + x % 10;
+		x /= 10;
+	}
+
+	return 0;
+}
+
 /**
  * @brief 删除字符串
  *

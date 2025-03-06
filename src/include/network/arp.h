@@ -28,7 +28,7 @@ typedef struct {
 	uint8_t mac[6];
 	list_t	list;
 
-	wait_queue_manager_t wqm;
+	WaitQueue wq;
 } arp_cache_t;
 
 uint8_t *ip2mac(netc_t *netc, uint8_t *ip);

@@ -4,7 +4,6 @@
 #include "kernel/device.h"
 #include "kernel/driver.h"
 #include "kernel/list.h"
-#include "objects/object.h"
 #include "stdint.h"
 #include "string.h"
 
@@ -31,6 +30,7 @@ typedef struct DeviceDriverOps {
 } DeviceDriverOps;
 
 struct Bus;
+struct Object;
 typedef struct DeviceDriver {
 	// 继承SubDriver特征
 	SubDriver subdriver;
@@ -43,7 +43,7 @@ typedef struct DeviceDriver {
 	DriverPriority priority;
 	DriverState	   state;
 
-	Object *object;
+	struct Object *object;
 
 	DeviceDriverOps *ops;
 

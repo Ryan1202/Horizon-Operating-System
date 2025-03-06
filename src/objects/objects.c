@@ -1,3 +1,5 @@
+#include "kernel/list.h"
+#include "objects/ops.h"
 #include <dyn_array.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
@@ -12,33 +14,31 @@ Object root_object = {
 	.name = STRING_INIT(""), // 根对象的名字不会起到任何作用，所以设为空
 	.type	= OBJECT_TYPE_DIRECTORY,
 	.parent = NULL,
+	.fixed	= true,
 };
 Object bus_object = {
-	.name = STRING_INIT("Bus"),
-	.type = OBJECT_TYPE_DIRECTORY,
+	.name  = STRING_INIT("Bus"),
+	.type  = OBJECT_TYPE_DIRECTORY,
+	.fixed = true,
 };
 Object driver_object = {
-	.name = STRING_INIT("Driver"),
-	.type = OBJECT_TYPE_DIRECTORY,
+	.name  = STRING_INIT("Driver"),
+	.type  = OBJECT_TYPE_DIRECTORY,
+	.fixed = true,
 };
 Object device_object = {
-	.name = STRING_INIT("Device"),
-	.type = OBJECT_TYPE_DIRECTORY,
+	.name  = STRING_INIT("Device"),
+	.type  = OBJECT_TYPE_DIRECTORY,
+	.fixed = true,
+};
+Object volumes_object = {
+	.name  = STRING_INIT("Volumes"),
+	.type  = OBJECT_TYPE_DIRECTORY,
+	.fixed = true,
 };
 
-/**
- * @brief 初始化对象目录的children结构
- *
- * @param object
- * @param block_size
- * @return ObjectResult
- */
-ObjectResult init_object_directory(Object *object, size_t block_size) {
-	DynArray *children = dyn_array_new(sizeof(Object *), block_size);
-	if (children == NULL) { return OBJECT_ERROR_MEMORY; }
-
-	object->value.directory.children = children;
-	return OBJECT_OK;
+static inline void init_object_directory(Object *object) {
+	list_init(&object->value.directory.children);
 }
 
 /**
@@ -47,36 +47,21 @@ ObjectResult init_object_directory(Object *object, size_t block_size) {
  * @return ObjectResult
  */
 ObjectResult init_object_tree() {
-	init_object_directory(&root_object, OBJECT_DIR_SIZE_SMALL);
-	init_object_directory(&bus_object, OBJECT_DIR_SIZE_SMALL);
-	init_object_directory(&driver_object, OBJECT_DIR_SIZE_LARGE);
-	init_object_directory(&device_object, OBJECT_DIR_SIZE_LARGE);
+	init_object_directory(&root_object);
+	init_object_directory(&bus_object);
+	init_object_directory(&driver_object);
+	init_object_directory(&device_object);
+	init_object_directory(&volumes_object);
 	add_object(&root_object, &driver_object);
 	add_object(&root_object, &bus_object);
 	add_object(&root_object, &device_object);
+	add_object(&root_object, &volumes_object);
 
 	init_builtin_types();
 	return OBJECT_OK;
 }
 
-ObjectResult find_object_by_name(
-	Object *parent, Object **out_child, string_t *name, bool is_directory) {
-	Object *child;
-	dyn_array_foreach(parent->value.directory.children, Object *, child) {
-		if (child->name.length == name->length &&
-			strncmp(child->name.text, name->text, name->length) == 0) {
-			if ((child->type == OBJECT_TYPE_DIRECTORY && is_directory) ||
-				(child->type != OBJECT_TYPE_DIRECTORY && !is_directory)) {
-				*out_child = child;
-				return OBJECT_OK;
-			}
-		}
-	}
-	return OBJECT_ERROR_CANNOT_FIND;
-}
-
-ObjectResult open_oringinal_object_by_ascii_path(
-	char *path, Object **out_object) {
+ObjectResult open_oringinal_object_by_path(char *path, Object **out_object) {
 	// 必须从根对象开始
 	if (path[0] != '\\') { return OBJECT_ERROR_ILLEGAL_ARGUMENT; }
 	path++;
@@ -101,8 +86,9 @@ ObjectResult open_oringinal_object_by_ascii_path(
 		name.max_length = i + 1;
 
 		Object		*child;
-		ObjectResult result =
-			find_object_by_name(object, &child, &name, is_directory);
+		ObjectResult result;
+		if (!is_directory) result = obj_open(object, &child, name);
+		else result = obj_opendir(object, &child, name);
 		if (result != OBJECT_OK) { return result; }
 
 		object = child;
@@ -112,8 +98,8 @@ ObjectResult open_oringinal_object_by_ascii_path(
 	return OBJECT_OK;
 }
 
-ObjectResult open_object_by_ascii_path(char *path, Object **object) {
-	ObjectResult result = open_oringinal_object_by_ascii_path(path, object);
+ObjectResult open_object_by_path(char *path, Object **object) {
+	ObjectResult result = open_oringinal_object_by_path(path, object);
 	if (result == OBJECT_OK) {
 		while ((*object)->type == OBJECT_TYPE_SYM_LINK) {
 			*object = (*object)->value.sym_link;
@@ -128,7 +114,7 @@ ObjectResult add_object(Object *parent, Object *child) {
 	}
 
 	child->parent = parent;
-	append_object(parent, child);
+	list_add_tail(&child->list, &parent->value.directory.children);
 
 	return OBJECT_OK;
 }
@@ -142,27 +128,20 @@ Object *create_object(Object *parent, string_t name, ObjectType type) {
 	object->parent	  = parent;
 	object->reference = 0;
 
-	add_object(parent, object);
+	ObjectResult result = add_object(parent, object);
+	if (result != OBJECT_OK) {
+		kfree(object);
+		return NULL;
+	}
 
 	return object;
-}
-
-void object_close(Object *object) {
-	object->reference--;
-	if (object->reference != 0) return;
-	if (object->release_data != NULL) { object->release_data(object); }
-	if (object->type == OBJECT_TYPE_DIRECTORY) {
-		dyn_array_delete(object->value.directory.children);
-	}
-	dyn_array_remove(object->parent->value.directory.children, object);
-	kfree(object);
 }
 
 Object *create_object_directory(Object *parent, string_t name) {
 	Object *object = create_object(parent, name, OBJECT_TYPE_DIRECTORY);
 	if (object == NULL) { return NULL; }
 
-	init_object_directory(object, OBJECT_DIR_SIZE_SMALL);
+	init_object_directory(object);
 
 	return object;
 }
@@ -175,9 +154,8 @@ void print_symbol_link(Object *object) {
 }
 
 void print_object_directory(Object *object, int level) {
-	for (int i = 0; i < object->value.directory.children->size; i++) {
-		Object *child =
-			dyn_array_get(object->value.directory.children, Object *, i);
+	Object *child;
+	list_for_each_owner (child, &object->value.directory.children, list) {
 		for (int j = 0; j < level; j++) {
 			printk("|\t");
 		}

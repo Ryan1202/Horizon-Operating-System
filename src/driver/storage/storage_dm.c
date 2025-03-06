@@ -1,4 +1,5 @@
 #include <driver/storage/disk/mbr.h>
+#include <driver/storage/disk/volume.h>
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io.h>
 #include <driver/storage/storage_io_queue.h>
@@ -23,8 +24,8 @@ extern void	 storage_periodic_task(void *arg);
 DriverResult start_storage_device(DeviceManager *manager, Device *device);
 
 DeviceManagerOps storage_dm_ops = {
-	.dm_load_hook	   = NULL,
-	.dm_unload_hook	   = NULL,
+	.dm_load		   = NULL,
+	.dm_unload		   = NULL,
 	.start_device_hook = start_storage_device,
 	.stop_device_hook  = NULL,
 };
@@ -35,7 +36,7 @@ typedef struct StorageDeviceManager {
 
 StorageDeviceManager storage_dm_ext;
 
-struct DeviceManager storage_device_manager = {
+struct DeviceManager storage_dm = {
 	.type = DEVICE_TYPE_STORAGE,
 
 	.ops = &storage_dm_ops,
@@ -48,22 +49,27 @@ DriverResult register_storage_device(
 	StorageDevice *storage_device) {
 	storage_device->device = device;
 
-	device->device_manager_extension = storage_device;
+	device->dm_ext = storage_device;
 	list_init(&storage_device->io_queue_lh);
 
 	string_t name;
 	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, name, device->bus, device);
-	list_add_tail(&device->dm_list, &storage_device_manager.device_lh);
+	list_add_tail(&device->dm_list, &storage_dm.device_lh);
 
+	device->object->in.type				 = TRANSFER_TYPE_BLOCK;
 	device->object->in.block			 = storage_transfer;
+	device->object->in.block_async		 = storage_transfer_async;
 	device->object->in.is_transfer_done	 = storage_is_transfer_done;
+	device->object->out.type			 = TRANSFER_TYPE_BLOCK;
 	device->object->out.block			 = storage_transfer;
+	device->object->out.block_async		 = storage_transfer_async;
 	device->object->out.is_transfer_done = storage_is_transfer_done;
 
 	storage_device->periodic_task.func = storage_periodic_task;
 	storage_device->periodic_task.arg  = storage_device;
+	storage_device->name			   = name;
 	periodic_task_add(&storage_device->periodic_task);
 
 	storage_device->object = create_object_directory(&device_object, name);
@@ -81,21 +87,20 @@ DriverResult unregister_storage_device(
 }
 
 DriverResult start_storage_device(DeviceManager *manager, Device *device) {
-	StorageDevice *storage_device = device->device_manager_extension;
-	void		  *handle;
+	StorageDevice *storage_device = device->dm_ext;
+
 	storage_device->superblock = kmalloc(2 * 512);
 	storage_transfer(
-		device->object, TRANSFER_IN, storage_device->superblock, 0, 2, &handle);
-
-	bool is_done;
-	do {
-		storage_is_transfer_done(device->object, &handle, &is_done);
-	} while (!is_done);
+		device->object, TRANSFER_IN, storage_device->superblock, 0, 2);
 
 	if (storage_device->type == STORAGE_DEVICE_TYPE_HARDDISK) {
 		if (disk_is_mbr(storage_device)) {
 			parse_mbr_partition_table(storage_device);
 		}
+		list_init(&storage_device->block_cache_lh);
+	} else {
+		storage_device->block_cache_lh.next = NULL;
+		storage_device->block_cache_lh.prev = NULL;
 	}
 	return DRIVER_RESULT_OK;
 }

@@ -3,38 +3,54 @@
 #include <driver/storage/storage_io.h>
 #include <objects/transfer.h>
 
-TransferResult disk_transfer_in(
+TransferResult disk_transfer_in_async(
 	Object *object, TransferDirection direction, uint8_t *buf,
 	uint32_t position, size_t count, void **handle) {
 	Partition *partition = object->value.partition;
 
-	return TRANSFER_IN_BLOCK(partition->storage_object)(
-		partition->storage_object, direction, buf,
-		position + partition->start_lba, count, handle);
+	return TRANSFER_IN_BLOCK_ASYNC(
+		partition->storage_object, buf, position + partition->start_lba, count,
+		handle);
+}
+
+TransferResult disk_transfer_in(
+	Object *object, TransferDirection direction, uint8_t *buf,
+	uint32_t position, size_t count) {
+	Partition *partition = object->value.partition;
+
+	return TRANSFER_IN_BLOCK(
+		partition->storage_object, buf, position + partition->start_lba, count);
+}
+
+TransferResult disk_transfer_out_async(
+	Object *object, TransferDirection direction, uint8_t *buf,
+	uint32_t position, size_t count, void **handle) {
+	Partition *partition = object->value.partition;
+
+	return TRANSFER_OUT_BLOCK_ASYNC(
+		partition->storage_object, buf, position + partition->start_lba, count,
+		handle);
 }
 
 TransferResult disk_transfer_out(
 	Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count, void **handle) {
+	uint32_t position, size_t count) {
 	Partition *partition = object->value.partition;
 
-	return TRANSFER_OUT_BLOCK(partition->storage_object)(
-		partition->storage_object, direction, buf,
-		position + partition->start_lba, count, handle);
+	return TRANSFER_OUT_BLOCK(
+		partition->storage_object, buf, position + partition->start_lba, count);
 }
 
 TransferResult disk_is_transfer_in_done(
 	Object *object, void **handle, bool *is_done) {
 	Partition *partition = object->value.partition;
 
-	return TRANSFER_IN_IS_DONE(partition->storage_object)(
-		partition->storage_object, handle, is_done);
+	return TRANSFER_IN_IS_DONE(partition->storage_object, handle, is_done);
 }
 
 TransferResult disk_is_transfer_out_done(
 	Object *object, void **handle, bool *is_done) {
 	Partition *partition = object->value.partition;
 
-	return TRANSFER_OUT_IS_DONE(partition->storage_object)(
-		partition->storage_object, handle, is_done);
+	return TRANSFER_OUT_IS_DONE(partition->storage_object, handle, is_done);
 }

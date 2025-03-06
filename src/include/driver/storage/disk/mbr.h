@@ -1,9 +1,10 @@
 #ifndef _DISK_MBR_H
 #define _DISK_MBR_H
 
-#include <driver/storage/storage_dm.h>
+#include <stdint.h>
+#include <types.h>
 
-typedef struct {
+typedef struct MBRPartitionEntry {
 	uint8_t	 sign;
 	uint8_t	 start_chs[3];
 	uint8_t	 fs_type;
@@ -12,7 +13,8 @@ typedef struct {
 	uint32_t size;
 } __attribute__((packed)) MBRPartitionEntry;
 
-bool disk_is_mbr(StorageDevice *storage_device);
-void parse_mbr_partition_table(StorageDevice *storage_device);
+struct StorageDevice;
+bool disk_is_mbr(struct StorageDevice *storage_device);
+void parse_mbr_partition_table(struct StorageDevice *storage_device);
 
 #endif

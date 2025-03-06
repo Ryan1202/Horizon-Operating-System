@@ -11,8 +11,8 @@
 #include <kernel/wait_queue.h>
 #include <math.h>
 
-BusDriver			*bus_drivers[BUS_TYPE_MAX];
-wait_queue_manager_t bus_wqm[BUS_TYPE_MAX];
+BusDriver *bus_drivers[BUS_TYPE_MAX];
+WaitQueue  bus_wqm[BUS_TYPE_MAX];
 
 DriverResult bus_driver_manager_load(DriverManager *driver_manager);
 DriverResult bus_driver_manager_unload(DriverManager *driver_manager);

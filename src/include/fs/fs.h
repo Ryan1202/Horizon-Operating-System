@@ -1,62 +1,84 @@
 #ifndef _FS_H
 #define _FS_H
 
+#include "string.h"
 #include <fs/vfs.h>
 #include <kernel/list.h>
-#include <string.h>
+#include <objects/object.h>
+#include <result.h>
 
-#define FD_MAX_NR 128
+typedef enum FsResult {
+	FS_OK,
+	FS_ERROR_UNSUPPORT,
+	FS_ERROR_INVALID_PATH_OR_NAME,
+	FS_ERROR_OUT_OF_MEMORY,
+	FS_ERROR_NO_SPARE_SPACE,
+	FS_ERROR_CANNOT_FIND,
+	FS_ERROR_ALREADY_EXISTS,
+	FS_ERROR_END_OF_FILE,
+	FS_ERROR_ILLEGAL_DATA,
+	FS_ERROR_NOT_MATCH,
+	FS_ERROR_OTHER,
+} FsResult;
 
-struct partition_table {
-	uint8_t	 sign;
-	uint8_t	 start_chs[3];
-	uint8_t	 fs_type;
-	uint8_t	 end_chs[3];
-	uint32_t start_lba;
-	uint32_t size;
-};
+#define FS_RESULT_PASS(call)                    \
+	{                                           \
+		FsResult result = call;                 \
+		if (result != FS_OK) { return result; } \
+	}
 
-typedef struct {
-	status_t (*fs_check)(struct partition_table *pt);
-	status_t (*fs_read_superblock)(struct _partition_s *partition, char *data);
-	struct index_node *(*fs_open)(struct _partition_s *part, struct index_node *parent, char *filename);
-	struct index_node *(*fs_opendir)(struct _partition_s *part, struct index_node *parent, char *name);
-	void (*fs_close)(struct index_node *inode);
-	int (*fs_read)(struct index_node *inode, uint8_t *buffer, uint32_t length);
-	int (*fs_write)(struct index_node *inode, uint8_t *buffer, uint32_t length);
-	struct index_node *(*fs_create)(struct _partition_s *part, struct index_node *parent, char *name,
-									int len);
-	void (*fs_delete)(struct _partition_s *part, struct index_node *inode);
-} fs_operations_t;
+struct Partition;
+struct FileSystemInfo;
+typedef struct FileSystemOps {
+	FsResult (*fs_check)(struct Partition *partition);
+	FsResult (*fs_mount)(
+		struct FileSystemInfo *fs_info, struct Object *root_object);
+} FileSystemOps;
 
-typedef struct {
-	list_t			 list;
-	string_t		 name;
-	fs_operations_t *fs_ops;
-} fs_t;
+struct Volume;
+typedef struct FsFileOps {
+	FsResult (*fs_open)(
+		struct FileSystemInfo *fs_info, void *parent, string_t name,
+		struct Object **object);
+	FsResult (*fs_close)(struct Object *object);
+	FsResult (*fs_seek)(struct Object *object, size_t offset);
+	FsResult (*fs_read)(struct Object *file, void *buf, size_t size);
+	FsResult (*fs_write)(struct Object *file, void *buf, size_t size);
+} FsFileOps;
 
-typedef struct _partition_s {
-	list_t			   list;
-	string_t		   name;
-	device_t		  *device;
-	fs_t			  *fs;
-	struct index_node *root;
-	int				   start_lba;
-	void			  *private_data;
-} partition_t;
+typedef struct FsDirectoryOps {
+	FsResult (*fs_opendir)(
+		struct FileSystemInfo *fs_info, void *parent, string_t name,
+		struct Object **object);
+	FsResult (*fs_closedir)(struct Object *object);
+	FsResult (*fs_create_file)(
+		struct Object *directory, string_t name, struct Object **object);
+	FsResult (*fs_delete_file)(struct Object *directory, string_t name);
+} FsDirectoryOps;
 
-extern struct file *fds[FD_MAX_NR];
-extern int			fd_num;
+typedef struct FileSystem {
+	list_t	 list;
+	string_t name;
 
-void			   init_fs(void);
-int				   alloc_fd(void);
-struct index_node *fs_open(char *path);
-int				   fs_close(struct index_node *inode);
-int				   fs_read(struct index_node *inode, uint8_t *buffer, uint32_t length);
-int				   fs_write(struct index_node *inode, uint8_t *buffer, uint32_t length);
-int				   fs_seek(struct index_node *inode, unsigned int offset, unsigned int origin);
-int				   fs_create(struct index_node *parent, char *name);
-int				   fs_delete(struct index_node *inode);
-int				   fs_register(char *name, fs_operations_t *fs_ops);
+	FileSystemOps *ops;
+} FileSystem;
+
+typedef struct FileSystemInfo {
+	struct Partition *partition;
+	void			 *private_data;
+	FileSystemOps	 *ops;
+	FsFileOps		  file_ops;
+	FsDirectoryOps	  dir_ops;
+} FileSystemInfo;
+
+extern list_t fs_list_head;
+
+void register_fs(FileSystem *fs);
+void unregister_fs(FileSystem *fs);
+
+FsResult fs_obj_create_file(
+	Object *parent, FileSystemInfo *info, string_t name, Object **object);
+FsResult fs_obj_create_dir(
+	Object *parent, FileSystemInfo *info, string_t name, Object **object);
 
 #endif

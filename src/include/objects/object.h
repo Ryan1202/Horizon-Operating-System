@@ -2,6 +2,7 @@
 #define _OBJECT_H
 
 #include "dyn_array.h"
+#include "kernel/list.h"
 #include "objects/transfer.h"
 #include "stdint.h"
 #include "string.h"
@@ -12,6 +13,7 @@ typedef enum ObjectResult {
 	OBJECT_ERROR_INVALID_OPERATION,
 	OBJECT_ERROR_CANNOT_FIND,
 	OBJECT_ERROR_ILLEGAL_ARGUMENT,
+	OBJECT_ERROR_OTHER,
 } ObjectResult;
 
 #define OBJECT_DIR_SIZE_SMALL  8
@@ -33,6 +35,8 @@ typedef enum ObjectType {
 
 struct Partition;
 typedef struct Object {
+	list_t list;
+
 	string_t   name;
 	ObjectType type;
 
@@ -40,13 +44,18 @@ typedef struct Object {
 	TransferIn	   in;
 	TransferOut	   out;
 
+	bool	 fixed;
 	uint32_t reference;
+
+	bool				   is_mounted;
+	struct Object		  *origin;
+	struct FileSystemInfo *fs_info;
 
 	union {
 		uint32_t type;
 		struct {
-			void	 *data;
-			DynArray *children;
+			void  *data;
+			list_t children;
 		} directory;
 		struct Driver *driver;
 		struct Device *device;
@@ -68,7 +77,6 @@ typedef struct Object {
 		} value;
 		struct Object	 *sym_link;
 		struct Partition *partition;
-		struct Volume	 *volume;
 	} value;
 
 	void (*release_data)(struct Object *object);
@@ -78,14 +86,13 @@ extern Object root_object;
 extern Object bus_object;
 extern Object driver_object;
 extern Object device_object;
+extern Object volumes_object;
 
 ObjectResult init_object_tree();
 ObjectResult add_object(Object *parent, Object *child);
-ObjectResult init_object_directory(Object *object, size_t block_size);
-ObjectResult open_oringinal_object_by_ascii_path(
-	char *path, Object **out_object);
-// 通过ASCII路径打开对象，对于符号链接会自动解析
-ObjectResult open_object_by_ascii_path(char *path, Object **object);
+// 通过路径打开对象，对于符号链接会自动解析
+ObjectResult open_oringinal_object_by_path(char *path, Object **out_object);
+ObjectResult open_object_by_path(char *path, Object **object);
 Object		*create_object(Object *parent, string_t name, ObjectType type);
 Object		*create_object_directory(Object *parent, string_t name);
 void		 object_close(Object *object);

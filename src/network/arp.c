@@ -15,7 +15,7 @@ uint8_t *ip2mac(netc_t *netc, uint8_t *ip) {
 			if (cur->mac[0] != 0) {
 				return cur->mac;
 			} else {
-				wait_queue_add(&cur->wqm, 0);
+				wait_queue_add(&cur->wq);
 				thread_block(TASK_BLOCKED);
 			}
 		}
@@ -23,7 +23,7 @@ uint8_t *ip2mac(netc_t *netc, uint8_t *ip) {
 
 	cache = kmalloc(sizeof(arp_cache_t));
 	memcpy(cache->ip, ip, 4);
-	wait_queue_init(&cache->wqm);
+	wait_queue_init(&cache->wq);
 	list_add_tail(&cache->list, &arp_cache_lh);
 	send_arp(netc, ip, ARP_REQUEST);
 	while (cache->mac[0] == 0) {}
@@ -61,7 +61,7 @@ void arp_read(uint8_t *buf, uint16_t offset, uint16_t length) {
 			if (memcmp(cur->ip, arp->src_ip, 4) == 0) {
 				if (cur->mac[0] == 0) {
 					memcpy(cur->mac, arp->src_hw_addr, 6);
-					wait_queue_wakeup_all(&cur->wqm);
+					wait_queue_wakeup_all(&cur->wq);
 				} else {
 					memcpy(cur->mac, arp->src_hw_addr, 6);
 				}
