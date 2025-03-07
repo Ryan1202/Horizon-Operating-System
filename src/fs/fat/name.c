@@ -217,15 +217,17 @@ string_t read_short_name(ShortDir *short_dir) {
 FsResult long_name2short_name(
 	FatInfo *fat_info, FatDirEntry *parent, string_t long_name,
 	bool is_directory, ShortName *short_name) {
-	if (short_name == NULL) { return FS_ERROR_OUT_OF_MEMORY; }
 
 	int		 len  = long_name.length;
 	uint8_t *text = (uint8_t *)long_name.text;
 	bool	 flag = true;
 
-	int dot = len - 1;
-	while (text[dot] != '.' && dot >= 0) {
+	int dot = len;
+	if (!is_directory) {
 		dot--;
+		while (text[dot] != '.' && dot >= 0) {
+			dot--;
+		}
 	}
 	int	 base_name_len = 0;
 	int	 ext_name_len  = 0;
@@ -235,49 +237,38 @@ FsResult long_name2short_name(
 	for (i = 0, j = 0; i < 8; i++) {
 		if (i < dot) {
 			if (is_available_short_name_char(text[i])) {
-				if ('a' <= text[i] && text[i] <= 'z') {
+				if ('a' <= text[i] && text[i] <= 'z')
 					short_name->base[j] = text[i] - 32;
-				} else {
-					short_name->base[j] = text[i];
-				}
+				else short_name->base[j] = text[i];
 			} else if (text[i] >= 0x80) { // 跳过UTF-8字符
 				flag				= false;
 				short_name->base[j] = '_';
-			} else {
-				continue;
-			}
+			} else continue;
 			tmp_name[j] = short_name->base[j];
 			base_name_len++;
-		} else {
-			short_name->base[j] = ' ';
-		}
+		} else short_name->base[j] = ' ';
 		j++;
 	}
 
-	tmp_name[j] = '.';
-	int k		= j + 1;
+	if (!is_directory) {
+		tmp_name[j] = '.';
+		int k		= j + 1;
 
-	for (i = 0, j = 0; i < 3; i++) {
-		if (i < dot) {
-			uint8_t c = text[dot + 1 + i];
-			if (is_available_short_name_char(c)) {
-				if ('a' <= c && c <= 'z') {
-					short_name->ext[j] = c - 32;
-				} else {
-					short_name->ext[j] = c;
-				}
-			} else if (c >= 0x80) {
-				flag			   = false;
-				short_name->ext[j] = '_';
-			} else {
-				continue;
-			}
-		} else {
-			short_name->ext[j] = ' ';
+		for (i = 0, j = 0; i < 3; i++) {
+			if (i < dot) {
+				uint8_t c = text[dot + 1 + i];
+				if (is_available_short_name_char(c)) {
+					if ('a' <= c && c <= 'z') short_name->ext[j] = c - 32;
+					else short_name->ext[j] = c;
+				} else if (c >= 0x80) {
+					flag			   = false;
+					short_name->ext[j] = '_';
+				} else continue;
+			} else short_name->ext[j] = ' ';
+			tmp_name[k + j] = short_name->ext[j];
+			j++;
+			ext_name_len++;
 		}
-		tmp_name[k + j] = short_name->ext[j];
-		j++;
-		ext_name_len++;
 	}
 
 	string_t name;

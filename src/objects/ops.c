@@ -1,18 +1,21 @@
 #include "kernel/list.h"
 #include "kernel/memory.h"
 #include "objects/transfer.h"
+#include "string.h"
 #include <fs/fs.h>
 #include <multiple_return.h>
 #include <objects/object.h>
 #include <objects/ops.h>
 
 ObjectResult obj_search(
-	Object *parent, DEF_MRET(Object *, child), string_t name, ObjectType type) {
+	Object *parent, DEF_MRET(Object *, child), string_t name,
+	bool is_directory) {
 	Object *child;
 	list_for_each_owner (child, &parent->value.directory.children, list) {
 		if (child->name.length == name.length &&
 			strncmp(child->name.text, name.text, name.length) == 0) {
-			if (child->type == type) {
+			if ((is_directory && child->type == OBJECT_TYPE_DIRECTORY) ||
+				(!is_directory && child->type != OBJECT_TYPE_DIRECTORY)) {
 				MRET(child) = child;
 				return OBJECT_OK;
 			}
@@ -24,7 +27,7 @@ ObjectResult obj_search(
 ObjectResult obj_open(
 	Object *parent, DEF_MRET(Object *, child), string_t name) {
 	Object		*child;
-	ObjectResult result = obj_search(parent, &child, name, OBJECT_TYPE_FILE);
+	ObjectResult result = obj_search(parent, &child, name, false);
 	if (result == OBJECT_OK) {
 		MRET(child) = child;
 		child->reference++;
@@ -43,8 +46,7 @@ ObjectResult obj_open(
 ObjectResult obj_opendir(
 	Object *parent, DEF_MRET(Object *, child), string_t name) {
 	Object		*child;
-	ObjectResult result =
-		obj_search(parent, &child, name, OBJECT_TYPE_DIRECTORY);
+	ObjectResult result = obj_search(parent, &child, name, true);
 	if (result == OBJECT_OK) {
 		MRET(child) = child;
 		child->reference++;
@@ -63,14 +65,13 @@ ObjectResult obj_opendir(
 ObjectResult obj_close(Object *object) {
 	object->reference--;
 	if (object->reference > 0) return OBJECT_OK;
+	if (object->fs_info == NULL) return OBJECT_OK;
 	if (!object->is_mounted && !object->fixed) {
 		if (object->release_data != NULL) object->release_data(object);
-		if (object->fs_info != NULL) {
-			if (object->type == OBJECT_TYPE_FILE) {
-				object->fs_info->file_ops.fs_close(object);
-			} else if (object->type == OBJECT_TYPE_DIRECTORY) {
-				object->fs_info->dir_ops.fs_closedir(object);
-			}
+		if (object->type == OBJECT_TYPE_FILE) {
+			object->fs_info->file_ops.fs_close(object);
+		} else if (object->type == OBJECT_TYPE_DIRECTORY) {
+			object->fs_info->dir_ops.fs_closedir(object);
 		}
 		list_del(&object->list);
 		obj_close(object->parent);
@@ -79,11 +80,24 @@ ObjectResult obj_close(Object *object) {
 	return OBJECT_OK;
 }
 
+ObjectResult obj_create_file(Object *parent, string_t name) {
+	Object		*child;
+	ObjectResult result = obj_search(parent, &child, name, false);
+	if (result == OBJECT_OK) return OBJECT_ERROR_ALREADY_EXISTS;
+	if (parent->fs_info != NULL) {
+		FsResult result =
+			parent->fs_info->dir_ops.fs_create_file(parent, name, &child);
+		if (result != FS_OK) return OBJECT_ERROR_OTHER;
+	}
+	return OBJECT_OK;
+}
+
 ObjectResult obj_delete_file(Object *parent, string_t name) {
 	Object		*child;
-	ObjectResult result = obj_search(parent, &child, name, OBJECT_TYPE_FILE);
+	ObjectResult result = obj_search(parent, &child, name, false);
 	if (result == OBJECT_OK) {
 		if (child->reference > 0) return OBJECT_ERROR_OCCUPIED;
+		if (child->fixed) return OBJECT_ERROR_FIXED;
 		result = obj_close(child);
 	}
 	if (parent->fs_info != NULL) {
@@ -92,4 +106,35 @@ ObjectResult obj_delete_file(Object *parent, string_t name) {
 	}
 
 	return OBJECT_OK;
+}
+
+ObjectResult obj_mkdir(Object *parent, string_t name) {
+	Object		*child;
+	ObjectResult result = obj_search(parent, &child, name, true);
+	if (result == OBJECT_OK) return OBJECT_ERROR_ALREADY_EXISTS;
+	if (parent->fs_info != NULL) {
+		FsResult result =
+			parent->fs_info->dir_ops.fs_mkdir(parent, name, &child);
+		if (result != FS_OK) return OBJECT_ERROR_OTHER;
+	}
+	return OBJECT_OK;
+}
+
+ObjectResult obj_rmdir(Object *parent, string_t name) {
+	Object		*child;
+	ObjectResult result = obj_search(parent, &child, name, true);
+	if (parent->fs_info != NULL) {
+		FsResult result = parent->fs_info->dir_ops.fs_rmdir(parent, name);
+		if (result != FS_OK) return OBJECT_ERROR_OTHER;
+	} else {
+		if (result != OBJECT_OK) return OBJECT_ERROR_CANNOT_FIND;
+		if (child->fixed) return OBJECT_ERROR_FIXED;
+		if (!child->is_mounted) return OBJECT_ERROR_OCCUPIED;
+		if (child->reference > 0) return OBJECT_ERROR_OCCUPIED;
+		if (!list_empty(&child->value.directory.children))
+			return OBJECT_ERROR_NOT_EMPTY;
+		list_del(&child->list);
+		kfree(child);
+	}
+	return result;
 }

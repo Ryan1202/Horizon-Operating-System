@@ -15,6 +15,7 @@ typedef enum FsResult {
 	FS_ERROR_NO_SPARE_SPACE,
 	FS_ERROR_CANNOT_FIND,
 	FS_ERROR_ALREADY_EXISTS,
+	FS_ERROR_NOT_EMPTY,
 	FS_ERROR_END_OF_FILE,
 	FS_ERROR_ILLEGAL_DATA,
 	FS_ERROR_NOT_MATCH,
@@ -52,8 +53,11 @@ typedef struct FsDirectoryOps {
 		struct Object **object);
 	FsResult (*fs_closedir)(struct Object *object);
 	FsResult (*fs_create_file)(
-		struct Object *directory, string_t name, struct Object **object);
-	FsResult (*fs_delete_file)(struct Object *directory, string_t name);
+		struct Object *parent_obj, string_t name, struct Object **object);
+	FsResult (*fs_delete_file)(struct Object *parent_obj, string_t name);
+	FsResult (*fs_mkdir)(
+		struct Object *parent_obj, string_t name, struct Object **object);
+	FsResult (*fs_rmdir)(struct Object *parent_obj, string_t name);
 } FsDirectoryOps;
 
 typedef struct FileSystem {

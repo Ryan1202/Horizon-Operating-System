@@ -31,8 +31,8 @@ FsResult fat_opendir(
 FsResult fat_closedir(Object *object);
 FsResult fat_create_file(Object *directory, string_t name, Object **object);
 FsResult fat_delete_file(Object *directory, string_t name);
-FsResult fat_mkdir(Object *directory, string_t name, Object **object);
-FsResult fat_rmdir(Object *directory, string_t name);
+FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object);
+FsResult fat_rmdir(Object *parent_obj, string_t name);
 
 FileSystemOps fat_ops = {
 	.fs_check = fat_check,
@@ -52,6 +52,8 @@ FsDirectoryOps fat_dir_ops = {
 	.fs_closedir	= fat_closedir,
 	.fs_create_file = fat_create_file,
 	.fs_delete_file = fat_delete_file,
+	.fs_mkdir		= fat_mkdir,
+	.fs_rmdir		= fat_rmdir,
 };
 
 FileSystem fat_fs = {
@@ -262,9 +264,9 @@ FsResult fat_write(Object *file, void *buf, size_t size) {
 		buf, size);
 }
 
-FsResult fat_create_file(Object *directory, string_t name, Object **object) {
-	FatInfo		*fat_info = directory->fs_info->private_data;
-	FatDirEntry *entry, *parent = directory->value.directory.data;
+FsResult fat_create_file(Object *parent_obj, string_t name, Object **object) {
+	FatInfo		*fat_info = parent_obj->fs_info->private_data;
+	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
 	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
 	if (result == FS_OK) { return FS_ERROR_ALREADY_EXISTS; }
@@ -275,9 +277,9 @@ FsResult fat_create_file(Object *directory, string_t name, Object **object) {
 	return FS_OK;
 }
 
-FsResult fat_delete_file(Object *directory, string_t name) {
-	FatInfo		*fat_info = directory->fs_info->private_data;
-	FatDirEntry *entry, *parent = directory->value.directory.data;
+FsResult fat_delete_file(Object *parent_obj, string_t name) {
+	FatInfo		*fat_info = parent_obj->fs_info->private_data;
+	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
 	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
 	if (result != FS_OK) { return result; }
@@ -286,9 +288,9 @@ FsResult fat_delete_file(Object *directory, string_t name) {
 	return FS_OK;
 }
 
-FsResult fat_mkdir(Object *directory, string_t name, Object **object) {
-	FatInfo		*fat_info = directory->fs_info->private_data;
-	FatDirEntry *entry, *parent = directory->value.directory.data;
+FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object) {
+	FatInfo		*fat_info = parent_obj->fs_info->private_data;
+	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
 	FsResult result = search_dir(fat_info, parent, name, true, &entry, 0);
 	if (result == FS_OK) { return FS_ERROR_ALREADY_EXISTS; }
@@ -296,6 +298,19 @@ FsResult fat_mkdir(Object *directory, string_t name, Object **object) {
 	fat_create_entry(fat_info, parent, name, true, &entry);
 
 	*object = entry->object;
+	return FS_OK;
+}
+
+FsResult fat_rmdir(Object *parent_obj, string_t name) {
+	FatInfo		*fat_info = parent_obj->fs_info->private_data;
+	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
+
+	FsResult result = search_dir(fat_info, parent, name, true, &entry, 0);
+	if (result != FS_OK) { return result; }
+
+	if (!fat_dir_is_empty(fat_info, entry)) return FS_ERROR_NOT_EMPTY;
+
+	fat_delete_entry(fat_info, parent, entry, name);
 	return FS_OK;
 }
 

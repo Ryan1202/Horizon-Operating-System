@@ -91,8 +91,9 @@ PRIVATE FsResult fat_dir_get_new_entry(
 		FS_RESULT_PASS(alloc_cluster(fat_info, cluster, false, &cluster));
 		number = 0;
 	}
-	MRET(last_cluster) = cluster;
-	MRET(last_number)  = number;
+	entry->new_entry_number = number;
+	MRET(last_cluster)		= cluster;
+	MRET(last_number)		= number;
 	return FS_OK;
 }
 
@@ -121,7 +122,7 @@ PRIVATE FsResult fat_longname_entry_write(
 	long_dir.checksum	   = checksum;
 	long_dir.first_cluster = 0;
 	long_dir.type		   = 0;
-	for (int i = 0; i < longdir_count; i++, number++) {
+	for (int i = 0; i < longdir_count; i++) {
 		long_dir.order = longdir_count - i;
 		if (i == 0) {
 			int len = len16 % 13;
@@ -235,10 +236,12 @@ PUBLIC FsResult fat_create_entry(
 
 	int checksum = fat_checksum(&short_dir.name);
 
-	uint32_t cluster;
-	int		 number;
+	uint32_t cluster, longname_cluster = 0;
+	int		 number, longname_number   = 0;
 	fat_dir_get_new_entry(fat_info, parent_entry, &cluster, &number);
 	if (fat_info->type == FAT_TYPE_FAT32 && type == LONG_NAME) {
+		longname_cluster = cluster;
+		longname_number	 = number;
 		FS_RESULT_PASS(fat_longname_entry_write(
 			fat_info, parent_entry, name, checksum, &cluster, &number));
 	}
@@ -248,7 +251,7 @@ PUBLIC FsResult fat_create_entry(
 	FatDirEntry *entry;
 	entry = generate_dir_entry(
 		fat_info, parent_entry, &short_dir, name, is_directory, cluster, number,
-		0, 0);
+		longname_cluster, longname_number);
 
 	if (is_directory) {
 		static ShortName dot = {".       ", "   "};

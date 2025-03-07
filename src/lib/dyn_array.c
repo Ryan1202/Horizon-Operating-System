@@ -69,10 +69,11 @@ struct DynArrayBlock *dyn_array_find_block(DynArray *dyn_array, size_t idx) {
  */
 void *dyn_array_new_item_addr(DynArray *dyn_array) {
 	struct DynArrayBlock *block = dyn_array->last_block;
-	if (dyn_array->size % dyn_array->block_size == 0 && dyn_array->size != 0) {
+	if (block->left_space == 0 && dyn_array->size != 0) {
 		dyn_array_extend_block(dyn_array);
 		block = dyn_array->last_block;
 	}
+	block->left_space--;
 
 	return block->data +
 		   (dyn_array->size % dyn_array->block_size) * dyn_array->element_size;
@@ -94,7 +95,8 @@ void *dyn_array_next_ptr(
 		*block_offset = 0;
 		*block		  = (*block)->next;
 	}
-	return (void *)current_block->data + offset * dyn_array->element_size;
+	return (void *)current_block->data +
+		   (*block_index) * dyn_array->element_size;
 }
 
 void dyn_array_remove(DynArray *dyn_array, void *item) {

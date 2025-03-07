@@ -16,6 +16,7 @@ typedef struct ClusterSegment {
 
 typedef struct CurrentCluster {
 	uint32_t	   cluster;
+	int			   offset;
 	DynArrayBlock *block;
 } CurrentCluster;
 

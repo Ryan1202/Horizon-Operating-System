@@ -78,5 +78,6 @@ FsResult search_dir(
 	bool match_directory, FatDirEntry **out_entry, int mode);
 void entry_cache_init(
 	struct FatInfo *fat_info, FatDirEntry *entry, size_t cache_size);
+bool fat_dir_is_empty(struct FatInfo *fat_info, FatDirEntry *parent_entry);
 
 #endif

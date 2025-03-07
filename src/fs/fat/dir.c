@@ -3,6 +3,7 @@
 #include "include/entry.h"
 #include "include/fat.h"
 #include "include/name.h"
+#include "types.h"
 #include <dyn_array.h>
 #include <fs/fs.h>
 #include <kernel/memory.h>
@@ -27,8 +28,11 @@ static inline FsResult fat_next_entry(
 	FatInfo *fat_info, FatCurrentEntry *entry) {
 	entry->number++;
 	if (entry->number == fat_info->entry_per_cluster) {
-		return fat_cluster_list_get_next(
-			fat_info, entry->entry, &entry->cur_cluster);
+		entry->number = 0;
+		FS_RESULT_PASS(fat_cluster_list_get_next(
+			fat_info, entry->entry, &entry->cur_cluster));
+		if (entry->cur_cluster.cluster >= 0x0fffffff)
+			return FS_ERROR_END_OF_FILE;
 	}
 	return FS_OK;
 }
@@ -129,4 +133,26 @@ FsResult search_dir(
 	}
 	kfree(utf16_name);
 	return result;
+}
+
+bool fat_dir_is_empty(FatInfo *fat_info, FatDirEntry *parent_entry) {
+	FatCurrentEntry cur_entry;
+	cur_entry.entry = parent_entry;
+
+	uint8_t	  buf[0x20];
+	ShortDir *short_dir = (ShortDir *)buf;
+
+	FsResult _result = FS_OK;
+
+	fat_first_entry(fat_info, &cur_entry, 0);
+	for (; _result == FS_OK; _result = fat_next_entry(fat_info, &cur_entry)) {
+		fat_read_current_entry(fat_info, &cur_entry, buf);
+
+		if (buf[0] == 0xe5 || buf[0] == 0x05) continue;
+		if (short_dir->attr == ATTR_LONG_NAME) continue;
+		if (buf[0] == '.') continue;
+
+		if (buf[0] != 0) return false;
+	}
+	return true;
 }

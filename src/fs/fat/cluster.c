@@ -89,7 +89,7 @@ FsResult alloc_cluster(
 	uint32_t offset = fat_info->last_cluster % fat_info->num_count;
 
 	int	 i;
-	bool finded;
+	bool finded = false;
 	while (index < fat_info->fat_sectors && !finded) {
 		BlockCacheEntry *entry =
 			block_cache_read(fat_info->fat_table_cache, index);
@@ -200,6 +200,7 @@ FsResult fat_cluster_list_get(
 		int length = clus_seg.end - clus_seg.start + 1;
 		if (counter < length) {
 			cur_cluster->cluster = clus_seg.start + counter;
+			cur_cluster->offset	 = _block_offset;
 			cur_cluster->block	 = _block;
 			return FS_OK;
 		}
@@ -211,20 +212,29 @@ FsResult fat_cluster_list_get(
 
 FsResult fat_cluster_list_get_next(
 	FatInfo *fat_info, FatDirEntry *entry, CurrentCluster *cur_cluster) {
-	ClusterSegment *seg = cur_cluster->block->data;
+	FsResult		result;
+	ClusterSegment *seg =
+		&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
 	if (cur_cluster->cluster < seg->end) {
 		cur_cluster->cluster++;
 	} else {
-		if (cur_cluster->block->next != NULL) {
-		get_next:
-			cur_cluster->block	 = cur_cluster->block->next;
-			seg					 = cur_cluster->block->data;
-			cur_cluster->cluster = seg->start;
-		} else {
-			FsResult result = get_cluster_segment(fat_info, entry);
-			if (result != FS_OK) return result;
-			goto get_next;
+		cur_cluster->offset++;
+		if (cur_cluster->offset >= entry->cluster_list->block_size) {
+			cur_cluster->offset = 0;
+			if (cur_cluster->block->next == NULL) {
+				result = get_cluster_segment(fat_info, entry);
+				if (result != FS_OK) return result;
+			}
+			cur_cluster->block = cur_cluster->block->next;
 		}
+		seg =
+			&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
+		if (cur_cluster->offset >= (entry->cluster_list->block_size -
+									cur_cluster->block->left_space)) {
+			result = get_cluster_segment(fat_info, entry);
+			if (result != FS_OK) return result;
+		}
+		cur_cluster->cluster = seg->start;
 	}
 	return FS_OK;
 }

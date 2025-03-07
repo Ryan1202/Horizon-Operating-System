@@ -78,12 +78,12 @@ int main() {
 	driver_start_all();
 
 	// uint8_t		 buf[512];
-	// Object		*object;
-	// ObjectResult result =
-	// 	open_object_by_path("\\Volumes\\Storage0Volume0\\", &object);
-	// if (result != OBJECT_OK) { printk("Open File Error!\n"); }
-	// const string_t name = STRING_INIT("一个长文件名.txt");
-	// obj_delete_file(object, name);
+	Object		*object;
+	ObjectResult result =
+		open_object_by_path("\\Volumes\\Storage0Volume0\\", &object);
+	if (result != OBJECT_OK) { printk("Open File Error!\n"); }
+	const string_t name = STRING_INIT("A folder");
+	obj_rmdir(object, name);
 
 	// void		*handle = NULL;
 	// Object		*object;
