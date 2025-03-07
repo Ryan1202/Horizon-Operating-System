@@ -93,7 +93,6 @@ ObjectResult open_oringinal_object_by_path(char *path, Object **out_object) {
 
 		object = child;
 	}
-	object->reference++;
 	*out_object = object;
 	return OBJECT_OK;
 }

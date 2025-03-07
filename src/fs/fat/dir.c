@@ -112,7 +112,8 @@ FsResult search_dir(
 		if (short_dir->attr != ATTR_LONG_NAME) {
 			tmp_entry = generate_dir_entry(
 				fat_info, parent_entry, (ShortDir *)buf, _name, is_directory,
-				cur_entry.cur_cluster.cluster, cur_entry.number, 0, 0);
+				cur_entry.cur_cluster.cluster, cur_entry.number,
+				longname_cluster, longname_number);
 		}
 
 		if (is_directory && (short_dir->attr & ATTR_DIRECTORY) == 0) continue;

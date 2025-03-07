@@ -4,7 +4,6 @@
 #include "include/fat.h"
 #include "include/name.h"
 #include "include/time.h"
-#include "kernel/list.h"
 #include "kernel/memory.h"
 #include "multiple_return.h"
 #include "objects/object.h"
@@ -180,7 +179,11 @@ PUBLIC FatDirEntry *generate_dir_entry(
 		object->value.file.offset = 0;
 		object->value.file.size	  = entry->short_dir.file_size;
 	}
-	entry->object = object;
+	entry->longname_cluster	 = longname_cluster;
+	entry->longname_number	 = longname_number;
+	entry->shortname_cluster = cluster;
+	entry->shortname_number	 = number;
+	entry->object			 = object;
 
 	return entry;
 }
@@ -265,27 +268,27 @@ PUBLIC FsResult fat_create_entry(
 	return FS_OK;
 }
 
-PUBLIC FsResult
-fat_delete_entry(FatInfo *fat_info, FatDirEntry *entry, string_t name) {
+PUBLIC FsResult fat_delete_entry(
+	FatInfo *fat_info, FatDirEntry *parent, FatDirEntry *entry, string_t name) {
 	uint32_t cluster = entry->shortname_cluster;
 	uint32_t num	 = entry->shortname_number;
 
 	uint8_t buf[32];
-	FS_RESULT_PASS(fat_entry_read(fat_info, entry, cluster, num, buf));
+	FS_RESULT_PASS(fat_entry_read(fat_info, parent, cluster, num, buf));
 	buf[0] = 0xe5;
-	FS_RESULT_PASS(fat_entry_write(fat_info, entry, cluster, num, buf));
+	FS_RESULT_PASS(fat_entry_write(fat_info, parent, cluster, num, buf));
 
 	if (fat_info->type == FAT_TYPE_FAT32 && entry->longname_cluster != 0) {
 		uint32_t cluster = entry->longname_cluster;
 		int		 number	 = entry->longname_number;
 
 		while (cluster <= entry->shortname_cluster &&
-			   number <= entry->shortname_number) {
+			   number < entry->shortname_number) {
 			FS_RESULT_PASS(
-				fat_entry_read(fat_info, entry, cluster, number, buf));
+				fat_entry_read(fat_info, parent, cluster, number, buf));
 			buf[0] = 0xe5;
 			FS_RESULT_PASS(
-				fat_entry_write(fat_info, entry, cluster, number, buf));
+				fat_entry_write(fat_info, parent, cluster, number, buf));
 			number++;
 			if (number == fat_info->entry_per_cluster) {
 				cluster = get_next_cluster(fat_info, cluster);

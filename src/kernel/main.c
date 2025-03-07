@@ -77,30 +77,27 @@ int main() {
 	do_initcalls();
 	driver_start_all();
 
-	uint8_t		 buf[512];
-	Object		*object;
-	ObjectResult result = open_object_by_path(
-		"\\Volumes\\Storage0Volume0\\boot\\grub\\grub.cfg", &object);
-	if (result != OBJECT_OK) { printk("Open File Error!\n"); }
-	OBJ_READ_STREAM(object)(object, TRANSFER_IN, buf, 512);
+	// uint8_t		 buf[512];
+	// Object		*object;
+	// ObjectResult result =
+	// 	open_object_by_path("\\Volumes\\Storage0Volume0\\", &object);
+	// if (result != OBJECT_OK) { printk("Open File Error!\n"); }
 	// const string_t name = STRING_INIT("一个长文件名.txt");
-	// volume->fs->ops->fs_open(volume, "/一个长文件名.txt", &parent);
-	// volume->fs->ops->fs_create_file(volume, parent, name, &file_object);
-	// volume->fs->ops->fs_close(object);
+	// obj_delete_file(object, name);
 
 	// void		*handle = NULL;
 	// Object		*object;
 	// ObjectResult result =
-	// 	open_object_by_ascii_path("\\Device\\Storage0\\Partition0", &object);
-	// if (result != OBJECT_OK) { printk("Open Storage0 Error!\n"); }
-	// uint8_t buf[512];
-	// TRANSFER_IN_BLOCK(object)(object, TRANSFER_IN, buf, 0, 1, &handle);
+	// 	open_object_by_ascii_path("\\Device\\Storage0\\Partition0",
+	// &object); if (result != OBJECT_OK) { printk("Open Storage0
+	// Error!\n"); } uint8_t buf[512]; TRANSFER_IN_BLOCK(object)(object,
+	// TRANSFER_IN, buf, 0, 1, &handle);
 
 	// bool is_done;
 	// do {
 	// 	TRANSFER_IN_IS_DONE(object)(object, &handle, &is_done);
 	// } while (!is_done);
-	print_hex(buf, 512);
+	// print_hex(buf, 512);
 
 	// show_object_tree();
 

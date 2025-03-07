@@ -129,7 +129,8 @@ FsResult fat_mount(FileSystemInfo *fs_info, Object *root_object) {
 	const FatDirEntry root_entry = {
 		root_name, root_short_dir, 0, 0, 0, 0, {0}, NULL, NULL,
 	};
-	fat_info->root_entry			  = root_entry;
+	fat_info->root_entry = root_entry;
+
 	fat_info->root_entry.object		  = root_object;
 	root_object->value.directory.data = &fat_info->root_entry;
 	fat_info->root_entry.cluster_list =
@@ -262,7 +263,7 @@ FsResult fat_write(Object *file, void *buf, size_t size) {
 }
 
 FsResult fat_create_file(Object *directory, string_t name, Object **object) {
-	FatInfo		*fat_info = (FatInfo *)directory->fs_info;
+	FatInfo		*fat_info = directory->fs_info->private_data;
 	FatDirEntry *entry, *parent = directory->value.directory.data;
 
 	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
@@ -275,18 +276,18 @@ FsResult fat_create_file(Object *directory, string_t name, Object **object) {
 }
 
 FsResult fat_delete_file(Object *directory, string_t name) {
-	FatInfo		*fat_info = (FatInfo *)directory->fs_info;
+	FatInfo		*fat_info = directory->fs_info->private_data;
 	FatDirEntry *entry, *parent = directory->value.directory.data;
 
 	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
 	if (result != FS_OK) { return result; }
 
-	fat_delete_entry(fat_info, entry, name);
+	fat_delete_entry(fat_info, parent, entry, name);
 	return FS_OK;
 }
 
 FsResult fat_mkdir(Object *directory, string_t name, Object **object) {
-	FatInfo		*fat_info = (FatInfo *)directory->fs_info;
+	FatInfo		*fat_info = directory->fs_info->private_data;
 	FatDirEntry *entry, *parent = directory->value.directory.data;
 
 	FsResult result = search_dir(fat_info, parent, name, true, &entry, 0);

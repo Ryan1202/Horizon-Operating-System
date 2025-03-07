@@ -13,8 +13,15 @@ typedef enum ObjectResult {
 	OBJECT_ERROR_INVALID_OPERATION,
 	OBJECT_ERROR_CANNOT_FIND,
 	OBJECT_ERROR_ILLEGAL_ARGUMENT,
+	OBJECT_ERROR_OCCUPIED,
 	OBJECT_ERROR_OTHER,
 } ObjectResult;
+
+#define OBJ_PASS(call)                              \
+	{                                               \
+		ObjectResult result = call;                 \
+		if (result != OBJECT_OK) { return result; } \
+	}
 
 #define OBJECT_DIR_SIZE_SMALL  8
 #define OBJECT_DIR_SIZE_MEDIUM 16
