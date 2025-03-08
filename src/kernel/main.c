@@ -4,6 +4,7 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "objects/permission.h"
 #include "string.h"
 #include <driver/interrupt_dm.h>
 #include <driver/storage/disk/volume.h>
@@ -47,6 +48,19 @@ void		   idle(void *arg);
 struct task_s *task_idle;
 extern Driver  core_driver;
 
+// void print_permission(Permission *permission) {
+// 	printk("Subject ID:%d\n", permission->subject_id);
+// 	printk("Permission:");
+// 	if (permission->permission.visible) { printk("Visible "); }
+// 	if (permission->permission.read) { printk("Read "); }
+// 	if (permission->permission.write) { printk("Write "); }
+// 	if (permission->permission.execute) { printk("Execute "); }
+// 	if (permission->permission.delete) { printk("Delete "); }
+// 	if (permission->permission.rename) { printk("Rename "); }
+// 	if (permission->permission.set_attr) { printk("SetAttr "); }
+// 	printk("\n");
+// }
+
 int main() {
 	platform_early_init();
 
@@ -78,12 +92,23 @@ int main() {
 	driver_start_all();
 
 	// uint8_t		 buf[512];
-	Object		*object;
-	ObjectResult result =
-		open_object_by_path("\\Volumes\\Storage0Volume0\\", &object);
-	if (result != OBJECT_OK) { printk("Open File Error!\n"); }
-	const string_t name = STRING_INIT("A folder");
-	obj_rmdir(object, name);
+	// Object		*object;
+	// ObjectResult result =
+	// 	open_object_by_path("\\Volumes\\Storage0Volume0\\kernel.elf", &object);
+	// if (result != OBJECT_OK) {
+	// 	printk("Open File Error!\n");
+	// } else {
+	// 	ObjectAttr attr;
+	// 	obj_get_attr(object, &attr);
+	// 	printk("File Size:%d\n", attr.size);
+	// 	print_permission(&attr.all_user_permission);
+	// 	print_permission(&attr.admin_permission);
+	// 	print_permission(&attr.owner_permission);
+	// 	print_permission(&attr.system_permission);
+	// }
+
+	// const string_t name = STRING_INIT("A folder");
+	// obj_rmdir(object, name);
 
 	// void		*handle = NULL;
 	// Object		*object;

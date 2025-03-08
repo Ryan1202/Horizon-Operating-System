@@ -10,31 +10,32 @@
 #include <string.h>
 #include <types.h>
 
+const Permission sys_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+
 Object root_object = {
 	.name = STRING_INIT(""), // 根对象的名字不会起到任何作用，所以设为空
-	.type	= OBJECT_TYPE_DIRECTORY,
 	.parent = NULL,
-	.fixed	= true,
+	.attr	= base_obj_sys_attr,
+
 };
 Object bus_object = {
-	.name  = STRING_INIT("Bus"),
-	.type  = OBJECT_TYPE_DIRECTORY,
-	.fixed = true,
+	.name = STRING_INIT("Bus"),
+	.attr = base_obj_sys_attr,
 };
 Object driver_object = {
-	.name  = STRING_INIT("Driver"),
-	.type  = OBJECT_TYPE_DIRECTORY,
-	.fixed = true,
+	.name = STRING_INIT("Driver"),
+	.attr = base_obj_sys_attr,
 };
 Object device_object = {
-	.name  = STRING_INIT("Device"),
-	.type  = OBJECT_TYPE_DIRECTORY,
-	.fixed = true,
+	.name = STRING_INIT("Device"),
+	.attr = base_obj_sys_attr,
 };
 Object volumes_object = {
-	.name  = STRING_INIT("Volumes"),
-	.type  = OBJECT_TYPE_DIRECTORY,
-	.fixed = true,
+	.name = STRING_INIT("Volumes"),
+	.attr = base_obj_sys_attr,
 };
 
 static inline void init_object_directory(Object *object) {
@@ -100,7 +101,7 @@ ObjectResult open_oringinal_object_by_path(char *path, Object **out_object) {
 ObjectResult open_object_by_path(char *path, Object **object) {
 	ObjectResult result = open_oringinal_object_by_path(path, object);
 	if (result == OBJECT_OK) {
-		while ((*object)->type == OBJECT_TYPE_SYM_LINK) {
+		while ((*object)->attr.type == OBJECT_TYPE_SYM_LINK) {
 			*object = (*object)->value.sym_link;
 		}
 	}
@@ -108,7 +109,7 @@ ObjectResult open_object_by_path(char *path, Object **object) {
 }
 
 ObjectResult add_object(Object *parent, Object *child) {
-	if (parent->type != OBJECT_TYPE_DIRECTORY) {
+	if (parent->attr.type != OBJECT_TYPE_DIRECTORY) {
 		return OBJECT_ERROR_INVALID_OPERATION;
 	}
 
@@ -118,12 +119,12 @@ ObjectResult add_object(Object *parent, Object *child) {
 	return OBJECT_OK;
 }
 
-Object *create_object(Object *parent, string_t name, ObjectType type) {
+Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
 	Object *object = kmalloc(sizeof(Object));
 	if (object == NULL) { return NULL; }
 
 	object->name	  = name;
-	object->type	  = type;
+	object->attr	  = attr;
 	object->parent	  = parent;
 	object->reference = 0;
 
@@ -136,8 +137,10 @@ Object *create_object(Object *parent, string_t name, ObjectType type) {
 	return object;
 }
 
-Object *create_object_directory(Object *parent, string_t name) {
-	Object *object = create_object(parent, name, OBJECT_TYPE_DIRECTORY);
+Object *create_object_directory(
+	Object *parent, string_t name, ObjectAttr attr) {
+	attr.type	   = OBJECT_TYPE_DIRECTORY;
+	Object *object = create_object(parent, name, attr);
 	if (object == NULL) { return NULL; }
 
 	init_object_directory(object);
@@ -159,12 +162,12 @@ void print_object_directory(Object *object, int level) {
 			printk("|\t");
 		}
 		printk("|-%s", child->name.text);
-		if (child->type == OBJECT_TYPE_SYM_LINK) {
+		if (child->attr.type == OBJECT_TYPE_SYM_LINK) {
 			printk("\t->\t");
 			print_symbol_link(child->value.sym_link);
 		}
 		printk("\n");
-		if (child->type == OBJECT_TYPE_DIRECTORY) {
+		if (child->attr.type == OBJECT_TYPE_DIRECTORY) {
 			print_object_directory(child, level + 1);
 		}
 	}

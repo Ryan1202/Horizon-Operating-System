@@ -1,4 +1,5 @@
 #include "include/fat.h"
+#include "include/attr.h"
 #include "include/cluster.h"
 #include "include/dir.h"
 #include "include/entry.h"
@@ -33,6 +34,8 @@ FsResult fat_create_file(Object *directory, string_t name, Object **object);
 FsResult fat_delete_file(Object *directory, string_t name);
 FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object);
 FsResult fat_rmdir(Object *parent_obj, string_t name);
+FsResult fat_get_attr(Object *object, ObjectAttr *attr);
+FsResult fat_set_attr(Object *object, ObjectAttr *attr);
 
 FileSystemOps fat_ops = {
 	.fs_check = fat_check,
@@ -40,11 +43,13 @@ FileSystemOps fat_ops = {
 };
 
 FsFileOps fat_file_ops = {
-	.fs_open  = fat_open,
-	.fs_close = fat_close,
-	.fs_seek  = fat_seek,
-	.fs_read  = fat_read,
-	.fs_write = fat_write,
+	.fs_open	 = fat_open,
+	.fs_close	 = fat_close,
+	.fs_seek	 = fat_seek,
+	.fs_read	 = fat_read,
+	.fs_write	 = fat_write,
+	.fs_get_attr = fat_get_attr,
+	.fs_set_attr = fat_set_attr,
 };
 
 FsDirectoryOps fat_dir_ops = {
@@ -54,6 +59,8 @@ FsDirectoryOps fat_dir_ops = {
 	.fs_delete_file = fat_delete_file,
 	.fs_mkdir		= fat_mkdir,
 	.fs_rmdir		= fat_rmdir,
+	.fs_get_attr	= fat_get_attr,
+	.fs_set_attr	= fat_set_attr,
 };
 
 FileSystem fat_fs = {
@@ -311,6 +318,23 @@ FsResult fat_rmdir(Object *parent_obj, string_t name) {
 	if (!fat_dir_is_empty(fat_info, entry)) return FS_ERROR_NOT_EMPTY;
 
 	fat_delete_entry(fat_info, parent, entry, name);
+	return FS_OK;
+}
+
+FsResult fat_get_attr(Object *object, ObjectAttr *attr) {
+	FatDirEntry *entry = object->value.file.data;
+	fat_attr_to_sys_attr(&entry->short_dir, attr);
+	return FS_OK;
+}
+
+FsResult fat_set_attr(Object *object, ObjectAttr *attr) {
+	FatInfo		*fat_info = object->fs_info->private_data;
+	FatDirEntry *entry	  = object->value.file.data;
+	FatDirEntry *parent	  = object->parent->value.directory.data;
+	fat_attr_from_sys_attr(&entry->short_dir, attr);
+	fat_entry_write(
+		fat_info, parent, entry->shortname_cluster, entry->shortname_number,
+		(uint8_t *)&entry->short_dir);
 	return FS_OK;
 }
 

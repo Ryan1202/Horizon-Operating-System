@@ -45,6 +45,8 @@ typedef struct FsFileOps {
 	FsResult (*fs_seek)(struct Object *object, size_t offset);
 	FsResult (*fs_read)(struct Object *file, void *buf, size_t size);
 	FsResult (*fs_write)(struct Object *file, void *buf, size_t size);
+	FsResult (*fs_get_attr)(struct Object *object, struct ObjectAttr *attr);
+	FsResult (*fs_set_attr)(struct Object *object, struct ObjectAttr *attr);
 } FsFileOps;
 
 typedef struct FsDirectoryOps {
@@ -58,6 +60,8 @@ typedef struct FsDirectoryOps {
 	FsResult (*fs_mkdir)(
 		struct Object *parent_obj, string_t name, struct Object **object);
 	FsResult (*fs_rmdir)(struct Object *parent_obj, string_t name);
+	FsResult (*fs_get_attr)(struct Object *object, struct ObjectAttr *attr);
+	FsResult (*fs_set_attr)(struct Object *object, struct ObjectAttr *attr);
 } FsDirectoryOps;
 
 typedef struct FileSystem {
@@ -81,8 +85,10 @@ void register_fs(FileSystem *fs);
 void unregister_fs(FileSystem *fs);
 
 FsResult fs_obj_create_file(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object);
+	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	ObjectAttr *attr);
 FsResult fs_obj_create_dir(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object);
+	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	ObjectAttr *attr);
 
 #endif

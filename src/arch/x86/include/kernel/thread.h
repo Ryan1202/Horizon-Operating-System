@@ -63,6 +63,7 @@ struct task_s {
 	uint32_t	  elapsed_ticks;
 	uint32_t	 *pgdir;
 	uint32_t	  stack_magic;
+	size_t		  subject_id;
 
 	uint8_t *end_flag;
 
@@ -78,6 +79,7 @@ struct task_s {
 extern list_t thread_all;
 
 struct task_s *get_current_thread();
+size_t		   get_current_subject_id();
 void		   init_thread(struct task_s *pthread, char *name, int priority);
 void		   thread_create(
 			  struct task_s *pthread, thread_func *function, void *func_arg);

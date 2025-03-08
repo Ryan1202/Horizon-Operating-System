@@ -5,7 +5,6 @@
 #include "driver/storage/disk/disk.h"
 #include "driver/storage/storage_dm.h"
 #include "kernel/block_cache.h"
-#include "objects/object.h"
 #include <stdint.h>
 
 #define FAT_CACHE_SIZE 2

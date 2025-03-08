@@ -5,6 +5,7 @@
 #include "kernel/driver.h"
 #include "kernel/list.h"
 #include "kernel/periodic_task.h"
+#include "objects/object.h"
 #include "string.h"
 #include <stdint.h>
 
@@ -55,7 +56,7 @@ extern DeviceManager storage_dm;
 
 DriverResult register_storage_device(
 	struct DeviceDriver *device_driver, Device *device,
-	StorageDevice *storage_device);
+	StorageDevice *storage_device, ObjectAttr *attr);
 DriverResult unregister_storage_device(
 	struct DeviceDriver *device_driver, Device *device,
 	StorageDevice *storage_device);

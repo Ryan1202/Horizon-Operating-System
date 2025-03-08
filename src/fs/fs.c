@@ -1,4 +1,3 @@
-#include "fat/include/fat.h"
 #include "objects/transfer.h"
 #include "stdint.h"
 #include <const.h>
@@ -36,8 +35,9 @@ TransferResult fs_obj_write(
 }
 
 FsResult fs_obj_create_file(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object) {
-	*object		= create_object(parent, name, OBJECT_TYPE_FILE);
+	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	ObjectAttr *attr) {
+	*object		= create_object(parent, name, *attr);
 	Object *out = *object;
 	if (out == NULL) return FS_ERROR_OTHER;
 
@@ -52,8 +52,9 @@ FsResult fs_obj_create_file(
 }
 
 FsResult fs_obj_create_dir(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object) {
-	*object		= create_object_directory(parent, name);
+	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	ObjectAttr *attr) {
+	*object		= create_object_directory(parent, name, *attr);
 	Object *out = *object;
 	if (out == NULL) return FS_ERROR_OTHER;
 

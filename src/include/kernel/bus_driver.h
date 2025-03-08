@@ -84,12 +84,14 @@ typedef struct Bus {
 extern struct BusDriver	   *bus_drivers[BUS_TYPE_MAX];
 extern struct DriverManager bus_driver_manager;
 
-DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver);
+DriverResult register_bus_driver(
+	Driver *driver, BusDriver *bus_driver, ObjectAttr *attr);
 DriverResult unregister_bus_driver(Driver *driver, BusType type);
 DriverResult register_bus(
-	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus);
+	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus,
+	ObjectAttr *attr);
 DriverResult unregister_bus(Bus *bus);
-DriverResult bus_register_device(Device *device, Bus *bus);
+DriverResult bus_register_device(Device *device, Bus *bus, ObjectAttr *attr);
 DriverResult bus_unregister_device(Device *device);
 
 #endif

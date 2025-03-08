@@ -1,14 +1,14 @@
-#include "kernel/list.h"
 #include <dyn_array.h>
 #include <objects/object.h>
+#include <objects/permission.h>
 #include <types.h>
 
 static int type_number = OBJECT_TYPE_BUILTIN_MAX;
 
-#define DEFINE_OBJECT_TYPE(type_name)                              \
-	{                                                              \
-		.name = STRING_INIT(#type_name), .type = OBJECT_TYPE_TYPE, \
-		.value.type = OBJECT_TYPE_##type_name                      \
+#define DEFINE_OBJECT_TYPE(type_name)                                     \
+	{                                                                     \
+		.name		= STRING_INIT(#type_name),                            \
+		.value.type = OBJECT_TYPE_##type_name, .attr = base_obj_sys_attr, \
 	}
 
 Object object_builtin_types[OBJECT_TYPE_BUILTIN_MAX] = {
@@ -20,7 +20,7 @@ Object object_builtin_types[OBJECT_TYPE_BUILTIN_MAX] = {
 
 Object object_type_directory = {
 	.name = STRING_INIT("ObjectType"),
-	.type = OBJECT_TYPE_DIRECTORY,
+	.attr = base_obj_sys_attr,
 };
 
 ObjectResult init_builtin_types() {
@@ -36,7 +36,7 @@ ObjectResult init_builtin_types() {
 
 Object *create_object_type(string_t name) {
 	Object *object =
-		create_object(&object_type_directory, name, OBJECT_TYPE_TYPE);
+		create_object(&object_type_directory, name, base_obj_sys_attr);
 	if (object == NULL) { return NULL; }
 
 	object->value.type = type_number - 1;

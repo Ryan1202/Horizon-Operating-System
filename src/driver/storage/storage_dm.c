@@ -45,8 +45,8 @@ struct DeviceManager storage_dm = {
 };
 
 DriverResult register_storage_device(
-	DeviceDriver *device_driver, Device *device,
-	StorageDevice *storage_device) {
+	DeviceDriver *device_driver, Device *device, StorageDevice *storage_device,
+	ObjectAttr *attr) {
 	storage_device->device = device;
 
 	device->dm_ext = storage_device;
@@ -55,7 +55,7 @@ DriverResult register_storage_device(
 	string_t name;
 	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, name, device->bus, device);
+		register_device, device_driver, name, device->bus, device, attr);
 	list_add_tail(&device->dm_list, &storage_dm.device_lh);
 
 	device->object->in.type				 = TRANSFER_TYPE_BLOCK;
@@ -72,7 +72,9 @@ DriverResult register_storage_device(
 	storage_device->name			   = name;
 	periodic_task_add(&storage_device->periodic_task);
 
-	storage_device->object = create_object_directory(&device_object, name);
+	attr->type = OBJECT_TYPE_DIRECTORY;
+	storage_device->object =
+		create_object_directory(&device_object, name, *attr);
 
 	return DRIVER_RESULT_OK;
 }

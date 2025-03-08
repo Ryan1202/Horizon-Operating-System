@@ -15,6 +15,7 @@
 #include "include/ata_driver.h"
 #include "include/ide.h"
 #include "include/ide_controller.h"
+#include "objects/object.h"
 
 DriverResult ide_controller_probe(PciDevice *pci_device);
 DriverResult ide_controller_init(Device *device);
@@ -75,10 +76,11 @@ void ide_detect_channel_mode(
 }
 
 DriverResult ide_controller_probe(PciDevice *pci_device) {
-	Device	*device = kmalloc_from_template(ide_controller_device_templete);
-	string_t name	= STRING_INIT("");
+	Device	  *device = kmalloc_from_template(ide_controller_device_templete);
+	string_t   name	  = STRING_INIT("");
+	ObjectAttr attr	  = device_object_attr;
 	register_device(
-		&ide_controller_device_driver, name, pci_device->bus, device);
+		&ide_controller_device_driver, name, pci_device->bus, device, &attr);
 
 	IdeControllerInfo *info = device->private_data;
 	info->pci_device		= pci_device;

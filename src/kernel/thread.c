@@ -16,6 +16,7 @@
 #include <kernel/sync.h>
 #include <kernel/thread.h>
 #include <math.h>
+#include <objects/permission.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -48,6 +49,10 @@ struct task_s *get_current_thread() {
 	uint32_t sp;
 	GET_REG("esp", sp);
 	return (struct task_s *)(sp & 0xfffff000);
+}
+
+size_t get_current_subject_id() {
+	return get_current_thread()->subject_id;
 }
 
 /**
@@ -103,6 +108,7 @@ void init_thread(struct task_s *pthread, char *name, int priority) {
 	pthread->elapsed_ticks = 0;
 	pthread->pgdir		   = NULL;
 	pthread->stack_magic   = 0x10000000;
+	pthread->subject_id	   = SUBJECT_ID_SYSTEM;
 }
 
 /**

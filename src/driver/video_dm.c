@@ -1,3 +1,4 @@
+#include "objects/object.h"
 #include <driver/video_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -44,7 +45,8 @@ DriverResult video_dm_unload(DeviceManager *manager) {
 }
 
 DriverResult register_video_device(
-	DeviceDriver *device_driver, Device *device, VideoDevice *video_device) {
+	DeviceDriver *device_driver, Device *device, VideoDevice *video_device,
+	ObjectAttr *attr) {
 	device->dm_ext = video_device;
 	if (device->dm_ext == NULL) { return DRIVER_RESULT_OUT_OF_MEMORY; }
 	video_device->device = device;
@@ -54,7 +56,7 @@ DriverResult register_video_device(
 		&name, "Video", 5, video_dm_ext.video_device_count++);
 
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, name, device_driver->bus, device);
+		register_device, device_driver, name, device_driver->bus, device, attr);
 
 	list_init(&video_device->video_list_lh);
 	list_add_tail(&device->dm_list, &video_dm.device_lh);

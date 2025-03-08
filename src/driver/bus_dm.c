@@ -1,3 +1,4 @@
+#include "objects/object.h"
 #include <driver/bus_dm.h>
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
@@ -27,7 +28,7 @@ struct DeviceManager bus_controller_device_manager = {
 
 DriverResult register_bus_controller_device(
 	DeviceDriver *device_driver, BusDriver *bus_driver, Device *device,
-	BusControllerDevice *bus_controller_device) {
+	BusControllerDevice *bus_controller_device, ObjectAttr *attr) {
 
 	device->device_driver			  = device_driver;
 	bus_controller_device->device	  = device;
@@ -35,6 +36,6 @@ DriverResult register_bus_controller_device(
 
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, bus_controller_device->short_name,
-		device->bus, device);
+		device->bus, device, attr);
 	return DRIVER_RESULT_OK;
 }

@@ -47,9 +47,10 @@ VideoDevice vesa_display_video_device = {
 
 void register_vesa_display(void) {
 	register_device_driver(&core_driver, &vesa_display_device_driver);
+	ObjectAttr attr = device_object_attr;
 	register_video_device(
 		&vesa_display_device_driver, &vesa_display_device,
-		&vesa_display_video_device);
+		&vesa_display_video_device, &attr);
 }
 
 #define SEG_ADDR2LINEAR_ADDR(addr)                              \

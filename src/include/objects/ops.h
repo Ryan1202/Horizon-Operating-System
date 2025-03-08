@@ -19,5 +19,7 @@ ObjectResult obj_create_file(Object *parent, string_t name);
 ObjectResult obj_delete_file(Object *parent, string_t name);
 ObjectResult obj_mkdir(Object *parent, string_t name);
 ObjectResult obj_rmdir(Object *parent, string_t name);
+ObjectResult obj_get_attr(Object *object, ObjectAttr *attr);
+ObjectResult obj_set_attr(Object *object, ObjectAttr *attr);
 
 #endif

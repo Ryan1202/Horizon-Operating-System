@@ -1,6 +1,5 @@
 #include "kernel/driver_interface.h"
 #include "objects/object.h"
-#include "objects/types.h"
 #include "string.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device_driver.h>
@@ -51,7 +50,8 @@ DriverResult bus_driver_manager_unload(DriverManager *driver_manager) {
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver) {
+DriverResult register_bus_driver(
+	Driver *driver, BusDriver *bus_driver, ObjectAttr *attr) {
 
 	DriverManager *manager = driver_managers[DRIVER_TYPE_BUS_DRIVER];
 	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
@@ -69,7 +69,8 @@ DriverResult register_bus_driver(Driver *driver, BusDriver *bus_driver) {
 
 	bus_drivers[bus_driver->bus_type] = bus_driver;
 
-	bus_driver->object = create_object_directory(&bus_object, bus_driver->name);
+	bus_driver->object =
+		create_object_directory(&bus_object, bus_driver->name, *attr);
 
 	return DRIVER_RESULT_OK;
 }
@@ -101,7 +102,8 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 }
 
 DriverResult register_bus(
-	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus) {
+	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus,
+	ObjectAttr *attr) {
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
 	Bus *primary_bus = bus->primary_bus;
@@ -119,7 +121,7 @@ DriverResult register_bus(
 	list_init(&bus->device_lh);
 	list_add_tail(&bus->bus_list, &bus_driver->bus_lh);
 
-	bus->object = create_object_directory(bus_driver->object, bus->name);
+	bus->object = create_object_directory(bus_driver->object, bus->name, *attr);
 
 	BUS_OPS_CALL(bus_driver, register_bus_hook, bus);
 
@@ -145,7 +147,7 @@ DriverResult unregister_bus(Bus *bus) {
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult bus_register_device(Device *device, Bus *bus) {
+DriverResult bus_register_device(Device *device, Bus *bus, ObjectAttr *attr) {
 	BusDriver *bus_driver = bus->bus_driver;
 	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
 
@@ -155,7 +157,8 @@ DriverResult bus_register_device(Device *device, Bus *bus) {
 
 	string_t name;
 	string_new_with_number(&name, "", 0, bus->last_device_num++);
-	device->object = create_object(bus->object, name, OBJECT_TYPE_DEVICE);
+	attr->type					 = OBJECT_TYPE_DEVICE;
+	device->object				 = create_object(bus->object, name, *attr);
 	device->object->value.device = device;
 
 	return DRIVER_RESULT_OK;

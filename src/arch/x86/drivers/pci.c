@@ -6,6 +6,7 @@
  * @date 2020-07
  */
 #include "kernel/list.h"
+#include "objects/object.h"
 #include <driver/bus_dm.h>
 #include <drivers/pci.h>
 #include <kernel/bus_driver.h>
@@ -24,7 +25,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
-
 
 LIST_HEAD(pci_driver_lh);
 
@@ -259,7 +259,9 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 				new_bus->subordinate_bus_num =
 					pci_device->pci2pci_bridge.subordinate_bus_number;
 
-				register_bus(bus_driver, bus->controller_device, new_bus);
+				ObjectAttr attr = device_object_attr;
+				register_bus(
+					bus_driver, bus->controller_device, new_bus, &attr);
 			}
 		}
 	}
@@ -274,7 +276,8 @@ DriverResult pci_init_bus(BusDriver *bus_driver) {
 	bus->bus_num			 = 0;
 	bus->subordinate_bus_num = 0;
 	bus->primary_bus		 = NULL;
-	register_bus(&pci_bus_driver, &pci_device, bus);
+	ObjectAttr attr			 = device_object_attr;
+	register_bus(&pci_bus_driver, &pci_device, bus, &attr);
 	// printk("device id\tvendor id\theader "
 	// 	   "type\tclasscode\tsubclass\tprogif\trevision id\n");
 	return DRIVER_RESULT_OK;
@@ -638,16 +641,18 @@ DriverResult pci_probe(BusDriver *bus_driver, Bus *bus) {
 DriverResult pci_driver_init(Driver *driver) {
 	check_dependency(&pci_driver);
 	pci_device_driver.bus = pci_dependencies[0].out_bus;
+	ObjectAttr attr		  = device_object_attr;
 	DRV_RESULT_DELIVER_CALL(
 		register_bus_controller_device, &pci_device_driver, &pci_bus_driver,
-		&pci_device, &pci_bus_controller_device);
+		&pci_device, &pci_bus_controller_device, &attr);
 	return DRIVER_RESULT_OK;
 }
 
 static __init void pci_initcall(void) {
 	register_driver(&pci_driver);
 	register_device_driver(&pci_driver, &pci_device_driver);
-	register_bus_driver(&pci_driver, &pci_bus_driver);
+	ObjectAttr attr = driver_object_attr;
+	register_bus_driver(&pci_driver, &pci_bus_driver, &attr);
 }
 
 driver_initcall(pci_initcall);

@@ -3,6 +3,7 @@
 
 #include "kernel/bus_driver.h"
 #include "kernel/device.h"
+#include "objects/object.h"
 #include "string.h"
 
 typedef struct BusControllerDeviceOps {
@@ -18,6 +19,6 @@ typedef struct BusControllerDevice {
 
 DriverResult register_bus_controller_device(
 	DeviceDriver *device_driver, BusDriver *bus_driver, Device *device,
-	BusControllerDevice *bus_controller_device);
+	BusControllerDevice *bus_controller_device, ObjectAttr *attr);
 
 #endif

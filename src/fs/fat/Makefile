@@ -4,3 +4,4 @@ SRC += dir.c
 SRC += name.c
 SRC += entry.c
 SRC += time.c
+SRC += attr.c

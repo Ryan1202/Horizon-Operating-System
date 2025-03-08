@@ -82,7 +82,7 @@ DriverResult register_driver(Driver *driver) {
 	list_add_tail(&driver->driver_list, &driver_lh);
 
 	Object *object =
-		create_object(&driver_object, driver->short_name, OBJECT_TYPE_DRIVER);
+		create_object(&driver_object, driver->short_name, driver_object_attr);
 	object->value.driver = driver;
 	return DRIVER_RESULT_OK;
 }
@@ -234,8 +234,8 @@ void init_dm(void) {
 }
 
 status_t driver_create(driver_func_t func, char *driver_name) {
-	driver_t *drv_obj;
-	int		  status;
+	// driver_t *drv_obj;
+	// int		  status;
 
 	// drv_obj = kmalloc(sizeof(driver_t));
 	// if (drv_obj == NULL) { return FAILED; }
@@ -320,11 +320,11 @@ void device_register_irq(
 void device_unregister_irq(device_t *devobj, int irq) {
 	if (irq > 16) return;
 	// if (list_empty(&device_irq_lists[irq])) return;
-	dev_irq_t *dev_irq, *next;
+	// dev_irq_t *dev_irq, *next;
 	// list_for_each_owner_safe (dev_irq, next, &device_irq_lists[irq], list) {
-	if (dev_irq->devobj == devobj) {
-		list_del(&dev_irq->list);
-		kfree(dev_irq);
-	}
+	// if (dev_irq->devobj == devobj) {
+	// 	list_del(&dev_irq->list);
+	// 	kfree(dev_irq);
+	// }
 	// }
 }

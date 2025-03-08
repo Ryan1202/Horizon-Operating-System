@@ -5,6 +5,7 @@
 #include "kernel/device.h"
 #include "kernel/device_driver.h"
 #include "kernel/list.h"
+#include "objects/object.h"
 #include "stdint.h"
 
 typedef struct VideoModeInfo {
@@ -32,7 +33,8 @@ typedef struct VideoDeviceManager {
 extern struct DeviceManager video_dm;
 
 DriverResult register_video_device(
-	DeviceDriver *device_driver, Device *device, VideoDevice *video_device);
+	DeviceDriver *device_driver, Device *device, VideoDevice *video_device,
+	ObjectAttr *attr);
 DriverResult unregister_video_devce(
 	DeviceDriver *device_driver, Device *device, VideoDevice *video_device);
 DriverResult video_get_video_device(int in_index, VideoDevice **out_device);

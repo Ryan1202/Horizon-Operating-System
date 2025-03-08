@@ -118,6 +118,7 @@ void ide_pause(IdeChannel *channel) {
 void ide_device_probe(IdeChannel *channel) {
 	int			  i, status, err = 0;
 	AtaDeviceType type = ATA_DEVICE_TYPE_ATA;
+	ObjectAttr	  attr = device_object_attr;
 
 	timer_init(&channel->timer);
 	channel->device_count = 0;
@@ -176,7 +177,8 @@ void ide_device_probe(IdeChannel *channel) {
 		StorageDevice *storage_device =
 			kmalloc_from_template(storage_device_template);
 
-		register_storage_device(&ide_device_driver, device[i], storage_device);
+		register_storage_device(
+			&ide_device_driver, device[i], storage_device, &attr);
 
 		IdeDevice *ide_device		= device[i]->private_data;
 		ide_device->device			= device[i];

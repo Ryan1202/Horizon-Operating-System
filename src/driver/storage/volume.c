@@ -31,8 +31,9 @@ void probe_volume(Partition *partition) {
 				string_new_with_string_number(
 					&name, prefix.text, prefix.length - 1, "Volume", 6,
 					partition->index);
-				Object *root_object =
-					create_object_directory(&volumes_object, name);
+				ObjectAttr attr = device_object_attr;
+				Object	  *root_object =
+					create_object_directory(&volumes_object, name, attr);
 				partition->object->fs_info = fs_info;
 
 				object_mount(partition->object, root_object);

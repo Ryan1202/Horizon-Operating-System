@@ -3,9 +3,11 @@
 
 #include "dyn_array.h"
 #include "kernel/list.h"
+#include "objects/permission.h"
 #include "objects/transfer.h"
 #include "stdint.h"
 #include "string.h"
+#include <stdint.h>
 
 typedef enum ObjectResult {
 	OBJECT_OK,
@@ -15,12 +17,12 @@ typedef enum ObjectResult {
 	OBJECT_ERROR_ILLEGAL_ARGUMENT,
 	OBJECT_ERROR_OCCUPIED,
 	OBJECT_ERROR_ALREADY_EXISTS,
-	OBJECT_ERROR_FIXED,
 	OBJECT_ERROR_NOT_EMPTY,
+	OBJECT_ERROR_NO_PERMISSION,
 	OBJECT_ERROR_OTHER,
 } ObjectResult;
 
-#define OBJ_PASS(call)                              \
+#define OBJ_RESULT_PASS(call)                       \
 	{                                               \
 		ObjectResult result = call;                 \
 		if (result != OBJECT_OK) { return result; } \
@@ -43,21 +45,33 @@ typedef enum ObjectType {
 	OBJECT_TYPE_BUILTIN_MAX, // 表示对象系统内建类型数量的最大值
 } ObjectType;
 
+typedef struct ObjectAttr {
+	ObjectType type;
+	size_t	   size;
+
+	bool	   is_mounted;
+	size_t	   owner_id;
+	Permission all_user_permission;
+	Permission owner_permission;
+	Permission system_permission;
+	Permission admin_permission;
+
+	list_t permission_lh;
+} ObjectAttr;
+
 struct Partition;
 typedef struct Object {
 	list_t list;
 
-	string_t   name;
-	ObjectType type;
+	string_t name;
 
 	struct Object *parent;
 	TransferIn	   in;
 	TransferOut	   out;
 
-	bool	 fixed;
 	uint32_t reference;
 
-	bool				   is_mounted;
+	ObjectAttr			   attr;
 	struct Object		  *origin;
 	struct FileSystemInfo *fs_info;
 
@@ -92,6 +106,29 @@ typedef struct Object {
 	void (*release_data)(struct Object *object);
 } Object;
 
+static const Permission base_obj_sys_perm = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 0, 1, 1},
+};
+static const Permission base_obj_all_user_perm = {
+	.subject_id = SUBJECT_ID_ALL,
+	.permission = {1, 0, 0, 1, 0, 0, 0},
+};
+static const Permission base_obj_admin_perm = {
+	.subject_id = SUBJECT_ID_ADMIN,
+	.permission = {1, 1, 0, 1, 0, 0, 0},
+};
+
+static const ObjectAttr base_obj_sys_attr = {
+	.type				 = OBJECT_TYPE_DIRECTORY,
+	.size				 = 0,
+	.owner_id			 = SUBJECT_ID_SYSTEM,
+	.owner_permission	 = base_obj_sys_perm,
+	.system_permission	 = base_obj_sys_perm,
+	.all_user_permission = base_obj_all_user_perm,
+	.admin_permission	 = base_obj_admin_perm,
+};
+
 extern Object root_object;
 extern Object bus_object;
 extern Object driver_object;
@@ -103,10 +140,10 @@ ObjectResult add_object(Object *parent, Object *child);
 // 通过路径打开对象，对于符号链接会自动解析
 ObjectResult open_oringinal_object_by_path(char *path, Object **out_object);
 ObjectResult open_object_by_path(char *path, Object **object);
-Object		*create_object(Object *parent, string_t name, ObjectType type);
-Object		*create_object_directory(Object *parent, string_t name);
-void		 object_close(Object *object);
-void		 show_object_tree();
+Object		*create_object(Object *parent, string_t name, ObjectAttr attr);
+Object *create_object_directory(Object *parent, string_t name, ObjectAttr attr);
+void	object_close(Object *object);
+void	show_object_tree();
 
 #define append_object(parent, child) \
 	dyn_array_append((parent)->value.directory.children, Object *, (child));

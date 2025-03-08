@@ -1,3 +1,5 @@
+#include "kernel/device.h"
+#include "kernel/memory.h"
 #include <driver/storage/disk/disk.h>
 #include <driver/storage/disk/mbr.h>
 #include <driver/storage/disk/volume.h>
@@ -25,8 +27,9 @@ void parse_mbr_partition_table(StorageDevice *storage_device) {
 		if (partition_table[i].fs_type != 0) {
 			string_t name;
 			string_new_with_number(&name, "Partition", 9, partition_count);
-			Object *object = create_object(
-				storage_device->object, name, OBJECT_TYPE_PARTITION);
+			ObjectAttr attr = device_object_attr;
+			attr.type		= OBJECT_TYPE_PARTITION;
+			Object *object	= create_object(storage_device->object, name, attr);
 
 			Partition *partition	  = kmalloc(sizeof(Partition));
 			partition->storage_object = storage_device->device->object;

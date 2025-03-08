@@ -1,4 +1,5 @@
 #include "include/entry.h"
+#include "include/attr.h"
 #include "include/cluster.h"
 #include "include/dir.h"
 #include "include/fat.h"
@@ -165,16 +166,21 @@ PUBLIC FatDirEntry *generate_dir_entry(
 	entry->cluster_list = dyn_array_new(sizeof(ClusterSegment), 8);
 	get_cluster_segment(fat_info, entry);
 
-	Object *object;
+	Object	  *object;
+	ObjectAttr attr;
+	fat_attr_to_sys_attr(short_dir, &attr);
+
 	if (entry->short_dir.attr & ATTR_DIRECTORY) {
 		FsResult result = fs_obj_create_dir(
-			parent_entry->object, fat_info->fs_info, entry->name, &object);
+			parent_entry->object, fat_info->fs_info, entry->name, &object,
+			&attr);
 		if (result != FS_OK) { return NULL; }
 		object->value.directory.data = entry;
 		entry_cache_init(fat_info, entry, fat_info->bytes_per_cluster);
 	} else {
 		FsResult result = fs_obj_create_file(
-			parent_entry->object, fat_info->fs_info, entry->name, &object);
+			parent_entry->object, fat_info->fs_info, entry->name, &object,
+			&attr);
 		if (result != FS_OK) { return NULL; }
 		object->value.file.data	  = entry;
 		object->value.file.offset = 0;

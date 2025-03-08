@@ -4,6 +4,8 @@
 #include "kernel/driver.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
+#include "objects/object.h"
+#include "objects/permission.h"
 #include "stdint.h"
 #include "string.h"
 #include "types.h"
@@ -85,9 +87,37 @@ typedef struct Device {
 	void	*dm_ext; // 设备管理器所需的扩展信息
 } Device;
 
+static const Permission device_sys_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+static const Permission device_all_user_permission = {
+	.subject_id = SUBJECT_ID_ALL,
+	.permission = {1, 1, 0, 1, 0, 0, 0},
+};
+static const Permission device_owner_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+static const Permission device_admin_permission = {
+	.subject_id = SUBJECT_ID_ADMIN,
+	.permission = {1, 1, 1, 1, 0, 0, 0},
+};
+
+static const ObjectAttr device_object_attr = {
+	.type				 = OBJECT_TYPE_DEVICE,
+	.size				 = sizeof(Device),
+	.is_mounted			 = false,
+	.owner_id			 = SUBJECT_ID_SYSTEM,
+	.all_user_permission = device_all_user_permission,
+	.owner_permission	 = device_owner_permission,
+	.system_permission	 = device_sys_permission,
+	.admin_permission	 = device_admin_permission,
+};
+
 DriverResult register_device(
 	struct DeviceDriver *device_driver, string_t name, struct Bus *bus,
-	Device *device);
+	Device *device, ObjectAttr *attr);
 DriverResult unregister_device(
 	struct DeviceDriver *device_driver, Device *device);
 DriverResult unregister_child_device(ChildDevice *child_device);

@@ -8,6 +8,8 @@
 
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
+#include <objects/object.h>
+#include <objects/permission.h>
 #include <string.h>
 
 typedef enum {
@@ -91,6 +93,31 @@ typedef struct {
 	device_t			*devobj;
 	driver_irq_handler_t handler;
 } dev_irq_t;
+
+static const Permission driver_sys_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+static const Permission driver_all_user_permission = {
+	.subject_id = SUBJECT_ID_ALL,
+	.permission = {1, 1, 0, 1, 0, 0, 0},
+};
+static const Permission driver_owner_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+static const Permission driver_admin_permission = {
+	.subject_id = SUBJECT_ID_ADMIN,
+	.permission = {1, 1, 1, 1, 0, 0, 0},
+};
+static const ObjectAttr driver_object_attr = {
+	.type				 = OBJECT_TYPE_DRIVER,
+	.size				 = 0,
+	.owner_permission	 = driver_owner_permission,
+	.system_permission	 = driver_sys_permission,
+	.all_user_permission = driver_all_user_permission,
+	.admin_permission	 = driver_admin_permission,
+};
 
 extern struct index_node *dev;
 

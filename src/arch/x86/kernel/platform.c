@@ -1,7 +1,3 @@
-#include "driver/bus_dm.h"
-#include "kernel/memory.h"
-#include "objects/object.h"
-#include "string.h"
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -17,6 +13,8 @@
 #include <kernel/driver.h>
 #include <kernel/feature.h>
 #include <kernel/list.h>
+#include <objects/object.h>
+#include <string.h>
 
 BusDriverOps platform_ops = {
 	.register_bus_hook	 = NULL,
@@ -50,7 +48,8 @@ void platform_early_init() {
 
 void platform_init() {
 	// 因为platform_bus是虚拟的，所以不需要注册device
-	register_bus_driver(&platform_driver, &platform_bus_driver);
+	ObjectAttr attr = driver_object_attr;
+	register_bus_driver(&platform_driver, &platform_bus_driver, &attr);
 	platform_bus.object = platform_bus_driver.object;
 	list_init(&platform_bus_driver.bus_lh);
 	list_add_tail(&platform_bus.bus_list, &platform_bus_driver.bus_lh);
