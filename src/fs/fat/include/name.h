@@ -4,6 +4,8 @@
 #include "fs/fs.h"
 #include "multiple_return.h"
 
+#define MAX_LONGNAME 256
+
 typedef struct ShortName {
 	char base[8];
 	char ext[3];
@@ -22,6 +24,7 @@ struct ShortDir;
 struct LongDir;
 int		 check_name_caps(uint8_t *name, int len);
 bool	 is_available_short_name_char(uint8_t c);
+bool	 check_short_name(uint8_t *text, int len, int dot);
 NameType check_name(enum FatType type, uint8_t *text, int len);
 FsResult short_name_new(string_t name, ShortName *short_name);
 uint8_t	 fat_checksum(ShortName *short_name);

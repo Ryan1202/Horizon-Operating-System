@@ -12,9 +12,10 @@
 #define OBJ_WRITE_INTERRUPT(object) (object)->out.interrupt
 
 ObjectResult obj_open(Object *parent, DEF_MRET(Object *, child), string_t name);
-ObjectResult obj_opendir(
-	Object *parent, DEF_MRET(Object *, child), string_t name);
 ObjectResult obj_close(Object *object);
+ObjectResult obj_opendir(Object *parent, DEF_MRET(ObjectIterator *, iter));
+ObjectResult obj_readdir(ObjectIterator *iterator, DEF_MRET(Object *, object));
+ObjectResult obj_closedir(ObjectIterator *iterator);
 ObjectResult obj_create_file(Object *parent, string_t name);
 ObjectResult obj_delete_file(Object *parent, string_t name);
 ObjectResult obj_mkdir(Object *parent, string_t name);

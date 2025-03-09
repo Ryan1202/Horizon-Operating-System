@@ -39,7 +39,7 @@ typedef struct FileSystemOps {
 struct Volume;
 typedef struct FsFileOps {
 	FsResult (*fs_open)(
-		struct FileSystemInfo *fs_info, void *parent, string_t name,
+		struct FileSystemInfo *fs_info, Object *parent_obj, string_t name,
 		struct Object **object);
 	FsResult (*fs_close)(struct Object *object);
 	FsResult (*fs_seek)(struct Object *object, size_t offset);
@@ -51,15 +51,19 @@ typedef struct FsFileOps {
 
 typedef struct FsDirectoryOps {
 	FsResult (*fs_opendir)(
-		struct FileSystemInfo *fs_info, void *parent, string_t name,
-		struct Object **object);
-	FsResult (*fs_closedir)(struct Object *object);
+		struct FileSystemInfo *fs_info, Object *parent_obj, void **iterator);
+	FsResult (*fs_readdir)(
+		struct FileSystemInfo *fs_info, void *iterator, Object **object);
+	FsResult (*fs_closedir)(void *iterator);
+
 	FsResult (*fs_create_file)(
 		struct Object *parent_obj, string_t name, struct Object **object);
 	FsResult (*fs_delete_file)(struct Object *parent_obj, string_t name);
+
 	FsResult (*fs_mkdir)(
 		struct Object *parent_obj, string_t name, struct Object **object);
 	FsResult (*fs_rmdir)(struct Object *parent_obj, string_t name);
+
 	FsResult (*fs_get_attr)(struct Object *object, struct ObjectAttr *attr);
 	FsResult (*fs_set_attr)(struct Object *object, struct ObjectAttr *attr);
 } FsDirectoryOps;

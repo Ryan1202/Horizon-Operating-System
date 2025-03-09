@@ -123,31 +123,34 @@ PRIVATE FsResult fat_longname_entry_write(
 	long_dir.checksum	   = checksum;
 	long_dir.first_cluster = 0;
 	long_dir.type		   = 0;
+
+	uint16_t *p = utf16_name + (longdir_count - 1) * 13;
 	for (int i = 0; i < longdir_count; i++) {
 		long_dir.order = longdir_count - i;
 		if (i == 0) {
+			long_dir.order |= 0x40;
+			int j	= 0, k;
 			int len = len16 % 13;
-			for (int j = 0; j < 5; j++) {
-				if (j < len) long_dir.name1[j] = utf16_name[j];
-				else long_dir.name1[j] = 0xffff;
+			for (k = 0; k < 5; j++, k++) {
+				if (j < len) long_dir.name1[k] = p[j];
+				else long_dir.name1[k] = 0xffff;
 			}
-			for (int j = 0; j < 6; j++) {
-				if (j < len) long_dir.name2[j] = utf16_name[j + 5];
-				else long_dir.name2[j] = 0xffff;
+			for (k = 0; k < 6; j++, k++) {
+				if (j < len) long_dir.name2[k] = p[j];
+				else long_dir.name2[k] = 0xffff;
 			}
-			for (int j = 0; j < 3; j++) {
-				if (j < len) long_dir.name3[j] = utf16_name[j + 11];
-				else long_dir.name3[j] = 0xffff;
+			for (j = 0; j < 2; j++) {
+				if (j < len) long_dir.name3[k] = p[j];
+				else long_dir.name3[k] = 0xffff;
 			}
 		} else {
-			memcpy(long_dir.name1, utf16_name, 5 * sizeof(uint16_t));
-			memcpy(long_dir.name2, utf16_name + 5, 6 * sizeof(uint16_t));
-			memcpy(long_dir.name3, utf16_name + 11, 2 * sizeof(uint16_t));
+			memcpy(long_dir.name1, p, 5 * sizeof(uint16_t));
+			memcpy(long_dir.name2, p + 5, 6 * sizeof(uint16_t));
+			memcpy(long_dir.name3, p + 11, 2 * sizeof(uint16_t));
 		}
-		if (i == longdir_count - 1) long_dir.order |= 0x40;
 		FS_RESULT_PASS(fat_entry_write(
 			fat_info, parent_entry, *cluster, *number, (uint8_t *)&long_dir));
-		utf16_name += 13;
+		p -= 13;
 
 		*number =
 			fat_increase_new_entry_number(fat_info, parent_entry, cluster);

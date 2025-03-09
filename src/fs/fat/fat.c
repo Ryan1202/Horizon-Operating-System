@@ -21,17 +21,19 @@
 FsResult fat_check(Partition *partition);
 FsResult fat_mount(FileSystemInfo *fs_info, Object *root_object);
 FsResult fat_open(
-	FileSystemInfo *fs_info, void *parent, string_t name, Object **object);
+	FileSystemInfo *fs_info, Object *parent_obj, string_t name,
+	Object **object);
 FsResult fat_close(Object *object);
 FsResult fat_seek(Object *object, size_t offset);
 FsResult fat_read(Object *file, void *buf, size_t size);
 FsResult fat_write(Object *file, void *buf, size_t size);
 
 FsResult fat_opendir(
-	FileSystemInfo *fs_info, void *parent, string_t name, Object **object);
-FsResult fat_closedir(Object *object);
-FsResult fat_create_file(Object *directory, string_t name, Object **object);
-FsResult fat_delete_file(Object *directory, string_t name);
+	FileSystemInfo *fs_info, Object *parent_obj, void **iterator);
+FsResult fat_readdir(FileSystemInfo *fs_info, void *iterator, Object **object);
+FsResult fat_closedir(void *iterator);
+FsResult fat_create_file(Object *parent_obj, string_t name, Object **object);
+FsResult fat_delete_file(Object *parent_obj, string_t name);
 FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object);
 FsResult fat_rmdir(Object *parent_obj, string_t name);
 FsResult fat_get_attr(Object *object, ObjectAttr *attr);
@@ -54,6 +56,7 @@ FsFileOps fat_file_ops = {
 
 FsDirectoryOps fat_dir_ops = {
 	.fs_opendir		= fat_opendir,
+	.fs_readdir		= fat_readdir,
 	.fs_closedir	= fat_closedir,
 	.fs_create_file = fat_create_file,
 	.fs_delete_file = fat_delete_file,
@@ -66,6 +69,15 @@ FsDirectoryOps fat_dir_ops = {
 FileSystem fat_fs = {
 	.name = STRING_INIT("FAT"),
 	.ops  = &fat_ops,
+};
+
+FatPrivOps fat32_priv_ops = {
+	.fat_search_dir		= fat32_search_dir,
+	.fat_read_dir_entry = fat32_read_dir_entry,
+};
+FatPrivOps fat_priv_ops = {
+	.fat_search_dir		= fat_search_dir,
+	.fat_read_dir_entry = fat_read_dir_entry,
 };
 
 FatType fat_type_determine(FatInfo *fat_info);
@@ -163,31 +175,30 @@ FatType fat_type_determine(FatInfo *fat_info) {
 		fat_info->data_sectors / fat_info->bpb->BPB_SecPerClus;
 
 	if (count_of_cluster < 4085) {
+		fat_info->max_cluster = 0xFF8;
+		fat_info->ops		  = &fat_priv_ops;
 		return FAT_TYPE_FAT12;
 	} else if (count_of_cluster < 65525) {
+		fat_info->max_cluster = 0xFFF8;
+		fat_info->ops		  = &fat_priv_ops;
 		return FAT_TYPE_FAT16;
 	} else {
+		fat_info->max_cluster  = 0x0FFFFFF8;
+		fat_info->ops		   = &fat32_priv_ops;
+		fat_info->use_longname = true;
 		return FAT_TYPE_FAT32;
 	}
 }
 
 FsResult fat_open(
-	FileSystemInfo *fs_info, void *parent, string_t name, Object **object) {
+	FileSystemInfo *fs_info, Object *parent_obj, string_t name,
+	Object **object) {
 	FatInfo		*fat_info = fs_info->private_data;
 	FatDirEntry *entry;
 
-	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
-	*object			= entry->object;
-	return result;
-}
-
-FsResult fat_opendir(
-	FileSystemInfo *fs_info, void *parent, string_t name, Object **object) {
-	FatInfo		*fat_info = fs_info->private_data;
-	FatDirEntry *entry;
-
-	FsResult result = search_dir(fat_info, parent, name, true, &entry, 0);
-	*object			= entry->object;
+	FsResult result = fat_info->ops->fat_search_dir(
+		fat_info, parent_obj->value.directory.data, name, false, &entry);
+	*object = entry->object;
 	return result;
 }
 
@@ -200,8 +211,43 @@ FsResult fat_close(Object *object) {
 	return FS_OK;
 }
 
-FsResult fat_closedir(Object *object) {
-	return fat_close(object);
+FsResult fat_opendir(
+	FileSystemInfo *fs_info, Object *parent_obj, void **iterator) {
+	FatInfo		*fat_info = fs_info->private_data;
+	FatDirEntry *parent	  = parent_obj->value.directory.data;
+
+	*iterator = kmalloc(sizeof(FatDirIterator));
+	if (fat_info->type == FAT_TYPE_FAT32) {
+		fat_dir_iterator_init(*iterator, fat_info, parent);
+	} else {
+		fat_dir_iterator_init(*iterator, fat_info, parent);
+	}
+	return FS_OK;
+}
+
+FsResult fat_readdir(FileSystemInfo *fs_info, void *iterator, Object **object) {
+	FatInfo		   *fat_info = fs_info->private_data;
+	FatDirEntry	   *entry;
+	string_t		name;
+	ShortDir	   *short_dir = NULL;
+	FatDirIterator *iter	  = iterator;
+
+	FS_RESULT_PASS(
+		fat_info->ops->fat_read_dir_entry(iterator, &name, short_dir));
+	entry = generate_dir_entry(
+		fat_info, iter->dir_entry, short_dir, name,
+		short_dir->attr & ATTR_DIRECTORY, iter->last_cluster,
+		iter->last_entry_index, iter->longname_cluster,
+		iter->longname_entry_index);
+
+	*object = entry->object;
+	return FS_OK;
+}
+
+FsResult fat_closedir(void *iterator) {
+	fat_dir_iterator_destroy(iterator);
+	kfree(iterator);
+	return FS_OK;
 }
 
 FsResult fat_seek(Object *object, size_t offset) {
@@ -275,7 +321,8 @@ FsResult fat_create_file(Object *parent_obj, string_t name, Object **object) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
+	FsResult result =
+		fat_info->ops->fat_search_dir(fat_info, parent, name, false, &entry);
 	if (result == FS_OK) { return FS_ERROR_ALREADY_EXISTS; }
 
 	fat_create_entry(fat_info, parent, name, false, &entry);
@@ -288,7 +335,8 @@ FsResult fat_delete_file(Object *parent_obj, string_t name) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result = search_dir(fat_info, parent, name, false, &entry, 0);
+	FsResult result =
+		fat_info->ops->fat_search_dir(fat_info, parent, name, false, &entry);
 	if (result != FS_OK) { return result; }
 
 	fat_delete_entry(fat_info, parent, entry, name);
@@ -299,7 +347,8 @@ FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result = search_dir(fat_info, parent, name, true, &entry, 0);
+	FsResult result =
+		fat_info->ops->fat_search_dir(fat_info, parent, name, true, &entry);
 	if (result == FS_OK) { return FS_ERROR_ALREADY_EXISTS; }
 
 	fat_create_entry(fat_info, parent, name, true, &entry);
@@ -312,7 +361,8 @@ FsResult fat_rmdir(Object *parent_obj, string_t name) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result = search_dir(fat_info, parent, name, true, &entry, 0);
+	FsResult result =
+		fat_info->ops->fat_search_dir(fat_info, parent, name, true, &entry);
 	if (result != FS_OK) { return result; }
 
 	if (!fat_dir_is_empty(fat_info, entry)) return FS_ERROR_NOT_EMPTY;

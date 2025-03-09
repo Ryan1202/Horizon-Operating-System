@@ -4,6 +4,7 @@
 #include "dir.h"
 #include "driver/storage/disk/disk.h"
 #include "driver/storage/storage_dm.h"
+#include "fs/fs.h"
 #include "kernel/block_cache.h"
 #include <stdint.h>
 
@@ -87,6 +88,10 @@ typedef struct FatInfo {
 	int		 sector_per_cluster;
 	int		 entry_per_cluster;
 	int		 num_count;
+	int		 max_cluster;
+	bool	 use_longname;
+
+	struct FatPrivOps *ops;
 
 	BlockCache *fat_table_cache;
 
@@ -94,5 +99,14 @@ typedef struct FatInfo {
 
 	FatDirEntry root_entry;
 } FatInfo;
+
+typedef struct FatPrivOps {
+	FsResult (*fat_search_dir)(
+		struct FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
+		bool is_directory, DEF_MRET(FatDirEntry *, entry));
+	FsResult (*fat_read_dir_entry)(
+		FatDirIterator *iter, DEF_MRET(string_t, name),
+		DEF_MRET(ShortDir, short_dir));
+} FatPrivOps;
 
 #endif

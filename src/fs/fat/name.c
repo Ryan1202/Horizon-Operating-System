@@ -203,7 +203,7 @@ string_t read_short_name(ShortDir *short_dir) {
 	name.text[j++] = '.';
 	for (x = 0; x < 3; x++) {
 		char c = short_dir->name.ext[x];
-		if (c == ' ') {
+		if (c != ' ') {
 			if ('A' <= c && c <= 'Z') {
 				name.text[j++] = (short_dir->nt_res & FAT32_EXT_L) ? c + 32 : c;
 			} else {
@@ -233,41 +233,51 @@ FsResult long_name2short_name(
 	int	 ext_name_len  = 0;
 	char tmp_name[12]  = "            ";
 
-	int i, j;
-	for (i = 0, j = 0; i < 8; i++) {
+	int		i, j, k;
+	uint8_t c;
+	char   *q;
+	for (i = 0, j = 0, k = 0; k < 8; k++) {
 		if (i < dot) {
-			if (is_available_short_name_char(text[i])) {
-				if ('a' <= text[i] && text[i] <= 'z')
-					short_name->base[j] = text[i] - 32;
-				else short_name->base[j] = text[i];
-			} else if (text[i] >= 0x80) { // 跳过UTF-8字符
-				flag				= false;
-				short_name->base[j] = '_';
+			c = text[i];
+			q = &short_name->base[j];
+			i++;
+			if (is_available_short_name_char(c)) {
+				if ('a' <= c && c <= 'z') *q = c - 32;
+				else *q = c;
+			} else if (c >= 0x80) { // 跳过UTF-8字符
+				if ((c & 0xe0) == 0xc0) i++;
+				if ((c & 0xf0) == 0xe0) i += 2;
+				if ((c & 0xf8) == 0xf0) i += 3;
+				flag = false;
+				*q	 = '_';
 			} else continue;
-			tmp_name[j] = short_name->base[j];
+			tmp_name[k] = *q;
 			base_name_len++;
-		} else short_name->base[j] = ' ';
-		j++;
+			j++;
+		} else short_name->base[k] = ' ';
 	}
 
 	if (!is_directory) {
-		tmp_name[j] = '.';
-		int k		= j + 1;
-
-		for (i = 0, j = 0; i < 3; i++) {
-			if (i < dot) {
-				uint8_t c = text[dot + 1 + i];
+		tmp_name[j++] = '.';
+		for (i = dot + 1, k = 0; k < 3; k++) {
+			if (i < len) {
+				c = text[i];
+				q = &short_name->ext[k];
+				i++;
 				if (is_available_short_name_char(c)) {
-					if ('a' <= c && c <= 'z') short_name->ext[j] = c - 32;
-					else short_name->ext[j] = c;
-				} else if (c >= 0x80) {
-					flag			   = false;
-					short_name->ext[j] = '_';
+					if ('a' <= c && c <= 'z') *q = c - 32;
+					else *q = c;
+				} else if (c >= 0x80) { // 跳过UTF-8字符
+					if ((c & 0xe0) == 0xc0) i++;
+					if ((c & 0xf0) == 0xe0) i += 2;
+					if ((c & 0xf8) == 0xf0) i += 3;
+					flag = false;
+					*q	 = '_';
 				} else continue;
-			} else short_name->ext[j] = ' ';
-			tmp_name[k + j] = short_name->ext[j];
-			j++;
-			ext_name_len++;
+				tmp_name[j] = *q;
+				ext_name_len++;
+				j++;
+			} else short_name->ext[k] = ' ';
 		}
 	}
 
@@ -278,7 +288,8 @@ FsResult long_name2short_name(
 
 	if (!flag && check_short_name((uint8_t *)short_name, 11, dot)) {
 		// 完全满足短文件名条件，检查是否重名
-		return search_dir(fat_info, parent, name, is_directory, NULL, 0);
+		return fat_info->ops->fat_search_dir(
+			fat_info, parent, name, is_directory, NULL);
 	} else {
 		for (int n = 1; n < 999999; n++) {
 			// 统计位数
@@ -293,8 +304,8 @@ FsResult long_name2short_name(
 			short_name->base[i] = '~';
 
 			// 检查是否重名
-			FsResult result =
-				search_dir(fat_info, parent, name, is_directory, NULL, 0);
+			FsResult result = fat_info->ops->fat_search_dir(
+				fat_info, parent, name, is_directory, NULL);
 			if (result == FS_ERROR_CANNOT_FIND) {
 				// 找不到说明可用
 				return FS_OK;

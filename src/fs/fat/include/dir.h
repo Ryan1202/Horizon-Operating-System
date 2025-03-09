@@ -1,6 +1,7 @@
 #ifndef _FAT_DIR_H
 #define _FAT_DIR_H
 
+#include "cluster.h"
 #include "dyn_array.h"
 #include "fs/fs.h"
 #include "kernel/block_cache.h"
@@ -73,9 +74,38 @@ typedef struct FatDirEntry {
 } FatDirEntry;
 
 struct FatInfo;
-FsResult search_dir(
+typedef struct FatDirIterator {
+	struct FatInfo *fat_info;			  // 文件系统信息
+	FatDirEntry	   *dir_entry;			  // 当前遍历的目录项
+	CurrentCluster	current_cluster;	  // 当前簇号
+	int				entry_index;		  // 当前簇内条目索引
+	uint16_t	   *longname_buf;		  // 长文件名缓存（UTF-16）
+	int				longname_len;		  // 当前累积的长名长度
+	uint8_t			checksum;			  // 长名校验和
+	bool			longname_valid;		  // 长名有效性标志
+	uint32_t		longname_cluster;	  // 长名所在簇号
+	int				longname_entry_index; // 长名所在簇内条目索引
+	uint32_t		last_cluster;		  // 上一个簇号
+	int				last_entry_index;	  // 上一个簇内条目索引
+} FatDirIterator;
+
+struct FatInfo;
+
+void fat_dir_iterator_init(
+	FatDirIterator *iter, struct FatInfo *fat, FatDirEntry *dir);
+void	 fat_dir_iterator_destroy(FatDirIterator *iter);
+FsResult fat32_read_dir_entry(
+	FatDirIterator *iter, DEF_MRET(string_t, name),
+	DEF_MRET(ShortDir, short_dir));
+FsResult fat_read_dir_entry(
+	FatDirIterator *iter, DEF_MRET(string_t, name),
+	DEF_MRET(ShortDir, short_dir));
+FsResult fat32_search_dir(
 	struct FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
-	bool match_directory, FatDirEntry **out_entry, int mode);
+	bool is_directory, DEF_MRET(FatDirEntry *, entry));
+FsResult fat_search_dir(
+	struct FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
+	bool is_directory, DEF_MRET(FatDirEntry *, entry));
 void entry_cache_init(
 	struct FatInfo *fat_info, FatDirEntry *entry, size_t cache_size);
 bool fat_dir_is_empty(struct FatInfo *fat_info, FatDirEntry *parent_entry);

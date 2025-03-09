@@ -87,24 +87,17 @@ int main() {
 	printk("Memory Size:%dM\n", get_memory_size());
 	thread_start(
 		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
-	// init_vfs();
+
 	do_initcalls();
 	driver_start_all();
 
 	// uint8_t		 buf[512];
 	// Object		*object;
 	// ObjectResult result =
-	// 	open_object_by_path("\\Volumes\\Storage0Volume0\\kernel.elf", &object);
+	// 	open_object_by_path("\\Volumes\\Storage0Volume0\\", &object);
 	// if (result != OBJECT_OK) {
 	// 	printk("Open File Error!\n");
 	// } else {
-	// 	ObjectAttr attr;
-	// 	obj_get_attr(object, &attr);
-	// 	printk("File Size:%d\n", attr.size);
-	// 	print_permission(&attr.all_user_permission);
-	// 	print_permission(&attr.admin_permission);
-	// 	print_permission(&attr.owner_permission);
-	// 	print_permission(&attr.system_permission);
 	// }
 
 	// const string_t name = STRING_INIT("A folder");

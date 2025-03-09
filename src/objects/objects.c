@@ -62,40 +62,60 @@ ObjectResult init_object_tree() {
 	return OBJECT_OK;
 }
 
+ObjectResult object_open(Object *parent, Object **child, char *path) {
+	Object		*object;
+	ObjectResult result;
+
+	if (*path == '\0') {
+		*child = parent;
+		return OBJECT_OK;
+	}
+
+	string_t name;
+	char	 ascii_name[256];
+	char	*p = path;
+	int		 i = 0;
+	name.text  = ascii_name;
+
+	while (*p != '\0' && *p != '\\') {
+		ascii_name[i] = *p;
+		p++;
+		i++;
+	}
+	bool is_directory = false;
+	if (*p == '\\') {
+		is_directory = true;
+		p++;
+	}
+	ascii_name[i]	= '\0';
+	name.length		= i + 1;
+	name.max_length = i + 1;
+
+	if (!is_directory) {
+		return obj_open(parent, child, name);
+	} else {
+		ObjectIterator *iter;
+		result = obj_opendir(parent, &iter);
+		while (1) {
+			result = obj_readdir(iter, &object);
+			if (result != OBJECT_OK) break;
+			if (strncmp(object->name.text, name.text, name.length) == 0) {
+				if (object->attr.type != OBJECT_TYPE_DIRECTORY) continue;
+				result = object_open(object, child, p);
+				obj_closedir(iter);
+				return result;
+			}
+		}
+	}
+	return OBJECT_OK;
+}
+
 ObjectResult open_oringinal_object_by_path(char *path, Object **out_object) {
 	// 必须从根对象开始
 	if (path[0] != '\\') { return OBJECT_ERROR_ILLEGAL_ARGUMENT; }
 	path++;
 
-	char	 ascii_name[256];
-	string_t name	= {0, 0, ascii_name};
-	Object	*object = &root_object;
-	while (*path) {
-		int i = 0;
-		while (*path != '\0' && *path != '\\') {
-			ascii_name[i] = *path;
-			path++;
-			i++;
-		}
-		bool is_directory = false;
-		if (*path == '\\') {
-			is_directory = true;
-			path++;
-		}
-		ascii_name[i]	= '\0';
-		name.length		= i + 1;
-		name.max_length = i + 1;
-
-		Object		*child;
-		ObjectResult result;
-		if (!is_directory) result = obj_open(object, &child, name);
-		else result = obj_opendir(object, &child, name);
-		if (result != OBJECT_OK) { return result; }
-
-		object = child;
-	}
-	*out_object = object;
-	return OBJECT_OK;
+	return object_open(&root_object, out_object, path);
 }
 
 ObjectResult open_object_by_path(char *path, Object **object) {

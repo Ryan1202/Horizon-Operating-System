@@ -37,36 +37,66 @@ ObjectResult obj_open(
 	// 如果缓存中找不到，则调用文件系统接口读取
 	else if (parent->fs_info != NULL) {
 		FsResult result = parent->fs_info->file_ops.fs_open(
-			parent->fs_info, parent->value.directory.data, name, &MRET(child));
+			parent->fs_info, parent, name, &MRET(child));
 		child->reference++;
 		if (result == FS_OK) return OBJECT_OK;
 	}
 	return OBJECT_ERROR_CANNOT_FIND;
 }
 
-ObjectResult obj_opendir(
-	Object *parent, DEF_MRET(Object *, child), string_t name) {
-	Object		*child;
-	ObjectResult result = obj_search(parent, &child, name, true);
-	if (result == OBJECT_OK) {
-		Permission *permission = get_permission_info(child);
-		if (!permission->permission.execute) return OBJECT_ERROR_NO_PERMISSION;
-		MRET(child) = child;
-		child->reference++;
-		return OBJECT_OK;
+ObjectResult obj_opendir(Object *parent, DEF_MRET(ObjectIterator *, iter)) {
+	ObjectIterator *iter = kmalloc(sizeof(ObjectIterator));
+	iter->current_node	 = parent->value.directory.children.next;
+	iter->type			 = ITERATOR_TYPE_MEM;
+	if (parent->fs_info != NULL) {
+		if (parent->value.directory.fs_iterator == NULL) {
+			FsResult result = parent->fs_info->dir_ops.fs_opendir(
+				parent->fs_info, parent, &iter->fs_iterator);
+			if (result != FS_OK) return OBJECT_ERROR_CANNOT_FIND;
+			iter->type = ITERATOR_TYPE_FS;
+		} else {
+			iter->fs_iterator = parent->value.directory.fs_iterator;
+		}
 	}
-	// 如果缓存中找不到，则调用文件系统接口读取
-	else if (parent->fs_info != NULL) {
-		FsResult result = parent->fs_info->dir_ops.fs_opendir(
-			parent->fs_info, parent->value.directory.data, name, &MRET(child));
-		if (result != FS_OK) return OBJECT_ERROR_CANNOT_FIND;
-		ObjectAttr attr;
-		obj_get_attr(child, &attr);
-		Permission *permission = get_permission_info(child);
-		if (!permission->permission.execute) return OBJECT_ERROR_NO_PERMISSION;
-		child->reference++;
+	MRET(iter) = iter;
+
+	return OBJECT_OK;
+}
+
+ObjectResult obj_readdir(ObjectIterator *iterator, DEF_MRET(Object *, object)) {
+	if (iterator->type == ITERATOR_TYPE_FS) {
+		FsResult result = iterator->parent_object->fs_info->dir_ops.fs_readdir(
+			iterator->parent_object->value.directory.data,
+			iterator->fs_iterator, &MRET(object));
+		if (result == FS_ERROR_CANNOT_FIND) return OBJECT_ERROR_CANNOT_FIND;
+		else if (result != FS_OK) return OBJECT_ERROR_CANNOT_FIND;
+	} else {
+		if (iterator->current_node ==
+			&iterator->parent_object->value.directory.children) {
+			if (iterator->fs_iterator) {
+				iterator->parent_object->fs_info->dir_ops.fs_readdir(
+					iterator->parent_object->value.directory.data,
+					iterator->fs_iterator, &MRET(object));
+			} else return OBJECT_ERROR_CANNOT_FIND;
+		}
+
+		MRET(object) = list_owner(iterator->current_node, Object, list);
+		iterator->current_node = iterator->current_node->next;
 	}
-	return OBJECT_ERROR_CANNOT_FIND;
+	return OBJECT_OK;
+}
+
+ObjectResult obj_closedir(ObjectIterator *iterator) {
+	if (iterator->type == ITERATOR_TYPE_FS) {
+		if (iterator->fs_iterator != NULL) {
+			FsResult result =
+				iterator->parent_object->fs_info->dir_ops.fs_closedir(
+					iterator->fs_iterator);
+			if (result != FS_OK) return OBJECT_ERROR_OTHER;
+		}
+	}
+	kfree(iterator);
+	return OBJECT_OK;
 }
 
 ObjectResult obj_close(Object *object) {
@@ -78,7 +108,8 @@ ObjectResult obj_close(Object *object) {
 		if (object->attr.type == OBJECT_TYPE_FILE) {
 			object->fs_info->file_ops.fs_close(object);
 		} else if (object->attr.type == OBJECT_TYPE_DIRECTORY) {
-			object->fs_info->dir_ops.fs_closedir(object);
+			object->fs_info->dir_ops.fs_closedir(
+				object->value.directory.fs_iterator);
 		}
 		list_del(&object->list);
 		obj_close(object->parent);

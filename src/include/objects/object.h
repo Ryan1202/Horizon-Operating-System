@@ -80,6 +80,7 @@ typedef struct Object {
 		struct {
 			void  *data;
 			list_t children;
+			void  *fs_iterator;
 		} directory;
 		struct Driver *driver;
 		struct Device *device;
@@ -105,6 +106,16 @@ typedef struct Object {
 
 	void (*release_data)(struct Object *object);
 } Object;
+
+typedef struct ObjectIterator {
+	Object *parent_object;
+	list_t *current_node;
+	void   *fs_iterator;
+	enum {
+		ITERATOR_TYPE_MEM,
+		ITERATOR_TYPE_FS,
+	} type;
+} ObjectIterator;
 
 static const Permission base_obj_sys_perm = {
 	.subject_id = SUBJECT_ID_SYSTEM,
