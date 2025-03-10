@@ -286,10 +286,12 @@ FsResult long_name2short_name(
 	name.length		= base_name_len + ext_name_len + 1;
 	name.max_length = name.length;
 
+	FatLocation location;
+	ShortDir	short_dir;
 	if (!flag && check_short_name((uint8_t *)short_name, 11, dot)) {
 		// 完全满足短文件名条件，检查是否重名
-		return fat_info->ops->fat_search_dir(
-			fat_info, parent, name, is_directory, NULL);
+		return fat_info->ops->fat_dir_lookup(
+			fat_info, parent, name, &location, &short_dir);
 	} else {
 		for (int n = 1; n < 999999; n++) {
 			// 统计位数
@@ -304,8 +306,8 @@ FsResult long_name2short_name(
 			short_name->base[i] = '~';
 
 			// 检查是否重名
-			FsResult result = fat_info->ops->fat_search_dir(
-				fat_info, parent, name, is_directory, NULL);
+			FsResult result = fat_info->ops->fat_dir_lookup(
+				fat_info, parent, name, &location, &short_dir);
 			if (result == FS_ERROR_CANNOT_FIND) {
 				// 找不到说明可用
 				return FS_OK;

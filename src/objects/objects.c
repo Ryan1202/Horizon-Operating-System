@@ -1,12 +1,12 @@
-#include "kernel/list.h"
-#include "objects/ops.h"
 #include <dyn_array.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
+#include <kernel/driver_interface.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <objects/object.h>
+#include <objects/ops.h>
 #include <objects/types.h>
-#include <stdint.h>
 #include <string.h>
 #include <types.h>
 
@@ -18,28 +18,27 @@ const Permission sys_permission = {
 Object root_object = {
 	.name = STRING_INIT(""), // 根对象的名字不会起到任何作用，所以设为空
 	.parent = NULL,
-	.attr	= base_obj_sys_attr,
 
 };
 Object bus_object = {
 	.name = STRING_INIT("Bus"),
-	.attr = base_obj_sys_attr,
 };
 Object driver_object = {
 	.name = STRING_INIT("Driver"),
-	.attr = base_obj_sys_attr,
 };
 Object device_object = {
 	.name = STRING_INIT("Device"),
-	.attr = base_obj_sys_attr,
 };
 Object volumes_object = {
 	.name = STRING_INIT("Volumes"),
-	.attr = base_obj_sys_attr,
 };
 
-static inline void init_object_directory(Object *object) {
+void init_object_directory(Object *object) {
 	list_init(&object->value.directory.children);
+}
+
+void init_base_obj_sys_attr(Object *object) {
+	object->attr = kmalloc_from_template(base_obj_sys_attr);
 }
 
 /**
@@ -53,6 +52,11 @@ ObjectResult init_object_tree() {
 	init_object_directory(&driver_object);
 	init_object_directory(&device_object);
 	init_object_directory(&volumes_object);
+	init_base_obj_sys_attr(&root_object);
+	init_base_obj_sys_attr(&bus_object);
+	init_base_obj_sys_attr(&driver_object);
+	init_base_obj_sys_attr(&device_object);
+	init_base_obj_sys_attr(&volumes_object);
 	add_object(&root_object, &driver_object);
 	add_object(&root_object, &bus_object);
 	add_object(&root_object, &device_object);
@@ -62,9 +66,8 @@ ObjectResult init_object_tree() {
 	return OBJECT_OK;
 }
 
-ObjectResult object_open(Object *parent, Object **child, char *path) {
-	Object		*object;
-	ObjectResult result;
+ObjectResult object_open_path(Object *parent, Object **child, char *path) {
+	Object *object;
 
 	if (*path == '\0') {
 		*child = parent;
@@ -91,23 +94,22 @@ ObjectResult object_open(Object *parent, Object **child, char *path) {
 	name.length		= i + 1;
 	name.max_length = i + 1;
 
-	if (!is_directory) {
-		return obj_open(parent, child, name);
-	} else {
-		ObjectIterator *iter;
-		result = obj_opendir(parent, &iter);
-		while (1) {
-			result = obj_readdir(iter, &object);
-			if (result != OBJECT_OK) break;
-			if (strncmp(object->name.text, name.text, name.length) == 0) {
-				if (object->attr.type != OBJECT_TYPE_DIRECTORY) continue;
-				result = object_open(object, child, p);
-				obj_closedir(iter);
-				return result;
+	ObjectAttr *attr;
+	OBJ_RESULT_PASS(obj_lookup(parent, &name, &attr));
+	if ((is_directory && attr->type == OBJECT_TYPE_DIRECTORY) ||
+		!is_directory) {
+		if (attr->type == OBJECT_TYPE_DIRECTORY) {
+			if (attr->object != NULL) {
+				return object_open_path(attr->object, child, p);
+			} else {
+				OBJ_RESULT_PASS(obj_open(parent, attr, &name, &object));
+				return object_open_path(object, child, p);
 			}
+		} else {
+			return obj_open(parent, attr, &name, child);
 		}
 	}
-	return OBJECT_OK;
+	return OBJECT_ERROR_CANNOT_FIND;
 }
 
 ObjectResult open_oringinal_object_by_path(char *path, Object **out_object) {
@@ -115,13 +117,13 @@ ObjectResult open_oringinal_object_by_path(char *path, Object **out_object) {
 	if (path[0] != '\\') { return OBJECT_ERROR_ILLEGAL_ARGUMENT; }
 	path++;
 
-	return object_open(&root_object, out_object, path);
+	return object_open_path(&root_object, out_object, path);
 }
 
 ObjectResult open_object_by_path(char *path, Object **object) {
 	ObjectResult result = open_oringinal_object_by_path(path, object);
 	if (result == OBJECT_OK) {
-		while ((*object)->attr.type == OBJECT_TYPE_SYM_LINK) {
+		while ((*object)->attr->type == OBJECT_TYPE_SYM_LINK) {
 			*object = (*object)->value.sym_link;
 		}
 	}
@@ -129,7 +131,7 @@ ObjectResult open_object_by_path(char *path, Object **object) {
 }
 
 ObjectResult add_object(Object *parent, Object *child) {
-	if (parent->attr.type != OBJECT_TYPE_DIRECTORY) {
+	if (parent->attr->type != OBJECT_TYPE_DIRECTORY) {
 		return OBJECT_ERROR_INVALID_OPERATION;
 	}
 
@@ -144,7 +146,7 @@ Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
 	if (object == NULL) { return NULL; }
 
 	object->name	  = name;
-	object->attr	  = attr;
+	object->attr	  = kmalloc_from_template(attr);
 	object->parent	  = parent;
 	object->reference = 0;
 
@@ -159,8 +161,8 @@ Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
 
 Object *create_object_directory(
 	Object *parent, string_t name, ObjectAttr attr) {
-	attr.type	   = OBJECT_TYPE_DIRECTORY;
-	Object *object = create_object(parent, name, attr);
+	Object *object	   = create_object(parent, name, attr);
+	object->attr->type = OBJECT_TYPE_DIRECTORY;
 	if (object == NULL) { return NULL; }
 
 	init_object_directory(object);
@@ -182,12 +184,12 @@ void print_object_directory(Object *object, int level) {
 			printk("|\t");
 		}
 		printk("|-%s", child->name.text);
-		if (child->attr.type == OBJECT_TYPE_SYM_LINK) {
+		if (child->attr->type == OBJECT_TYPE_SYM_LINK) {
 			printk("\t->\t");
 			print_symbol_link(child->value.sym_link);
 		}
 		printk("\n");
-		if (child->attr.type == OBJECT_TYPE_DIRECTORY) {
+		if (child->attr->type == OBJECT_TYPE_DIRECTORY) {
 			print_object_directory(child, level + 1);
 		}
 	}

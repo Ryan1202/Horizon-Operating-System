@@ -23,6 +23,7 @@ typedef struct Permission {
 } Permission;
 
 struct Object;
-Permission *get_permission_info(struct Object *object);
+struct ObjectAttr;
+Permission *get_permission_info(struct ObjectAttr *attr);
 
 #endif

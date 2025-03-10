@@ -100,13 +100,21 @@ typedef struct FatInfo {
 	FatDirEntry root_entry;
 } FatInfo;
 
+typedef struct FatLocation {
+	uint32_t longname_cluster;	// 长文件名所在簇号
+	uint32_t longname_offset;	// 长文件名所在簇内的序号
+	uint32_t shortname_cluster; // 短文件名所在簇号
+	uint32_t shortname_offset;	// 短文件名所在簇内的序号
+	uint32_t parent_cluster;	// 父目录所在簇号
+	uint32_t first_cluster;		// 文件数据所在簇号
+} FatLocation;
+
 typedef struct FatPrivOps {
-	FsResult (*fat_search_dir)(
+	FsResult (*fat_dir_lookup)(
 		struct FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
-		bool is_directory, DEF_MRET(FatDirEntry *, entry));
+		DEF_MRET(FatLocation, location), DEF_MRET(ShortDir, short_dir));
 	FsResult (*fat_read_dir_entry)(
-		FatDirIterator *iter, DEF_MRET(string_t, name),
-		DEF_MRET(ShortDir, short_dir));
+		FatDirIterator *iter, DEF_MRET(ShortDir, short_dir));
 } FatPrivOps;
 
 #endif

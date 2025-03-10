@@ -4,7 +4,6 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "objects/permission.h"
 #include "string.h"
 #include <driver/interrupt_dm.h>
 #include <driver/storage/disk/volume.h>
@@ -91,14 +90,16 @@ int main() {
 	do_initcalls();
 	driver_start_all();
 
-	// uint8_t		 buf[512];
-	// Object		*object;
-	// ObjectResult result =
-	// 	open_object_by_path("\\Volumes\\Storage0Volume0\\", &object);
-	// if (result != OBJECT_OK) {
-	// 	printk("Open File Error!\n");
-	// } else {
-	// }
+	uint8_t		 buf[128];
+	Object		*object;
+	ObjectResult result = open_object_by_path(
+		"\\Volumes\\Storage0Volume0\\boot\\grub\\grub.cfg", &object);
+	if (result != OBJECT_OK) {
+		printk("Open File Error!\n");
+	} else {
+		TRANSFER_IN_STREAM(object, buf, 128);
+		printk("%s", buf);
+	}
 
 	// const string_t name = STRING_INIT("A folder");
 	// obj_rmdir(object, name);
@@ -107,20 +108,20 @@ int main() {
 	// Object		*object;
 	// ObjectResult result =
 	// 	open_object_by_ascii_path("\\Device\\Storage0\\Partition0",
-	// &object); if (result != OBJECT_OK) { printk("Open Storage0
-	// Error!\n"); } uint8_t buf[512]; TRANSFER_IN_BLOCK(object)(object,
-	// TRANSFER_IN, buf, 0, 1, &handle);
+	// &object);
+	// if (result != OBJECT_OK) {
+	// 	}
 
 	// bool is_done;
 	// do {
 	// 	TRANSFER_IN_IS_DONE(object)(object, &handle, &is_done);
 	// } while (!is_done);
-	// print_hex(buf, 512);
 
 	// show_object_tree();
 
 	// thread_start(
-	// 	"NetworkRxPacketProcess", THREAD_DEFAULT_PRIO, net_process_pack, NULL);
+	// 	"NetworkRxPacketProcess", THREAD_DEFAULT_PRIO, net_process_pack,
+	// NULL);
 
 	// int ret = dhcp_main(default_net_dev);
 	// while (ret == -4) {
@@ -135,15 +136,16 @@ int main() {
 	// netc_t *netc	  = netc_create(default_net_dev, ETH_TYPE_ARP, 0);
 	// netc_set_dest(netc, broadcast_mac, NULL, 0);
 	// router_mac = ip2mac(
-	// 	netc, ((struct ipv4_data *)netc->net_dev->info->ipv4_data)->router_ip);
-	// netc_delete(netc);
+	// 	netc, ((struct ipv4_data
+	// *)netc->net_dev->info->ipv4_data)->router_ip); netc_delete(netc);
 
 	// netc = netc_create(default_net_dev, ETH_TYPE_IPV4, PROTOCOL_TCP);
 	// netc_set_dest(netc, router_mac, dst_ip, 4);
 	// tcp_create(netc);
 	// tcp_bind(netc, 12345);
 	// tcp_ipv4_connect(netc, dst_ip, 80);
-	// uint8_t	 data[] = "GET / HTTP/1.1\r\nHost: 180.101.50.188\r\nAccept: "
+	// uint8_t	 data[] = "GET / HTTP/1.1\r\nHost:
+	// 180.101.50.188\r\nAccept: "
 	// 				  "*/*\r\nConnection: keep-alive\r\n\r\n";
 	// uint8_t *rb		= kmalloc(2048);
 	// tcp_write(netc, data, sizeof(data));

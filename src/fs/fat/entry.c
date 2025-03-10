@@ -160,30 +160,41 @@ PRIVATE FsResult fat_longname_entry_write(
 
 PUBLIC FatDirEntry *generate_dir_entry(
 	FatInfo *fat_info, FatDirEntry *parent_entry, ShortDir *short_dir,
-	string_t name, bool is_directory, uint32_t cluster, uint32_t number,
-	uint32_t longname_cluster, uint32_t longname_number) {
+	string_t name, FatLocation *location, ObjectAttr *attr) {
 	FatDirEntry *entry = kmalloc(sizeof(FatDirEntry));
-	string_cpy(&entry->name, &name);
+	entry->name.text   = kmalloc(name.length);
+	memcpy(entry->name.text, name.text, name.length);
+	entry->name.length	   = name.length;
+	entry->name.max_length = name.length;
+
 	memcpy(&entry->short_dir, short_dir, sizeof(ShortDir));
+	bool	 is_directory	  = short_dir->attr & ATTR_DIRECTORY;
+	uint32_t cluster		  = location->shortname_cluster;
+	int		 number			  = location->shortname_offset;
+	uint32_t longname_cluster = location->longname_cluster;
+	int		 longname_number  = location->longname_offset;
 
 	entry->cluster_list = dyn_array_new(sizeof(ClusterSegment), 8);
 	get_cluster_segment(fat_info, entry);
 
-	Object	  *object;
-	ObjectAttr attr;
-	fat_attr_to_sys_attr(short_dir, &attr);
+	Object	   *object;
+	ObjectAttr *_attr = attr;
+	if (_attr == NULL) {
+		_attr = kmalloc(sizeof(ObjectAttr));
+		fat_attr_to_sys_attr(short_dir, _attr, location);
+	}
 
-	if (entry->short_dir.attr & ATTR_DIRECTORY) {
+	if (is_directory) {
 		FsResult result = fs_obj_create_dir(
 			parent_entry->object, fat_info->fs_info, entry->name, &object,
-			&attr);
+			_attr);
 		if (result != FS_OK) { return NULL; }
 		object->value.directory.data = entry;
 		entry_cache_init(fat_info, entry, fat_info->bytes_per_cluster);
 	} else {
 		FsResult result = fs_obj_create_file(
 			parent_entry->object, fat_info->fs_info, entry->name, &object,
-			&attr);
+			_attr);
 		if (result != FS_OK) { return NULL; }
 		object->value.file.data	  = entry;
 		object->value.file.offset = 0;
@@ -258,9 +269,13 @@ PUBLIC FsResult fat_create_entry(
 		fat_info, parent_entry, cluster, number, (uint8_t *)&short_dir));
 
 	FatDirEntry *entry;
-	entry = generate_dir_entry(
-		fat_info, parent_entry, &short_dir, name, is_directory, cluster, number,
-		longname_cluster, longname_number);
+	FatLocation	 location;
+	location.longname_cluster  = longname_cluster;
+	location.longname_offset   = longname_number;
+	location.shortname_cluster = cluster;
+	location.shortname_offset  = number;
+	entry					   = generate_dir_entry(
+		 fat_info, parent_entry, &short_dir, name, &location, NULL);
 
 	if (is_directory) {
 		static ShortName dot = {".       ", "   "};
@@ -281,21 +296,21 @@ PUBLIC FsResult fat_create_entry(
 }
 
 PUBLIC FsResult fat_delete_entry(
-	FatInfo *fat_info, FatDirEntry *parent, FatDirEntry *entry, string_t name) {
-	uint32_t cluster = entry->shortname_cluster;
-	uint32_t num	 = entry->shortname_number;
+	FatInfo *fat_info, FatDirEntry *parent, FatLocation *location) {
+	uint32_t cluster = location->shortname_cluster;
+	uint32_t num	 = location->shortname_offset;
 
 	uint8_t buf[32];
 	FS_RESULT_PASS(fat_entry_read(fat_info, parent, cluster, num, buf));
 	buf[0] = 0xe5;
 	FS_RESULT_PASS(fat_entry_write(fat_info, parent, cluster, num, buf));
 
-	if (fat_info->type == FAT_TYPE_FAT32 && entry->longname_cluster != 0) {
-		uint32_t cluster = entry->longname_cluster;
-		int		 number	 = entry->longname_number;
+	if (fat_info->type == FAT_TYPE_FAT32 && location->longname_cluster != 0) {
+		uint32_t cluster = location->longname_cluster;
+		int		 number	 = location->longname_offset;
 
-		while (cluster <= entry->shortname_cluster &&
-			   number < entry->shortname_number) {
+		while (cluster <= location->shortname_cluster &&
+			   number < location->shortname_offset) {
 			FS_RESULT_PASS(
 				fat_entry_read(fat_info, parent, cluster, number, buf));
 			buf[0] = 0xe5;

@@ -11,6 +11,7 @@
 #include <fs/fs.h>
 #include <kernel/block_cache.h>
 #include <kernel/initcall.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <objects/object.h>
 #include <objects/transfer.h>
@@ -20,9 +21,13 @@
 
 FsResult fat_check(Partition *partition);
 FsResult fat_mount(FileSystemInfo *fs_info, Object *root_object);
+
+FsResult fat_lookup(
+	FileSystemInfo *fs_info, Object *parent_obj, string_t *name,
+	ObjectAttr **attr);
 FsResult fat_open(
-	FileSystemInfo *fs_info, Object *parent_obj, string_t name,
-	Object **object);
+	FileSystemInfo *fs_info, Object *parent_obj, ObjectAttr *attr,
+	string_t *name, Object **object);
 FsResult fat_close(Object *object);
 FsResult fat_seek(Object *object, size_t offset);
 FsResult fat_read(Object *file, void *buf, size_t size);
@@ -30,12 +35,13 @@ FsResult fat_write(Object *file, void *buf, size_t size);
 
 FsResult fat_opendir(
 	FileSystemInfo *fs_info, Object *parent_obj, void **iterator);
-FsResult fat_readdir(FileSystemInfo *fs_info, void *iterator, Object **object);
-FsResult fat_closedir(void *iterator);
-FsResult fat_create_file(Object *parent_obj, string_t name, Object **object);
-FsResult fat_delete_file(Object *parent_obj, string_t name);
-FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object);
-FsResult fat_rmdir(Object *parent_obj, string_t name);
+FsResult fat_readdir(
+	FileSystemInfo *fs_info, ObjectIterator *iterator, Object **object);
+FsResult fat_closedir(ObjectIterator *iterator);
+FsResult fat_create_file(Object *parent_obj, string_t *name, Object **object);
+FsResult fat_delete_file(Object *parent_obj, ObjectAttr *attr, string_t *name);
+FsResult fat_mkdir(Object *parent_obj, string_t *name, Object **object);
+FsResult fat_rmdir(Object *parent_obj, ObjectAttr *attr, string_t *name);
 FsResult fat_get_attr(Object *object, ObjectAttr *attr);
 FsResult fat_set_attr(Object *object, ObjectAttr *attr);
 
@@ -55,6 +61,7 @@ FsFileOps fat_file_ops = {
 };
 
 FsDirectoryOps fat_dir_ops = {
+	.fs_lookup		= fat_lookup,
 	.fs_opendir		= fat_opendir,
 	.fs_readdir		= fat_readdir,
 	.fs_closedir	= fat_closedir,
@@ -72,11 +79,11 @@ FileSystem fat_fs = {
 };
 
 FatPrivOps fat32_priv_ops = {
-	.fat_search_dir		= fat32_search_dir,
+	.fat_dir_lookup		= fat32_dir_lookup,
 	.fat_read_dir_entry = fat32_read_dir_entry,
 };
 FatPrivOps fat_priv_ops = {
-	.fat_search_dir		= fat_search_dir,
+	.fat_dir_lookup		= fat_dir_lookup,
 	.fat_read_dir_entry = fat_read_dir_entry,
 };
 
@@ -190,16 +197,40 @@ FatType fat_type_determine(FatInfo *fat_info) {
 	}
 }
 
-FsResult fat_open(
-	FileSystemInfo *fs_info, Object *parent_obj, string_t name,
-	Object **object) {
-	FatInfo		*fat_info = fs_info->private_data;
-	FatDirEntry *entry;
+FsResult fat_lookup(
+	FileSystemInfo *fs_info, Object *parent_obj, string_t *name,
+	ObjectAttr **attr) {
+	FatInfo		*fat_info	  = fs_info->private_data;
+	FatDirEntry *parent_entry = parent_obj->value.directory.data;
 
-	FsResult result = fat_info->ops->fat_search_dir(
-		fat_info, parent_obj->value.directory.data, name, false, &entry);
+	FatLocation location;
+	ShortDir	short_dir;
+	FS_RESULT_PASS(fat_info->ops->fat_dir_lookup(
+		fat_info, parent_entry, *name, &location, &short_dir));
+	ObjectAttr *tmp_attr = kmalloc(sizeof(ObjectAttr));
+	fat_attr_to_sys_attr(&short_dir, tmp_attr, &location);
+
+	*attr = tmp_attr;
+
+	return FS_OK;
+}
+
+FsResult fat_open(
+	FileSystemInfo *fs_info, Object *parent_obj, ObjectAttr *attr,
+	string_t *name, Object **object) {
+	FatInfo		*fat_info = fs_info->private_data;
+	FatDirEntry *entry, *parent_entry = parent_obj->value.directory.data;
+	FatLocation *location = attr->fs_location;
+	ShortDir	 short_dir;
+
+	fat_entry_read(
+		fat_info, parent_entry, location->shortname_cluster,
+		location->shortname_offset, (uint8_t *)&short_dir);
+
+	entry = generate_dir_entry(
+		fat_info, parent_entry, &short_dir, *name, location, attr);
 	*object = entry->object;
-	return result;
+	return FS_OK;
 }
 
 FsResult fat_close(Object *object) {
@@ -225,27 +256,50 @@ FsResult fat_opendir(
 	return FS_OK;
 }
 
-FsResult fat_readdir(FileSystemInfo *fs_info, void *iterator, Object **object) {
+FsResult fat_readdir(
+	FileSystemInfo *fs_info, ObjectIterator *iterator, Object **object) {
 	FatInfo		   *fat_info = fs_info->private_data;
 	FatDirEntry	   *entry;
 	string_t		name;
-	ShortDir	   *short_dir = NULL;
-	FatDirIterator *iter	  = iterator;
+	ShortDir		short_dir;
+	FatDirIterator *iter	   = iterator->fs_iterator;
+	Object		   *parent_obj = iterator->parent_object;
 
-	FS_RESULT_PASS(
-		fat_info->ops->fat_read_dir_entry(iterator, &name, short_dir));
+	FS_RESULT_PASS(fat_info->ops->fat_read_dir_entry(iter, &short_dir));
+
+	Object *cur;
+	list_for_each_owner (cur, &parent_obj->value.directory.children, list) {
+		FatLocation *location = cur->attr->fs_location;
+		if (location->shortname_cluster == iter->last_cluster &&
+			location->shortname_offset == iter->last_entry_index) {
+			*object = cur;
+			return FS_OK;
+		}
+	}
+
+	FatLocation location;
+	location.longname_cluster  = iter->longname_cluster;
+	location.longname_offset   = iter->longname_entry_index;
+	location.shortname_cluster = iter->last_cluster;
+	location.shortname_offset  = iter->last_entry_index;
+
+	// 生成文件名
+	if (iter->longname_valid) {
+		fat_utf16_to_utf8(iter->longname_buf, iter->longname_len, &name);
+	} else {
+		name = read_short_name(&short_dir);
+	}
+	fat_dir_iterator_next(iter);
+
 	entry = generate_dir_entry(
-		fat_info, iter->dir_entry, short_dir, name,
-		short_dir->attr & ATTR_DIRECTORY, iter->last_cluster,
-		iter->last_entry_index, iter->longname_cluster,
-		iter->longname_entry_index);
+		fat_info, iter->dir_entry, &short_dir, name, &location, NULL);
 
 	*object = entry->object;
 	return FS_OK;
 }
 
-FsResult fat_closedir(void *iterator) {
-	fat_dir_iterator_destroy(iterator);
+FsResult fat_closedir(ObjectIterator *iterator) {
+	fat_dir_iterator_destroy(iterator->fs_iterator);
 	kfree(iterator);
 	return FS_OK;
 }
@@ -270,7 +324,6 @@ FsResult fat_transfer(
 	uint32_t offset = file->value.file.offset;
 	uint32_t readed = 0;
 
-	void *handle;
 	while (size > 0) {
 		uint32_t read_size = fat_info->bytes_per_cluster - offset;
 		if (read_size > size) { read_size = size; }
@@ -290,10 +343,6 @@ FsResult fat_transfer(
 			fat_cluster_list_get_next(fat_info, entry, &cur_cluster);
 		}
 	}
-	bool done;
-	do {
-		TRANSFER_IN_IS_DONE(storage_object, &handle, &done);
-	} while (!done);
 	file->value.file.offset = offset;
 
 	return FS_OK;
@@ -317,63 +366,75 @@ FsResult fat_write(Object *file, void *buf, size_t size) {
 		buf, size);
 }
 
-FsResult fat_create_file(Object *parent_obj, string_t name, Object **object) {
+FsResult fat_create_file(Object *parent_obj, string_t *name, Object **object) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result =
-		fat_info->ops->fat_search_dir(fat_info, parent, name, false, &entry);
+	FatLocation location;
+	ShortDir	short_dir;
+	FsResult	result = fat_info->ops->fat_dir_lookup(
+		   fat_info, parent, *name, &location, &short_dir);
 	if (result == FS_OK) { return FS_ERROR_ALREADY_EXISTS; }
 
-	fat_create_entry(fat_info, parent, name, false, &entry);
+	fat_create_entry(fat_info, parent, *name, false, &entry);
 
 	*object = entry->object;
 	return FS_OK;
 }
 
-FsResult fat_delete_file(Object *parent_obj, string_t name) {
+FsResult fat_delete_file(Object *parent_obj, ObjectAttr *attr, string_t *name) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
-	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
+	FatDirEntry *parent	  = parent_obj->value.directory.data;
 
-	FsResult result =
-		fat_info->ops->fat_search_dir(fat_info, parent, name, false, &entry);
-	if (result != FS_OK) { return result; }
+	FatLocation *location = attr->fs_location;
 
-	fat_delete_entry(fat_info, parent, entry, name);
+	fat_delete_entry(fat_info, parent, location);
 	return FS_OK;
 }
 
-FsResult fat_mkdir(Object *parent_obj, string_t name, Object **object) {
+FsResult fat_mkdir(Object *parent_obj, string_t *name, Object **object) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result =
-		fat_info->ops->fat_search_dir(fat_info, parent, name, true, &entry);
+	FatLocation location;
+	ShortDir	short_dir;
+	FsResult	result = fat_info->ops->fat_dir_lookup(
+		   fat_info, parent, *name, &location, &short_dir);
 	if (result == FS_OK) { return FS_ERROR_ALREADY_EXISTS; }
 
-	fat_create_entry(fat_info, parent, name, true, &entry);
+	entry = generate_dir_entry(
+		fat_info, parent, &short_dir, *name, &location, NULL);
+
+	fat_create_entry(fat_info, parent, *name, true, &entry);
 
 	*object = entry->object;
 	return FS_OK;
 }
 
-FsResult fat_rmdir(Object *parent_obj, string_t name) {
+FsResult fat_rmdir(Object *parent_obj, ObjectAttr *attr, string_t *name) {
 	FatInfo		*fat_info = parent_obj->fs_info->private_data;
 	FatDirEntry *entry, *parent = parent_obj->value.directory.data;
 
-	FsResult result =
-		fat_info->ops->fat_search_dir(fat_info, parent, name, true, &entry);
+	FatLocation *location = attr->fs_location;
+	ShortDir	 short_dir;
+	FsResult	 result = fat_entry_read(
+		fat_info, parent, location->shortname_cluster,
+		location->shortname_offset, (uint8_t *)&short_dir);
 	if (result != FS_OK) { return result; }
+
+	entry =
+		generate_dir_entry(fat_info, parent, &short_dir, *name, location, attr);
 
 	if (!fat_dir_is_empty(fat_info, entry)) return FS_ERROR_NOT_EMPTY;
 
-	fat_delete_entry(fat_info, parent, entry, name);
+	fat_delete_entry(fat_info, parent, location);
 	return FS_OK;
 }
 
 FsResult fat_get_attr(Object *object, ObjectAttr *attr) {
 	FatDirEntry *entry = object->value.file.data;
-	fat_attr_to_sys_attr(&entry->short_dir, attr);
+
+	fat_attr_to_sys_attr(&entry->short_dir, attr, object->attr->fs_location);
 	return FS_OK;
 }
 
@@ -381,7 +442,7 @@ FsResult fat_set_attr(Object *object, ObjectAttr *attr) {
 	FatInfo		*fat_info = object->fs_info->private_data;
 	FatDirEntry *entry	  = object->value.file.data;
 	FatDirEntry *parent	  = object->parent->value.directory.data;
-	fat_attr_from_sys_attr(&entry->short_dir, attr);
+	fat_attr_from_sys_attr(&entry->short_dir, attr, object->attr->fs_location);
 	fat_entry_write(
 		fat_info, parent, entry->shortname_cluster, entry->shortname_number,
 		(uint8_t *)&entry->short_dir);

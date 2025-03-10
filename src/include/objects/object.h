@@ -57,6 +57,9 @@ typedef struct ObjectAttr {
 	Permission admin_permission;
 
 	list_t permission_lh;
+
+	struct Object *object;
+	void		  *fs_location;
 } ObjectAttr;
 
 struct Partition;
@@ -71,7 +74,7 @@ typedef struct Object {
 
 	uint32_t reference;
 
-	ObjectAttr			   attr;
+	ObjectAttr			  *attr;
 	struct Object		  *origin;
 	struct FileSystemInfo *fs_info;
 
@@ -146,6 +149,8 @@ extern Object driver_object;
 extern Object device_object;
 extern Object volumes_object;
 
+void		 init_object_directory(Object *object);
+void		 init_base_obj_sys_attr(Object *object);
 ObjectResult init_object_tree();
 ObjectResult add_object(Object *parent, Object *child);
 // 通过路径打开对象，对于符号链接会自动解析

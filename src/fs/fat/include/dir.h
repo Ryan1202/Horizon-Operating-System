@@ -90,22 +90,22 @@ typedef struct FatDirIterator {
 } FatDirIterator;
 
 struct FatInfo;
+struct FatLocation;
 
 void fat_dir_iterator_init(
 	FatDirIterator *iter, struct FatInfo *fat, FatDirEntry *dir);
+void	 fat_dir_iterator_next(FatDirIterator *iter);
 void	 fat_dir_iterator_destroy(FatDirIterator *iter);
 FsResult fat32_read_dir_entry(
-	FatDirIterator *iter, DEF_MRET(string_t, name),
-	DEF_MRET(ShortDir, short_dir));
+	FatDirIterator *iter, DEF_MRET(ShortDir, short_dir));
 FsResult fat_read_dir_entry(
-	FatDirIterator *iter, DEF_MRET(string_t, name),
-	DEF_MRET(ShortDir, short_dir));
-FsResult fat32_search_dir(
+	FatDirIterator *iter, DEF_MRET(ShortDir, short_dir));
+FsResult fat32_dir_lookup(
 	struct FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
-	bool is_directory, DEF_MRET(FatDirEntry *, entry));
-FsResult fat_search_dir(
+	DEF_MRET(struct FatLocation, location), DEF_MRET(ShortDir, short_dir));
+FsResult fat_dir_lookup(
 	struct FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
-	bool is_directory, DEF_MRET(FatDirEntry *, entry));
+	DEF_MRET(struct FatLocation, location), DEF_MRET(ShortDir, short_dir));
 void entry_cache_init(
 	struct FatInfo *fat_info, FatDirEntry *entry, size_t cache_size);
 bool fat_dir_is_empty(struct FatInfo *fat_info, FatDirEntry *parent_entry);

@@ -1,13 +1,17 @@
 #include "fs/fs.h"
 #include "include/dir.h"
+#include "include/fat.h"
+#include "kernel/driver_interface.h"
 #include <objects/object.h>
 #include <objects/permission.h>
 #include <stdint.h>
 #include <string.h>
 
-FsResult fat_attr_to_sys_attr(ShortDir *short_dir, ObjectAttr *attr) {
+FsResult fat_attr_to_sys_attr(
+	ShortDir *short_dir, ObjectAttr *attr, FatLocation *location) {
 	uint8_t fat_attr = short_dir->attr;
 	if (fat_attr & ATTR_ARCHIVE) {
+		attr->fs_location	 = kmalloc_from_template(*location);
 		attr->size			 = short_dir->file_size;
 		attr->is_mounted	 = 0;
 		Permission *all_user = &attr->all_user_permission;
@@ -40,6 +44,8 @@ FsResult fat_attr_to_sys_attr(ShortDir *short_dir, ObjectAttr *attr) {
 		if (fat_attr & ATTR_DIRECTORY) {
 			attr->type = OBJECT_TYPE_DIRECTORY;
 			if (fat_attr & ATTR_SYSTEM) { all_user->permission.execute = 1; }
+		} else {
+			attr->type = OBJECT_TYPE_FILE;
 		}
 
 		if (fat_attr & ATTR_READ_ONLY) {
@@ -52,11 +58,13 @@ FsResult fat_attr_to_sys_attr(ShortDir *short_dir, ObjectAttr *attr) {
 	return FS_OK;
 }
 
-FsResult fat_attr_from_sys_attr(ShortDir *short_dir, ObjectAttr *attr) {
+FsResult fat_attr_from_sys_attr(
+	ShortDir *short_dir, ObjectAttr *attr, FatLocation *location) {
 	Permission *all_user = &attr->all_user_permission;
 	Permission *owner	 = &attr->owner_permission;
 
 	short_dir->attr = ATTR_ARCHIVE;
+	location		= attr->fs_location;
 	if (all_user->permission.write == 0 && all_user->permission.read == 1) {
 		short_dir->attr |= ATTR_READ_ONLY;
 	}

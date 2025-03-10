@@ -89,6 +89,7 @@ writehd: $(HD_IMG)
 # qemu 7.1后取消了-soundhw，改用-audio
 qemu_dbg:
 	$(QEMU) \
+	-no-reboot \
 	-s -S \
 	-monitor stdio \
 	-m 1024 \
@@ -104,6 +105,7 @@ qemu_dbg:
 	
 qemu:
 	$(QEMU) \
+	-no-reboot \
 	-monitor stdio \
 	-m 1024 \
 	-hda $(HD_IMG) \

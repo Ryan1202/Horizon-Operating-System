@@ -40,6 +40,15 @@ SECTIONS {
 		PROVIDE(__exitcall_end = .);
 	} : text
 
+    .percpu ALIGN(64) :
+    {
+        . = ALIGN(64);
+        PROVIDE(__percpu_start = .);
+        *(.percpu)
+        . = ALIGN(64);
+        PROVIDE(__percpu_end = .);
+    } : data
+
     /* data segment */
     .data : {
         . = ALIGN(4);   /* 4 bytes align */

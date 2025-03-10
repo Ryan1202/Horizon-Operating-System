@@ -14,7 +14,7 @@
 TransferResult storage_transfer_async(
 	Object *object, TransferDirection direction, uint8_t *buf,
 	uint32_t position, size_t count, void **handle) {
-	while (object->attr.type == OBJECT_TYPE_SYM_LINK) {
+	while (object->attr->type == OBJECT_TYPE_SYM_LINK) {
 		object = object->value.sym_link;
 	}
 	Device		   *device	= object->value.device;
@@ -36,7 +36,7 @@ TransferResult storage_transfer_async(
 TransferResult storage_transfer(
 	Object *object, TransferDirection direction, uint8_t *buf,
 	uint32_t position, size_t count) {
-	while (object->attr.type == OBJECT_TYPE_SYM_LINK) {
+	while (object->attr->type == OBJECT_TYPE_SYM_LINK) {
 		object = object->value.sym_link;
 	}
 	Device		   *device	= object->value.device;
@@ -59,7 +59,7 @@ TransferResult storage_transfer(
 
 TransferResult storage_is_transfer_done(
 	Object *object, void **handle, bool *done) {
-	if (object->attr.type != OBJECT_TYPE_DEVICE) {
+	if (object->attr->type != OBJECT_TYPE_DEVICE) {
 		return TRANSFER_ERROR_INVALID_PARAMETER;
 	}
 	Device *device = object->value.device;

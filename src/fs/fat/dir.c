@@ -32,6 +32,12 @@ void fat_dir_iterator_init(
 	iter->last_entry_index	   = 0;
 }
 
+void fat_dir_iterator_next(FatDirIterator *iter) {
+	// 重置长名状态
+	iter->longname_len	 = 0;
+	iter->longname_valid = false;
+}
+
 void fat_dir_iterator_destroy(FatDirIterator *iter) {
 	if (iter->longname_buf != NULL) kfree(iter->longname_buf);
 }
@@ -68,31 +74,18 @@ PRIVATE void process_long_entry(
 
 PRIVATE FsResult process_short_entry(
 	FatDirIterator *iter, ShortDir *short_dir, uint32_t current_cluster,
-	int current_entry_index, DEF_MRET(string_t, name)) {
+	int current_entry_index) {
 	// 验证长名校验和
 	if (iter->longname_len > 0) {
 		if (fat_checksum(&short_dir->name) != iter->checksum) {
 			iter->longname_len = 0;
 		}
 	}
-
-	// 生成文件名
-	if (iter->longname_valid) {
-		fat_utf16_to_utf8(iter->longname_buf, iter->longname_len, &MRET(name));
-	} else {
-		MRET(name) = read_short_name(short_dir);
-	}
-
-	// 重置长名状态
-	iter->longname_len	 = 0;
-	iter->longname_valid = false;
-
 	return FS_OK;
 }
 
 FsResult fat32_read_dir_entry(
-	FatDirIterator *iter, DEF_MRET(string_t, name),
-	DEF_MRET(ShortDir, short_dir)) {
+	FatDirIterator *iter, DEF_MRET(ShortDir, short_dir)) {
 	uint8_t	  entry_buf[32];
 	ShortDir *short_dir = (ShortDir *)entry_buf;
 	LongDir	 *long_dir;
@@ -125,15 +118,13 @@ FsResult fat32_read_dir_entry(
 			MRET(short_dir) = *short_dir;
 			// 处理短文件名条目
 			return process_short_entry(
-				iter, short_dir, iter->last_cluster, iter->last_entry_index,
-				&MRET(name));
+				iter, short_dir, iter->last_cluster, iter->last_entry_index);
 		}
 	}
 }
 
 FsResult fat_read_dir_entry(
-	FatDirIterator *iter, DEF_MRET(string_t, name),
-	DEF_MRET(ShortDir, short_dir)) {
+	FatDirIterator *iter, DEF_MRET(ShortDir, short_dir)) {
 	uint8_t	  entry_buf[32];
 	ShortDir *short_dir;
 
@@ -165,26 +156,44 @@ FsResult fat_read_dir_entry(
 		// 处理短文件名条目
 		MRET(short_dir) = *short_dir;
 		return process_short_entry(
-			iter, short_dir, current_cluster, current_entry_index, &MRET(name));
+			iter, short_dir, current_cluster, current_entry_index);
 	}
 }
 
-FsResult fat32_search_dir(
+FsResult fat32_dir_lookup(
 	FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
-	bool is_directory, DEF_MRET(FatDirEntry *, entry)) {
+	DEF_MRET(FatLocation, location), DEF_MRET(ShortDir, short_dir)) {
 	FatDirIterator iter;
 	string_t	   _name;
 	ShortDir	  *short_dir = NULL;
 	fat_dir_iterator_init(&iter, fat_info, parent_entry);
-	while (fat32_read_dir_entry(&iter, &_name, short_dir) == FS_OK) {
-		if (is_directory && !(short_dir->attr & ATTR_DIRECTORY)) continue;
-		if (!is_directory && (short_dir->attr & ATTR_DIRECTORY)) continue;
+	while (fat32_read_dir_entry(&iter, short_dir) == FS_OK) {
+		// 生成文件名
+		if (iter.longname_valid) {
+			fat_utf16_to_utf8(iter.longname_buf, iter.longname_len, &_name);
+		} else {
+			_name = read_short_name(short_dir);
+		}
+		fat_dir_iterator_next(&iter);
+
 		if (strncmp(_name.text, name.text, name.length) == 0) {
+			string_del(&_name);
 			fat_dir_iterator_destroy(&iter);
-			MRET(entry) = generate_dir_entry(
-				fat_info, parent_entry, short_dir, name, is_directory,
-				iter.last_cluster, iter.last_entry_index, iter.longname_cluster,
-				iter.longname_entry_index);
+			MRET(location).longname_cluster	 = iter.longname_cluster;
+			MRET(location).longname_offset	 = iter.longname_entry_index;
+			MRET(location).shortname_cluster = iter.last_cluster;
+			MRET(location).shortname_offset	 = iter.last_entry_index;
+			MRET(location).parent_cluster =
+				parent_entry->short_dir.first_cluster_high << 16 |
+				parent_entry->short_dir.first_cluster_low;
+			MRET(location).first_cluster = short_dir->first_cluster_high << 16 |
+										   short_dir->first_cluster_low;
+			MRET(short_dir) = *short_dir;
+			// MRET(entry) = generate_dir_entry(
+			// 	fat_info, parent_entry, short_dir, name,
+			// 	short_dir->attr & ATTR_DIRECTORY, iter.last_cluster,
+			// 	iter.last_entry_index, iter.longname_cluster,
+			// 	iter.longname_entry_index);
 			return FS_OK;
 		}
 	}
@@ -192,23 +201,41 @@ FsResult fat32_search_dir(
 	return FS_ERROR_CANNOT_FIND;
 }
 
-FsResult fat_search_dir(
+FsResult fat_dir_lookup(
 	FatInfo *fat_info, FatDirEntry *parent_entry, string_t name,
-	bool is_directory, DEF_MRET(FatDirEntry *, entry)) {
+	DEF_MRET(FatLocation, location), DEF_MRET(ShortDir, short_dir)) {
 	FatDirIterator iter;
 	string_t	   _name;
 	ShortDir	  *short_dir = NULL;
 
 	fat_dir_iterator_init(&iter, fat_info, parent_entry);
-	while (fat_read_dir_entry(&iter, &_name, short_dir) == FS_OK) {
-		if (is_directory && !(short_dir->attr & ATTR_DIRECTORY)) continue;
-		if (!is_directory && (short_dir->attr & ATTR_DIRECTORY)) continue;
+	while (fat_read_dir_entry(&iter, short_dir) == FS_OK) {
+		// 生成文件名
+		if (iter.longname_valid) {
+			fat_utf16_to_utf8(iter.longname_buf, iter.longname_len, &_name);
+		} else {
+			_name = read_short_name(short_dir);
+		}
+		fat_dir_iterator_next(&iter);
+
 		if (strncmp(_name.text, name.text, name.length) == 0) {
+			string_del(&_name);
 			fat_dir_iterator_destroy(&iter);
-			MRET(entry) = generate_dir_entry(
-				fat_info, parent_entry, short_dir, name, is_directory,
-				iter.last_cluster, iter.last_entry_index, iter.longname_cluster,
-				iter.longname_entry_index);
+			MRET(location).longname_cluster	 = iter.longname_cluster;
+			MRET(location).longname_offset	 = iter.longname_entry_index;
+			MRET(location).shortname_cluster = iter.last_cluster;
+			MRET(location).shortname_offset	 = iter.last_entry_index;
+			MRET(location).parent_cluster =
+				parent_entry->short_dir.first_cluster_high << 16 |
+				parent_entry->short_dir.first_cluster_low;
+			MRET(location).first_cluster = short_dir->first_cluster_high << 16 |
+										   short_dir->first_cluster_low;
+			MRET(short_dir) = *short_dir;
+			// MRET(entry) = generate_dir_entry(
+			// 	fat_info, parent_entry, short_dir, name,
+			// 	short_dir->attr & ATTR_DIRECTORY, iter.last_cluster,
+			// 	iter.last_entry_index, iter.longname_cluster,
+			// 	iter.longname_entry_index);
 			return FS_OK;
 		}
 	}
