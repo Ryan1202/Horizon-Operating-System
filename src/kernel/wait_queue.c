@@ -49,7 +49,7 @@ void wait_queue_add(WaitQueue *wq) {
 	spin_lock(&wq->lock);
 
 	// 把当前线程的list tag直接挂到等待队列的list上
-	list_add_tail(&task->general_tag, &wq->list_head);
+	list_add_tail(&task->wait_queue_tag, &wq->list_head);
 
 	spin_unlock(&wq->lock);
 	store_interrupt_status(old_status);
@@ -63,7 +63,7 @@ void wait_queue_add(WaitQueue *wq) {
  */
 WaitQueueItem *wait_queue_first(WaitQueue *wqm) {
 	if (list_empty(&wqm->list_head)) { return NULL; }
-	return list_first_owner(&wqm->list_head, WaitQueueItem, general_tag);
+	return list_first_owner(&wqm->list_head, WaitQueueItem, wait_queue_tag);
 }
 
 /**
@@ -74,12 +74,12 @@ WaitQueueItem *wait_queue_first(WaitQueue *wqm) {
 void wait_queue_wakeup(WaitQueue *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
 	struct task_s *thread =
-		list_first_owner(&wqm->list_head, struct task_s, general_tag);
+		list_first_owner(&wqm->list_head, struct task_s, wait_queue_tag);
 	int old_status = load_interrupt_status();
 	disable_interrupt();
 	spin_lock(&wqm->lock);
 
-	list_del(&thread->general_tag);
+	list_del(&thread->wait_queue_tag);
 
 	if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING ||
 		thread->status == TASK_HANGING) {
@@ -105,9 +105,9 @@ void wait_queue_wakeup_all(WaitQueue *wqm) {
 	disable_interrupt();
 
 	spin_lock(&wqm->lock);
-	list_for_each_owner_safe (cur, next, &wqm->list_head, general_tag) {
+	list_for_each_owner_safe (cur, next, &wqm->list_head, wait_queue_tag) {
 		thread = cur;
-		list_del(&cur->general_tag);
+		list_del(&cur->wait_queue_tag);
 		if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING ||
 			thread->status == TASK_HANGING) {
 			thread_unblock(thread);
