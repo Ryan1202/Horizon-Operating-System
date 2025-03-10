@@ -70,6 +70,7 @@ struct task_s {
 	struct mmap			  vir_page_mmap;
 	struct memory_manage *memory_manage;
 
+	list_t wait_queue_tag;
 	list_t general_tag;
 	list_t all_list_tag;
 };

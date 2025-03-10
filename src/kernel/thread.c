@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include <string.h>
 
+struct task_s *current_task;
+
 struct task_s *main_thread;
 list_t		   thread_ready;
 LIST_HEAD(thread_all);
@@ -46,9 +48,10 @@ static uint32_t alloc_pid(void) {
  * @return struct task_s*
  */
 struct task_s *get_current_thread() {
-	uint32_t sp;
-	GET_REG("esp", sp);
-	return (struct task_s *)(sp & 0xfffff000);
+	// uint32_t sp;
+	// GET_REG("esp", sp);
+	// return (struct task_s *)(sp & 0xfffff000);
+	return current_task;
 }
 
 size_t get_current_subject_id() {
@@ -170,10 +173,11 @@ void thread_exit(void) {
 		next->status = TASK_RUNNING;
 
 		process_activate(next);
-
+		current_task = next;
 		switch_to((int *)cur, (int *)next);
 	} else {
 		process_activate(task_idle);
+		current_task = task_idle;
 		switch_to((int *)cur, (int *)task_idle);
 	}
 }
@@ -236,8 +240,9 @@ void thread_unblock(struct task_s *pthread) {
  *
  */
 static void make_main_thread(void) {
-	main_thread = get_current_thread();
-	init_thread(main_thread, "System", 10);
+	main_thread = kernel_alloc_pages(1);
+	init_thread(main_thread, "System", THREAD_DEFAULT_PRIO);
+	current_task	 = main_thread;
 	main_thread->pid = alloc_pid();
 
 	if (list_find(&main_thread->all_list_tag, &thread_all)) {
@@ -277,18 +282,20 @@ void schedule(void) {
 	}
 	struct task_s *next;
 	next = list_first_owner(&thread_ready, struct task_s, general_tag);
-	io_sti();
 	if (next != cur) {
-		list_del(thread_ready.next);
+		list_del(&next->general_tag);
 		next->status = TASK_RUNNING;
 
 		process_activate(next);
 
+		current_task = next;
 		switch_to((int *)cur, (int *)next);
 	} else {
 		process_activate(task_idle);
+		current_task = task_idle;
 		switch_to((int *)cur, (int *)task_idle);
 	}
+	io_sti();
 }
 
 /**
