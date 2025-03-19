@@ -20,6 +20,7 @@
 #include "include/ata_driver.h"
 #include "include/ide.h"
 #include "include/ide_controller.h"
+#include "kernel/spinlock.h"
 
 DriverResult ide_device_init(Device *device);
 
@@ -75,9 +76,13 @@ void ide_handle_interrupt(IdeChannel *channel) {
 		ide_print_error(channel);
 	}
 
-	IdeDevice	   *ide_device = channel->ide_devices[channel->selected_device];
-	StorageRequest *request	   = ide_device->current_request;
+	IdeDevice *ide_device = channel->ide_devices[channel->selected_device];
+
+	int				flags		= spin_lock_irqsave(&ide_device->request_lock);
+	StorageRequest *request		= ide_device->current_request;
 	ide_device->current_request = NULL;
+	spin_unlock_irqrestore(&ide_device->request_lock, flags);
+
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
 		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
 		io_out_byte(
@@ -188,6 +193,7 @@ void ide_device_probe(IdeChannel *channel) {
 		ide_device->info			= identify;
 		ide_device->device_num		= i;
 		ide_device->current_request = NULL;
+		spinlock_init(&ide_device->request_lock);
 
 		channel->ide_devices[i] = ide_device;
 
@@ -346,6 +352,7 @@ DriverResult ide_device_read_sectors(
 	ide_wait(channel);
 	io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
 
+	int flags					= spin_lock_irqsave(&ide_device->request_lock);
 	ide_device->current_request = request;
 	if (ide_device->mode == TRANSFER_MODE_PIO) {
 		ide_device_recv_pio(
@@ -356,6 +363,7 @@ DriverResult ide_device_read_sectors(
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_EN(data, IDE_BMCMD_START_STOP_BM));
 	}
+	spin_unlock_irqrestore(&ide_device->request_lock, flags);
 	return DRIVER_RESULT_OK;
 }
 
@@ -400,6 +408,7 @@ DriverResult ide_device_write_sectors(
 	ide_wait(channel);
 	io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
 
+	int flags					= spin_lock_irqsave(&ide_device->request_lock);
 	ide_device->current_request = request;
 	if (ide_device->mode == TRANSFER_MODE_PIO) {
 		ide_device_send_pio(
@@ -410,6 +419,7 @@ DriverResult ide_device_write_sectors(
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_EN(data, IDE_BMCMD_START_STOP_BM));
 	}
+	spin_unlock_irqrestore(&ide_device->request_lock, flags);
 	return DRIVER_RESULT_OK;
 }
 
@@ -417,5 +427,9 @@ bool ide_device_is_busy(StorageDevice *storage_device) {
 	Device	  *device	  = storage_device->device;
 	IdeDevice *ide_device = device->private_data;
 
-	return ide_device->current_request != NULL;
+	int	 flags	= spin_lock_irqsave(&ide_device->request_lock);
+	bool result = ide_device->current_request != NULL;
+	spin_unlock_irqrestore(&ide_device->request_lock, flags);
+
+	return result;
 }

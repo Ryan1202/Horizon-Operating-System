@@ -6,6 +6,7 @@
 #include "driver/storage/storage_io_queue.h"
 #include "ide_controller.h"
 #include "kernel/device.h"
+#include "kernel/spinlock.h"
 #include "stdint.h"
 
 #define IDE_IRQ0 14
@@ -27,6 +28,7 @@ typedef struct IdeDevice {
 		TRANSFER_MODE_DMA,
 	} mode;
 
+	spinlock_t		request_lock;
 	StorageRequest *current_request;
 
 	AtaCmdIndex cmdset[ATA_CMDSET_MAX];
