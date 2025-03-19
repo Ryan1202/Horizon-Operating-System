@@ -24,7 +24,8 @@ entry_read(BlockCacheEntry *entry, size_t cache_size, void *private_data) {
 	int		 count	= DIV_ROUND_UP(cache_size, fat_info->bpb->BPB_BytesPerSec);
 	uint32_t sector = cluster2sector(fat_info, entry->position);
 
-	TRANSFER_IN_BLOCK(partition->storage_object, entry->data, sector, count);
+	TRANSFER_IN_BLOCK(
+		partition->storage_object, NULL, entry->data, sector, count);
 	return FS_OK;
 }
 
@@ -38,7 +39,7 @@ entry_write(BlockCacheEntry *entry, size_t cache_size, void *private_data) {
 
 	for (int i = 0; i < fat_info->bpb->BPB_NumFATs; i++) {
 		TRANSFER_OUT_BLOCK(
-			partition->storage_object, entry->data, sector, count);
+			partition->storage_object, NULL, entry->data, sector, count);
 	}
 
 	return FS_OK;

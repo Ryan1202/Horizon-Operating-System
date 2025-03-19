@@ -5,6 +5,7 @@
 #include "kernel/driver.h"
 #include "kernel/list.h"
 #include "kernel/periodic_task.h"
+#include "kernel/spinlock.h"
 #include "objects/object.h"
 #include "string.h"
 #include <stdint.h>
@@ -24,6 +25,8 @@ typedef struct StorageDeviceOps {
 	bool (*is_busy)(struct StorageDevice *storage_device);
 } StorageDeviceOps;
 
+#define SECTOR_SIZE 512
+
 struct Object;
 typedef struct StorageDevice {
 	Device			 *device;
@@ -33,7 +36,9 @@ typedef struct StorageDevice {
 	string_t name;
 
 	uint32_t block_size;
+	size_t	 max_block_per_request;
 
+	spinlock_t	 queue_lock;
 	PeriodicTask periodic_task;
 	list_t		 io_queue_lh;
 

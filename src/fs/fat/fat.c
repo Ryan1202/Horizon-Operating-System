@@ -3,6 +3,9 @@
 #include "include/cluster.h"
 #include "include/dir.h"
 #include "include/entry.h"
+#include "kernel/console.h"
+#include "math.h"
+#include "objects/handle.h"
 #include <const.h>
 #include <driver/storage/disk/disk.h>
 #include <driver/storage/disk/mbr.h>
@@ -17,6 +20,7 @@
 #include <objects/transfer.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 FsResult fat_check(Partition *partition);
@@ -29,9 +33,12 @@ FsResult fat_open(
 	FileSystemInfo *fs_info, Object *parent_obj, ObjectAttr *attr,
 	string_t *name, Object **object);
 FsResult fat_close(Object *object);
-FsResult fat_seek(Object *object, size_t offset);
-FsResult fat_read(Object *file, void *buf, size_t size);
-FsResult fat_write(Object *file, void *buf, size_t size);
+FsResult fat_seek(Object *file, size_t offset);
+FsResult fat_read(Object *file, ObjectHandle *handle, void *buf, size_t size);
+FsResult fat_write(
+	Object *object, ObjectHandle *handle, void *buf, size_t size);
+FsResult fat_create_handle(ObjectHandle *handle);
+FsResult fat_delete_handle(ObjectHandle *handle);
 
 FsResult fat_opendir(
 	FileSystemInfo *fs_info, Object *parent_obj, void **iterator);
@@ -51,13 +58,15 @@ FileSystemOps fat_ops = {
 };
 
 FsFileOps fat_file_ops = {
-	.fs_open	 = fat_open,
-	.fs_close	 = fat_close,
-	.fs_seek	 = fat_seek,
-	.fs_read	 = fat_read,
-	.fs_write	 = fat_write,
-	.fs_get_attr = fat_get_attr,
-	.fs_set_attr = fat_set_attr,
+	.fs_open		  = fat_open,
+	.fs_close		  = fat_close,
+	.fs_seek		  = fat_seek,
+	.fs_read		  = fat_read,
+	.fs_write		  = fat_write,
+	.fs_get_attr	  = fat_get_attr,
+	.fs_set_attr	  = fat_set_attr,
+	.fs_create_handle = fat_create_handle,
+	.fs_delete_handle = fat_delete_handle,
 };
 
 FsDirectoryOps fat_dir_ops = {
@@ -309,61 +318,104 @@ FsResult fat_seek(Object *object, size_t offset) {
 	return FS_OK;
 }
 
+FsResult fat_create_handle(ObjectHandle *handle) {
+	if (handle == NULL || handle->object == NULL)
+		return FS_ERROR_INVALID_PARAMS;
+	Object *file = handle->object;
+	if (file->fs_info == NULL) return FS_ERROR_INVALID_PARAMS;
+	FatInfo		   *fat_info	= file->fs_info->private_data;
+	CurrentCluster *cur_cluster = kmalloc(sizeof(CurrentCluster));
+	if (cur_cluster == NULL) return FS_ERROR_OUT_OF_MEMORY;
+	fat_cluster_list_get(fat_info, file->value.file.data, 0, cur_cluster);
+	handle->handle_data = cur_cluster;
+	return FS_OK;
+}
+
+FsResult fat_delete_handle(ObjectHandle *handle) {
+	if (handle == NULL) return FS_ERROR_INVALID_PARAMS;
+	kfree(handle->handle_data);
+	return FS_OK;
+}
+
 FsResult fat_transfer(
 	BlockTransfer transfer, TransferDirection direction,
 	IsTransferDone is_transfer_done, FatInfo *fat_info, Object *storage_object,
-	Object *file, void *buf, size_t size) {
+	Object *file, ObjectHandle *handle, void *buf, size_t size) {
 	FatDirEntry *entry = file->value.file.data;
 
 	uint32_t cluster_index =
 		file->value.file.offset / fat_info->bytes_per_cluster;
 
-	CurrentCluster cur_cluster;
-	fat_cluster_list_get(fat_info, entry, cluster_index, &cur_cluster);
+	CurrentCluster *cur_cluster = handle->handle_data;
+	if (cluster_index - cur_cluster->index > 1) {
+		fat_cluster_list_get(fat_info, entry, cluster_index, cur_cluster);
+	} else if (cluster_index - cur_cluster->index == 1) {
+		fat_cluster_list_get_next(fat_info, entry, cur_cluster);
+	}
 
-	uint32_t offset = file->value.file.offset;
-	uint32_t readed = 0;
+	uint32_t offset = file->value.file.offset % fat_info->bytes_per_cluster;
+	uint32_t done	= 0;
 
 	while (size > 0) {
 		uint32_t read_size = fat_info->bytes_per_cluster - offset;
 		if (read_size > size) { read_size = size; }
 
-		uint32_t sector = cluster2sector(fat_info, cur_cluster.cluster);
+		uint32_t sector = cluster2sector(fat_info, cur_cluster->cluster);
 
-		transfer(
-			storage_object, direction, buf + readed, sector,
-			fat_info->sector_per_cluster);
+		if (offset + read_size == fat_info->bytes_per_cluster) {
+			CurrentCluster next = *cur_cluster;
 
-		readed += read_size;
-		size -= read_size;
-		offset += read_size;
+			int count		= 0;
+			int total_count = DIV_ROUND_UP(size, fat_info->bytes_per_cluster);
+			count			= get_remaining_continuous_clusters(&next);
+			count			= MIN(count, total_count);
+			fat_cluster_list_skip(entry, cur_cluster, count);
 
-		if (offset == fat_info->bytes_per_cluster) {
+			TransferResult result = transfer(
+				storage_object, NULL, direction, buf + done, sector,
+				count * fat_info->sector_per_cluster);
+			if (result != TRANSFER_OK) return FS_ERROR_TRANSFER;
+
+			done += read_size + (count - 1) * fat_info->bytes_per_cluster;
+			size -= read_size + (count - 1) * fat_info->bytes_per_cluster;
 			offset = 0;
-			fat_cluster_list_get_next(fat_info, entry, &cur_cluster);
+		} else {
+			TransferResult result = transfer(
+				storage_object, NULL, direction, buf + done, sector,
+				fat_info->sector_per_cluster);
+			if (result != TRANSFER_OK) return FS_ERROR_TRANSFER;
+
+			done += read_size;
+			size -= read_size;
+			offset += read_size;
+
+			if (offset == fat_info->bytes_per_cluster) {
+				offset = 0;
+				fat_cluster_list_get_next(fat_info, entry, cur_cluster);
+			}
 		}
 	}
-	file->value.file.offset = offset;
+	file->value.file.offset += done;
 
 	return FS_OK;
 }
 
-FsResult fat_read(Object *file, void *buf, size_t size) {
+FsResult fat_read(Object *file, ObjectHandle *handle, void *buf, size_t size) {
 	FatInfo *fat_info		= file->fs_info->private_data;
 	Object	*storage_object = fat_info->partition->storage_object;
 	return fat_transfer(
 		storage_object->in.block, TRANSFER_IN,
 		storage_object->in.is_transfer_done, fat_info, storage_object, file,
-		buf, size);
+		handle, buf, size);
 }
 
-FsResult fat_write(Object *file, void *buf, size_t size) {
+FsResult fat_write(Object *file, ObjectHandle *handle, void *buf, size_t size) {
 	FatInfo *fat_info		= file->fs_info->private_data;
 	Object	*storage_object = fat_info->partition->storage_object;
 	return fat_transfer(
 		storage_object->out.block, TRANSFER_OUT,
 		storage_object->out.is_transfer_done, fat_info, storage_object, file,
-		buf, size);
+		handle, buf, size);
 }
 
 FsResult fat_create_file(Object *parent_obj, string_t *name, Object **object) {

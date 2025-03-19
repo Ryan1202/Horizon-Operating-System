@@ -1,6 +1,7 @@
 #ifndef _FS_H
 #define _FS_H
 
+#include "objects/handle.h"
 #include "string.h"
 #include <fs/vfs.h>
 #include <kernel/list.h>
@@ -18,7 +19,9 @@ typedef enum FsResult {
 	FS_ERROR_NOT_EMPTY,
 	FS_ERROR_END_OF_FILE,
 	FS_ERROR_ILLEGAL_DATA,
+	FS_ERROR_INVALID_PARAMS,
 	FS_ERROR_NOT_MATCH,
+	FS_ERROR_TRANSFER,
 	FS_ERROR_OTHER,
 } FsResult;
 
@@ -43,10 +46,17 @@ typedef struct FsFileOps {
 		string_t *name, Object **object);
 	FsResult (*fs_close)(struct Object *object);
 	FsResult (*fs_seek)(struct Object *object, size_t offset);
-	FsResult (*fs_read)(struct Object *file, void *buf, size_t size);
-	FsResult (*fs_write)(struct Object *file, void *buf, size_t size);
+	FsResult (*fs_read)(
+		struct Object *object, struct ObjectHandle *handle, void *buf,
+		size_t size);
+	FsResult (*fs_write)(
+		struct Object *object, struct ObjectHandle *handle, void *buf,
+		size_t size);
 	FsResult (*fs_get_attr)(struct Object *object, struct ObjectAttr *attr);
 	FsResult (*fs_set_attr)(struct Object *object, struct ObjectAttr *attr);
+
+	FsResult (*fs_create_handle)(struct ObjectHandle *handle);
+	FsResult (*fs_delete_handle)(struct ObjectHandle *handle);
 } FsFileOps;
 
 typedef struct FsDirectoryOps {

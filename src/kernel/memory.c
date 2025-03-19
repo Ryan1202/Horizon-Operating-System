@@ -81,9 +81,9 @@ int mmap_search(struct mmap *btmp, unsigned int cnt) {
 	int index_start = index_byte * 8 + index_bit;
 	if (cnt == 1) { return index_start; }
 
-	int bit_left = btmp->len * 8 - index_start;
+	int bit_left = btmp->len * 8 - index_start - 1;
 	int next_bit = index_start + 1;
-	int count	 = 0;
+	int count	 = 1;
 	while (bit_left-- > 0) {
 		if (!(btmp->bits[next_bit / 8] & 1 << (next_bit % 8))) {
 			count++;

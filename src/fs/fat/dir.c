@@ -165,7 +165,8 @@ FsResult fat32_dir_lookup(
 	DEF_MRET(FatLocation, location), DEF_MRET(ShortDir, short_dir)) {
 	FatDirIterator iter;
 	string_t	   _name;
-	ShortDir	  *short_dir = NULL;
+	uint8_t		   entry_buf[0x20];
+	ShortDir	  *short_dir = (ShortDir *)entry_buf;
 	fat_dir_iterator_init(&iter, fat_info, parent_entry);
 	while (fat32_read_dir_entry(&iter, short_dir) == FS_OK) {
 		// 生成文件名
@@ -206,7 +207,8 @@ FsResult fat_dir_lookup(
 	DEF_MRET(FatLocation, location), DEF_MRET(ShortDir, short_dir)) {
 	FatDirIterator iter;
 	string_t	   _name;
-	ShortDir	  *short_dir = NULL;
+	uint8_t		   entry_buf[0x20];
+	ShortDir	  *short_dir = (ShortDir *)entry_buf;
 
 	fat_dir_iterator_init(&iter, fat_info, parent_entry);
 	while (fat_read_dir_entry(&iter, short_dir) == FS_OK) {

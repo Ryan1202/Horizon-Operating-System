@@ -2,6 +2,7 @@
 #include "const.h"
 #include "include/dir.h"
 #include "include/fat.h"
+#include "kernel/console.h"
 #include "multiple_return.h"
 #include <driver/storage/disk/disk.h>
 #include <driver/storage/storage_io.h>
@@ -26,7 +27,7 @@ FsResult fat_table_read(
 	int count = cache_size / SECTOR_SIZE;
 
 	TRANSFER_IN_BLOCK(
-		partition->storage_object, entry->data,
+		partition->storage_object, NULL, entry->data,
 		fat_info->fat_start + entry->position, count);
 	return FS_OK;
 }
@@ -40,7 +41,7 @@ FsResult fat_table_write(
 
 	for (int i = 0; i < fat_info->bpb->BPB_NumFATs; i++) {
 		TRANSFER_OUT_BLOCK(
-			partition->storage_object, entry->data,
+			partition->storage_object, NULL, entry->data,
 			fat_info->fat_start + entry->position, count);
 	}
 
@@ -171,7 +172,10 @@ FsResult get_cluster_segment(FatInfo *fat_info, FatDirEntry *entry) {
 		cluster = get_next_cluster(fat_info, cluster);
 	}
 	segment.start = cluster;
-	while (!is_eof(fat_info, cluster)) {
+
+	int offset = cluster % fat_info->bpb->BPB_BytesPerSec;
+	int max	   = cluster + fat_info->bpb->BPB_BytesPerSec - offset;
+	while (!is_eof(fat_info, cluster) && cluster < max) {
 		uint32_t tmp = get_next_cluster(fat_info, cluster);
 		if (tmp != cluster + 1) {
 			segment.end = cluster;
@@ -180,6 +184,11 @@ FsResult get_cluster_segment(FatInfo *fat_info, FatDirEntry *entry) {
 			else return FS_OK;
 		}
 		cluster = tmp;
+	}
+	if (cluster == max) {
+		segment.end = cluster;
+		dyn_array_append(arr, ClusterSegment, segment);
+		return FS_OK;
 	}
 
 	segment.start = segment.end = 0x0fffffff;
@@ -202,6 +211,7 @@ FsResult fat_cluster_list_get(
 			cur_cluster->cluster = clus_seg.start + counter;
 			cur_cluster->offset	 = _block_offset;
 			cur_cluster->block	 = _block;
+			cur_cluster->index	 = index;
 			return FS_OK;
 		}
 		counter -= length;
@@ -236,7 +246,47 @@ FsResult fat_cluster_list_get_next(
 		}
 		cur_cluster->cluster = seg->start;
 	}
+	cur_cluster->index++;
 	return FS_OK;
+}
+
+uint32_t get_remaining_continuous_clusters(CurrentCluster *cur_cluster) {
+	uint32_t		current = cur_cluster->cluster;
+	ClusterSegment *seg =
+		&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
+
+	return seg->end - current;
+}
+
+void fat_cluster_list_skip(
+	FatDirEntry *entry, CurrentCluster *cur_cluster, int count) {
+	ClusterSegment *seg =
+		&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
+	uint32_t current = cur_cluster->cluster;
+	uint32_t end	 = seg->end;
+	if (current + count <= end) {
+		cur_cluster->cluster += count;
+	} else {
+		count -= end - current + 1;
+		cur_cluster->offset++;
+		if (cur_cluster->offset >= entry->cluster_list->block_size) {
+			cur_cluster->block	= cur_cluster->block->next;
+			cur_cluster->offset = 0;
+		}
+		seg =
+			&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
+		while (count > seg->end - seg->start + 1) {
+			count -= seg->end - seg->start + 1;
+			cur_cluster->offset++;
+			if (cur_cluster->offset >= entry->cluster_list->block_size) {
+				cur_cluster->block	= cur_cluster->block->next;
+				cur_cluster->offset = 0;
+			}
+			seg = &((ClusterSegment *)
+						cur_cluster->block->data)[cur_cluster->offset];
+		}
+		cur_cluster->cluster = seg->start + count;
+	}
 }
 
 FsResult get_last_cluster(

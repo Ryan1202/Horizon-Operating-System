@@ -19,17 +19,27 @@ void unregister_fs(FileSystem *fs) {
 
 // 为文件系统实现对象树的接口
 TransferResult fs_obj_read(
-	struct Object *object, TransferDirection direction, uint8_t *buf,
-	size_t size) {
-	FsResult result = object->fs_info->file_ops.fs_read(object, buf, size);
+	struct Object *object, struct ObjectHandle *handle,
+	TransferDirection direction, uint8_t *buf, size_t size) {
+	if (object == NULL || handle == NULL)
+		return TRANSFER_ERROR_INVALID_PARAMETER;
+	if (object->fs_info == NULL || object->fs_info->file_ops.fs_read == NULL)
+		return TRANSFER_ERROR_INVALID_PARAMETER;
+	FsResult result =
+		object->fs_info->file_ops.fs_read(object, handle, buf, size);
 	if (result == FS_OK) return TRANSFER_OK;
 	else return TRANSFER_ERROR_OTHER;
 }
 
 TransferResult fs_obj_write(
-	struct Object *object, TransferDirection direction, uint8_t *buf,
-	size_t size) {
-	FsResult result = object->fs_info->file_ops.fs_write(object, buf, size);
+	struct Object *object, struct ObjectHandle *handle,
+	TransferDirection direction, uint8_t *buf, size_t size) {
+	if (object == NULL || handle == NULL)
+		return TRANSFER_ERROR_INVALID_PARAMETER;
+	if (object->fs_info == NULL || object->fs_info->file_ops.fs_write == NULL)
+		return TRANSFER_ERROR_INVALID_PARAMETER;
+	FsResult result =
+		object->fs_info->file_ops.fs_write(object, handle, buf, size);
 	if (result == FS_OK) return TRANSFER_OK;
 	else return TRANSFER_ERROR_OTHER;
 }
