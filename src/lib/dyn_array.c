@@ -95,8 +95,7 @@ void *dyn_array_next_ptr(
 		*block_offset = 0;
 		*block		  = (*block)->next;
 	}
-	return (void *)current_block->data +
-		   (*block_index) * dyn_array->element_size;
+	return (void *)(*block)->data + (*block_offset) * dyn_array->element_size;
 }
 
 void dyn_array_remove(DynArray *dyn_array, void *item) {

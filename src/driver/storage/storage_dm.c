@@ -1,3 +1,4 @@
+#include "kernel/spinlock.h"
 #include <driver/storage/disk/mbr.h>
 #include <driver/storage/disk/volume.h>
 #include <driver/storage/storage_dm.h>
@@ -50,6 +51,7 @@ DriverResult register_storage_device(
 	storage_device->device = device;
 
 	device->dm_ext = storage_device;
+	spinlock_init(&storage_device->queue_lock);
 	list_init(&storage_device->io_queue_lh);
 
 	string_t name;
@@ -91,9 +93,9 @@ DriverResult unregister_storage_device(
 DriverResult start_storage_device(DeviceManager *manager, Device *device) {
 	StorageDevice *storage_device = device->dm_ext;
 
-	storage_device->superblock = kmalloc(2 * 512);
+	storage_device->superblock = kmalloc(2 * SECTOR_SIZE);
 	storage_transfer(
-		device->object, TRANSFER_IN, storage_device->superblock, 0, 2);
+		device->object, NULL, TRANSFER_IN, storage_device->superblock, 0, 2);
 
 	if (storage_device->type == STORAGE_DEVICE_TYPE_HARDDISK) {
 		if (disk_is_mbr(storage_device)) {

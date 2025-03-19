@@ -2,7 +2,7 @@
 #define _UHCI_H
 
 #include <bits.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci/pci.h>
 #include <drivers/usb/usb.h>
 #include <stdint.h>
 

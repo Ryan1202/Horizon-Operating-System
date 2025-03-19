@@ -1,0 +1,2 @@
+SRC += pci/
+SRC += isa/

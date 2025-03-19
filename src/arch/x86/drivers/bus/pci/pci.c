@@ -8,7 +8,7 @@
 #include "kernel/list.h"
 #include "objects/object.h"
 #include <driver/bus_dm.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci/pci.h>
 #include <kernel/bus_driver.h>
 #include <kernel/console.h>
 #include <kernel/device.h>
@@ -37,8 +37,8 @@ DriverResult pci_init_bus(BusDriver *bus_driver);
 DriverResult pci_probe(BusDriver *bus_driver, Bus *bus);
 
 DeviceDriverOps pci_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps pci_device_ops = {
 	.init	 = pci_device_init,
@@ -639,12 +639,11 @@ DriverResult pci_probe(BusDriver *bus_driver, Bus *bus) {
 }
 
 DriverResult pci_driver_init(Driver *driver) {
-	check_dependency(&pci_driver);
 	pci_device_driver.bus = pci_dependencies[0].out_bus;
 	ObjectAttr attr		  = device_object_attr;
-	DRV_RESULT_DELIVER_CALL(
-		register_bus_controller_device, &pci_device_driver, &pci_bus_driver,
-		&pci_device, &pci_bus_controller_device, &attr);
+	DRIVER_RESULT_PASS(register_bus_controller_device(
+		&pci_device_driver, &pci_bus_driver, &pci_device,
+		&pci_bus_controller_device, &attr));
 	return DRIVER_RESULT_OK;
 }
 

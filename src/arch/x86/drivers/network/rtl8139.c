@@ -1,5 +1,5 @@
 #include <bits.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci/pci.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
 #include <kernel/func.h>
@@ -293,7 +293,7 @@ static status_t rtl8139_read(
 	// rq			 = wait_queue_add(devext->rqm, sizeof(struct
 	// read_request_s)); rreq		 = (struct read_request_s
 	// *)rq->private_data; rreq->buffer = buf; rreq->length = size;
-	// thread_block(TASK_BLOCKED);
+	// thread_block(TASK_INTERRUPTIBLEED);
 
 	return SUCCUESS;
 }

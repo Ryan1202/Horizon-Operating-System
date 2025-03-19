@@ -35,8 +35,8 @@ StorageDeviceOps ide_storage_device_ops = {
 	.is_busy			  = ide_device_is_busy,
 };
 DeviceDriverOps ide_device_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps ide_device_ops = {
 	.init	 = ide_device_init,
@@ -62,9 +62,10 @@ Device ide_device_template = {
 	.private_data_size = sizeof(IdeDevice),
 };
 StorageDevice storage_device_template = {
-	.block_size = 512,
-	.type		= STORAGE_DEVICE_TYPE_HARDDISK,
-	.ops		= &ide_storage_device_ops,
+	.block_size			   = SECTOR_SIZE,
+	.max_block_per_request = 256,
+	.type				   = STORAGE_DEVICE_TYPE_HARDDISK,
+	.ops				   = &ide_storage_device_ops,
 };
 
 void ide_handle_interrupt(IdeChannel *channel) {
@@ -166,7 +167,7 @@ void ide_device_probe(IdeChannel *channel) {
 		}
 
 		// 5.读取设备信息
-		AtaIdentifyInfo *identify = kmalloc(512);
+		AtaIdentifyInfo *identify = kmalloc(SECTOR_SIZE);
 		io_stream_in_word(
 			channel->io_base + ATA_REG_DATA, (uint32_t)identify,
 			sizeof(AtaIdentifyInfo) / 2);
@@ -211,11 +212,11 @@ DriverResult ide_device_init(Device *device) {
 	AtaIdentifyInfo *identify	= ide_device->info;
 
 	if (identify->capabilities.dma_supported) {
-		ide_device->mode					 = TRANSFER_MODE_DMA;
-		ide_device->cmdset[ATA_CMDSET_READ]	 = ATA_CMD_READ_DMA_EXT;
-		ide_device->cmdset[ATA_CMDSET_WRITE] = ATA_CMD_WRITE_DMA_EXT;
-		ide_device->cmdset[ATA_CMDSET_READ]	 = ATA_CMD_READ_DMA;
-		ide_device->cmdset[ATA_CMDSET_WRITE] = ATA_CMD_WRITE_DMA;
+		ide_device->mode						 = TRANSFER_MODE_DMA;
+		ide_device->cmdset[ATA_CMDSET_READ_EXT]	 = ATA_CMD_READ_DMA_EXT;
+		ide_device->cmdset[ATA_CMDSET_WRITE_EXT] = ATA_CMD_WRITE_DMA_EXT;
+		ide_device->cmdset[ATA_CMDSET_READ]		 = ATA_CMD_READ_DMA;
+		ide_device->cmdset[ATA_CMDSET_WRITE]	 = ATA_CMD_WRITE_DMA;
 	} else if (identify->pio_modes_supported) {
 		ide_device->mode						 = TRANSFER_MODE_PIO;
 		ide_device->cmdset[ATA_CMDSET_READ_EXT]	 = ATA_CMD_READ_PIO_EXT;
@@ -223,7 +224,7 @@ DriverResult ide_device_init(Device *device) {
 		ide_device->cmdset[ATA_CMDSET_READ]		 = ATA_CMD_READ_PIO;
 		ide_device->cmdset[ATA_CMDSET_WRITE]	 = ATA_CMD_WRITE_PIO;
 	} else {
-		return DRIVER_RESULT_UNSUPPORT_DEVICE;
+		return DRIVER_RESULT_UNSUPPORT_FEATURE;
 	}
 
 	return DRIVER_RESULT_OK;
@@ -283,11 +284,11 @@ void ide_device_set_dma(IdeDevice *device, StorageRequest *request) {
 
 	uint8_t *buffer;
 	buffer			  = (uint32_t)request->buf & 3
-						  ? kmalloc(request->count * 512) // 未对齐则另外分配
+						  ? kmalloc(request->count * SECTOR_SIZE) // 未对齐则另外分配
 						  : request->buf; // 传入的缓冲区已对齐则直接使用
 	request->real_buf = buffer;
 	prdt->base_addr	  = vir2phy((uint32_t)buffer);
-	prdt->count		  = request->count * 512;
+	prdt->count		  = request->count * SECTOR_SIZE;
 	prdt->sign		  = BIT(15);
 
 	io_out_dword(channel->bmide + IDE_REG_BM_PRDT, vir2phy((uint32_t)prdt));

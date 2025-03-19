@@ -1,6 +1,7 @@
 #ifndef THREAD_H
 #define THREAD_H
 
+#include "kernel/spinlock.h"
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <stdint.h>
@@ -10,9 +11,8 @@ typedef void thread_func(void *);
 typedef enum {
 	TASK_RUNNING,
 	TASK_READY,
-	TASK_BLOCKED,
-	TASK_WAITING,
-	TASK_HANGING,
+	TASK_INTERRUPTIBLE,
+	TASK_UNINTERRUPTIBLE,
 	TASK_DIED
 } task_status_t;
 
@@ -58,6 +58,7 @@ struct task_s {
 	uint32_t	  pid;
 	char		  name[32];
 	task_status_t status;
+	spinlock_t	  status_lock;
 	uint8_t		  priority;
 	uint8_t		  ticks;
 	uint32_t	  elapsed_ticks;
@@ -65,7 +66,9 @@ struct task_s {
 	uint32_t	  stack_magic;
 	size_t		  subject_id;
 
-	uint8_t *end_flag;
+	uint8_t	   *end_flag;
+	spinlock_t *end_flag_lock;
+	spinlock_t	sub_thread_lock;
 
 	struct mmap			  vir_page_mmap;
 	struct memory_manage *memory_manage;
@@ -87,7 +90,8 @@ void		   thread_create(
 struct task_s *thread_start(
 	char *name, int priority, thread_func function, void *func_arg);
 void thread_exit(void);
-void thread_block(task_status_t status);
+void thread_set_status(task_status_t status);
+void thread_wait();
 void thread_unblock(struct task_s *pthread);
 void init_task(void);
 void schedule(void);

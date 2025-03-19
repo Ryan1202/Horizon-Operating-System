@@ -171,34 +171,50 @@ void driver_start_thread(void *arg) {
 
 	SubDriver *sub_driver;
 	list_for_each_owner (sub_driver, &driver->sub_driver_lh, sub_driver_list) {
+		int old_status = save_and_disable_interrupt();
 
 		struct task_s *task = thread_start(
 			"sub_driver_start_thread", THREAD_DEFAULT_PRIO,
 			sub_driver_start_thread, sub_driver);
 		thread_set_end_flag(task, &end_flag);
+		store_interrupt_status(old_status);
 	}
 
+	struct task_s *cur	 = get_current_thread();
+	int			   flags = spin_lock_irqsave(&cur->sub_thread_lock);
 	while (end_flag > 0) {
+		spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
 		schedule();
+		flags = spin_lock_irqsave(&cur->sub_thread_lock);
 	}
 }
+
+// TODO:PCI检测完设备后，设备有概率未初始化直接结束
 
 DriverResult driver_start_all(void) {
 	uint8_t end_flag = 0;
 	Driver *driver;
+
 	list_for_each_owner (driver, &driver_lh, driver_list) {
 		if (driver->state == DRIVER_STATE_UNINITED) {
+			int old_status = save_and_disable_interrupt();
 
 			struct task_s *task = thread_start(
 				"driver_start_thread", THREAD_DEFAULT_PRIO, driver_start_thread,
 				driver);
 			thread_set_end_flag(task, &end_flag);
+			store_interrupt_status(old_status);
 		}
 	}
 
+	struct task_s *cur	 = get_current_thread();
+	int			   flags = spin_lock_irqsave(&cur->sub_thread_lock);
 	while (end_flag > 0) {
+		spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
 		schedule();
+		flags = spin_lock_irqsave(&cur->sub_thread_lock);
 	}
+	spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
 	return DRIVER_RESULT_OK;
 }
 

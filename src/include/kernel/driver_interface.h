@@ -28,6 +28,8 @@
 #define load_interrupt_status()		   io_load_eflags();
 #define store_interrupt_status(status) io_store_eflags(status);
 
+#define save_and_disable_interrupt() save_eflags_cli()
+
 #else
 #error Driver: Unsupport Architecture
 #endif
@@ -52,7 +54,6 @@ typedef struct DeviceIrq {
 	DeviceIrqHandler handler;
 } DeviceIrq;
 
-#include "kernel/driver.h"
 #include "stdint.h"
 typedef struct DriverRemappedMemory {
 	list_t	 list;
@@ -61,12 +62,13 @@ typedef struct DriverRemappedMemory {
 	uint32_t size;
 } DriverRemappedMemory;
 
+struct Driver;
 enum DriverResult register_device_irq(DeviceIrq *dev_irq);
 enum DriverResult unregister_device_irq(DeviceIrq *dev_irq);
 void			  device_irq_handler(int irq);
-DriverResult	  driver_remap_memory(
-		 Driver *in_driver, uint32_t in_physical_address, uint32_t in_size,
-		 uint32_t *out_virtual_address);
+enum DriverResult driver_remap_memory(
+	struct Driver *in_driver, uint32_t in_physical_address, uint32_t in_size,
+	uint32_t *out_virtual_address);
 
 #define kmalloc_from_template(template)            \
 	({                                             \

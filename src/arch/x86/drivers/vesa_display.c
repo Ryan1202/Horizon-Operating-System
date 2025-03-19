@@ -16,8 +16,8 @@ DriverResult vesa_display_device_init(Device *device);
 DriverResult vesa_display_device_start(Device *device);
 
 DeviceDriverOps vesa_display_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps vesa_display_device_ops = {
 	.init	 = vesa_display_device_init,

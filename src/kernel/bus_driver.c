@@ -56,7 +56,7 @@ DriverResult register_bus_driver(
 	DriverManager *manager = driver_managers[DRIVER_TYPE_BUS_DRIVER];
 	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
 
-	BusDriver *_bus_driver = bus_drivers[bus_driver->driver_type];
+	BusDriver *_bus_driver = bus_drivers[bus_driver->bus_type];
 	if (_bus_driver != NULL) return DRIVER_RESULT_BUS_DRIVER_ALREADY_EXIST;
 
 	bus_driver->private_data = kmalloc(bus_driver->private_data_size);

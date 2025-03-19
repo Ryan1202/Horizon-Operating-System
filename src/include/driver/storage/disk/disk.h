@@ -1,6 +1,7 @@
 #ifndef _DISK_H
 #define _DISK_H
 
+#include "objects/handle.h"
 #include "objects/transfer.h"
 #include "stdint.h"
 #include <stdint.h>
@@ -26,17 +27,19 @@ typedef struct Partition {
 } Partition;
 
 TransferResult disk_transfer_in(
-	struct Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count);
+	struct Object *object, ObjectHandle *obj_handle,
+	TransferDirection direction, uint8_t *buf, uint32_t position, size_t count);
 TransferResult disk_transfer_in_async(
-	struct Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count, void **handle);
+	struct Object *object, ObjectHandle *obj_handle,
+	TransferDirection direction, uint8_t *buf, uint32_t position, size_t count,
+	void **handle);
 TransferResult disk_transfer_out(
-	struct Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count);
+	struct Object *object, ObjectHandle *obj_handle,
+	TransferDirection direction, uint8_t *buf, uint32_t position, size_t count);
 TransferResult disk_transfer_out_async(
-	struct Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count, void **handle);
+	struct Object *object, ObjectHandle *obj_handle,
+	TransferDirection direction, uint8_t *buf, uint32_t position, size_t count,
+	void **handle);
 TransferResult disk_is_transfer_in_done(
 	struct Object *object, void **handle, bool *is_done);
 TransferResult disk_is_transfer_out_done(

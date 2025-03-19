@@ -1,4 +1,4 @@
-#include <drivers/pci.h>
+#include <drivers/bus/pci/pci.h>
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>

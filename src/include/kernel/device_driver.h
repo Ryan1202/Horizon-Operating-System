@@ -25,8 +25,8 @@ typedef enum {
 struct DeviceDriver;
 
 typedef struct DeviceDriverOps {
-	DriverResult (*register_driver_hook)(struct DeviceDriver *driver);
-	DriverResult (*unregister_driver_hook)(struct DeviceDriver *driver);
+	DriverResult (*device_driver_init)(struct DeviceDriver *driver);
+	DriverResult (*device_driver_uninit)(struct DeviceDriver *driver);
 } DeviceDriverOps;
 
 struct Bus;

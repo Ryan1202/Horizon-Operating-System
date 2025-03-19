@@ -1,3 +1,4 @@
+#include "kernel/thread.h"
 #include <kernel/condvar.h>
 
 void condvar_init(condvar_t *cv) {
@@ -6,9 +7,10 @@ void condvar_init(condvar_t *cv) {
 
 void condvar_wait(condvar_t *cv, spinlock_t *mutex) {
 	wait_queue_add(&cv->wait_queue);
+	thread_set_status(TASK_INTERRUPTIBLE);
 	spin_unlock(mutex);
 
-	thread_block(TASK_BLOCKED);
+	thread_wait();
 
 	spin_lock(mutex);
 }

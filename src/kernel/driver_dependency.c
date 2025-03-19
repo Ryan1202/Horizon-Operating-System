@@ -22,7 +22,8 @@ DriverResult check_dependency(Driver *driver) {
 				bus_driver->subdriver.state != SUBDRIVER_STATE_READY) {
 				// 总线驱动还没准备好则等待
 				wait_queue_add(&bus_driver->subdriver.wq);
-				thread_block(TASK_BLOCKED);
+				thread_set_status(TASK_INTERRUPTIBLE);
+				thread_wait();
 				bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
 			}
 

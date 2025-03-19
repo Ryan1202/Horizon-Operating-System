@@ -125,6 +125,8 @@ void load_idtr(int limit, int addr);
 int	 io_load_eflags(void);
 void io_store_eflags(int eflags);
 
+int save_eflags_cli(void);
+
 void exception_entry0(void);
 void exception_entry1(void);
 void exception_entry2(void);

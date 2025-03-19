@@ -6,6 +6,8 @@
  * @date 2021-02
  *
  */
+#include "kernel/driver_interface.h"
+#include "kernel/spinlock.h"
 #include <driver/timer_dm.h>
 #include <kernel/console.h>
 #include <kernel/func.h>
@@ -103,8 +105,10 @@ void init_thread(struct task_s *pthread, char *name, int priority) {
 	if (pthread == main_thread) {
 		pthread->status = TASK_RUNNING;
 	} else {
-		pthread->status = TASK_WAITING;
+		pthread->status = TASK_READY;
 	}
+	spinlock_init(&pthread->status_lock);
+	spinlock_init(&pthread->sub_thread_lock);
 	pthread->priority	   = priority;
 	pthread->kstack		   = (uint32_t *)((uint32_t)pthread + PAGE_SIZE);
 	pthread->ticks		   = timer_get_schedule_tick(priority);
@@ -158,9 +162,11 @@ void thread_exit(void) {
 	struct task_s *cur = get_current_thread();
 	cur->status		   = TASK_DIED;
 
+	int flags = spin_lock_irqsave(cur->end_flag_lock);
 	(*cur->end_flag)--;
+	spin_unlock_irqrestore(cur->end_flag_lock, flags);
 
-	list_del(&cur->general_tag);
+	if (cur->general_tag.next != NULL) list_del(&cur->general_tag);
 	list_del(&cur->all_list_tag);
 
 	kfree(cur);
@@ -170,7 +176,9 @@ void thread_exit(void) {
 
 	if (list_length(&thread_ready) > 1) {
 		list_del(thread_ready.next);
+		int flags	 = spin_lock_irqsave(&next->status_lock);
 		next->status = TASK_RUNNING;
+		spin_unlock_irqrestore(&next->status_lock, flags);
 
 		process_activate(next);
 		current_task = next;
@@ -183,30 +191,47 @@ void thread_exit(void) {
 }
 
 void thread_set_end_flag(struct task_s *pthread, uint8_t *flag) {
-	(*flag)++;
-	pthread->end_flag = flag;
+	struct task_s *cur	  = get_current_thread();
+	int			   flags  = spin_lock_irqsave(&cur->sub_thread_lock);
+	int			   flags2 = spin_lock_irqsave(&pthread->status_lock);
+	if (pthread->status != TASK_DIED) {
+		spin_unlock_irqrestore(&pthread->status_lock, flags2);
+		pthread->end_flag_lock = &cur->sub_thread_lock;
+		(*flag)++;
+		pthread->end_flag = flag;
+	}
+	spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
 }
 
 /**
  * @brief 阻塞当前线程
  *
  * @param status 线程的目标状态(
- * TASK_BLOCKED:阻塞
+ * TASK_INTERRUPTIBLEED:阻塞
  * TASK_WAITING:等待
  * TASK_HANGING:挂起)
  */
-void thread_block(task_status_t status) {
-	int old_status = io_load_eflags();
-	if ((status != TASK_BLOCKED) && (status != TASK_WAITING) &&
-		(status != TASK_HANGING)) {
-		printk("error");
-		while (1)
-			;
-	}
+void thread_set_status(task_status_t status) {
 	struct task_s *cur_thread = get_current_thread();
+	int			   flags	  = spin_lock_irqsave(&cur_thread->status_lock);
 	cur_thread->status		  = status;
-	schedule();
-	io_store_eflags(old_status);
+	spin_unlock_irqrestore(&cur_thread->status_lock, flags);
+}
+
+void thread_wait() {
+	struct task_s *cur_thread = get_current_thread();
+	int			   flags	  = spin_lock_irqsave(&cur_thread->status_lock);
+	if (cur_thread->status == TASK_UNINTERRUPTIBLE) {
+		spin_unlock_irqrestore(&cur_thread->status_lock, flags);
+		schedule();
+	} else if (cur_thread->status == TASK_INTERRUPTIBLE) {
+		while (cur_thread->status == TASK_INTERRUPTIBLE) {
+			spin_unlock_irqrestore(&cur_thread->status_lock, flags);
+			schedule();
+			flags = spin_lock_irqsave(&cur_thread->status_lock);
+		}
+		spin_unlock_irqrestore(&cur_thread->status_lock, flags);
+	}
 }
 
 /**
@@ -215,13 +240,12 @@ void thread_block(task_status_t status) {
  * @param pthread 线程结构
  */
 void thread_unblock(struct task_s *pthread) {
-	int old_status = io_load_eflags();
-	if ((pthread->status != TASK_BLOCKED) &&
-		(pthread->status != TASK_WAITING) &&
-		(pthread->status != TASK_HANGING)) {
-		printk("error");
-		while (1)
-			;
+	int flags = spin_lock_irqsave(&pthread->status_lock);
+	if ((pthread->status != TASK_INTERRUPTIBLE) &&
+		(pthread->status != TASK_UNINTERRUPTIBLE)) {
+		spin_unlock_irqrestore(&pthread->status_lock, flags);
+		printk("Error: trying to unblock a thread not blocked\n");
+		return;
 	}
 	if (pthread->status != TASK_READY) {
 		if (list_find(&pthread->general_tag, &thread_ready)) {
@@ -230,9 +254,10 @@ void thread_unblock(struct task_s *pthread) {
 				;
 		}
 		list_add_before(&pthread->general_tag, thread_ready.next);
+
 		pthread->status = TASK_READY;
+		spin_unlock_irqrestore(&pthread->status_lock, flags);
 	}
-	io_store_eflags(old_status);
 }
 
 /**

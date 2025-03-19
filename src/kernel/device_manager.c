@@ -15,8 +15,9 @@ DriverResult register_device_manager(DeviceManager *manager) {
 
 	list_init(&manager->device_lh);
 	device_managers[manager->type] = manager;
-
-	DEVM_OPS_CALL(manager, dm_load, manager);
+	if (manager->ops->dm_load != NULL) {
+		DRV_RESULT_DELIVER_CALL(manager->ops->dm_load, manager);
+	}
 	return DRIVER_RESULT_OK;
 }
 

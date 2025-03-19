@@ -31,8 +31,8 @@ void		 pic_eoi(InterruptDevice *device, int irq);
 extern Driver core_driver;
 
 DeviceDriverOps pic_device_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps pic_device_ops = {
 	.init	 = pic_init,

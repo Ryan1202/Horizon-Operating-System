@@ -158,8 +158,17 @@ typedef enum DriverResult {
 	DRIVER_RESULT_OUT_OF_MEMORY,
 	DRIVER_RESULT_NULL_POINTER,
 	DRIVER_RESULT_UNSUPPORT_DEVICE,
+	DRIVER_RESULT_UNSUPPORT_FEATURE,
+	DRIVER_RESULT_BUSY,
+	DRIVER_RESULT_EXCEED_MAX_SIZE,
 	DRIVER_RESULT_OTHER_ERROR,
 } DriverResult;
+
+#define DRIVER_RESULT_PASS(func)                           \
+	{                                                      \
+		DriverResult result = func;                        \
+		if (result != DRIVER_RESULT_OK) { return result; } \
+	}
 
 typedef enum {
 	DRIVER_TYPE_DEVICE_DRIVER = 0,

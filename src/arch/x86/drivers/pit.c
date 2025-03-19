@@ -35,8 +35,8 @@ void		 pit_irq_handler(Device *device);
 extern Driver core_driver;
 
 DeviceDriverOps pit_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps pit_device_ops = {
 	.init	 = pit_init,

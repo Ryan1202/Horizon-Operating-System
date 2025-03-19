@@ -15,8 +15,9 @@ uint8_t *ip2mac(netc_t *netc, uint8_t *ip) {
 			if (cur->mac[0] != 0) {
 				return cur->mac;
 			} else {
+				// TODO: lock
 				wait_queue_add(&cur->wq);
-				thread_block(TASK_BLOCKED);
+				thread_set_status(TASK_INTERRUPTIBLE);
 			}
 		}
 	}

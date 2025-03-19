@@ -88,7 +88,7 @@ DriverResult video_device_start(DeviceManager *manager, Device *device) {
 	} else if (video_device->mode_info.bits_per_pixel == 32) {
 		video_device->framebuffer_ops = &fb_ops_32;
 	} else {
-		return DRIVER_RESULT_UNSUPPORT_DEVICE;
+		return DRIVER_RESULT_UNSUPPORT_FEATURE;
 	}
 
 	return DRIVER_RESULT_OK;

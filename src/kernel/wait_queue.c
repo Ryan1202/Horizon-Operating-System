@@ -6,6 +6,7 @@
  * @date 2022-07-20
  */
 
+#include "kernel/spinlock.h"
 #include "kernel/thread.h"
 #include <kernel/driver_interface.h>
 #include <kernel/func.h>
@@ -75,19 +76,18 @@ void wait_queue_wakeup(WaitQueue *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
 	struct task_s *thread =
 		list_first_owner(&wqm->list_head, struct task_s, wait_queue_tag);
-	int old_status = load_interrupt_status();
-	disable_interrupt();
-	spin_lock(&wqm->lock);
+	int flags = spin_lock_irqsave(&wqm->lock);
 
 	list_del(&thread->wait_queue_tag);
 
-	if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING ||
-		thread->status == TASK_HANGING) {
+	int flags2 = spin_lock_irqsave(&thread->status_lock);
+	if (thread->status == TASK_INTERRUPTIBLE ||
+		thread->status == TASK_UNINTERRUPTIBLE) {
+		spin_unlock_irqrestore(&thread->status_lock, flags2);
 		thread_unblock(thread);
 	}
 
-	spin_unlock(&wqm->lock);
-	store_interrupt_status(old_status);
+	spin_unlock_irqrestore(&wqm->lock, flags);
 	return;
 }
 
@@ -101,20 +101,20 @@ void wait_queue_wakeup_all(WaitQueue *wqm) {
 	WaitQueueItem *cur, *next;
 	struct task_s *thread;
 
-	int old_status = load_interrupt_status();
-	disable_interrupt();
-
-	spin_lock(&wqm->lock);
+	int old_status = spin_lock_irqsave(&wqm->lock);
 	list_for_each_owner_safe (cur, next, &wqm->list_head, wait_queue_tag) {
 		thread = cur;
 		list_del(&cur->wait_queue_tag);
-		if (thread->status == TASK_BLOCKED || thread->status == TASK_WAITING ||
-			thread->status == TASK_HANGING) {
+
+		int flags2 = spin_lock_irqsave(&thread->status_lock);
+		if (thread->status == TASK_INTERRUPTIBLE ||
+			thread->status == TASK_UNINTERRUPTIBLE) {
+			spin_unlock_irqrestore(&thread->status_lock, flags2);
 			thread_unblock(thread);
+			schedule();
 		}
 	}
 
-	spin_unlock(&wqm->lock);
-	store_interrupt_status(old_status);
+	spin_unlock_irqrestore(&wqm->lock, old_status);
 	return;
 }

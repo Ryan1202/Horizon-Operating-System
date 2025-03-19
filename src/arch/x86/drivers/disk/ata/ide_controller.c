@@ -1,7 +1,7 @@
 #include <bits.h>
 #include <driver/bus_dm.h>
 #include <driver/interrupt_dm.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci/pci.h>
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -21,8 +21,8 @@ DriverResult ide_controller_probe(PciDevice *pci_device);
 DriverResult ide_controller_init(Device *device);
 
 DeviceDriverOps ide_controller_device_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceDriver ide_controller_device_driver = {
 	.name	  = STRING_INIT("IDE Controller Device Driver"),

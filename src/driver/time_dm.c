@@ -48,5 +48,5 @@ DriverResult get_current_time(TimeType type, Time *time) {
 	if (time_device != NULL) {
 		return time_device->ops->get_time(time_device, type, time);
 	}
-	return DRIVER_RESULT_UNSUPPORT_DEVICE;
+	return DRIVER_RESULT_UNSUPPORT_FEATURE;
 }

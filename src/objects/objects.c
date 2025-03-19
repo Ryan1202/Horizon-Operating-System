@@ -38,7 +38,8 @@ void init_object_directory(Object *object) {
 }
 
 void init_base_obj_sys_attr(Object *object) {
-	object->attr = kmalloc_from_template(base_obj_sys_attr);
+	object->attr		 = kmalloc_from_template(base_obj_sys_attr);
+	object->attr->object = object;
 }
 
 /**
@@ -145,10 +146,11 @@ Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
 	Object *object = kmalloc(sizeof(Object));
 	if (object == NULL) { return NULL; }
 
-	object->name	  = name;
-	object->attr	  = kmalloc_from_template(attr);
-	object->parent	  = parent;
-	object->reference = 0;
+	object->name		 = name;
+	object->attr		 = kmalloc_from_template(attr);
+	object->attr->object = object;
+	object->parent		 = parent;
+	object->reference	 = 0;
 
 	ObjectResult result = add_object(parent, object);
 	if (result != OBJECT_OK) {

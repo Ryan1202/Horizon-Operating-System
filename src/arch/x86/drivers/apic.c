@@ -85,8 +85,8 @@ uint32_t lapic_read(int index) {
 }
 
 DeviceDriverOps apic_device_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps apic_device_ops = {
 	.init	 = apic_init,
@@ -103,8 +103,8 @@ InterruptDeviceOps apic_interrupt_ops = {
 };
 
 DeviceDriverOps apic_timer_device_driver_ops = {
-	.register_driver_hook	= NULL,
-	.unregister_driver_hook = NULL,
+	.device_driver_init	  = NULL,
+	.device_driver_uninit = NULL,
 };
 DeviceOps apic_timer_device_ops = {
 	.init	 = apic_timer_init,

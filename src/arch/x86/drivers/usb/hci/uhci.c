@@ -9,7 +9,7 @@
  *
  */
 #include <bits.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci/pci.h>
 #include <drivers/pit.h>
 #include <drivers/usb/hcd.h>
 #include <drivers/usb/uhci.h>

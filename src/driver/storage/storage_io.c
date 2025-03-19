@@ -12,8 +12,8 @@
 #include <objects/transfer.h>
 
 TransferResult storage_transfer_async(
-	Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count, void **handle) {
+	Object *object, ObjectHandle *obj_handle, TransferDirection direction,
+	uint8_t *buf, uint32_t position, size_t count, void **handle) {
 	while (object->attr->type == OBJECT_TYPE_SYM_LINK) {
 		object = object->value.sym_link;
 	}
@@ -34,8 +34,8 @@ TransferResult storage_transfer_async(
 }
 
 TransferResult storage_transfer(
-	Object *object, TransferDirection direction, uint8_t *buf,
-	uint32_t position, size_t count) {
+	Object *object, ObjectHandle *obj_handle, TransferDirection direction,
+	uint8_t *buf, uint32_t position, size_t count) {
 	while (object->attr->type == OBJECT_TYPE_SYM_LINK) {
 		object = object->value.sym_link;
 	}

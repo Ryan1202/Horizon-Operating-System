@@ -1,6 +1,7 @@
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
+#include <drivers/bus/isa/dma.h>
 #include <drivers/cmos.h>
 #include <drivers/pit.h>
 #include <drivers/vesa_display.h>
@@ -49,6 +50,7 @@ void platform_early_init() {
 void platform_init() {
 	// 因为platform_bus是虚拟的，所以不需要注册device
 	ObjectAttr attr = driver_object_attr;
+	list_init(&platform_driver.sub_driver_lh);
 	register_bus_driver(&platform_driver, &platform_bus_driver, &attr);
 	platform_bus.object = platform_bus_driver.object;
 	list_init(&platform_bus_driver.bus_lh);
@@ -61,6 +63,8 @@ void platform_init() {
 	register_apic();
 	register_pit();
 	register_cmos();
+
+	dma_init();
 }
 
 void platform_start_devices() {

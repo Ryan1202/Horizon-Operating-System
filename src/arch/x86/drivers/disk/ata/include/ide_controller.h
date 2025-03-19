@@ -3,7 +3,7 @@
 
 #include "bits.h"
 #include "driver/timer_dm.h"
-#include "drivers/pci.h"
+#include "drivers/bus/pci/pci.h"
 #include "kernel/driver_interface.h"
 #include "stdint.h"
 

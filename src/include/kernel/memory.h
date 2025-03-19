@@ -2,7 +2,6 @@
 #define _MEMORY_H
 
 #include "result.h"
-#include <stddef.h>
 #include <stdint.h>
 
 #define PHY_MEM_BASE_ADDR 0x1000000
