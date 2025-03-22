@@ -1,8 +1,6 @@
 #include "include/cluster.h"
-#include "const.h"
 #include "include/dir.h"
 #include "include/fat.h"
-#include "kernel/console.h"
 #include "multiple_return.h"
 #include <driver/storage/disk/disk.h>
 #include <driver/storage/storage_io.h>
@@ -160,11 +158,13 @@ FsResult get_cluster_segment(FatInfo *fat_info, FatDirEntry *entry) {
 
 	uint32_t cluster;
 	if (arr->size == 0) {
+		// 如果为空使用第一个簇
 		cluster = entry->short_dir.first_cluster_low;
 		if (fat_info->type == FAT_TYPE_FAT32) {
 			cluster |= entry->short_dir.first_cluster_high << 16;
 		}
 	} else {
+		// 否则使用最后一个簇的下一个簇
 		cluster =
 			((ClusterSegment)dyn_array_get(arr, ClusterSegment, arr->size - 1))
 				.end;
@@ -212,6 +212,7 @@ FsResult fat_cluster_list_get(
 			cur_cluster->offset	 = _block_offset;
 			cur_cluster->block	 = _block;
 			cur_cluster->index	 = index;
+			cur_cluster->entry	 = entry;
 			return FS_OK;
 		}
 		counter -= length;
@@ -241,8 +242,7 @@ FsResult fat_cluster_list_get_next(
 			&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
 		if (cur_cluster->offset >= (entry->cluster_list->block_size -
 									cur_cluster->block->left_space)) {
-			result = get_cluster_segment(fat_info, entry);
-			if (result != FS_OK) return result;
+			FS_RESULT_PASS(get_cluster_segment(fat_info, entry));
 		}
 		cur_cluster->cluster = seg->start;
 	}
@@ -250,16 +250,26 @@ FsResult fat_cluster_list_get_next(
 	return FS_OK;
 }
 
-uint32_t get_remaining_continuous_clusters(CurrentCluster *cur_cluster) {
+uint32_t get_remaining_continuous_clusters(
+	FatInfo *fat_info, CurrentCluster *cur_cluster) {
 	uint32_t		current = cur_cluster->cluster;
 	ClusterSegment *seg =
 		&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
+	// TODO:获取下一个簇段
+	if (seg->end == current) {
+		FsResult result = fat_cluster_list_get_next(
+			fat_info, cur_cluster->entry, cur_cluster);
+		if (result != FS_OK) return 0;
+		seg =
+			&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
+	}
 
 	return seg->end - current;
 }
 
-void fat_cluster_list_skip(
-	FatDirEntry *entry, CurrentCluster *cur_cluster, int count) {
+FsResult fat_cluster_list_skip(
+	FatInfo *fat_info, FatDirEntry *entry, CurrentCluster *cur_cluster,
+	int count) {
 	ClusterSegment *seg =
 		&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
 	uint32_t current = cur_cluster->cluster;
@@ -279,6 +289,9 @@ void fat_cluster_list_skip(
 			count -= seg->end - seg->start + 1;
 			cur_cluster->offset++;
 			if (cur_cluster->offset >= entry->cluster_list->block_size) {
+				if (cur_cluster->block->next == NULL) {
+					FS_RESULT_PASS(get_cluster_segment(fat_info, entry));
+				}
 				cur_cluster->block	= cur_cluster->block->next;
 				cur_cluster->offset = 0;
 			}
@@ -287,6 +300,7 @@ void fat_cluster_list_skip(
 		}
 		cur_cluster->cluster = seg->start + count;
 	}
+	return FS_OK;
 }
 
 FsResult get_last_cluster(

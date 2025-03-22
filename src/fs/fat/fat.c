@@ -347,6 +347,7 @@ FsResult fat_transfer(
 		file->value.file.offset / fat_info->bytes_per_cluster;
 
 	CurrentCluster *cur_cluster = handle->handle_data;
+
 	if (cluster_index - cur_cluster->index > 1) {
 		fat_cluster_list_get(fat_info, entry, cluster_index, cur_cluster);
 	} else if (cluster_index - cur_cluster->index == 1) {
@@ -367,9 +368,10 @@ FsResult fat_transfer(
 
 			int count		= 0;
 			int total_count = DIV_ROUND_UP(size, fat_info->bytes_per_cluster);
-			count			= get_remaining_continuous_clusters(&next);
-			count			= MIN(count, total_count);
-			fat_cluster_list_skip(entry, cur_cluster, count);
+			count = get_remaining_continuous_clusters(fat_info, &next);
+			if (count == 0) { return FS_ERROR_END_OF_FILE; }
+			count = MIN(count, total_count);
+			fat_cluster_list_skip(fat_info, entry, cur_cluster, count);
 
 			TransferResult result = transfer(
 				storage_object, NULL, direction, buf + done, sector,

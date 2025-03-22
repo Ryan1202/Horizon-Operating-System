@@ -231,6 +231,8 @@ void thread_wait() {
 			flags = spin_lock_irqsave(&cur_thread->status_lock);
 		}
 		spin_unlock_irqrestore(&cur_thread->status_lock, flags);
+	} else {
+		spin_unlock_irqrestore(&cur_thread->status_lock, flags);
 	}
 }
 
@@ -249,9 +251,7 @@ void thread_unblock(struct task_s *pthread) {
 	}
 	if (pthread->status != TASK_READY) {
 		if (list_find(&pthread->general_tag, &thread_ready)) {
-			printk("error");
-			while (1)
-				;
+			list_del(&pthread->general_tag);
 		}
 		list_add_before(&pthread->general_tag, thread_ready.next);
 

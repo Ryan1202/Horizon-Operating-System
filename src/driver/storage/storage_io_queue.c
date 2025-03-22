@@ -1,6 +1,7 @@
 #include "kernel/block_cache.h"
 #include "kernel/rwlock.h"
 #include "kernel/spinlock.h"
+#include "kernel/thread.h"
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
 #include <kernel/list.h>
@@ -67,14 +68,21 @@ bool storage_try_merge_request(
 
 void storage_add_request(
 	StorageDevice *storage_device, StorageRequest *request) {
-	StorageRequest *req;
 	request->storage_device = storage_device;
 	request->is_finished	= 0;
+
 	spin_lock(&storage_device->queue_lock);
-	if (list_empty(&storage_device->io_queue_lh)) {
+
+	if (list_empty(&storage_device->io_queue_lh) &&
+		!storage_device->ops->is_busy(storage_device)) {
 		storage_submit_request(request);
+		spin_unlock(&storage_device->queue_lock);
 		return;
 	}
+	spin_unlock(&storage_device->queue_lock);
+
+	StorageRequest *req;
+	spin_lock(&storage_device->queue_lock);
 	list_for_each_owner (req, &storage_device->io_queue_lh, list) {
 		if (storage_try_merge_request(
 				request, req, storage_device->max_block_per_request)) {
@@ -82,7 +90,6 @@ void storage_add_request(
 		}
 		if (req->position > request->position) {
 			list_add_before(&request->list, &req->list);
-			spin_unlock(&storage_device->queue_lock);
 			return;
 		}
 	}
@@ -118,15 +125,19 @@ void storage_periodic_task(void *arg) {
 	}
 }
 
+// 需要修改storage_finish_request函数，支持分割请求的完成
 void storage_finish_request(StorageRequest *storage_request) {
 	storage_request->is_finished = true;
-	StorageRequest *req			 = storage_request->next_merged_request;
+
+	// 处理合并请求的情况
+	StorageRequest *req = storage_request->next_merged_request;
 	if (req) {
 		while (req) {
 			req->is_finished = true;
 			req				 = req->next_merged_request;
 		}
 	}
+	thread_unblock(storage_request->thread);
 }
 
 void storage_submit_request(StorageRequest *request) {
@@ -143,6 +154,7 @@ void storage_submit_request(StorageRequest *request) {
 }
 
 void storage_solve_read_request(StorageRequest *request) {
+	// 处理合并请求的情况
 	StorageRequest *req = request->next_merged_request;
 	if (req) {
 		uint32_t start = request->position;

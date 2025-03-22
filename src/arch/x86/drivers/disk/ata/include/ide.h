@@ -12,6 +12,8 @@
 #define IDE_IRQ0 14
 #define IDE_IRQ1 15
 
+#define IDE_MAX_PRDT_COUNT 16
+
 typedef struct IdeOps {
 	void (*set_sector)(
 		struct Device *device, uint32_t lba0, uint32_t lba1, uint32_t count);

@@ -10,6 +10,8 @@
 #include <kernel/memory.h>
 #include <kernel/page.h>
 #include <kernel/platform.h>
+#include <kernel/spinlock.h>
+#include <math.h>
 #include <objects/transfer.h>
 #include <stdint.h>
 #include <string.h>
@@ -20,7 +22,6 @@
 #include "include/ata_driver.h"
 #include "include/ide.h"
 #include "include/ide_controller.h"
-#include "kernel/spinlock.h"
 
 DriverResult ide_device_init(Device *device);
 
@@ -84,12 +85,7 @@ void ide_handle_interrupt(IdeChannel *channel) {
 	spin_unlock_irqrestore(&ide_device->request_lock, flags);
 
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
-		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
-		io_out_byte(
-			channel->bmide + IDE_REG_BM_STATUS,
-			BIN_EN(data, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR));
-
-		data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
+		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
 		io_out_byte(
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
@@ -204,7 +200,7 @@ void ide_device_probe(IdeChannel *channel) {
 		io_out_byte(
 			channel->io_base + ATA_REG_CONTROL,
 			BIN_DIS(data, ATA_CONTROL_NIEN));
-		channel->prdt = kmalloc(sizeof(PhysicalRegionDescriptorTable));
+		channel->prdt = kmalloc(sizeof(PhysicalRegionDescriptorTable) * 16);
 		interrupt_enable_irq(channel->irq->irq);
 
 		for (i = 0; i < 2; i++) {
@@ -289,25 +285,39 @@ void ide_device_set_dma(IdeDevice *device, StorageRequest *request) {
 	PhysicalRegionDescriptorTable *prdt = channel->prdt;
 
 	uint8_t *buffer;
-	buffer			  = (uint32_t)request->buf & 3
-						  ? kmalloc(request->count * SECTOR_SIZE) // 未对齐则另外分配
-						  : request->buf; // 传入的缓冲区已对齐则直接使用
+	buffer			 = (uint32_t)request->buf & 3
+						 ? kmalloc(request->count * SECTOR_SIZE) // 未对齐则另外分配
+						 : request->buf; // 传入的缓冲区已对齐则直接使用
+	size_t left_size = request->count * SECTOR_SIZE;
+	int	   size;
 	request->real_buf = buffer;
-	prdt->base_addr	  = vir2phy((uint32_t)buffer);
-	prdt->count		  = request->count * SECTOR_SIZE;
-	prdt->sign		  = BIT(15);
+	int		 i		  = 0;
+	uint32_t addr	  = vir2phy((uint32_t)buffer);
+	uint32_t offset;
+	while (left_size > 0 && i < IDE_MAX_PRDT_COUNT) {
+		offset			  = addr & 0xffff; // 缓冲区不能跨越64K边界
+		size			  = MIN(left_size, 0x10000 - offset);
+		prdt[i].base_addr = addr;
+		prdt[i].count	  = size & 0xffff;
+		prdt[i].sign	  = 0;
+		left_size -= size;
+		addr += size;
+		i++;
+	}
+	prdt[i - 1].sign = BIT(15);
 
 	io_out_dword(channel->bmide + IDE_REG_BM_PRDT, vir2phy((uint32_t)prdt));
 
-	uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
-	io_out_byte(
-		channel->bmide + IDE_REG_BM_STATUS,
-		BIN_EN(data, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR));
-
-	io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
+	uint8_t data;
+	data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
 	data = (request->rw == 0) ? BIN_EN(data, IDE_BMCMD_READ_WRITE)
 							  : BIN_DIS(data, IDE_BMCMD_READ_WRITE);
 	io_out_byte(channel->bmide + IDE_REG_BM_COMMAND, data);
+
+	data = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
+	io_out_byte(
+		channel->bmide + IDE_REG_BM_STATUS,
+		BIN_EN(data, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR));
 }
 
 /**
@@ -324,8 +334,9 @@ DriverResult ide_device_read_sectors(
 
 	bool flag = false;
 
+	request->count = MIN(request->count, IDE_MAX_PRDT_COUNT * 128 - 1);
 	// 因为没有实现对28位地址的处理，所以超过24位都使用48位地址
-	if ((request->position < 0x1000000) || request->count < 0x100) {
+	if ((request->position < 0x1000000) || request->count <= 0x100) {
 		flag = true;
 	}
 

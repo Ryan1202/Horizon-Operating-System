@@ -18,7 +18,8 @@ void probe_volume(Partition *partition) {
 	partition->superblock = kmalloc(2 * SECTOR_SIZE);
 
 	storage_transfer(
-		object, TRANSFER_IN, partition->superblock, partition->start_lba, 2);
+		object, NULL, TRANSFER_IN, partition->superblock, partition->start_lba,
+		2);
 
 	if (partition->type == PARTITION_TYPE_MBR) {
 		FileSystem *fs;

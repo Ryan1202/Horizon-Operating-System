@@ -14,11 +14,13 @@ typedef struct ClusterSegment {
 	uint32_t end;
 } ClusterSegment;
 
+struct FatDirEntry;
 typedef struct CurrentCluster {
-	uint32_t	   cluster;
-	int			   offset;
-	int			   index;
-	DynArrayBlock *block;
+	struct FatDirEntry *entry;
+	uint32_t			cluster;
+	int					offset;
+	int					index;
+	DynArrayBlock	   *block;
 } CurrentCluster;
 
 struct FatInfo;
@@ -47,9 +49,11 @@ FsResult fat_cluster_list_get(
 FsResult fat_cluster_list_get_next(
 	struct FatInfo *fat_info, struct FatDirEntry *entry,
 	CurrentCluster *cur_cluster);
-uint32_t get_remaining_continuous_clusters(CurrentCluster *cur_cluster);
-void	 fat_cluster_list_skip(
-		struct FatDirEntry *entry, CurrentCluster *cur_cluster, int count);
+uint32_t get_remaining_continuous_clusters(
+	struct FatInfo *info, CurrentCluster *cur_cluster);
+FsResult fat_cluster_list_skip(
+	struct FatInfo *fat_info, struct FatDirEntry *entry,
+	CurrentCluster *cur_cluster, int count);
 inline bool fat_cluster_list_is_last(
 	struct FatInfo *fat_info, struct FatDirEntry *entry,
 	CurrentCluster *cur_cluster);
