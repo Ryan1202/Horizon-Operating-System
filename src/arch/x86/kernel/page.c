@@ -20,9 +20,11 @@ extern struct VesaDisplayInfo vesa_display_info;
 void setup_page(void) {
 	uint32_t *pdt = (uint32_t *)PDT_PHY_ADDR;
 	memset((void *)PDT_PHY_ADDR, 0, PAGE_SIZE); // 清空数据
+	// 0x00000000 - 0x003fffff
 	pdt[0] =
 		(TBL_PHY_ADDR | SIGN_RW | SIGN_SYS |
 		 SIGN_P); // 第0个页(前4MB内存):GDT、BIOS、内核主程序
+	// 0xffc00000 - 0xffffffff
 	pdt[1023] =
 		(PDT_PHY_ADDR | SIGN_RW | SIGN_SYS |
 		 SIGN_P); // 第1023个页(最后4MB内存):页表
@@ -37,16 +39,10 @@ void setup_page(void) {
 		addr += PAGE_SIZE;
 	}
 
-	pdt[1] = (DMA_PT_PHY_ADDR1 | SIGN_RW | SIGN_SYS | SIGN_P);
+	// 0x00800000 - 0x00bfffff
 	pdt[2] = (DMA_PT_PHY_ADDR2 | SIGN_RW | SIGN_SYS | SIGN_P);
-	pt	   = (uint32_t *)DMA_PT_PHY_ADDR1;
-	addr   = (0x400000 | SIGN_RW | SIGN_SYS | SIGN_P);
-	for (i = 0; i < 1024; i++) {
-		pt[i] = addr;
-		addr += PAGE_SIZE;
-	}
-	pt	 = (uint32_t *)DMA_PT_PHY_ADDR2;
-	addr = (0x800000 | SIGN_RW | SIGN_SYS | SIGN_P);
+	pt	   = (uint32_t *)DMA_PT_PHY_ADDR2;
+	addr   = (0x800000 | SIGN_RW | SIGN_SYS | SIGN_P);
 	for (i = 0; i < 1024; i++) {
 		pt[i] = addr;
 		addr += PAGE_SIZE;

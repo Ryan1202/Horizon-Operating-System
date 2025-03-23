@@ -4,6 +4,7 @@
 #include "math.h"
 #include "multiple_return.h"
 #include <fs/fs.h>
+#include <kernel/memory.h>
 #include <stdint.h>
 #include <string.h>
 

@@ -2,6 +2,7 @@
 #include "include/dir.h"
 #include "include/fat.h"
 #include "kernel/driver_interface.h"
+#include <kernel/memory.h>
 #include <objects/object.h>
 #include <objects/permission.h>
 #include <stdint.h>

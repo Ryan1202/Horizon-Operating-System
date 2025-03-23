@@ -107,9 +107,10 @@ void create_user_vaddr_mmap(struct task_s *user_prog) {
  * @param prog 进程
  */
 void process_excute(void *entry, struct program_struct *prog) {
-	struct task_s		*thread = kernel_alloc_pages(1);
+	struct task_s		*thread		= kmalloc(sizeof(struct task_s));
+	void				*stack_page = kernel_alloc_pages(1);
 	struct prog_segment *p;
-	init_thread(thread, prog->name.text, THREAD_DEFAULT_PRIO);
+	init_thread(thread, stack_page, prog->name.text, THREAD_DEFAULT_PRIO);
 	create_user_vaddr_mmap(thread);
 	thread_create(thread, start_process, entry);
 	thread->pgdir = create_page_dir();

@@ -163,9 +163,9 @@ Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
 
 Object *create_object_directory(
 	Object *parent, string_t name, ObjectAttr attr) {
-	Object *object	   = create_object(parent, name, attr);
-	object->attr->type = OBJECT_TYPE_DIRECTORY;
+	Object *object = create_object(parent, name, attr);
 	if (object == NULL) { return NULL; }
+	object->attr->type = OBJECT_TYPE_DIRECTORY;
 
 	init_object_directory(object);
 

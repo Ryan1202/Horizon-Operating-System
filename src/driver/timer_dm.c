@@ -4,6 +4,8 @@
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
+#include <kernel/memory.h>
+#include <kernel/thread.h>
 #include <result.h>
 #include <stdint.h>
 

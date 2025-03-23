@@ -44,16 +44,17 @@ bool wait_queue_empty(WaitQueue *wq) {
  * @return
  */
 void wait_queue_add(WaitQueue *wq) {
-	struct task_s *task		  = get_current_thread();
-	int			   old_status = load_interrupt_status();
-	disable_interrupt();
-	spin_lock(&wq->lock);
+	struct task_s *task = get_current_thread();
+	if (task->wait_queue_tag.next != NULL) {
+		printk("Error:Current thread(pid:%d) is in wait queue!\n", task->pid);
+		list_del(&task->wait_queue_tag);
+	}
+	int flags = spin_lock_irqsave(&wq->lock);
 
 	// 把当前线程的list tag直接挂到等待队列的list上
 	list_add_tail(&task->wait_queue_tag, &wq->list_head);
 
-	spin_unlock(&wq->lock);
-	store_interrupt_status(old_status);
+	spin_unlock_irqrestore(&wq->lock, flags);
 }
 
 /**
@@ -62,9 +63,9 @@ void wait_queue_add(WaitQueue *wq) {
  * @param wq 等待队列管理结构
  * @return
  */
-WaitQueueItem *wait_queue_first(WaitQueue *wqm) {
+struct task_s *wait_queue_first(WaitQueue *wqm) {
 	if (list_empty(&wqm->list_head)) { return NULL; }
-	return list_first_owner(&wqm->list_head, WaitQueueItem, wait_queue_tag);
+	return list_first_owner(&wqm->list_head, struct task_s, wait_queue_tag);
 }
 
 /**
@@ -98,7 +99,7 @@ void wait_queue_wakeup(WaitQueue *wqm) {
  */
 void wait_queue_wakeup_all(WaitQueue *wqm) {
 	if (list_empty(&wqm->list_head)) { return; }
-	WaitQueueItem *cur, *next;
+	struct task_s *cur, *next;
 	struct task_s *thread;
 
 	int old_status = spin_lock_irqsave(&wqm->lock);

@@ -9,6 +9,7 @@
 #include <kernel/driver_dependency.h>
 #include <kernel/driver_manager.h>
 #include <kernel/list.h>
+#include <kernel/memory.h>
 #include <kernel/platform.h>
 
 LIST_HEAD(isa_driver_lh);

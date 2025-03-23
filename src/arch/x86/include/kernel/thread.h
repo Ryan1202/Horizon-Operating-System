@@ -4,6 +4,7 @@
 #include "kernel/spinlock.h"
 #include <kernel/list.h>
 #include <kernel/memory.h>
+#include <kernel/sync.h>
 #include <stdint.h>
 
 typedef void thread_func(void *);
@@ -66,9 +67,10 @@ struct task_s {
 	uint32_t	  stack_magic;
 	size_t		  subject_id;
 
-	uint8_t	   *end_flag;
-	spinlock_t *end_flag_lock;
-	spinlock_t	sub_thread_lock;
+	struct lock		 child_lock;  // 保护子线程计数器的锁
+	int				 child_count; // 当前活跃的子线程数
+	struct semaphore child_sem;	  // 子线程完成信号量（初始为0）
+	struct task_s	*parent;
 
 	struct mmap			  vir_page_mmap;
 	struct memory_manage *memory_manage;
@@ -80,15 +82,18 @@ struct task_s {
 
 #define THREAD_DEFAULT_PRIO 100
 
-extern list_t thread_all;
+extern list_t	  thread_all;
+extern spinlock_t thread_ready_lock;
 
 struct task_s *get_current_thread();
 size_t		   get_current_subject_id();
-void		   init_thread(struct task_s *pthread, char *name, int priority);
-void		   thread_create(
-			  struct task_s *pthread, thread_func *function, void *func_arg);
+void		   init_thread(
+			  struct task_s *pthread, void *stack_page, char *name, int priority);
+void thread_create(
+	struct task_s *pthread, thread_func *function, void *func_arg);
 struct task_s *thread_start(
-	char *name, int priority, thread_func function, void *func_arg);
+	char *name, int priority, thread_func function, void *func_arg,
+	struct task_s *parent);
 void thread_exit(void);
 void thread_set_status(task_status_t status);
 void thread_wait();
@@ -96,6 +101,6 @@ void thread_unblock(struct task_s *pthread);
 void init_task(void);
 void schedule(void);
 void init_thread_memory_manage(struct task_s *thread);
-void thread_set_end_flag(struct task_s *pthread, uint8_t *flag);
+void thread_wait_children(struct task_s *parent);
 
 #endif

@@ -13,5 +13,6 @@ int			 max(int a, int b);
 int			 abs(int n);
 int			 pow(int x, int y);
 unsigned int find_next_pow_of_2(unsigned int n);
+int			 aligned_log2n(unsigned int n);
 
 #endif

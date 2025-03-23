@@ -94,7 +94,7 @@ EXCEPTION_ENTRY 17,ERROR_CODE
 EXCEPTION_ENTRY 18,NO_ERROR_CODE
 EXCEPTION_ENTRY 19,NO_ERROR_CODE
 EXCEPTION_ENTRY 20,NO_ERROR_CODE
-EXCEPTION_ENTRY 21,NO_ERROR_CODE 
+EXCEPTION_ENTRY 21,ERROR_CODE 
 EXCEPTION_ENTRY 22,NO_ERROR_CODE
 EXCEPTION_ENTRY 23,ERROR_CODE
 EXCEPTION_ENTRY 24,ERROR_CODE
@@ -257,8 +257,8 @@ io_store_eflags:	; void io_store_eflags(int eflags);
 
 save_eflags_cli:	; int save_eflags_cli(void);
 	pushfd
-	pop eax
 	cli
+	pop eax
 	ret
 
 global syscall_handler

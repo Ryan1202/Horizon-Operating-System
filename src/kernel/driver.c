@@ -5,6 +5,7 @@
  * @version 0.3
  * @date 2022-07-20
  */
+#include "kernel/sync.h"
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/bus_driver.h>
@@ -40,6 +41,7 @@ struct index_node *dev;
 // --------new--------
 #include <kernel/device_driver.h>
 #include <kernel/driver_manager.h>
+#include <kernel/sync.h>
 #include <result.h>
 
 LIST_HEAD(driver_lh);
@@ -70,6 +72,9 @@ void print_driver_result(
 		RESULT_CASE_PRINT(DRIVER_RESULT_DEVICE_NOT_EXIST)
 		RESULT_CASE_PRINT(DRIVER_RESULT_NULL_POINTER)
 		RESULT_CASE_PRINT(DRIVER_RESULT_UNSUPPORT_DEVICE)
+		RESULT_CASE_PRINT(DRIVER_RESULT_UNSUPPORT_FEATURE)
+		RESULT_CASE_PRINT(DRIVER_RESULT_BUSY)
+		RESULT_CASE_PRINT(DRIVER_RESULT_EXCEED_MAX_SIZE)
 		RESULT_CASE_PRINT(DRIVER_RESULT_OTHER_ERROR)
 	}
 }
@@ -167,54 +172,49 @@ void driver_start_thread(void *arg) {
 	check_dependency(driver);
 	driver_init(driver);
 
-	uint8_t end_flag = 0;
+	struct task_s *cur = get_current_thread();
 
 	SubDriver *sub_driver;
 	list_for_each_owner (sub_driver, &driver->sub_driver_lh, sub_driver_list) {
 		int old_status = save_and_disable_interrupt();
 
-		struct task_s *task = thread_start(
-			"sub_driver_start_thread", THREAD_DEFAULT_PRIO,
-			sub_driver_start_thread, sub_driver);
-		thread_set_end_flag(task, &end_flag);
+		char *name;
+		if (sub_driver->type == DRIVER_TYPE_DEVICE_DRIVER) {
+			DeviceDriver *dd =
+				container_of(sub_driver, DeviceDriver, subdriver);
+			name = dd->name.text;
+		} else if (sub_driver->type == DRIVER_TYPE_BUS_DRIVER) {
+			BusDriver *bd = container_of(sub_driver, BusDriver, subdriver);
+			name		  = bd->name.text;
+		} else name = "sub_driver_start_thread";
+		thread_start(
+			name, THREAD_DEFAULT_PRIO, sub_driver_start_thread, sub_driver,
+			cur);
 		store_interrupt_status(old_status);
 	}
 
-	struct task_s *cur	 = get_current_thread();
-	int			   flags = spin_lock_irqsave(&cur->sub_thread_lock);
-	while (end_flag > 0) {
-		spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
-		schedule();
-		flags = spin_lock_irqsave(&cur->sub_thread_lock);
-	}
+	thread_wait_children(cur);
 }
 
 // TODO:PCI检测完设备后，设备有概率未初始化直接结束
 
 DriverResult driver_start_all(void) {
-	uint8_t end_flag = 0;
 	Driver *driver;
+
+	struct task_s *cur = get_current_thread();
 
 	list_for_each_owner (driver, &driver_lh, driver_list) {
 		if (driver->state == DRIVER_STATE_UNINITED) {
 			int old_status = save_and_disable_interrupt();
 
-			struct task_s *task = thread_start(
-				"driver_start_thread", THREAD_DEFAULT_PRIO, driver_start_thread,
-				driver);
-			thread_set_end_flag(task, &end_flag);
+			thread_start(
+				driver->short_name.text, THREAD_DEFAULT_PRIO,
+				driver_start_thread, driver, cur);
 			store_interrupt_status(old_status);
 		}
 	}
 
-	struct task_s *cur	 = get_current_thread();
-	int			   flags = spin_lock_irqsave(&cur->sub_thread_lock);
-	while (end_flag > 0) {
-		spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
-		schedule();
-		flags = spin_lock_irqsave(&cur->sub_thread_lock);
-	}
-	spin_unlock_irqrestore(&cur->sub_thread_lock, flags);
+	thread_wait_children(cur);
 	return DRIVER_RESULT_OK;
 }
 
@@ -224,6 +224,7 @@ struct index_node *dev_open(char *path) {
 	// if (inode == NULL) return NULL;
 	// else inode->device->drv_obj->function.driver_open(inode->device);
 	// return inode;
+	return NULL;
 }
 
 int dev_close(struct index_node *inode) {
