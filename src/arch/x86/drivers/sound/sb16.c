@@ -7,7 +7,7 @@
  */
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
-#include <drivers/dma.h>
+#include <drivers/bus/isa/dma.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
@@ -16,7 +16,6 @@
 #include <kernel/initcall.h>
 #include <kernel/spinlock.h>
 #include <kernel/wait_queue.h>
-#include <math.h>
 
 #define SB16_DSP_MIXER		 0x224
 #define SB16_DSP_MIXER_DATA	 0x225
@@ -201,7 +200,7 @@ status_t sb16_write(device_t *dev, uint8_t *buf, uint32_t offset, size_t size) {
 	device_extension_t *devext = dev->device_extension;
 	while ((devext->index_w + 1) % DMA_MAX == devext->index_r) {
 		wait_queue_add(devext->wqm, 0);
-		thread_block(TASK_BLOCKED);
+		thread_block(TASK_INTERRUPTIBLE);
 	}
 	uint8_t *dma_mem = (uint8_t *)(0x800000 + devext->index_w * 0x10000);
 	memcpy(dma_mem, buf, size);

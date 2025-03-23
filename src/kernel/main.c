@@ -4,6 +4,10 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "driver/sound/pcm.h"
+#include "driver/sound/sound_dm.h"
+#include "kernel/page.h"
+#include "objects/handle.h"
 #include "string.h"
 #include <driver/interrupt_dm.h>
 #include <driver/storage/disk/volume.h>
@@ -60,8 +64,60 @@ extern Driver  core_driver;
 // 	printk("\n");
 // }
 
+// void thread_play(void *arg) {
+// 	Object		*object;
+// 	ObjectResult result = open_object_by_path("\\Device\\Sound0", &object);
+// 	if (result != OBJECT_OK) {
+// 		printk("Open File Error!\n");
+// 	} else {
+// 		Object *file;
+// 		result =
+// 			open_object_by_path("\\Volumes\\Storage0Volume0\\1.pcm", &file);
+
+// 		if (result == OBJECT_OK) {
+// 			ObjectHandle *handle = object_handle_create(file);
+// 			PcmDevice	 *pcm;
+// 			PcmStream	 *stream;
+// 			//  sound_pcm_open(object, SOUND_DEVICE_MODE_PLAY, &pcm, &stream);
+// 			//  sound_pcm_alloc(stream);
+// 			//  pcm_set_sample_rate(pcm, 44100);
+// 			//  pcm_set_channel(stream, 2);
+// 			//  sound_pcm_set_frame_count(stream, 4 * 1024);
+// 			//  sound_pcm_prepare(stream);
+// 			ObjectAttr	  attr;
+// 			obj_get_attr(file, &attr);
+// 			size_t	 count = 2 * 64;
+// 			size_t	 size  = 4 * 1024 * 1024;
+// 			uint8_t *buf   = kmalloc(19 * 1024 * 1024);
+// 			for (int i = 0; i < size / 1024 / 1024; i++) {
+// 				printk("%dMB ", i);
+// 				for (int j = 0; j < 8; j++) {
+// 					TransferResult result = TRANSFER_IN_STREAM(
+// 						file, handle, buf + (i * 16 + j) * 32 * 1024,
+// 						128 * 1024);
+// 					if (result != TRANSFER_OK) {
+// 						printk("Transfer Error!\n");
+// 						thread_exit();
+// 					}
+// 				}
+// 			}
+// 			for (int i = 0; i < count; i++) {
+// 				//  io_cli();
+// 				printk("%d ", i);
+// 				//  io_sti();
+// 				//  sound_pcm_write(stream, buf, 4 * 1024);
+// 				buf += 16 * 1024;
+// 			}
+// 		}
+// 	}
+// }
+
 int main() {
 	platform_early_init();
+
+	init_memory();
+
+	uint8_t *zero = 0;
 
 	register_driver_manager(&device_driver_manager);
 	register_driver_manager(&bus_driver_manager);
@@ -69,9 +125,9 @@ int main() {
 	register_device_manager(&timer_dm);
 	register_device_manager(&time_dm);
 	register_device_manager(&video_dm);
+	register_device_manager(&sound_dm);
 	register_device_manager(&storage_dm);
 
-	init_memory();
 	init_object_tree();
 
 	register_driver(&core_driver);
@@ -81,25 +137,17 @@ int main() {
 	platform_start_devices();
 
 	init_task();
-	task_idle = thread_start("Idle", 1, idle, 0);
+	task_idle = thread_start("Idle", 1, idle, 0, NULL);
 	io_sti();
 	printk("Memory Size:%dM\n", get_memory_size());
 	thread_start(
-		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL);
+		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL,
+		NULL);
 
 	do_initcalls();
 	driver_start_all();
 
-	uint8_t		 buf[128];
-	Object		*object;
-	ObjectResult result = open_object_by_path(
-		"\\Volumes\\Storage0Volume0\\boot\\grub\\grub.cfg", &object);
-	if (result != OBJECT_OK) {
-		printk("Open File Error!\n");
-	} else {
-		TRANSFER_IN_STREAM(object, buf, 128);
-		printk("%s", buf);
-	}
+	// thread_start("play", 1000, thread_play, NULL);
 
 	// const string_t name = STRING_INIT("A folder");
 	// obj_rmdir(object, name);
