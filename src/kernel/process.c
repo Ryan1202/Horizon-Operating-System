@@ -5,6 +5,8 @@
  * @version 0.8
  * @date 2022-07-17
  */
+#include "kernel/spinlock.h"
+#include "kernel/thread.h"
 #include <fs/fs.h>
 #include <kernel/app.h>
 #include <kernel/console.h>
@@ -18,7 +20,6 @@
 
 void		  thread_intr_exit(struct intr_stack *proc_stack);
 extern list_t thread_ready;
-extern list_t thread_all;
 
 /**
  * @brief 用户线程的入口函数
@@ -125,10 +126,10 @@ void process_excute(void *entry, struct program_struct *prog) {
 	}
 
 	// 将该任务加入任务队列
-	int old_status = io_load_eflags();
+	int flags = spin_lock_irqsave(&thread_ready_lock);
 	list_add_tail(&thread->general_tag, &thread_ready);
 	list_add_tail(&thread->all_list_tag, &thread_all);
-	io_store_eflags(old_status);
+	io_store_eflags(flags);
 }
 
 /**

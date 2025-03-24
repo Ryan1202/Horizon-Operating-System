@@ -6,8 +6,8 @@ void condvar_init(condvar_t *cv) {
 }
 
 void condvar_wait(condvar_t *cv, spinlock_t *mutex) {
-	wait_queue_add(&cv->wait_queue);
 	thread_set_status(TASK_INTERRUPTIBLE);
+	wait_queue_add(&cv->wait_queue);
 	spin_unlock(mutex);
 
 	thread_wait();

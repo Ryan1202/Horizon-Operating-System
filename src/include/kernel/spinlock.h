@@ -2,7 +2,8 @@
 #define _SPINLOCK_H
 
 #include "kernel/driver_interface.h"
-typedef volatile int spinlock_t;
+extern struct task_s *current_task;
+typedef volatile int  spinlock_t;
 
 #define SPINLOCK(lock) spinlock_t lock = 0;
 
@@ -42,24 +43,6 @@ static inline int spin_try_lock_irqsave(spinlock_t *lock) {
 	if (spin_try_lock(lock)) { return flags; }
 	store_interrupt_status(flags);
 	return 0;
-}
-
-static inline int spin_lock_two_irqsave(spinlock_t *lock1, spinlock_t *lock2) {
-	int flags;
-	int f1, f2;
-	while (true) {
-		flags = save_and_disable_interrupt();
-		f1	  = spin_try_lock(lock1);
-		f2	  = spin_try_lock(lock2);
-		if (f1 && f2) {
-			return flags;
-		} else {
-			if (f1) { spin_unlock(lock1); }
-			if (f2) { spin_unlock(lock2); }
-			store_interrupt_status(flags);
-		}
-	}
-	return flags;
 }
 
 // 释放自旋锁并恢复之前保存的中断状态

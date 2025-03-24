@@ -6,6 +6,7 @@
  * @date 2022-07-20
  */
 
+#include "kernel/console.h"
 #include "kernel/spinlock.h"
 #include "kernel/thread.h"
 #include <kernel/driver_interface.h>
@@ -81,12 +82,7 @@ void wait_queue_wakeup(WaitQueue *wqm) {
 
 	list_del(&thread->wait_queue_tag);
 
-	int flags2 = spin_lock_irqsave(&thread->status_lock);
-	if (thread->status == TASK_INTERRUPTIBLE ||
-		thread->status == TASK_UNINTERRUPTIBLE) {
-		spin_unlock_irqrestore(&thread->status_lock, flags2);
-		thread_unblock(thread);
-	}
+	thread_unblock(thread);
 
 	spin_unlock_irqrestore(&wqm->lock, flags);
 	return;
@@ -107,13 +103,8 @@ void wait_queue_wakeup_all(WaitQueue *wqm) {
 		thread = cur;
 		list_del(&cur->wait_queue_tag);
 
-		int flags2 = spin_lock_irqsave(&thread->status_lock);
-		if (thread->status == TASK_INTERRUPTIBLE ||
-			thread->status == TASK_UNINTERRUPTIBLE) {
-			spin_unlock_irqrestore(&thread->status_lock, flags2);
-			thread_unblock(thread);
-			schedule();
-		}
+		thread_unblock(thread);
+		schedule();
 	}
 
 	spin_unlock_irqrestore(&wqm->lock, old_status);

@@ -23,11 +23,13 @@
 #include <string.h>
 
 struct task_s *current_task, *dead_task = NULL;
-
 struct task_s *main_thread;
-list_t		   thread_ready;
-spinlock_t	   thread_ready_lock;
-LIST_HEAD(thread_all);
+
+list_t	   thread_ready;
+spinlock_t thread_ready_lock;
+list_t	   thread_all;
+spinlock_t thread_all_lock;
+
 struct lock pid_lock;
 uint32_t	new_pid = 0;
 
@@ -148,21 +150,23 @@ struct task_s *thread_start(
 		lock_release(&parent->child_lock);
 	}
 	thread_create(thread, function, func_arg);
-	printk("[Thread] %s: %#x\n", thread->name, thread);
 
-	if (thread->general_tag.next != NULL) {
-		printk("thread %s:start error!\n", name);
-		while (1)
-			;
-	}
-	list_add_tail(&thread->general_tag, &thread_ready);
-
+	int flags = spin_lock_irqsave(&thread_all_lock);
 	if (list_find(&thread->all_list_tag, &thread_all)) {
-		printk("thread %s:start error!\n", name);
-		while (1)
-			;
+		printk("[Thread Error]%s thread is already in thread_all!\n", name);
+		list_del(&thread->all_list_tag);
 	}
 	list_add_tail(&thread->all_list_tag, &thread_all);
+	spin_unlock_irqrestore(&thread_all_lock, flags);
+
+	flags = spin_lock_irqsave(&thread_ready_lock);
+	if (thread->general_tag.next != NULL) {
+		printk("[Thread Error]%s thread is already in thread_ready!\n", name);
+		list_del(&thread->general_tag);
+	}
+	list_add_tail(&thread->general_tag, &thread_ready);
+	spin_unlock_irqrestore(&thread_ready_lock, flags);
+
 	return thread;
 }
 
@@ -180,34 +184,32 @@ void thread_exit(void) {
 		lock_release(&parent->child_lock);
 	}
 
-	if (cur->general_tag.next != NULL) list_del(&cur->general_tag);
+	/*
+	 * 先从thread_all中删除，再从thread_ready中删除
+	 * 否则一旦被打断切换到其他线程，就无法再调度回来了
+	 */
+	int flags = spin_lock_irqsave(&thread_all_lock);
 	list_del(&cur->all_list_tag);
+	spin_unlock_irqrestore(&thread_all_lock, flags);
+
+	flags = spin_lock_irqsave(&thread_ready_lock);
+	if (cur->general_tag.next != NULL) list_del(&cur->general_tag);
 
 	// 切换线程
-	spin_lock_irqsave(&thread_ready_lock);
-	printk("[Thread Exit] %s, parent:%s,", cur->name, cur->parent->name);
-
 	struct task_s *next;
-	/**
-	 * 其实本来想正常切换到队列中下一个线程的，但不知道为什么会导致父线程无法退出，
-	 * 所以优先切换到父线程。
-	 */
-	if (cur->parent != NULL) {
-		next = cur->parent;
-		if (next->general_tag.next != NULL) { list_del(&cur->general_tag); }
-		cur->ticks = cur->priority;
-	} else {
-		next = list_first_owner(&thread_ready, struct task_s, general_tag);
-		if (next != cur) list_del(&next->general_tag);
-		else {
-			printk("[No ready task!]");
-			next = task_idle;
-		}
+	next = list_first_owner(&thread_ready, struct task_s, general_tag);
+	if (next != cur) list_del(&next->general_tag);
+	else {
+		printk("[Thread Error] No ready task!\n");
+		next = task_idle;
 	}
 
 	// 进程将要退出，不需要恢复中断状态了
 	spin_unlock(&thread_ready_lock);
-	printk("switch to:%s\n", next->name);
+
+	spin_lock(&next->status_lock);
+	if (next->status == TASK_READY) next->status = TASK_RUNNING;
+	spin_unlock(&next->status_lock);
 
 	// 3. 切换线程
 	dead_task = cur;
@@ -246,9 +248,6 @@ void thread_set_status(task_status_t status) {
 
 void thread_wait() {
 	struct task_s *cur_thread = get_current_thread();
-	int			   flags	  = spin_lock_irqsave(&cur_thread->status_lock);
-	task_status_t  status	  = cur_thread->status;
-	spin_unlock_irqrestore(&cur_thread->status_lock, flags);
 
 	while (cur_thread->wait_queue_tag.next != NULL) {
 		schedule();
@@ -269,14 +268,18 @@ void thread_unblock(struct task_s *pthread) {
 	}
 
 	if (pthread->status != TASK_READY) {
+		pthread->status = TASK_READY;
+		spin_unlock(&pthread->status_lock);
+
+		spin_lock(&thread_ready_lock);
 		if (pthread->general_tag.next != NULL) {
 			list_del(&pthread->general_tag);
 		}
 		list_add_before(&pthread->general_tag, thread_ready.next);
-
-		pthread->status = TASK_READY;
+		spin_unlock_irqrestore(&thread_ready_lock, flags);
+	} else {
+		spin_unlock_irqrestore(&pthread->status_lock, flags);
 	}
-	spin_unlock_irqrestore(&pthread->status_lock, flags);
 }
 
 /**
@@ -291,9 +294,8 @@ static void make_main_thread(void) {
 	main_thread->pid = alloc_pid();
 
 	if (list_find(&main_thread->all_list_tag, &thread_all)) {
-		printk("thread main:start error!\n");
-		while (1)
-			;
+		printk("[Thread Error] Main thread is alredy in thread list!\n");
+		list_del(&main_thread->all_list_tag);
 	}
 	list_add_tail(&main_thread->all_list_tag, &thread_all);
 }
@@ -304,8 +306,11 @@ static void make_main_thread(void) {
  */
 void init_task(void) {
 	list_init(&thread_ready);
-	lock_init(&pid_lock);
+	list_init(&thread_all);
 	spinlock_init(&thread_ready_lock);
+	spinlock_init(&thread_all_lock);
+
+	lock_init(&pid_lock);
 	make_main_thread();
 }
 
@@ -330,6 +335,11 @@ void schedule(void) {
 		cur->status = TASK_READY;
 		list_add_tail(&cur->general_tag, &thread_ready);
 		cur->ticks = cur->priority;
+	} else if (cur->status == TASK_INTERRUPTIBLE) {
+		list_add_tail(&cur->general_tag, &thread_ready);
+		cur->ticks = cur->priority;
+	} else {
+		printk("[Thread Status Error] %s:%d\n", cur->name, cur->status);
 	}
 
 	// 2. 获取下一个线程，如果没有则使用idle线程
