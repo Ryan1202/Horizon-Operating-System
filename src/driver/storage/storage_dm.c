@@ -1,4 +1,5 @@
 #include "kernel/spinlock.h"
+#include "kernel/wait_queue.h"
 #include <driver/storage/disk/mbr.h>
 #include <driver/storage/disk/volume.h>
 #include <driver/storage/storage_dm.h>
@@ -53,6 +54,7 @@ DriverResult register_storage_device(
 	device->dm_ext = storage_device;
 	spinlock_init(&storage_device->queue_lock);
 	list_init(&storage_device->io_queue_lh);
+	wait_queue_init(&storage_device->wq);
 
 	string_t name;
 	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);

@@ -5,6 +5,7 @@
 #include "driver/timer_dm.h"
 #include "drivers/bus/pci/pci.h"
 #include "kernel/driver_interface.h"
+#include "kernel/spinlock.h"
 #include "stdint.h"
 
 #define IDE_CONTROLLER_CLASSCODE 0x01
@@ -42,9 +43,10 @@ typedef struct IdeChannelInfo {
 
 	Timer timer;
 
-	int									  selected_device;
-	struct IdeDevice					 *ide_devices[2];
-	struct PhysicalRegionDescriptorTable *prdt;
+	int				  selected_device;
+	struct IdeDevice *ide_devices[2];
+
+	struct AtaDma *dma;
 } IdeChannel;
 
 typedef struct IdeControllerInfo {

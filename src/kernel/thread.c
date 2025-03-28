@@ -53,9 +53,6 @@ static uint32_t alloc_pid(void) {
  * @return struct task_s*
  */
 struct task_s *get_current_thread() {
-	// uint32_t sp;
-	// GET_REG("esp", sp);
-	// return (struct task_s *)(sp & 0xfffff000);
 	return current_task;
 }
 
@@ -343,10 +340,11 @@ void schedule(void) {
 	}
 
 	// 2. 获取下一个线程，如果没有则使用idle线程
-	struct task_s *next =
-		list_first_owner(&thread_ready, struct task_s, general_tag);
-	if (next != cur) list_del(&next->general_tag);
-	else next = task_idle;
+	struct task_s *next;
+	if (!list_empty(&thread_ready)) {
+		next = list_first_owner(&thread_ready, struct task_s, general_tag);
+		list_del(&next->general_tag);
+	} else next = task_idle;
 	// 4. 改变状态并加入到thread_ready
 	next->status = TASK_RUNNING;
 

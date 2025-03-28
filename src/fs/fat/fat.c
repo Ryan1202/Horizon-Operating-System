@@ -3,7 +3,6 @@
 #include "include/cluster.h"
 #include "include/dir.h"
 #include "include/entry.h"
-#include "kernel/console.h"
 #include "math.h"
 #include "objects/handle.h"
 #include <const.h>

@@ -6,6 +6,7 @@
 #include "kernel/list.h"
 #include "kernel/periodic_task.h"
 #include "kernel/spinlock.h"
+#include "kernel/wait_queue.h"
 #include "objects/object.h"
 #include "string.h"
 #include <stdint.h>
@@ -37,10 +38,13 @@ typedef struct StorageDevice {
 
 	uint32_t block_size;
 	size_t	 max_block_per_request;
+	// 虚拟地址连续，而物理地址不连续的情况下，最大的连续段数
+	int		 max_segment;
 
 	spinlock_t	 queue_lock;
 	PeriodicTask periodic_task;
 	list_t		 io_queue_lh;
+	WaitQueue	 wq;
 
 	uint8_t *superblock;
 

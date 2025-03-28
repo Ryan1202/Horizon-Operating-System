@@ -20,8 +20,10 @@
 #include "include/ata.h"
 #include "include/ata_cmd.h"
 #include "include/ata_driver.h"
+#include "include/dma.h"
 #include "include/ide.h"
 #include "include/ide_controller.h"
+#include "kernel/list.h"
 
 DriverResult ide_device_init(Device *device);
 
@@ -66,6 +68,7 @@ Device ide_device_template = {
 StorageDevice storage_device_template = {
 	.block_size			   = SECTOR_SIZE,
 	.max_block_per_request = 256,
+	.max_segment		   = IDE_MAX_PRDT_COUNT,
 	.type				   = STORAGE_DEVICE_TYPE_HARDDISK,
 	.ops				   = &ide_storage_device_ops,
 };
@@ -91,7 +94,9 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
 		if (request->rw == 0) { storage_solve_read_request(request); }
-		if (request->buf != request->real_buf) { kfree(request->real_buf); }
+		// if (request->buf != request->real_buf) { kfree(request->real_buf); }
+		ata_bmdma_unmap_buffer(
+			channel->dma, request->buf, request->count * SECTOR_SIZE);
 	}
 	storage_finish_request(request);
 }
@@ -200,7 +205,15 @@ void ide_device_probe(IdeChannel *channel) {
 		io_out_byte(
 			channel->io_base + ATA_REG_CONTROL,
 			BIN_DIS(data, ATA_CONTROL_NIEN));
-		channel->prdt = kmalloc(sizeof(PhysicalRegionDescriptorTable) * 16);
+
+		channel->dma = kmalloc(sizeof(AtaDma));
+		channel->dma->prds =
+			kmalloc(sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
+		channel->dma->prdt_phy_addr	   = vir2phy((uint32_t)channel->dma->prds);
+		channel->dma->prdt_status	   = 0;
+		channel->dma->max_segment_size = 65536;
+		list_init(&channel->dma->segment_lh);
+
 		interrupt_enable_irq(channel->irq->irq);
 
 		for (i = 0; i < 2; i++) {
@@ -277,50 +290,6 @@ void ide_device_send_pio(IdeDevice *device, uint32_t *buf, uint32_t count) {
 }
 
 /**
- * 配置DMA
- */
-void ide_device_set_dma(IdeDevice *device, StorageRequest *request) {
-	IdeChannel *channel = device->channel;
-
-	PhysicalRegionDescriptorTable *prdt = channel->prdt;
-
-	uint8_t *buffer;
-	buffer			 = (uint32_t)request->buf & 3
-						 ? kmalloc(request->count * SECTOR_SIZE) // 未对齐则另外分配
-						 : request->buf; // 传入的缓冲区已对齐则直接使用
-	size_t left_size = request->count * SECTOR_SIZE;
-	int	   size;
-	request->real_buf = buffer;
-	int		 i		  = 0;
-	uint32_t addr	  = vir2phy((uint32_t)buffer);
-	uint32_t offset;
-	while (left_size > 0 && i < IDE_MAX_PRDT_COUNT) {
-		offset			  = addr & 0xffff; // 缓冲区不能跨越64K边界
-		size			  = MIN(left_size, 0x10000 - offset);
-		prdt[i].base_addr = addr;
-		prdt[i].count	  = size & 0xffff;
-		prdt[i].sign	  = 0;
-		left_size -= size;
-		addr += size;
-		i++;
-	}
-	prdt[i - 1].sign = BIT(15);
-
-	io_out_dword(channel->bmide + IDE_REG_BM_PRDT, vir2phy((uint32_t)prdt));
-
-	uint8_t data;
-	data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
-	data = (request->rw == 0) ? BIN_EN(data, IDE_BMCMD_READ_WRITE)
-							  : BIN_DIS(data, IDE_BMCMD_READ_WRITE);
-	io_out_byte(channel->bmide + IDE_REG_BM_COMMAND, data);
-
-	data = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
-	io_out_byte(
-		channel->bmide + IDE_REG_BM_STATUS,
-		BIN_EN(data, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR));
-}
-
-/**
  * 从设备读取扇区，调用方保证buf与count的合法性
  *
  * lba0 & lba1: lba地址,最大支持48位
@@ -341,10 +310,10 @@ DriverResult ide_device_read_sectors(
 	}
 
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
-		ide_device_set_dma(ide_device, request);
+		ata_bmdma_map_buffer(
+			channel->dma, request->buf, request->count * SECTOR_SIZE);
+		ata_bmdma_set_prdt(ide_device, channel->dma, request->rw);
 	}
-	request->real_buf =
-		(request->real_buf == NULL) ? request->buf : request->real_buf;
 
 	ide_select_device(channel, ide_device->device_num);
 	ide_wait(channel);
@@ -398,8 +367,10 @@ DriverResult ide_device_write_sectors(
 	}
 
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
-		ide_device_set_dma(ide_device, request);
 		storage_solve_write_request(request);
+		ata_bmdma_map_buffer(
+			channel->dma, request->buf, request->count * SECTOR_SIZE);
+		ata_bmdma_set_prdt(ide_device, channel->dma, request->rw);
 	}
 
 	ide_select_device(channel, ide_device->device_num);

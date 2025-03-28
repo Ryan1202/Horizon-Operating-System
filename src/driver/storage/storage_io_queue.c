@@ -1,7 +1,7 @@
 #include "kernel/block_cache.h"
 #include "kernel/rwlock.h"
 #include "kernel/spinlock.h"
-#include "kernel/thread.h"
+#include "kernel/wait_queue.h"
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
 #include <kernel/list.h>
@@ -137,7 +137,8 @@ void storage_finish_request(StorageRequest *storage_request) {
 			req				 = req->next_merged_request;
 		}
 	}
-	thread_unblock(storage_request->thread);
+	wait_queue_wakeup_thread(
+		&storage_request->storage_device->wq, storage_request->thread);
 }
 
 void storage_submit_request(StorageRequest *request) {
@@ -162,14 +163,10 @@ void storage_solve_read_request(StorageRequest *request) {
 			uint32_t offset =
 				(req->position - start) * request->storage_device->block_size;
 			memcpy(
-				req->buf, request->real_buf + offset,
+				req->buf, request->buf + offset,
 				req->count * req->storage_device->block_size);
 			req = req->next_merged_request;
 		}
-	} else if (request->buf != request->real_buf) {
-		memcpy(
-			request->buf, request->real_buf,
-			request->count * request->storage_device->block_size);
 	}
 }
 
@@ -182,13 +179,9 @@ void storage_solve_write_request(StorageRequest *request) {
 				(req->position - start) * request->storage_device->block_size;
 			// 写入需要分先后，由于合并请求时已经按顺序排列了，直接覆盖就好
 			memcpy(
-				request->real_buf + offset, req->buf,
+				request->buf + offset, req->buf,
 				req->count * req->storage_device->block_size);
 			req = req->next_merged_request;
 		}
-	} else if (request->buf != request->real_buf) {
-		memcpy(
-			request->real_buf, request->buf,
-			request->count * request->storage_device->block_size);
 	}
 }

@@ -36,12 +36,6 @@ typedef struct IdeDevice {
 	AtaCmdIndex cmdset[ATA_CMDSET_MAX];
 } IdeDevice;
 
-typedef struct PhysicalRegionDescriptorTable {
-	uint32_t base_addr;
-	uint16_t count;
-	uint16_t sign;
-} __attribute__((packed)) PhysicalRegionDescriptorTable;
-
 extern struct DeviceDriver ide_device_driver;
 
 void ide_channel0_handler(struct Device *device);

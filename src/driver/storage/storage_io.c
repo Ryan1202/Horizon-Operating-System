@@ -2,6 +2,7 @@
  * 默认的存储设备IO实现
  */
 #include "kernel/device.h"
+#include "kernel/driver.h"
 #include "kernel/thread.h"
 #include "multiple_return.h"
 #include "stdint.h"
@@ -94,14 +95,22 @@ TransferResult storage_transfer(
 
 	StorageRequest *request;
 	StorageDevice  *storage_device = device->dm_ext;
+
 	thread_set_status(TASK_INTERRUPTIBLE);
-	storage_generate_request(
+	wait_queue_add(&storage_device->wq);
+
+	DriverResult result = storage_generate_request(
 		storage_device, (direction == TRANSFER_IN) ? 0 : 1, buf, position,
 		count, &request);
+	if (result != DRIVER_RESULT_OK) {
+		wait_queue_del(&storage_device->wq);
+		return TRANSFER_ERROR_FAILED;
+	}
 
 	thread_wait();
 	while (!request->is_finished) {
 		thread_set_status(TASK_INTERRUPTIBLE);
+		wait_queue_add(&storage_device->wq);
 		thread_wait();
 	}
 

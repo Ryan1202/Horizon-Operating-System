@@ -44,7 +44,7 @@ void dma_init() {
 	memset(dma_mem_mmap.bits, 0, dma_mem_mmap.len);
 }
 
-void *dma_alloc_region(void *dma, uint32_t size) {
+void *dma_alloc_region(Dma *dma, uint32_t size) {
 	int cnt = DIV_ROUND_UP(size, 64 * 1024);
 	int idx = mmap_search(&dma_mem_mmap, cnt);
 	if (idx == -1) return NULL;
@@ -55,7 +55,7 @@ void *dma_alloc_region(void *dma, uint32_t size) {
 	return (void *)(DMA_MEM_BASE_ADDR + idx * DMA_REGION_SIZE);
 }
 
-DriverResult dma_free_region(void *dma, void *ptr, uint32_t size) {
+DriverResult dma_free_region(Dma *dma, void *ptr, uint32_t size) {
 	int cnt = DIV_ROUND_UP(size, 64 * 1024);
 	int idx = ((uint32_t)ptr - DMA_MEM_BASE_ADDR) / DMA_REGION_SIZE;
 	for (int i = 0; i < cnt; i++) {

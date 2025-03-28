@@ -12,11 +12,16 @@
 #define _DMA_H
 
 #include "kernel/driver.h"
+#include "kernel/list.h"
 #include <stdint.h>
 
+struct Dma;
 typedef struct DmaOps {
-	void *(*dma_alloc)(void *dma, uint32_t size);
-	DriverResult (*dma_free)(void *dma, void *ptr, uint32_t size);
+	void *(*dma_alloc)(struct Dma *dma, uint32_t size);
+	DriverResult (*dma_free)(struct Dma *dma, void *ptr, uint32_t size);
+
+	DriverResult (*dma_map_buffer)(struct Dma *dma, void *ptr, uint32_t size);
+	DriverResult (*dma_unmap_buffer)(struct Dma *dma, void *ptr, uint32_t size);
 } DmaOps;
 
 typedef struct Dma {
@@ -24,5 +29,15 @@ typedef struct Dma {
 	DmaOps *ops;
 	void   *param;
 } Dma;
+
+typedef struct DmaSegment {
+	list_t list;
+	size_t vaddr;
+	size_t addr;
+	size_t size;
+} DmaSegment;
+
+DriverResult dma_split_mem(
+	list_t *lh, void *ptr, uint32_t size, int max_segment_size);
 
 #endif

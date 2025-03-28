@@ -62,9 +62,9 @@ bool dyn_array_is_end(
 	struct DynArrayBlock *_block		= (arr)->first_block;         \
 	int					  _block_index	= 0;                          \
 	int					  _block_offset = 0;                          \
-	for (var = *((type *)_block->data);                               \
+	for (var = ((type *)_block->data);                                \
 		 !dyn_array_is_end(arr, _block, _block_index, _block_offset); \
-		 var = *((type *)dyn_array_next_ptr(                          \
+		 var = ((type *)dyn_array_next_ptr(                           \
 			 arr, &_block, &_block_index, &_block_offset)))
 
 #endif

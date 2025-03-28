@@ -219,12 +219,14 @@ void unmap(uint32_t vaddr, size_t size) {
  *
  * @return int 虚拟页地址
  */
-int alloc_vir_page(void) {
+int alloc_vir_pages(int count) {
 	int idx;
 	int vir_addr;
-	idx = mmap_search(&vir_page_mmap, 1);
+	idx = mmap_search(&vir_page_mmap, count);
 	if (idx != -1) {
-		mmap_set(&vir_page_mmap, idx, 1);
+		for (int i = 0; i < count; i++) {
+			mmap_set(&vir_page_mmap, idx + i, 1);
+		}
 	} else {
 		return -1;
 	}
@@ -262,30 +264,24 @@ void *kernel_alloc_pages(int pages) {
 	int old_status = io_load_eflags();
 	io_cli();
 
-	vir_page_addr = alloc_vir_page(); // 分配一个虚拟地址的页
-
+	vir_page_addr = alloc_vir_pages(pages); // 分配一个虚拟地址的页
+	if (vir_page_addr < 0) return NULL;
 	fill_vir_page_table(
 		vir_page_addr,
 		SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
 
-	if (pages == 1) { // 如果只有一个页
-		memset((void *)vir_page_addr, 0, PAGE_SIZE);
-
-		io_store_eflags(old_status);
-		return (void *)vir_page_addr;
-	} else if (pages > 1) {
-		for (i = 1; i < pages; i++) {
-			vir_page_addr_more = alloc_vir_page(); // 分配一个虚拟地址的页
-			fill_vir_page_table(
-				vir_page_addr_more,
-				SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
-		}
-		memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
-		io_store_eflags(old_status);
-
-		return (void *)vir_page_addr;
+	vir_page_addr_more = vir_page_addr + PAGE_SIZE; // 分配一个虚拟地址的页
+	for (i = 1; i < pages; i++) {
+		fill_vir_page_table(
+			vir_page_addr_more,
+			SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
+		vir_page_addr_more += PAGE_SIZE;
 	}
-	return NULL;
+
+	memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
+	io_store_eflags(old_status);
+
+	return (void *)vir_page_addr;
 }
 
 /**

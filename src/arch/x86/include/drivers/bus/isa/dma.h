@@ -73,8 +73,8 @@
 extern DmaOps isa_dma_ops;
 
 void		 dma_init();
-void		*dma_alloc_region(void *dma, uint32_t size);
-DriverResult dma_free_region(void *dma, void *ptr, uint32_t size);
+void		*dma_alloc_region(Dma *dma, uint32_t size);
+DriverResult dma_free_region(Dma *dma, void *ptr, uint32_t size);
 
 struct Device;
 int	 dma_channel_use(struct Device *device, int *possible_ch, int len);

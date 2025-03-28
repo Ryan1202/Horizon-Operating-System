@@ -5,7 +5,6 @@
  * @version 0.3
  * @date 2022-07-20
  */
-#include "kernel/sync.h"
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/bus_driver.h>

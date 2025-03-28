@@ -6,7 +6,6 @@
  * @date 2020-07
  */
 #include "kernel/driver_interface.h"
-#include "kernel/func.h"
 #include "kernel/list.h"
 #include <kernel/ards.h>
 #include <kernel/console.h>
@@ -222,13 +221,10 @@ void *kmalloc(uint32_t size) {
 
 	if (size == 0) { return NULL; }
 
-	int pow = MAX(aligned_log2n(size), MEMORY_MIN_POW); // 指数
-	size	= 1 << pow;
-
 	int flags = save_and_disable_interrupt(); // TODO
 	// 大于半个页就按页分配
 	if (size > 2048) {
-		int pages = size & ~(PAGE_SIZE - 1); // 一共占多少个页
+		int pages = (size + PAGE_SIZE - 1) >> 12; // 一共占多少个页
 		int index = find_free_block(memory_manage);
 		if (index == -1) {
 			store_interrupt_status(flags);
@@ -245,7 +241,9 @@ void *kmalloc(uint32_t size) {
 		memory_manage->free_blocks[index].mode	= MEMORY_BLOCK_MODE_BIG;
 		store_interrupt_status(flags);
 		return (void *)address;
-	} else if (0 < size && size <= 2048) { // size <= 2048
+	} else if (0 < size && size <= 2048) {					// size <= 2048
+		int pow = MAX(aligned_log2n(size), MEMORY_MIN_POW); // 指数
+		size	= 1 << pow;
 		// 第一次寻找，如果在块中没有找到，就打散一个页
 		if (!list_empty(
 				&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW])) {

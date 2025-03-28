@@ -58,6 +58,17 @@ void wait_queue_add(WaitQueue *wq) {
 	spin_unlock_irqrestore(&wq->lock, flags);
 }
 
+void wait_queue_del(WaitQueue *wq) {
+	struct task_s *task = get_current_thread();
+	if (task->wait_queue_tag.next != NULL) {
+		printk("Error:Current thread(pid:%d) is in wait queue!\n", task->pid);
+		list_del(&task->wait_queue_tag);
+	}
+	int flags = spin_lock_irqsave(&wq->lock);
+	if (task->wait_queue_tag.next != NULL) list_del(&task->wait_queue_tag);
+	spin_unlock_irqrestore(&wq->lock, flags);
+}
+
 /**
  * @brief 获取等待队列中的第一个任务
  *
@@ -69,22 +80,29 @@ struct task_s *wait_queue_first(WaitQueue *wqm) {
 	return list_first_owner(&wqm->list_head, struct task_s, wait_queue_tag);
 }
 
+void wait_queue_wakeup_thread(WaitQueue *wq, struct task_s *thread) {
+	int flags = spin_lock_irqsave(&wq->lock);
+
+	list_del(&thread->wait_queue_tag);
+
+	if (thread != get_current_thread()) thread_unblock(thread);
+
+	spin_unlock_irqrestore(&wq->lock, flags);
+	return;
+}
+
 /**
  * @brief 唤醒等待队列中的第一个任务
  *
  * @param wqm 等待队列管理结构
  */
-void wait_queue_wakeup(WaitQueue *wqm) {
-	if (list_empty(&wqm->list_head)) { return; }
+void wait_queue_wakeup(WaitQueue *wq) {
+	if (list_empty(&wq->list_head)) { return; }
 	struct task_s *thread =
-		list_first_owner(&wqm->list_head, struct task_s, wait_queue_tag);
-	int flags = spin_lock_irqsave(&wqm->lock);
+		list_first_owner(&wq->list_head, struct task_s, wait_queue_tag);
 
-	list_del(&thread->wait_queue_tag);
+	wait_queue_wakeup_thread(wq, thread);
 
-	thread_unblock(thread);
-
-	spin_unlock_irqrestore(&wqm->lock, flags);
 	return;
 }
 
@@ -93,13 +111,13 @@ void wait_queue_wakeup(WaitQueue *wqm) {
  *
  * @param wqm 等待队列管理结构
  */
-void wait_queue_wakeup_all(WaitQueue *wqm) {
-	if (list_empty(&wqm->list_head)) { return; }
+void wait_queue_wakeup_all(WaitQueue *wq) {
+	if (list_empty(&wq->list_head)) { return; }
 	struct task_s *cur, *next;
 	struct task_s *thread;
 
-	int old_status = spin_lock_irqsave(&wqm->lock);
-	list_for_each_owner_safe (cur, next, &wqm->list_head, wait_queue_tag) {
+	int old_status = spin_lock_irqsave(&wq->lock);
+	list_for_each_owner_safe (cur, next, &wq->list_head, wait_queue_tag) {
 		thread = cur;
 		list_del(&cur->wait_queue_tag);
 
@@ -107,6 +125,6 @@ void wait_queue_wakeup_all(WaitQueue *wqm) {
 		schedule();
 	}
 
-	spin_unlock_irqrestore(&wqm->lock, old_status);
+	spin_unlock_irqrestore(&wq->lock, old_status);
 	return;
 }

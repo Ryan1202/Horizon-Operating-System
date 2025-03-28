@@ -204,11 +204,11 @@ FsResult fat_cluster_list_get(
 
 	int counter = index;
 
-	ClusterSegment clus_seg;
+	ClusterSegment *clus_seg;
 	dyn_array_foreach(arr, ClusterSegment, clus_seg) {
-		int length = clus_seg.end - clus_seg.start + 1;
+		int length = clus_seg->end - clus_seg->start + 1;
 		if (counter < length) {
-			cur_cluster->cluster = clus_seg.start + counter;
+			cur_cluster->cluster = clus_seg->start + counter;
 			cur_cluster->offset	 = _block_offset;
 			cur_cluster->block	 = _block;
 			cur_cluster->index	 = index;

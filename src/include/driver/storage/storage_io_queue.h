@@ -11,8 +11,7 @@ typedef struct StorageRequest {
 
 	list_t		   list;
 	bool		   rw;
-	uint8_t		  *buf;		 // 调用方传入的缓冲区
-	uint8_t		  *real_buf; // 实际读写时使用的缓冲区
+	uint8_t		  *buf;
 	uint64_t	   position;
 	uint32_t	   count;
 	bool		   is_finished;

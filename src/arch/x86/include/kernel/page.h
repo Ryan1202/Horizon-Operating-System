@@ -34,7 +34,7 @@ uint32_t	*pde_ptr(uint32_t vaddr);
 uint32_t	 vir2phy(uint32_t vaddr);
 MemoryResult remap(uint32_t in_paddr, size_t in_size, uint32_t *out_vaddr);
 void		 unmap(uint32_t vaddr, size_t size);
-int			 alloc_vir_page(void);
+int			 alloc_vir_pages(int count);
 int			 free_vir_page(int vir_addr);
 void		*kernel_alloc_pages(int pages);
 void		 kernel_free_page(int vaddr, int pages);
