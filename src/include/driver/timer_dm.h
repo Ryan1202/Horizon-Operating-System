@@ -65,5 +65,6 @@ void		 delay_ms(Timer *timer, uint32_t ms);
 void		 delay_ms_async(Timer *timer, uint32_t ms);
 bool		 timer_is_timeout(Timer *timer);
 DriverResult timer_set_timeout(Timer *timer, uint32_t count);
+size_t		 timer_get_counter();
 
 #endif

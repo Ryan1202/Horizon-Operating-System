@@ -89,17 +89,17 @@ void thread_play(void *arg) {
 			size_t	 count = 2 * 64;
 			size_t	 size  = 4 * 1024 * 1024;
 			uint8_t *buf   = kmalloc(19 * 1024 * 1024);
+			uint32_t t0, t1;
 			for (int i = 0; i < size / 1024 / 1024; i++) {
-				printk("%dMB ", i);
-				for (int j = 0; j < 8; j++) {
-					TransferResult result = TRANSFER_IN_STREAM(
-						file, handle, buf + (i * 16 + j) * 32 * 1024,
-						32 * 1024);
-					if (result != TRANSFER_OK) {
-						printk("Transfer Error!\n");
-						thread_exit();
-					}
+				t0					  = timer_get_counter();
+				TransferResult result = TRANSFER_IN_STREAM(
+					file, handle, buf + i * 1024 * 1024, 1024 * 1024);
+				if (result != TRANSFER_OK) {
+					printk("Transfer Error!\n");
+					thread_exit();
 				}
+				t1 = timer_get_counter();
+				printk("%d KB/s", 1024 * 1000 / (t1 - t0));
 			}
 			for (int i = 0; i < count; i++) {
 				//  io_cli();
@@ -147,7 +147,7 @@ int main() {
 	do_initcalls();
 	driver_start_all();
 
-	// thread_start("play", 100, thread_play, NULL, NULL);
+	thread_start("play", 100, thread_play, NULL, NULL);
 
 	// const string_t name = STRING_INIT("A folder");
 	// obj_rmdir(object, name);
@@ -211,6 +211,7 @@ int main() {
 
 	console_start();
 
+	thread_exit();
 	for (;;) {
 		io_hlt();
 	}

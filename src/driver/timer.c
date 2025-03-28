@@ -1,3 +1,4 @@
+#include "stdint.h"
 #include <driver/timer_dm.h>
 #include <kernel/driver.h>
 #include <kernel/thread.h>
@@ -62,4 +63,8 @@ void set_periodic_ms(Timer *timer, uint32_t ms) {
 
 bool timer_is_timeout(Timer *timer) {
 	return timer->timeout == 0;
+}
+
+size_t timer_get_counter() {
+	return ((TimerDevice *)timer_dm_ext.scheduler_timer->dm_ext)->counter;
 }
