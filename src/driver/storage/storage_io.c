@@ -58,7 +58,8 @@ DriverResult storage_generate_request(
 		request->thread				 = cur_thread;
 
 		// 分配或指向原始缓冲区中对应的部分
-		request->buf = buf + i * device->max_block_per_request;
+		request->buf =
+			buf + i * device->max_block_per_request * device->block_size;
 
 		storage_add_request(device, request);
 
