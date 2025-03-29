@@ -237,7 +237,7 @@ void *kmalloc(uint32_t size) {
 		}
 		memory_manage->free_blocks[index].address = (uint32_t)address;
 		memory_manage->free_blocks[index].size = pages; // 大小是页的数量
-		memory_manage->free_blocks[index].flags = MEMORY_BLOCK_USING;
+		memory_manage->free_blocks[index].flags = MEMORY_BLOCK_ALLOCATED;
 		memory_manage->free_blocks[index].mode	= MEMORY_BLOCK_MODE_BIG;
 		store_interrupt_status(flags);
 		return (void *)address;
@@ -251,7 +251,7 @@ void *kmalloc(uint32_t size) {
 				&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW],
 				struct memory_block, list);
 			address		 = (void *)block->address;
-			block->flags = MEMORY_BLOCK_USING;
+			block->flags = MEMORY_BLOCK_ALLOCATED;
 			list_del(&block->list);
 			store_interrupt_status(flags);
 			return (void *)address;
@@ -292,7 +292,7 @@ int kfree(void *address) {
 	int flags = save_and_disable_interrupt();
 	for (i = 0; i < MEMORY_BLOCKS; i++) {
 		block = &memory_manage->free_blocks[i];
-		if (block->address == addr && block->flags == MEMORY_BLOCK_USING) {
+		if (block->address == addr && block->flags == MEMORY_BLOCK_ALLOCATED) {
 			if (block->mode == MEMORY_BLOCK_MODE_BIG) {
 				kernel_free_page(block->address, block->size);
 				block->flags = MEMORY_BLOCK_FREE;
