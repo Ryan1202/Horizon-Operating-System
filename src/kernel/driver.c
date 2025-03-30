@@ -195,8 +195,6 @@ void driver_start_thread(void *arg) {
 	thread_wait_children(cur);
 }
 
-// TODO:PCI检测完设备后，设备有概率未初始化直接结束
-
 DriverResult driver_start_all(void) {
 	Driver *driver;
 

@@ -78,34 +78,27 @@ void thread_play(void *arg) {
 			ObjectHandle *handle = object_handle_create(file);
 			PcmDevice	 *pcm;
 			PcmStream	 *stream;
-			//  sound_pcm_open(object, SOUND_DEVICE_MODE_PLAY, &pcm, &stream);
-			//  sound_pcm_alloc(stream);
-			//  pcm_set_sample_rate(pcm, 44100);
-			//  pcm_set_channel(stream, 2);
-			//  sound_pcm_set_frame_count(stream, 4 * 1024);
-			//  sound_pcm_prepare(stream);
-			ObjectAttr	  attr;
+			sound_pcm_open(object, SOUND_DEVICE_MODE_PLAY, &pcm, &stream);
+			sound_pcm_alloc(stream);
+			pcm_set_sample_rate(pcm, 44100);
+			pcm_set_channel(stream, 2);
+			sound_pcm_set_frame_count(stream, 4 * 1024);
+			sound_pcm_prepare(stream);
+			ObjectAttr attr;
 			obj_get_attr(file, &attr);
-			size_t	 count = 2 * 64;
-			size_t	 size  = 4 * 1024 * 1024;
+			size_t	 count = 16 * 64;
+			size_t	 size  = 18 * 1024 * 1024;
 			uint8_t *buf   = kmalloc(19 * 1024 * 1024);
-			uint32_t t0, t1;
 			for (int i = 0; i < size / 1024 / 1024; i++) {
-				t0					  = timer_get_counter();
 				TransferResult result = TRANSFER_IN_STREAM(
 					file, handle, buf + i * 1024 * 1024, 1024 * 1024);
 				if (result != TRANSFER_OK) {
 					printk("Transfer Error!\n");
 					thread_exit();
 				}
-				t1 = timer_get_counter();
-				printk("%d KB/s", 1024 * 1000 / (t1 - t0));
 			}
 			for (int i = 0; i < count; i++) {
-				//  io_cli();
-				printk("%d ", i);
-				//  io_sti();
-				//  sound_pcm_write(stream, buf, 4 * 1024);
+				sound_pcm_write(stream, buf, 4 * 1024);
 				buf += 16 * 1024;
 			}
 		}
@@ -147,7 +140,7 @@ int main() {
 	do_initcalls();
 	driver_start_all();
 
-	thread_start("play", 100, thread_play, NULL, NULL);
+	// thread_start("play", 100, thread_play, NULL, NULL);
 
 	// const string_t name = STRING_INIT("A folder");
 	// obj_rmdir(object, name);

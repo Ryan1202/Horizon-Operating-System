@@ -34,6 +34,12 @@ DriverResult sb16_play_prepare(
 DriverResult sb16_play_trigger(PcmStream *stream, PcmTrigger trigger);
 size_t		 sb16_play_position(PcmStream *stream);
 
+DriverResult sb16_record_open(SoundDevice *sound_device, PcmStream *stream);
+DriverResult sb16_record_prepare(
+	struct PcmStream *stream, void *addr, size_t size);
+DriverResult sb16_record_trigger(PcmStream *stream, PcmTrigger trigger);
+size_t		 sb16_record_position(PcmStream *stream);
+
 DeviceDriverOps sb16_device_driver_ops = {
 	.device_driver_init	  = NULL,
 	.device_driver_uninit = NULL,
@@ -66,9 +72,10 @@ PcmStreamOps sb16_pcm_play_ops = {
 	.set_channel		= sb16_pcm_set_channel,
 };
 PcmStreamOps sb16_pcm_record_ops = {
-	.open	 = NULL,
+	.open	 = sb16_record_open,
 	.close	 = NULL,
-	.prepare = NULL,
+	.prepare = sb16_record_prepare,
+	.trigger = sb16_record_trigger,
 
 	.set_default_params = sb16_pcm_set_default_params,
 	.set_data_type		= sb16_pcm_set_data_type,
@@ -386,6 +393,55 @@ DriverResult sb16_play_trigger(PcmStream *stream, PcmTrigger trigger) {
 size_t sb16_play_position(PcmStream *stream) {
 	Sb16Info *info = (Sb16Info *)stream->sound_device->device->private_data;
 	return dma_pointer(info->dma_channel, stream->pcm->buffer_bytes);
+}
+
+DriverResult sb16_record_open(SoundDevice *sound_device, PcmStream *stream) {
+	Sb16Info *info	  = (Sb16Info *)sound_device->device->private_data;
+	info->dma_channel = dma_channel_use(
+		sound_device->device, (int *)sb16_possible_dmas,
+		sizeof(sb16_possible_dmas) / sizeof(int));
+
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult sb16_record_prepare(PcmStream *stream, void *addr, size_t size) {
+	Sb16Info *info = (Sb16Info *)stream->sound_device->device->private_data;
+	struct Sb16StreamInfo *stream_info = stream->private_data;
+
+	sb16_setup_dma(
+		info, info->dma_channel,
+		DMA_MODE_SINGLE | DMA_MODE_AUTO | DMA_MODE_READ, (uint32_t)addr, size);
+
+	uint16_t sample_count = stream->period_bytes >> 1;
+	sample_count--;
+
+	int flags = spin_lock_irqsave(&info->lock);
+	sb16_write(
+		&info->ports, TRANSFER_16BIT | TRANSFER_RECORD | TRANSFER_AUTOINIT);
+	sb16_write(&info->ports, stream_info->data_type);
+	sb16_write(&info->ports, (uint8_t)sample_count);
+	sb16_write(&info->ports, (uint8_t)(sample_count >> 8));
+	sb16_write(&info->ports, CMD_STOP_PLAY16);
+	spin_unlock_irqrestore(&info->lock, flags);
+
+	return DRIVER_RESULT_OK;
+}
+
+DriverResult sb16_record_trigger(PcmStream *stream, PcmTrigger trigger) {
+	Sb16Info *info = (Sb16Info *)stream->sound_device->device->private_data;
+	switch (trigger) {
+	case PCM_TRIGGER_START:
+	case PCM_TRIGGER_RESUME:
+		sb16_write(&info->ports, CMD_RESUME_PLAY16);
+		break;
+	case PCM_TRIGGER_STOP:
+	case PCM_TRIGGER_PAUSE:
+		sb16_write(&info->ports, CMD_STOP_PLAY16);
+		break;
+	case PCM_TRIGGER_NONE:
+		return DRIVER_RESULT_OTHER_ERROR;
+	}
+	return DRIVER_RESULT_OK;
 }
 
 static void __init sb16_driver_entry(void) {

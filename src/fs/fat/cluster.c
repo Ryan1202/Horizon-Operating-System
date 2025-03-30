@@ -255,7 +255,6 @@ uint32_t get_remaining_continuous_clusters(
 	uint32_t		current = cur_cluster->cluster;
 	ClusterSegment *seg =
 		&((ClusterSegment *)cur_cluster->block->data)[cur_cluster->offset];
-	// TODO:获取下一个簇段
 	if (seg->end == current) {
 		FsResult result = fat_cluster_list_get_next(
 			fat_info, cur_cluster->entry, cur_cluster);

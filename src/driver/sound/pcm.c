@@ -150,13 +150,6 @@ int sound_pcm_left_space(PcmStream *stream) {
 	return left_space;
 }
 
-DriverResult sound_pcm_read(
-	PcmStream *stream, uint8_t *buf, uint32_t frame_count) {
-	// if (size > stream->pcm->max_size) return DRIVER_RESULT_EXCEED_MAX_SIZE;
-	// memcpy(buf, stream->buf, size);
-	return DRIVER_RESULT_OK;
-}
-
 void pcm_interleaved2noninterleaved(
 	PcmStream *stream, uint8_t *in, uint8_t *out, uint32_t frame_count) {
 	PcmDevice *pcm = stream->pcm;
@@ -198,7 +191,7 @@ void pcm_noninterleaved2interleaved(
 	}
 }
 
-DriverResult sound_pcm_write_interleaved(
+DriverResult sound_pcm_copy_interleaved(
 	PcmStream *stream, uint8_t *dst, uint8_t *src, uint32_t frame_count) {
 	if (frame_count > stream->frame_per_period)
 		return DRIVER_RESULT_EXCEED_MAX_SIZE;
@@ -213,7 +206,7 @@ DriverResult sound_pcm_write_interleaved(
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult sound_pcm_write_noninterleaved(
+DriverResult sound_pcm_copy_noninterleaved(
 	PcmStream *stream, uint8_t *dst, uint8_t *src, uint32_t frame_count) {
 	if (stream->hw_mode == PCM_MODE_NONINTERLEAVED) {
 		// 模式相同，直接复制
@@ -226,43 +219,48 @@ DriverResult sound_pcm_write_noninterleaved(
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult sound_pcm_write(
-	PcmStream *stream, uint8_t *buf, uint32_t frame_count) {
+DriverResult pcm_transfer(
+	PcmStream *stream, uint8_t *user_buf, uint8_t *dma_buf,
+	uint32_t frame_count, TransferDirection direction) {
 	PcmDevice *pcm = stream->pcm;
 	uint32_t   count;
-	uint8_t	  *dst, *src = buf;
+	uint8_t	  *user_buf_cur = user_buf, *dma_buf_cur = dma_buf;
+	uint8_t	  *src, *dst;
 
 	int flags	   = spin_lock_irqsave(&stream->lock);
 	int left_space = sound_pcm_left_space(stream);
 
-	size_t writed = 0;
+	size_t done = 0;
 	size_t size, left_size = frame_count * stream->frame_bytes;
 	while (left_size > 0) {
 		while (left_space == 0) {
-			wait_queue_add(&stream->wq);
 			thread_set_status(TASK_INTERRUPTIBLE);
+			wait_queue_add(&stream->wq);
 			spin_unlock_irqrestore(&stream->lock, flags);
 
-			schedule();
+			thread_wait();
 
 			spin_lock_irqsave(&stream->lock);
 			left_space = sound_pcm_left_space(stream);
 		}
-		dst	 = pcm->buf + stream->host_ptr;
-		size = MIN(left_space, left_size);
-		size = MIN(size, pcm->buffer_bytes - stream->host_ptr);
+		dma_buf_cur = dma_buf + stream->host_ptr;
+		size		= MIN(left_space, left_size);
+		size		= MIN(size, pcm->buffer_bytes - stream->host_ptr);
 		spin_unlock_irqrestore(&stream->lock, flags);
 
 		count = size / stream->frame_bytes;
+
+		src = (direction == TRANSFER_IN) ? dma_buf_cur : user_buf_cur;
+		dst = (direction == TRANSFER_IN) ? user_buf_cur : dma_buf_cur;
 		if (stream->user_mode == PCM_MODE_INTERLEAVED) {
-			sound_pcm_write_interleaved(stream, dst, src, count);
+			sound_pcm_copy_interleaved(stream, dst, src, count);
 		} else {
-			sound_pcm_write_noninterleaved(stream, dst, src, count);
+			sound_pcm_copy_noninterleaved(stream, dst, src, count);
 		}
-		src += size;
+		user_buf_cur += size;
 		left_space -= size;
 		left_size -= size;
-		writed += count;
+		done += count;
 
 		flags = spin_lock_irqsave(&stream->lock);
 		stream->host_ptr += size;
@@ -275,7 +273,8 @@ DriverResult sound_pcm_write(
 			}
 		}
 	}
-	if (writed > 0) {
+	if ((direction == TRANSFER_OUT && done > 0) ||
+		(direction == TRANSFER_IN && done < frame_count)) {
 		if ((pcm->status == PCM_STATUS_PREPARED ||
 			 pcm->status == PCM_STATUS_PAUSED)) {
 			if (sound_pcm_left_space(stream) >= stream->start_threshold) {
@@ -288,9 +287,84 @@ DriverResult sound_pcm_write(
 		stream->host_period_ptr = stream->host_ptr_base + position;
 	}
 	spin_unlock_irqrestore(&stream->lock, flags);
-	if (writed < frame_count) { return DRIVER_RESULT_BUSY; };
+	if (done < frame_count) { return DRIVER_RESULT_BUSY; };
 
 	return DRIVER_RESULT_OK;
+}
+
+DriverResult sound_pcm_read(
+	PcmStream *stream, uint8_t *buf, uint32_t frame_count) {
+	return pcm_transfer(
+		stream, buf, stream->pcm->buf, frame_count, TRANSFER_IN);
+}
+
+DriverResult sound_pcm_write(
+	PcmStream *stream, uint8_t *buf, uint32_t frame_count) {
+	return pcm_transfer(
+		stream, buf, stream->pcm->buf, frame_count, TRANSFER_OUT);
+	// PcmDevice *pcm = stream->pcm;
+	// uint32_t   count;
+	// uint8_t	  *dst, *src = buf;
+
+	// int flags	   = spin_lock_irqsave(&stream->lock);
+	// int left_space = sound_pcm_left_space(stream);
+
+	// size_t writed = 0;
+	// size_t size, left_size = frame_count * stream->frame_bytes;
+	// while (left_size > 0) {
+	// 	while (left_space == 0) {
+	// 		thread_set_status(TASK_INTERRUPTIBLE);
+	// 		wait_queue_add(&stream->wq);
+	// 		spin_unlock_irqrestore(&stream->lock, flags);
+
+	// 		thread_wait();
+
+	// 		spin_lock_irqsave(&stream->lock);
+	// 		left_space = sound_pcm_left_space(stream);
+	// 	}
+	// 	dst	 = pcm->buf + stream->host_ptr;
+	// 	size = MIN(left_space, left_size);
+	// 	size = MIN(size, pcm->buffer_bytes - stream->host_ptr);
+	// 	spin_unlock_irqrestore(&stream->lock, flags);
+
+	// 	count = size / stream->frame_bytes;
+	// 	if (stream->user_mode == PCM_MODE_INTERLEAVED) {
+	// 		sound_pcm_copy_interleaved(stream, dst, src, count);
+	// 	} else {
+	// 		sound_pcm_copy_noninterleaved(stream, dst, src, count);
+	// 	}
+	// 	src += size;
+	// 	left_space -= size;
+	// 	left_size -= size;
+	// 	writed += count;
+
+	// 	flags = spin_lock_irqsave(&stream->lock);
+	// 	stream->host_ptr += size;
+
+	// 	if (stream->host_ptr >= pcm->buffer_bytes) {
+	// 		stream->host_ptr -= pcm->buffer_bytes;
+	// 		stream->host_ptr_base += pcm->buffer_bytes;
+	// 		if (stream->host_ptr_base > pcm->boundary) {
+	// 			stream->host_ptr_base = 0;
+	// 		}
+	// 	}
+	// }
+	// if (writed > 0) {
+	// 	if ((pcm->status == PCM_STATUS_PREPARED ||
+	// 		 pcm->status == PCM_STATUS_PAUSED)) {
+	// 		if (sound_pcm_left_space(stream) >= stream->start_threshold) {
+	// 			stream->ops->trigger(stream, PCM_TRIGGER_START);
+	// 			pcm->status = PCM_STATUS_RUNNING;
+	// 		}
+	// 	}
+	// 	int position = stream->host_ptr;
+	// 	position -= position % stream->period_bytes;
+	// 	stream->host_period_ptr = stream->host_ptr_base + position;
+	// }
+	// spin_unlock_irqrestore(&stream->lock, flags);
+	// if (writed < frame_count) { return DRIVER_RESULT_BUSY; };
+
+	// return DRIVER_RESULT_OK;
 }
 
 DriverResult sound_pcm_prepare(PcmStream *stream) {

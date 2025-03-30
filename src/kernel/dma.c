@@ -16,7 +16,6 @@ DriverResult dma_split_mem(
 	size_t		seg_start_vaddr;
 	size_t		page_addr;
 
-	// TODO:未对齐的页
 	for (; addr < end_addr; addr += tmp_size) {
 		phy_addr  = vir2phy(addr);
 		page_addr = phy_addr & ~(PAGE_SIZE - 1);
