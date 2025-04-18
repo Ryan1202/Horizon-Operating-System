@@ -4,8 +4,11 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "bios_emu/bios_emu.h"
+#include "bios_emu/exceptions.h"
 #include "driver/sound/pcm.h"
 #include "driver/sound/sound_dm.h"
+#include "drivers/vesa_display.h"
 #include "kernel/page.h"
 #include "objects/handle.h"
 #include "string.h"
@@ -139,6 +142,20 @@ int main() {
 
 	do_initcalls();
 	driver_start_all();
+
+	// bios_emu_env.regs.ax		= 0x4f02;
+	// bios_emu_env.regs.bx		= 0x4192;			   // 1920x1080x32bit模式
+	// BiosEmuExceptions exception = emu_interrupt(0x10); // 调用BIOS 0x10中断
+	// VideoDevice		 *video_device;
+	// video_get_video_device(0, &video_device);
+	// video_device->mode_info.width  = 1920;
+	// video_device->mode_info.height = 1080;
+	// init_console(); // 重置控制台配置
+	// if (exception == EventInterruptDone) {
+	// 	printk("VBE Call Result: %d\n", bios_emu_env.regs.ax);
+	// } else {
+	// 	printk("VBE Error: %d\n", exception);
+	// }
 
 	// thread_start("play", 100, thread_play, NULL, NULL);
 

@@ -1,3 +1,4 @@
+#include "bios_emu/bios_emu.h"
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -57,6 +58,8 @@ void platform_init() {
 	list_add_tail(&platform_bus.bus_list, &platform_bus_driver.bus_lh);
 
 	read_features();
+
+	bios_emu_init();
 
 	register_vesa_display();
 	register_pic();

@@ -97,7 +97,6 @@ qemu_dbg:
 	-usb \
 	-device usb-kbd \
 	-device usb-mouse \
-	-audio pa,model=sb16 \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
 	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \

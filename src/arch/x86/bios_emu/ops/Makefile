@@ -1,0 +1,10 @@
+SRC += mov.c
+SRC += alu.c
+SRC += jmp.c
+SRC += stack.c
+SRC += call.c
+SRC += conditions.c
+SRC += int.c
+SRC += xchg.c
+SRC += segment.c
+SRC += bt.c
