@@ -90,13 +90,13 @@ The following instructions make up the core instruction set for the 8086 process
 
  - I/O instructions IN, INS, OUT, and OUTS.
  - [x] IN
- - [ ] INS
+ - [x] INS
  - [x] OUT
- - [ ] OUTS
+ - [x] OUTS
 
  - Load effective address (LEA) instruction, and translate (XLATB) instruction.
  - [x] LEA
- - [ ] XLATB
+ - [x] XLATB
 
  - LOCK prefix.
  - [ ] LOCK
@@ -109,7 +109,7 @@ The following instructions make up the core instruction set for the 8086 process
  - [x] REPNZ
 
  - Processor halt (HLT) instruction.
- - [ ] HLT
+ - [x] HLT
 
  - No operation (NOP) instruction.
  - [x] NOP

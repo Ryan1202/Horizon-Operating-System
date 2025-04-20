@@ -433,6 +433,66 @@ void decode_out(BiosEmuEnvironment *env, uint16_t port) {
 	}
 }
 
+void ins_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	__asm__ volatile("cld;"
+					 "rep insb;"
+					 :
+					 : "D"(dst), "S"(src), "c"(env->regs.cx), "d"(env->regs.dx)
+					 : "cc", "memory");
+}
+
+void ins_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	__asm__ volatile("cld;"
+					 "rep insw;"
+					 :
+					 : "D"(dst), "S"(src), "c"(env->regs.cx), "d"(env->regs.dx)
+					 : "cc", "memory");
+}
+
+void ins_32(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	__asm__ volatile("cld;"
+					 "rep insl;"
+					 :
+					 : "D"(dst), "S"(src), "c"(env->regs.ecx), "d"(env->regs.dx)
+					 : "cc", "memory");
+}
+
+void outs_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	__asm__ volatile("cld;"
+					 "rep outsb;"
+					 :
+					 : "D"(dst), "S"(src), "c"(env->regs.cx), "d"(env->regs.dx)
+					 : "cc", "memory");
+}
+
+void outs_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	__asm__ volatile("cld;"
+					 "rep outsw;"
+					 :
+					 : "D"(dst), "S"(src), "c"(env->regs.cx), "d"(env->regs.dx)
+					 : "cc", "memory");
+}
+
+void outs_32(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	__asm__ volatile("cld;"
+					 "rep outsl;"
+					 :
+					 : "D"(dst), "S"(src), "c"(env->regs.ecx), "d"(env->regs.dx)
+					 : "cc", "memory");
+}
+
 void decode_lea(BiosEmuEnvironment *env) {
 	uint8_t modrm = *(uint8_t *)env->cur_ip++;
 	env->regs.eip++;

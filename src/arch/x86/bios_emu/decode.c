@@ -279,6 +279,9 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_DEC ...(OP_DEC + 7):
 		decode_dec_r(env, *opcode);
 		break;
+	case OP_HLT:
+		exception = EventHalted;
+		break;
 	case OP_IMUL_imm8:
 		decode_imul_r_rm_imm8(env);
 		break;
@@ -301,6 +304,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_IN_dx:
 		decode_in(env, env->regs.dx);
 		break;
+	case OP_INS8: {
+		void *src = &env->regs.dx;
+		void *dst = GET_REG_POINTER(env, ds, si);
+		decode_string_instructions_8(env, dst, 0, src, 1, ins_8);
+		break;
+	}
+	case OP_INS: {
+		void *src = &env->regs.dx;
+		void *dst = GET_REG_POINTER(env, ds, si);
+		decode_string_instructions_16(env, dst, 0, src, 1, ins_16, ins_32);
+		break;
+	}
 	case OP_INC ...(OP_INC + 7):
 		decode_inc_r(env, *opcode);
 		break;
@@ -474,6 +489,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_OUT_dx:
 		decode_out(env, env->regs.dx);
 		break;
+	case OP_OUTS8: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = &env->regs.dx;
+		decode_string_instructions_8(env, dst, 1, src, 0, outs_8);
+		break;
+	}
+	case OP_OUTS: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = &env->regs.dx;
+		decode_string_instructions_16(env, dst, 1, src, 0, outs_16, outs_32);
+		break;
+	}
 	case OP_POP_rm:
 		decode_pop_rm(env);
 		break;
@@ -620,6 +647,15 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		break;
 	case OP_XCHG:
 		decode_rm_r(env, xchg_16_16, xchg_32_32);
+		break;
+	case OP_XLAT:
+		if (env->flags.operand_size == 0) {
+			env->regs.al = *(uint8_t *)get_phy_addr(
+				env, env->regs.ds, env->regs.bx + env->regs.al);
+		} else {
+			env->regs.al = *(uint32_t *)get_phy_addr(
+				env, env->regs.ds, env->regs.ebx + env->regs.al);
+		}
 		break;
 		ALU_CASE(ADC)
 		ALU_CASE(ADD)

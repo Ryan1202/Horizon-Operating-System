@@ -26,6 +26,7 @@ typedef enum BiosEmuExceptions {
 	// 下面是自定义的
 	NoException,
 	EventInterruptDone,
+	EventHalted,
 } BiosEmuExceptions;
 
 #endif
