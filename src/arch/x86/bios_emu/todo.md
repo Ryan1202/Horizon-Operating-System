@@ -68,13 +68,13 @@ The following instructions make up the core instruction set for the 8086 process
  - [x] Jcc
  - [x] CALL
  - [x] RET
- - [ ] LOOP
- - [ ] LOOPE
- - [ ] LOOPNE
+ - [x] LOOP
+ - [x] LOOPE
+ - [x] LOOPNE
 
  - Interrupt instructions INT n, INTO, and IRET.
  - [x] INT n
- - [ ] INTO
+ - [x] INTO
  - [x] IRET
 
  - EFLAGS control instructions STC, CLC, CMC, CLD, STD, LAHF, SAHF, PUSHF, and POPF.

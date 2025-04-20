@@ -88,7 +88,7 @@ typedef enum OneByteOpcodes {
 
 	OP_INT3 = 0xCC,
 	OP_INT	= 0xCD,
-	OP_INT0 = 0xCE,
+	OP_INTO = 0xCE,
 	OP_INT1 = 0xF1,
 
 	OP_IRET_IRETD = 0xCF,
@@ -126,6 +126,10 @@ typedef enum OneByteOpcodes {
 	OP_LEAVE = 0xC9,
 	OP_LODS8 = 0xAC,
 	OP_LODS	 = 0xAD,
+
+	OP_LOOP	  = 0xE2,
+	OP_LOOPE  = 0xE1,
+	OP_LOOPNE = 0xE0,
 
 	// One Byte Opcode Instructions M-U
 

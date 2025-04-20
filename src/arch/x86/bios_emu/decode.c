@@ -307,6 +307,11 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_INT:
 		exception = decode_int(env, *(uint8_t *)env->cur_ip++);
 		break;
+	case OP_INTO:
+		if (env->regs.flags & BIT(OverflowFlagBit)) {
+			exception = decode_int(env, 4);
+		}
+		break;
 	case OP_IRET_IRETD:
 		exception = decode_iret(env);
 		break;
@@ -359,6 +364,42 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		void *src = GET_REG_POINTER(env, ds, si);
 		void *dst = GET_REG_ADDR(env, ax);
 		decode_string_instructions_16(env, dst, 0, src, 1, movs_16, movs_32);
+		break;
+	}
+	case OP_LOOP: {
+		uint32_t count;
+		if (env->flags.operand_size == 0) {
+			env->regs.cx--;
+			count = env->regs.cx;
+		} else {
+			env->regs.ecx--;
+			count = env->regs.ecx;
+		}
+		if (count) decode_jmp8(env);
+		break;
+	}
+	case OP_LOOPE: {
+		uint32_t count;
+		if (env->flags.operand_size == 0) {
+			env->regs.cx--;
+			count = env->regs.cx;
+		} else {
+			env->regs.ecx--;
+			count = env->regs.ecx;
+		}
+		if (count) decode_jcc(env, condition_table[4](env));
+		break;
+	}
+	case OP_LOOPNE: {
+		uint32_t count;
+		if (env->flags.operand_size == 0) {
+			env->regs.cx--;
+			count = env->regs.cx;
+		} else {
+			env->regs.ecx--;
+			count = env->regs.ecx;
+		}
+		if (count) decode_jcc(env, condition_table[5](env));
 		break;
 	}
 	case OP_MOV_rm_r8:
