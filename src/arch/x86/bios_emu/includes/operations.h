@@ -136,4 +136,18 @@ BiosEmuExceptions bts_16_16(
 BiosEmuExceptions bts_32_32(
 	BiosEmuEnvironment *env, uint32_t *addr, uint32_t *bit);
 
+typedef void (*OpStr)(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+void decode_movs(BiosEmuEnvironment *env, OpStr movs_16, OpStr movs_32);
+void movs_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+void movs_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+void movs_32(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+
 #endif

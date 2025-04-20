@@ -23,6 +23,17 @@ typedef enum OperandDataType {
 	OPDT_Qword,
 } OperandDataType;
 
+#define GET_REG_ADDR(env, reg)              \
+	({                                      \
+		void *addr;                         \
+		if (env->flags.operand_size == 0) { \
+			addr = &env->regs.reg;          \
+		} else {                            \
+			addr = &env->regs.e##reg;       \
+		}                                   \
+		addr;                               \
+	})
+
 #define DEF_OP1(type)                        \
 	typedef BiosEmuExceptions (*Op1_##type)( \
 		BiosEmuEnvironment * env, uint##type##_t * value);

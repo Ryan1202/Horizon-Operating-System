@@ -102,11 +102,11 @@ The following instructions make up the core instruction set for the 8086 process
  - [ ] LOCK
 
  - Repeat prefixes REP, REPE, REPZ, REPNE, and REPNZ.
- - [ ] REP
- - [ ] REPE
- - [ ] REPZ
- - [ ] REPNE
- - [ ] REPNZ
+ - [x] REP
+ - [x] REPE
+ - [x] REPZ
+ - [x] REPNE
+ - [x] REPNZ
 
  - Processor halt (HLT) instruction.
  - [ ] HLT
@@ -150,11 +150,11 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [ ] XADD
 
  - String instructions MOVS, CMPS, SCAS, LODS, and STOS. 
- - [ ] MOVS
- - [ ] CMPS
- - [ ] SCAS
- - [ ] LODS
- - [ ] STOS
+ - [x] MOVS
+ - [x] CMPS
+ - [x] SCAS
+ - [x] LODS
+ - [x] STOS
 
  - Bit test and bit scan instructions BT, BTS, BTR, BTC, BSF, and BSR; the byte-set-on condition instruction SETcc; and the byte swap (BSWAP) instruction.
  - [x] BT

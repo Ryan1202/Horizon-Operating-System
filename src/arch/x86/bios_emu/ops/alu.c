@@ -1301,3 +1301,51 @@ BiosEmuExceptions shrd_32_32_8(
 	*dest = ans;
 	return NoException;
 }
+
+void cmps_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	int condition = 1;
+	int i;
+	for (i = repeat_times; i > 0 && condition; i--) {
+		cmp_8(env, dst, *(uint8_t *)src);
+
+		dst += delta_dst;
+		src += delta_src;
+		condition =
+			((env->regs.flags >> ZeroFlagBit) & 1) == env->flags.rep_e_ne;
+	}
+	env->regs.cx = (env->flags.repeat) ? i : env->regs.cx;
+}
+
+void cmps_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	int condition = 1;
+	int i;
+	for (i = repeat_times; i > 0 && condition; i--) {
+		cmp_32(env, dst, *(uint16_t *)src);
+
+		dst += delta_dst;
+		src += delta_src;
+		condition =
+			((env->regs.flags >> ZeroFlagBit) & 1) == env->flags.rep_e_ne;
+	}
+	env->regs.cx = (env->flags.repeat) ? i : env->regs.cx;
+}
+
+void cmps_32(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	int condition = 1;
+	int i;
+	for (i = repeat_times; i > 0 && condition; i--) {
+		cmp_32(env, dst, *(uint32_t *)src);
+
+		dst += delta_dst;
+		src += delta_src;
+		condition =
+			((env->regs.flags >> ZeroFlagBit) & 1) == env->flags.rep_e_ne;
+	}
+	env->regs.ecx = (env->flags.repeat) ? i : env->regs.ecx;
+}

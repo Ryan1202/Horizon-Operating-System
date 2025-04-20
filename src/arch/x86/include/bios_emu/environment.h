@@ -41,8 +41,10 @@ typedef struct BiosEmuEnvironment {
 		uint16_t segment;
 	} *ivt;
 	struct {
+		uint8_t repeat				 : 1;
+		uint8_t rep_e_ne			 : 1; // 0:repne/repnz, 1:repe/repz
 		uint8_t stack_size			 : 1; // 0:16bit, 1:32bit
-		uint8_t operand_size		 : 2; // 0:16bit, 1:32bit
+		uint8_t operand_size		 : 1; // 0:16bit, 1:32bit
 		uint8_t default_operand_size : 1;
 		uint8_t address_size		 : 1; // 0:16bit, 1:32bit
 		uint8_t default_address_size : 1;

@@ -6,6 +6,7 @@
 #include "includes/mod_rm.h"
 #include "includes/operations.h"
 #include "includes/prefix.h"
+#include "includes/segment.h"
 #include "includes/stack.h"
 #include "kernel/func.h"
 #include <bios_emu/bios_emu.h>
@@ -100,6 +101,47 @@ BiosEmuExceptions decode_rm_r_cl(
 		uint32_t *r32 = env->reg_lut_r32[reg];
 		return func32(env, rm, *r32, env->regs.cl);
 	}
+}
+
+void decode_string_instructions_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	OpStr opstr_8) {
+	int repeat_times;
+
+	if (env->regs.flags & BIT(DirectionFlagBit)) {
+		delta_dst = -delta_dst;
+		delta_src = -delta_src;
+	}
+
+	if (env->flags.operand_size == 0) {
+		repeat_times = (env->flags.repeat) ? env->regs.cx : 1;
+	} else {
+		repeat_times = (env->flags.repeat) ? env->regs.ecx : 1;
+	}
+	opstr_8(env, dst, delta_dst, src, delta_src, repeat_times);
+	return;
+}
+
+void decode_string_instructions_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	OpStr opstr_16, OpStr opstr_32) {
+	int repeat_times;
+
+	if (env->regs.flags & BIT(DirectionFlagBit)) {
+		delta_dst = -delta_dst;
+		delta_src = -delta_src;
+	}
+
+	if (env->flags.operand_size == 0) {
+		repeat_times = (env->flags.repeat) ? env->regs.cx : 1;
+		delta_dst <<= 1;
+		opstr_16(env, dst, delta_dst, src, delta_src, repeat_times);
+	} else {
+		repeat_times = (env->flags.repeat) ? env->regs.ecx : 1;
+		delta_dst <<= 2;
+		opstr_32(env, dst, delta_dst, src, delta_src, repeat_times);
+	}
+	return;
 }
 
 BiosEmuExceptions decode_two_bytes_opcode(BiosEmuEnvironment *env) {
@@ -213,6 +255,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_CMC:
 		CMC(env);
 		break;
+	case OP_CMPS8: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = GET_REG_POINTER(env, es, di);
+		decode_string_instructions_8(env, dst, 1, src, 1, cmps_8);
+		break;
+	}
+	case OP_CMPS: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = GET_REG_POINTER(env, es, di);
+		decode_string_instructions_16(env, dst, 1, src, 1, cmps_16, cmps_32);
+		break;
+	}
 	case OP_CWD_CDQ:
 		decode_cwd_cdq(env);
 		break;
@@ -295,6 +349,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_LES:
 		decode_r_rm(env, les_16_16, les_32_32);
 		break;
+	case OP_LODS8: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = &env->regs.al;
+		decode_string_instructions_8(env, dst, 0, src, 1, movs_8);
+		break;
+	}
+	case OP_LODS: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = GET_REG_ADDR(env, ax);
+		decode_string_instructions_16(env, dst, 0, src, 1, movs_16, movs_32);
+		break;
+	}
 	case OP_MOV_rm_r8:
 		decode_mov_rm_r8(env);
 		break;
@@ -337,6 +403,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_MOV_rm_imm:
 		decode_mov_rm_imm(env);
 		break;
+	case OP_MOVS8: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = GET_REG_POINTER(env, es, di);
+		decode_string_instructions_8(env, dst, 1, src, 1, movs_8);
+		break;
+	}
+	case OP_MOVS: {
+		void *src = GET_REG_POINTER(env, ds, si);
+		void *dst = GET_REG_POINTER(env, es, di);
+		decode_string_instructions_16(env, dst, 1, src, 1, movs_16, movs_32);
+		break;
+	}
 	case OP_NOP:
 		break;
 	case OP_OUT8:
@@ -441,6 +519,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_SAHF:
 		SAHF(env);
 		break;
+	case OP_SCAS8: {
+		void *src = GET_REG_POINTER(env, es, di);
+		void *dst = &env->regs.al;
+		decode_string_instructions_8(env, dst, 0, src, 1, cmps_8);
+		break;
+	}
+	case OP_SCAS: {
+		void *src = GET_REG_POINTER(env, es, di);
+		void *dst = GET_REG_ADDR(env, ax);
+		decode_string_instructions_16(env, dst, 0, src, 1, cmps_16, cmps_32);
+		break;
+	}
 	case OP_STC:
 		STC(env);
 		break;
@@ -451,6 +541,18 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		STI(env);
 		io_sti();
 		break;
+	case OP_STOS8: {
+		void *src = &env->regs.al;
+		void *dst = (void *)get_phy_addr(env, env->regs.es, env->regs.di);
+		decode_string_instructions_8(env, dst, 1, src, 0, movs_8);
+		break;
+	}
+	case OP_STOS: {
+		void *src = GET_REG_ADDR(env, ax);
+		void *dst = (void *)get_phy_addr(env, env->regs.es, env->regs.di);
+		decode_string_instructions_16(env, dst, 1, src, 0, movs_16, movs_32);
+		break;
+	}
 	case OP_TEST_imm8:
 		calc_a_imm8(env, CALC_TEST);
 		break;
@@ -535,6 +637,7 @@ BiosEmuExceptions emu_run_instruction(BiosEmuEnvironment *env) {
 	env->default_ss			= &env->regs.ds;
 	env->flags.operand_size = env->flags.default_operand_size;
 	env->flags.address_size = env->flags.default_address_size;
+	env->flags.repeat		= 0;
 	int flag				= 1;
 	while (flag) {
 		prefix = *(BiosEmuPrefixes *)env->cur_ip;
@@ -544,8 +647,12 @@ BiosEmuExceptions emu_run_instruction(BiosEmuEnvironment *env) {
 		case PREFIX_LOCK:
 			break;
 		case PREFIX_REPNE_REPNZ_BND:
+			env->flags.repeat	= 1;
+			env->flags.rep_e_ne = 0;
 			break;
 		case PREFIX_REP_REPE_REPZ:
+			env->flags.repeat	= 1;
+			env->flags.rep_e_ne = 1;
 			break;
 		case PREFIX_CS_OVERRIDE_BRANCH_NOT_TAKEN:
 			env->default_ss = &env->regs.cs;

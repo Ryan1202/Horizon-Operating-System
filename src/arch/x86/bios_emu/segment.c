@@ -5,6 +5,11 @@ size_t get_segment_base(BiosEmuEnvironment *env, uint32_t segment) {
 	return segment << 4;
 }
 
+size_t get_phy_addr(BiosEmuEnvironment *env, uint32_t segment, size_t addr) {
+	size_t segment_base = get_segment_base(env, segment);
+	return segment_base + addr;
+}
+
 uint8_t fetch_data_8(BiosEmuEnvironment *env, uint32_t segment, size_t addr) {
 	size_t segment_base = get_segment_base(env, segment);
 	return *(uint8_t *)(segment_base + addr);

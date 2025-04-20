@@ -113,4 +113,14 @@ void sar_8(BiosEmuEnvironment *env, uint8_t *value, uint8_t count);
 void sar_16(BiosEmuEnvironment *env, uint16_t *value, uint8_t count);
 void sar_32(BiosEmuEnvironment *env, uint32_t *value, uint8_t count);
 
+void cmps_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+void cmps_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+void cmps_32(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times);
+
 #endif

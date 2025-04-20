@@ -1,4 +1,5 @@
 #include "../includes/decode.h"
+#include "../includes/flags.h"
 #include "../includes/mod_rm.h"
 #include "../includes/operations.h"
 #include <bios_emu/environment.h>
@@ -272,4 +273,38 @@ void decode_movsx_r_rm16(BiosEmuEnvironment *env) {
 	int16_t	 *src = RM_ADDR32(env, modrm);
 	*dst		  = (int32_t)*src;
 	return;
+}
+
+void movs_8(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	for (int i = 0; i < repeat_times; i++) {
+		*(uint8_t *)dst = *(uint8_t *)src;
+
+		dst += delta_dst;
+		src += delta_src;
+	}
+	return;
+}
+
+void movs_16(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	for (int i = 0; i < repeat_times; i++) {
+		*(uint16_t *)dst = *(uint16_t *)src;
+
+		dst += delta_dst;
+		src += delta_src;
+	}
+}
+
+void movs_32(
+	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
+	int repeat_times) {
+	for (int i = 0; i < repeat_times; i++) {
+		*(uint32_t *)dst = *(uint32_t *)src;
+
+		dst += delta_dst;
+		src += delta_src;
+	}
 }
