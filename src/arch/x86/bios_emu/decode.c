@@ -149,6 +149,12 @@ BiosEmuExceptions decode_two_bytes_opcode(BiosEmuEnvironment *env) {
 	env->cur_ip++;
 	env->regs.eip++;
 	switch ((uint8_t)*opcode) {
+	case OP_BSF_TZCNT:
+		decode_rm_r(env, bsf_16_16, bsf_32_32);
+		break;
+	case OP_BSR_LZCNT:
+		decode_rm_r(env, bsr_16_16, bsr_32_32);
+		break;
 	case OP_BT:
 		decode_rm_r(env, bt_16_16, bt_32_32);
 		break;
@@ -160,6 +166,12 @@ BiosEmuExceptions decode_two_bytes_opcode(BiosEmuEnvironment *env) {
 		break;
 	case OP_BTS:
 		decode_rm_r(env, bts_16_16, bts_32_32);
+		break;
+	case OP_CMPXCHG8:
+		decode_rm8_r8(env, cmpxchg_8_8);
+		break;
+	case OP_CMPXCHG:
+		decode_rm_r(env, cmpxchg_16_16, cmpxchg_32_32);
 		break;
 	case 0xba:
 		decode_0xba(env);
@@ -217,6 +229,12 @@ BiosEmuExceptions decode_two_bytes_opcode(BiosEmuEnvironment *env) {
 		break;
 	case OP_SHRD_cl:
 		decode_rm_r_cl(env, shrd_16_16_8, shrd_32_32_8);
+		break;
+	case OP_XADD_rm_r_8:
+		decode_rm8_r8(env, xadd_8_8);
+		break;
+	case OP_XADD_rm_r:
+		decode_rm_r(env, xadd_16_16, xadd_32_32);
 		break;
 	default:
 		return InvalidOpcode;

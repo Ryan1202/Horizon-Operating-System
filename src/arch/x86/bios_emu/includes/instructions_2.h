@@ -69,9 +69,9 @@ typedef enum TwoBytesOpcodes {
 
 	OP_POPCNT = 0xB8,
 
-	OP_BTC		 = 0xB9,
-	OP_BSF_TZCNT = 0xBA,
-	OP_BSR_LZCNT = 0xBB,
+	OP_BTC		 = 0xBB,
+	OP_BSF_TZCNT = 0xBC,
+	OP_BSR_LZCNT = 0xBD,
 
 	OP_XADD_rm_r_8 = 0xC0,
 	OP_XADD_rm_r   = 0xC1,

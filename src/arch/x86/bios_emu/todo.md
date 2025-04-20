@@ -145,9 +145,9 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x] Jcc
 
  - Exchange instructions CMPXCHG, CMPXCHG8B, and XADD. 
- - [ ] CMPXCHG
+ - [x] CMPXCHG
  - [ ] CMPXCHG8B
- - [ ] XADD
+ - [x] XADD
 
  - String instructions MOVS, CMPS, SCAS, LODS, and STOS. 
  - [x] MOVS
@@ -161,8 +161,8 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x] BTS
  - [x] BTR
  - [x] BTC
- - [ ] BSF
- - [ ] BSR
+ - [x] BSF
+ - [x] BSR
  - [x] SETcc
  - [ ] BSWAP
 

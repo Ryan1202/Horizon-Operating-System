@@ -540,3 +540,53 @@ void decode_cwd_cdq(BiosEmuEnvironment *env) {
 	}
 	return;
 }
+
+BiosEmuExceptions bsf_16_16(
+	BiosEmuEnvironment *env, uint16_t *dst, uint16_t *src) {
+	uint16_t x = *src;
+	for (int i = 0; i < 16; i++) {
+		if (x & 1) {
+			*dst = i;
+			return NoException;
+		}
+		x >>= 1;
+	}
+	return NoException;
+}
+
+BiosEmuExceptions bsf_32_32(
+	BiosEmuEnvironment *env, uint32_t *dst, uint32_t *src) {
+	uint32_t x = *src;
+	for (int i = 0; i < 32; i++) {
+		if (x & 1) {
+			*dst = i;
+			return NoException;
+		}
+		x >>= 1;
+	}
+	return NoException;
+}
+
+BiosEmuExceptions bsr_16_16(
+	BiosEmuEnvironment *env, uint16_t *dst, uint16_t *src) {
+	uint16_t x = *src;
+	for (int i = 15; i >= 0; i--) {
+		if (x >> i) {
+			*dst = i;
+			return NoException;
+		}
+	}
+	return NoException;
+}
+
+BiosEmuExceptions bsr_32_32(
+	BiosEmuEnvironment *env, uint32_t *dst, uint32_t *src) {
+	uint32_t x = *src;
+	for (int i = 31; i >= 0; i--) {
+		if (x >> i) {
+			*dst = i;
+			return NoException;
+		}
+	}
+	return NoException;
+}

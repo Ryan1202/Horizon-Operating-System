@@ -98,6 +98,20 @@ BiosEmuExceptions xchg_16_16(
 BiosEmuExceptions xchg_32_32(
 	BiosEmuEnvironment *env, uint32_t *addr1, uint32_t *addr2);
 
+BiosEmuExceptions cmpxchg_8_8(
+	BiosEmuEnvironment *env, uint8_t *addr1, uint8_t *addr2);
+BiosEmuExceptions cmpxchg_16_16(
+	BiosEmuEnvironment *env, uint16_t *addr1, uint16_t *addr2);
+BiosEmuExceptions cmpxchg_32_32(
+	BiosEmuEnvironment *env, uint32_t *addr1, uint32_t *addr2);
+
+BiosEmuExceptions xadd_8_8(
+	BiosEmuEnvironment *env, uint8_t *addr1, uint8_t *addr2);
+BiosEmuExceptions xadd_16_16(
+	BiosEmuEnvironment *env, uint16_t *addr1, uint16_t *addr2);
+BiosEmuExceptions xadd_32_32(
+	BiosEmuEnvironment *env, uint32_t *addr1, uint32_t *addr2);
+
 BiosEmuExceptions lds_16_16(
 	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr);
 BiosEmuExceptions lds_32_32(
@@ -180,5 +194,14 @@ void outs_16(
 void outs_32(
 	BiosEmuEnvironment *env, void *dst, int delta_dst, void *src, int delta_src,
 	int repeat_times);
+
+BiosEmuExceptions bsf_16_16(
+	BiosEmuEnvironment *env, uint16_t *dst, uint16_t *src);
+BiosEmuExceptions bsf_32_32(
+	BiosEmuEnvironment *env, uint32_t *dst, uint32_t *src);
+BiosEmuExceptions bsr_16_16(
+	BiosEmuEnvironment *env, uint16_t *dst, uint16_t *src);
+BiosEmuExceptions bsr_32_32(
+	BiosEmuEnvironment *env, uint32_t *dst, uint32_t *src);
 
 #endif

@@ -22,4 +22,16 @@
 #define VirtualInterruptPendingFlagBit 20
 #define IDFlagBit					   21
 
+#define SET_FLAG(x, bit) \
+	env->regs.flags =    \
+		(x) ? env->regs.flags | BIT(bit) : env->regs.flags & ~BIT(bit)
+
+#define SET_CARRY_FLAG(x)	 SET_FLAG(x, CarryFlagBit)
+#define SET_OVERFLOW_FLAG(x) SET_FLAG(x, OverflowFlagBit)
+#define SET_SIGN_FLAG(x)	 SET_FLAG(x, SignFlagBit)
+
+#define SIGN_FLAG8(x)  SET_SIGN_FLAG(x >> 7)
+#define SIGN_FLAG16(x) SET_SIGN_FLAG(x >> 15)
+#define SIGN_FLAG32(x) SET_SIGN_FLAG(x >> 31)
+
 #endif
