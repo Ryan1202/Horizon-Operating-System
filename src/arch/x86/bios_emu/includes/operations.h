@@ -102,9 +102,21 @@ BiosEmuExceptions lds_16_16(
 	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr);
 BiosEmuExceptions lds_32_32(
 	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr);
+BiosEmuExceptions lss_16_16(
+	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr);
+BiosEmuExceptions lss_32_32(
+	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr);
 BiosEmuExceptions les_16_16(
 	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr);
 BiosEmuExceptions les_32_32(
+	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr);
+BiosEmuExceptions lfs_16_16(
+	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr);
+BiosEmuExceptions lfs_32_32(
+	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr);
+BiosEmuExceptions lgs_16_16(
+	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr);
+BiosEmuExceptions lgs_32_32(
 	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr);
 
 BiosEmuExceptions shld_16_16_8(

@@ -120,9 +120,9 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [ ] MOV
 
  - Load segment register instructions LSS, LFS, and LGS.
- - [ ] LSS
- - [ ] LFS
- - [ ] LGS
+ - [x] LSS
+ - [x] LFS
+ - [x] LGS
 
  - Generalized multiply instructions and multiply immediate data.
  - [x]
@@ -131,10 +131,10 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x]
 
  - Stack instructions PUSHA, PUSHAD, POPA, POPAD, and PUSH immediate data.
- - [ ] PUSHA
- - [ ] PUSHAD
- - [ ] POPA
- - [ ] POPAD
+ - [x] PUSHA
+ - [x] PUSHAD
+ - [x] POPA
+ - [x] POPAD
  - [x] PUSH
 
  - Move with sign extension instructions MOVSX and MOVZX.
@@ -171,8 +171,8 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x] SHRD
 
  - EFLAGS control instructions PUSHF and POPF.
- - [ ] PUSHF
- - [ ] POPF
+ - [x] PUSHF
+ - [x] POPF
 
  - ENTER and LEAVE control instructions.
  - [ ] ENTER

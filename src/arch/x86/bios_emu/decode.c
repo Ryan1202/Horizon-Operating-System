@@ -170,6 +170,15 @@ BiosEmuExceptions decode_two_bytes_opcode(BiosEmuEnvironment *env) {
 	case OP_Jcc ...(OP_Jcc + 15):
 		decode_jcc(env, condition_table[*opcode & 0x0f](env));
 		break;
+	case OP_LSS:
+		decode_rm_r(env, lss_16_16, lss_32_32);
+		break;
+	case OP_LFS:
+		decode_rm_r(env, lfs_16_16, lfs_32_32);
+		break;
+	case OP_LGS:
+		decode_rm_r(env, lgs_16_16, lgs_32_32);
+		break;
 	case OP_MOVZX_r_rm8:
 		decode_movzx_r_rm8(env);
 		break;

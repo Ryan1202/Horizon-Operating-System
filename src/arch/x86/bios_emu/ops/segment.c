@@ -3,36 +3,22 @@
 #include <bios_emu/exceptions.h>
 #include <stdint.h>
 
-BiosEmuExceptions lds_16_16(
-	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr) {
-	env->regs.ds = *addr++;
-	*reg		 = *addr;
+#define DEF_LXS(sreg)                                             \
+	BiosEmuExceptions l##sreg##_16_16(                            \
+		BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr) { \
+		env->regs.sreg = *addr++;                                 \
+		*reg		   = *addr;                                   \
+		return NoException;                                       \
+	}                                                             \
+	BiosEmuExceptions l##sreg##_32_32(                            \
+		BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr) { \
+		env->regs.ds = *(uint16_t *)addr;                         \
+		addr		 = (uint32_t *)((uint16_t *)addr + 1);        \
+		return NoException;                                       \
+	}
 
-	return NoException;
-}
-
-BiosEmuExceptions lds_32_32(
-	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr) {
-	env->regs.ds = *(uint16_t *)addr;
-	addr		 = (uint32_t *)((uint16_t *)addr + 1);
-	*reg		 = *addr;
-
-	return NoException;
-}
-
-BiosEmuExceptions les_16_16(
-	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *addr) {
-	env->regs.es = *addr++;
-	*reg		 = *addr;
-
-	return NoException;
-}
-
-BiosEmuExceptions les_32_32(
-	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *addr) {
-	env->regs.es = *(uint16_t *)addr;
-	addr		 = (uint32_t *)((uint16_t *)addr + 1);
-	*reg		 = *addr;
-
-	return NoException;
-}
+DEF_LXS(ds)
+DEF_LXS(ss)
+DEF_LXS(es)
+DEF_LXS(fs)
+DEF_LXS(gs)
