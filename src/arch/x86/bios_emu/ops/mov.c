@@ -1,67 +1,25 @@
 #include "../includes/decode.h"
-#include "../includes/flags.h"
 #include "../includes/mod_rm.h"
 #include "../includes/operations.h"
 #include <bios_emu/environment.h>
 #include <bios_emu/exceptions.h>
 #include <stdint.h>
 
-void decode_mov_rm_r8(BiosEmuEnvironment *env) {
-	uint8_t modrm = *(uint8_t *)env->cur_ip++;
-	env->regs.eip++;
-	uint8_t reg = (modrm >> 3) & 0b111;
-
-	uint8_t *dst = RM_ADDR(env, modrm);
-	uint8_t *src = env->reg_lut_r8[reg];
-	*dst		 = *src;
-	return;
+BiosEmuExceptions mov_8_8(BiosEmuEnvironment *env, uint8_t *dst, uint8_t *src) {
+	*dst = *src;
+	return NoException;
 }
 
-void decode_mov_rm_r(BiosEmuEnvironment *env) {
-	uint8_t modrm = *(uint8_t *)env->cur_ip++;
-	env->regs.eip++;
-	uint8_t reg = (modrm >> 3) & 0b111;
-
-	if (env->flags.operand_size == 0) {
-		uint16_t *dst = RM_ADDR16(env, modrm);
-		uint16_t *src = env->reg_lut_r16[reg];
-		*dst		  = *src;
-	} else {
-		uint32_t *dst = RM_ADDR32(env, modrm);
-		uint32_t *src = env->reg_lut_r32[reg];
-		*dst		  = *src;
-	}
-
-	return;
+BiosEmuExceptions mov_16_16(
+	BiosEmuEnvironment *env, uint16_t *dst, uint16_t *src) {
+	*dst = *src;
+	return NoException;
 }
 
-void decode_mov_r_rm_8(BiosEmuEnvironment *env) {
-	uint8_t modrm = *(uint8_t *)env->cur_ip++;
-	env->regs.eip++;
-	uint8_t reg = (modrm >> 3) & 0b111;
-
-	uint8_t *dst = env->reg_lut_r8[reg];
-	uint8_t *src = RM_ADDR(env, modrm);
-	*dst		 = *src;
-	return;
-}
-
-void decode_mov_r_rm(BiosEmuEnvironment *env) {
-	uint8_t modrm = *(uint8_t *)env->cur_ip++;
-	env->regs.eip++;
-	uint8_t reg = (modrm >> 3) & 0b111;
-
-	if (env->flags.operand_size == 0) {
-		uint16_t *dst = env->reg_lut_r16[reg];
-		uint32_t *src = RM_ADDR16(env, modrm);
-		*dst		  = *src;
-	} else {
-		uint32_t *dst = env->reg_lut_r32[reg];
-		uint32_t *src = RM_ADDR32(env, modrm);
-		*dst		  = *src;
-	}
-
-	return;
+BiosEmuExceptions mov_32_32(
+	BiosEmuEnvironment *env, uint32_t *dst, uint32_t *src) {
+	*dst = *src;
+	return NoException;
 }
 
 void decode_mov_rm_sreg(BiosEmuEnvironment *env) {
@@ -188,16 +146,6 @@ void decode_mov_r_imm(BiosEmuEnvironment *env, uint8_t opcode) {
 		env->cur_ip += 4;
 		env->regs.eip += 4;
 	}
-}
-
-void decode_mov_rm_imm8(BiosEmuEnvironment *env) {
-	uint8_t *val;
-	uint8_t	 modrm = *(uint8_t *)env->cur_ip++;
-	env->regs.eip++;
-
-	val	 = RM_ADDR(env, modrm);
-	*val = *(uint8_t *)env->cur_ip++;
-	env->regs.eip++;
 }
 
 void decode_mov_rm_imm(BiosEmuEnvironment *env) {

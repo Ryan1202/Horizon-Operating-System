@@ -28,10 +28,11 @@ BiosEmuExceptions decode_0xff(BiosEmuEnvironment *env);
 
 void decode_pusha_pushad(BiosEmuEnvironment *env);
 
-void decode_mov_rm_r8(BiosEmuEnvironment *env);
-void decode_mov_rm_r(BiosEmuEnvironment *env);
-void decode_mov_r_rm_8(BiosEmuEnvironment *env);
-void decode_mov_r_rm(BiosEmuEnvironment *env);
+BiosEmuExceptions mov_8_8(BiosEmuEnvironment *env, uint8_t *dst, uint8_t *src);
+BiosEmuExceptions mov_16_16(
+	BiosEmuEnvironment *env, uint16_t *dst, uint16_t *src);
+BiosEmuExceptions mov_32_32(
+	BiosEmuEnvironment *env, uint32_t *dst, uint32_t *src);
 void decode_mov_rm_sreg(BiosEmuEnvironment *env);
 void decode_mov_sreg_rm(BiosEmuEnvironment *env);
 void decode_mov_sreg_rm(BiosEmuEnvironment *env);
@@ -41,7 +42,6 @@ void decode_mov_moffs_r_8(BiosEmuEnvironment *env);
 void decode_mov_moffs_r(BiosEmuEnvironment *env);
 void decode_mov_r_imm8(BiosEmuEnvironment *env, uint8_t opcode);
 void decode_mov_r_imm(BiosEmuEnvironment *env, uint8_t opcode);
-void decode_mov_rm_imm8(BiosEmuEnvironment *env);
 void decode_mov_rm_imm(BiosEmuEnvironment *env);
 
 void decode_movzx_r_rm8(BiosEmuEnvironment *env);
@@ -80,7 +80,7 @@ void decode_in(BiosEmuEnvironment *env, uint16_t port);
 void decode_out8(BiosEmuEnvironment *env, uint8_t port);
 void decode_out(BiosEmuEnvironment *env, uint16_t port);
 
-void decode_lea(BiosEmuEnvironment *env);
+BiosEmuExceptions decode_lea(BiosEmuEnvironment *env);
 
 void decode_setcc(BiosEmuEnvironment *env, int condition);
 

@@ -493,12 +493,13 @@ void outs_32(
 					 : "cc", "memory");
 }
 
-void decode_lea(BiosEmuEnvironment *env) {
+BiosEmuExceptions decode_lea(BiosEmuEnvironment *env) {
 	uint8_t modrm = *(uint8_t *)env->cur_ip++;
 	env->regs.eip++;
 	uint8_t reg = (modrm >> 3) & 0b111;
 
 	size_t address;
+	if (modrm >> 6 == 0b11) { return InvalidOpcode; }
 	if (env->flags.address_size == 0) {
 		address = decode_rm_address_16(env, modrm);
 	} else {
@@ -511,7 +512,7 @@ void decode_lea(BiosEmuEnvironment *env) {
 		uint32_t *dst = env->reg_lut_r32[reg];
 		*dst		  = (uint32_t)address;
 	}
-	return;
+	return NoException;
 }
 
 void decode_setcc(BiosEmuEnvironment *env, int condition) {

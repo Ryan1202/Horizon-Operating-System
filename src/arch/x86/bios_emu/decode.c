@@ -73,6 +73,17 @@ BiosEmuExceptions decode_rm_imm8(
 	}
 }
 
+BiosEmuExceptions decode_r8_rm8(BiosEmuEnvironment *env, Op2_8_8 func) {
+	uint8_t modrm = *(uint8_t *)env->cur_ip++;
+	env->regs.eip++;
+	uint8_t reg = (modrm >> 3) & 0b111;
+
+	uint8_t *rm = RM_ADDR(env, modrm);
+	uint8_t *r8 = env->reg_lut_r8[reg];
+
+	return func(env, r8, rm);
+}
+
 BiosEmuExceptions decode_r_rm(
 	BiosEmuEnvironment *env, Op2_16_16 func16, Op2_32_32 func32) {
 	uint8_t modrm = *(uint8_t *)env->cur_ip++;
@@ -282,7 +293,7 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		decode_aas(env);
 		break;
 	case OP_BOUND:
-		decode_r_rm(env, bound_16_16, bound_32_32);
+		exception = decode_r_rm(env, bound_16_16, bound_32_32);
 		break;
 	case OP_CALL:
 		exception = decode_call(env);
@@ -418,7 +429,7 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		decode_r_rm(env, lds_16_16, lds_32_32);
 		break;
 	case OP_LEA:
-		decode_lea(env);
+		exception = decode_lea(env);
 		break;
 	case OP_LEAVE:
 		decode_leave(env);
@@ -475,16 +486,16 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		break;
 	}
 	case OP_MOV_rm_r8:
-		decode_mov_rm_r8(env);
+		exception = decode_rm8_r8(env, mov_8_8);
 		break;
 	case OP_MOV_rm_r:
-		decode_mov_rm_r(env);
+		exception = decode_rm_r(env, mov_16_16, mov_32_32);
 		break;
 	case OP_MOV_r_rm8:
-		decode_mov_r_rm_8(env);
+		exception = decode_r8_rm8(env, mov_8_8);
 		break;
 	case OP_MOV_r_rm:
-		decode_mov_r_rm(env);
+		exception = decode_r_rm(env, mov_16_16, mov_32_32);
 		break;
 	case OP_MOV_rm_sreg:
 		decode_mov_rm_sreg(env);
@@ -511,7 +522,7 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		decode_mov_r_imm(env, *opcode);
 		break;
 	case OP_MOV_rm_imm8:
-		decode_mov_rm_imm8(env);
+		exception = decode_rm_imm8(env, mov_16_16, mov_32_32);
 		break;
 	case OP_MOV_rm_imm:
 		decode_mov_rm_imm(env);
@@ -691,19 +702,13 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		calc_rm_r(env, CALC_TEST);
 		break;
 	case (OP_XCHG_r + 1)...(OP_XCHG_r + 7): // XCHG ax, ax机器码与NOP指令相同
-		if (env->flags.operand_size == 0) {
-			uint16_t *reg = PLUS_RW_REG(env, *opcode);
-			exception	  = xchg_16_16(env, reg, RM_ADDR(env, *opcode));
-		} else {
-			uint32_t *reg = PLUS_RD_REG(env, *opcode);
-			exception	  = xchg_32_32(env, reg, RM_ADDR(env, *opcode));
-		}
+		exception = decode_r_rm(env, xchg_16_16, xchg_32_32);
 		break;
 	case OP_XCHG_8:
-		decode_rm8_r8(env, xchg_8_8);
+		exception = decode_rm8_r8(env, xchg_8_8);
 		break;
 	case OP_XCHG:
-		decode_rm_r(env, xchg_16_16, xchg_32_32);
+		exception = decode_rm_r(env, xchg_16_16, xchg_32_32);
 		break;
 	case OP_XLAT:
 		if (env->flags.operand_size == 0) {
