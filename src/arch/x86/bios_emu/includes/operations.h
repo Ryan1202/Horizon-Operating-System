@@ -209,4 +209,9 @@ BiosEmuExceptions bswap_32(BiosEmuEnvironment *env, uint32_t *addr);
 BiosEmuExceptions decode_enter(BiosEmuEnvironment *env);
 BiosEmuExceptions decode_leave(BiosEmuEnvironment *env);
 
+BiosEmuExceptions bound_16_16(
+	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *src);
+BiosEmuExceptions bound_32_32(
+	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *src);
+
 #endif

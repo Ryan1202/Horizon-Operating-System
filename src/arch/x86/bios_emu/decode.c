@@ -281,6 +281,9 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_AAS:
 		decode_aas(env);
 		break;
+	case OP_BOUND:
+		decode_r_rm(env, bound_16_16, bound_32_32);
+		break;
 	case OP_CALL:
 		exception = decode_call(env);
 		break;

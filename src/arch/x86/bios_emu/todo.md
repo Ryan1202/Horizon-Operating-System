@@ -179,7 +179,7 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x] LEAVE
 
  - BOUND instruction.
- - [ ]
+ - [x] BOUND
 
  - CPU identification (CPUID) instruction.
  - [ ] CPUID

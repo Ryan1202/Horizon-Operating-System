@@ -662,3 +662,21 @@ BiosEmuExceptions decode_leave(BiosEmuEnvironment *env) {
 	}
 	return NoException;
 }
+
+BiosEmuExceptions bound_16_16(
+	BiosEmuEnvironment *env, uint16_t *reg, uint16_t *src) {
+	uint16_t lower_bound = src[0];
+	uint16_t upper_bound = src[1];
+
+	if (*reg < lower_bound || *reg > upper_bound) { return BOUNDRangeExceeded; }
+	return NoException;
+}
+
+BiosEmuExceptions bound_32_32(
+	BiosEmuEnvironment *env, uint32_t *reg, uint32_t *src) {
+	uint32_t lower_bound = src[0];
+	uint32_t upper_bound = src[1];
+
+	if (*reg < lower_bound || *reg > upper_bound) { return BOUNDRangeExceeded; }
+	return NoException;
+}
