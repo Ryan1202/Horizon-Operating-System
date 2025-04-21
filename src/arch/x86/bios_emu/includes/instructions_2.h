@@ -72,6 +72,7 @@ typedef enum TwoBytesOpcodes {
 	OP_BTC		 = 0xBB,
 	OP_BSF_TZCNT = 0xBC,
 	OP_BSR_LZCNT = 0xBD,
+	OP_BSWAP	 = 0xC8,
 
 	OP_XADD_rm_r_8 = 0xC0,
 	OP_XADD_rm_r   = 0xC1,

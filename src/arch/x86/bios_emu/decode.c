@@ -14,6 +14,23 @@
 #include <bios_emu/exceptions.h>
 #include <stdint.h>
 
+BiosEmuExceptions nop_16(BiosEmuEnvironment *env, uint16_t *addr1) {
+	return NoException;
+}
+
+BiosEmuExceptions decode_r(
+	BiosEmuEnvironment *env, Op1_16 func16, Op1_32 func32) {
+	uint8_t reg = *(uint8_t *)env->cur_ip++;
+	env->regs.eip++;
+	if (env->flags.operand_size == 0) {
+		uint16_t *r16 = env->reg_lut_r16[reg];
+		return func16(env, r16);
+	} else {
+		uint32_t *r32 = env->reg_lut_r32[reg];
+		return func32(env, r32);
+	}
+}
+
 BiosEmuExceptions decode_rm8_r8(BiosEmuEnvironment *env, Op2_8_8 func) {
 	uint8_t modrm = *(uint8_t *)env->cur_ip++;
 	env->regs.eip++;
@@ -154,6 +171,10 @@ BiosEmuExceptions decode_two_bytes_opcode(BiosEmuEnvironment *env) {
 		break;
 	case OP_BSR_LZCNT:
 		decode_rm_r(env, bsr_16_16, bsr_32_32);
+		break;
+	case OP_BSWAP:
+		env->flags.operand_size = 1; // BSWAP只有32位操作数
+		decode_r(env, nop_16, bswap_32);
 		break;
 	case OP_BT:
 		decode_rm_r(env, bt_16_16, bt_32_32);
@@ -297,6 +318,9 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 	case OP_CWD_CDQ:
 		decode_cwd_cdq(env);
 		break;
+	case OP_ENTER:
+		exception = decode_enter(env);
+		break;
 	case OP_DAA:
 		decode_daa(env);
 		break;
@@ -392,6 +416,9 @@ BiosEmuExceptions decode_one_byte_opcode(BiosEmuEnvironment *env) {
 		break;
 	case OP_LEA:
 		decode_lea(env);
+		break;
+	case OP_LEAVE:
+		decode_leave(env);
 		break;
 	case OP_LES:
 		decode_r_rm(env, les_16_16, les_32_32);

@@ -164,7 +164,7 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x] BSF
  - [x] BSR
  - [x] SETcc
- - [ ] BSWAP
+ - [x] BSWAP
 
  - Double shift instructions SHLD and SHRD.
  - [x] SHLD
@@ -175,8 +175,8 @@ The following instructions, added to later IA-32 processors (some in the Intel 2
  - [x] POPF
 
  - ENTER and LEAVE control instructions.
- - [ ] ENTER
- - [ ] LEAVE
+ - [x] ENTER
+ - [x] LEAVE
 
  - BOUND instruction.
  - [ ]

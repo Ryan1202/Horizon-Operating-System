@@ -590,3 +590,75 @@ BiosEmuExceptions bsr_32_32(
 	}
 	return NoException;
 }
+
+BiosEmuExceptions decode_enter(BiosEmuEnvironment *env) {
+	uint16_t alloc_size = *(uint16_t *)env->cur_ip;
+	env->cur_ip += 2;
+	env->regs.eip += 2;
+
+	uint8_t nesting_level = *(uint8_t *)env->cur_ip++;
+	env->regs.eip++;
+
+	uint32_t frame_temp;
+	if (env->flags.operand_size == 0) {
+		PUSH(env, env->regs.bp, 2);
+		frame_temp = env->regs.sp;
+	} else {
+		PUSH(env, env->regs.ebp, 4);
+		frame_temp = env->regs.esp;
+	}
+
+	if (nesting_level == 0) {
+		nesting_level = 1;
+	} else {
+		if (env->flags.operand_size == 0) {
+			if (env->flags.stack_size == 0) {
+				for (int i = 1; i < nesting_level; i++) {
+					env->regs.bp -= 2;
+					PUSH16(env, env->regs.bp, 2);
+				}
+				PUSH16(env, frame_temp, 2);
+			} else {
+				for (int i = 1; i < nesting_level; i++) {
+					env->regs.ebp -= 2;
+					PUSH32(env, env->regs.ebp, 4);
+				}
+				PUSH32(env, frame_temp, 2);
+			}
+		} else {
+			if (env->flags.stack_size == 0) {
+				for (int i = 1; i < nesting_level; i++) {
+					env->regs.bp -= 4;
+					PUSH16(env, env->regs.bp, 2);
+				}
+				PUSH16(env, frame_temp, 4);
+			} else {
+				for (int i = 1; i < nesting_level; i++) {
+					env->regs.ebp -= 4;
+					PUSH32(env, env->regs.ebp, 4);
+				}
+				PUSH32(env, frame_temp, 4);
+			}
+		}
+	}
+
+	if (env->flags.operand_size == 0) {
+		env->regs.bp = frame_temp;
+		env->regs.sp -= alloc_size;
+	} else {
+		env->regs.ebp = frame_temp;
+		env->regs.esp -= alloc_size;
+	}
+	return NoException;
+}
+
+BiosEmuExceptions decode_leave(BiosEmuEnvironment *env) {
+	if (env->flags.operand_size == 0) {
+		env->regs.sp = env->regs.bp;
+		POP(env, env->regs.bp, 2);
+	} else {
+		env->regs.esp = env->regs.ebp;
+		POP(env, env->regs.ebp, 4);
+	}
+	return NoException;
+}
