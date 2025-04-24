@@ -1,9 +1,9 @@
 SRC += storage/
 SRC += sound/
-SRC += timer_dm.c
+SRC += timer/
+SRC += network/
 SRC += interrupt_dm.c
 SRC += video_dm.c
 SRC += video.c
 SRC += bus_dm.c
-SRC += timer.c
 SRC += time_dm.c
