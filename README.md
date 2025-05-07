@@ -13,6 +13,8 @@
 	是个半成品。。。
 </p>
 
+真正的主分支：[master](https://github.com/Ryan1202/Horizon-Operating-System/tree/master)
+
 ## 环境
 
 建议使用```VSCode```开发
