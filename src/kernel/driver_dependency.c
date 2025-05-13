@@ -18,8 +18,8 @@ DriverResult check_dependency(Driver *driver) {
 
 			Bus		  *bus;
 			BusDriver *bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
-			if (bus_driver == NULL ||
-				bus_driver->subdriver.state != SUBDRIVER_STATE_READY) {
+			while (bus_driver == NULL ||
+				   bus_driver->subdriver.state != SUBDRIVER_STATE_READY) {
 				// 总线驱动还没准备好则等待
 				thread_set_status(TASK_INTERRUPTIBLE);
 				wait_queue_add(&bus_driver->subdriver.wq);

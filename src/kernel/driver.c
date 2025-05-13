@@ -141,7 +141,6 @@ void sub_driver_start_thread(void *arg) {
 			if (device->ops->init != NULL) { device->ops->init(device); }
 			if (device->ops->start != NULL) { device->ops->start(device); }
 		}
-		device_driver->subdriver.state = SUBDRIVER_STATE_READY;
 	} else if (sub_driver->type == DRIVER_TYPE_BUS_DRIVER) {
 		BusDriver *bus_driver = container_of(sub_driver, BusDriver, subdriver);
 		if (bus_driver->ops->init != NULL) {
@@ -164,6 +163,7 @@ void sub_driver_start_thread(void *arg) {
 			}
 		}
 	}
+	sub_driver->state = SUBDRIVER_STATE_READY;
 }
 
 void driver_start_thread(void *arg) {

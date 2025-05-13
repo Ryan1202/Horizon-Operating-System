@@ -122,7 +122,6 @@ void wait_queue_wakeup_all(WaitQueue *wq) {
 		list_del(&cur->wait_queue_tag);
 
 		thread_unblock(thread);
-		schedule();
 	}
 
 	spin_unlock_irqrestore(&wq->lock, old_status);
