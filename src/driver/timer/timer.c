@@ -1,8 +1,8 @@
-#include "stdint.h"
 #include <driver/timer_dm.h>
 #include <kernel/driver.h>
 #include <kernel/thread.h>
 #include <math.h>
+#include <stdint.h>
 
 extern TimerDeviceManager timer_dm_ext;
 
