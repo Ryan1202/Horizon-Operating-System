@@ -99,17 +99,17 @@ typedef struct TransferOut {
 	((object)->in.is_transfer_done(object, handle, __VA_ARGS__))
 
 #define TRANSFER_OUT_BLOCK(object, handle, ...) \
-	((object)->in.block(object, handle, TRANSFER_OUT, __VA_ARGS__))
+	((object)->out.block(object, handle, TRANSFER_OUT, __VA_ARGS__))
 #define TRANSFER_OUT_BLOCK_ASYNC(object, handle, ...) \
-	((object)->in.block_async(object, handle, TRANSFER_OUT, __VA_ARGS__))
+	((object)->out.block_async(object, handle, TRANSFER_OUT, __VA_ARGS__))
 #define TRANSFER_OUT_STREAM(object, handle, ...) \
-	((object)->in.stream(object, handle, TRANSFER_OUT, __VA_ARGS__))
+	((object)->out.stream(object, handle, TRANSFER_OUT, __VA_ARGS__))
 #define TRANSFER_OUT_STREAM_ASYNC(object, handle, ...) \
-	((object)->in.stream_async(object, handle, TRANSFER_OUT, __VA_ARGS__))
+	((object)->out.stream_async(object, handle, TRANSFER_OUT, __VA_ARGS__))
 #define TRANSFER_OUT_INTTERRUPT(object, handle, ...) \
-	((object)->in.interrupt(object, handle, __VA_ARGS__))
+	((object)->out.interrupt(object, handle, __VA_ARGS__))
 
 #define TRANSFER_OUT_IS_DONE(object, handle, ...) \
-	((object)->in.is_transfer_done(object, handle, __VA_ARGS__))
+	((object)->out.is_transfer_done(object, handle, __VA_ARGS__))
 
 #endif
