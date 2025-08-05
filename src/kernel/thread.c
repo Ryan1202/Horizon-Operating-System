@@ -22,6 +22,8 @@
 #include <stdint.h>
 #include <string.h>
 
+uint32_t preempt_count = 0; // 预防抢占计数
+
 struct task_s *current_task, *dead_task = NULL;
 struct task_s *main_thread;
 
@@ -121,6 +123,7 @@ void init_thread(
 	pthread->pgdir		   = NULL;
 	pthread->stack_magic   = 0x10000000;
 	pthread->subject_id	   = SUBJECT_ID_SYSTEM;
+	pthread->flags.need_resched = 0;
 }
 
 /**
@@ -318,6 +321,11 @@ void init_task(void) {
 void schedule(void) {
 	int			   old_status;
 	struct task_s *cur = get_current_thread();
+
+	if (!can_preempt()) {
+		// 如果不能抢占，直接返回
+		return;
+	}
 
 	old_status = save_and_disable_interrupt();
 

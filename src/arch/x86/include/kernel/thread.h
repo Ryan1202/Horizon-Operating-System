@@ -67,6 +67,10 @@ struct task_s {
 	uint32_t	  stack_magic;
 	size_t		  subject_id;
 
+	struct {
+		uint8_t need_resched : 1; // 是否需要调度
+	} flags;
+
 	struct lock		 child_lock;  // 保护子线程计数器的锁
 	int				 child_count; // 当前活跃的子线程数
 	struct semaphore child_sem;	  // 子线程完成信号量（初始为0）
@@ -80,10 +84,60 @@ struct task_s {
 	list_t all_list_tag;
 };
 
-#define THREAD_DEFAULT_PRIO 100
-
+extern uint32_t	  preempt_count;
 extern list_t	  thread_all;
 extern spinlock_t thread_ready_lock;
+
+extern struct task_s *current_task;
+
+#define THREAD_DEFAULT_PRIO 100
+
+#define PREEMPT_COUNT_MASK	0xff0000
+#define HARDIRQ_COUNT_MASK	0xff00
+#define SOFTIRQ_COUNT_MASK	0xff
+#define PREEMPT_COUNT_SHIFT 16
+#define HARDIRQ_COUNT_SHIFT 8
+#define SOFTIRQ_COUNT_SHIFT 0
+
+#define softirq_count() \
+	((preempt_count & SOFTIRQ_COUNT_MASK) >> SOFTIRQ_COUNT_SHIFT)
+#define hardirq_count() \
+	((preempt_count & HARDIRQ_COUNT_MASK) >> HARDIRQ_COUNT_SHIFT)
+#define preempt_count() \
+	((preempt_count & PREEMPT_COUNT_MASK) >> PREEMPT_COUNT_SHIFT)
+
+#define in_softirq() ((preempt_count & SOFTIRQ_COUNT_MASK) != 0)
+#define in_hardirq() ((preempt_count & HARDIRQ_COUNT_MASK) != 0)
+#define can_preempt() \
+	((preempt_count & (PREEMPT_COUNT_MASK | HARDIRQ_COUNT_MASK)) == 0)
+
+static inline bool need_resched(void) {
+	return current_task != NULL && current_task->flags.need_resched;
+}
+
+static inline void hardirq_enter(void) {
+	preempt_count += 1 << HARDIRQ_COUNT_SHIFT;
+}
+
+static inline void hardirq_exit(void) {
+	preempt_count -= 1 << HARDIRQ_COUNT_SHIFT;
+}
+
+static inline void softirq_enter(void) {
+	preempt_count += 1 << SOFTIRQ_COUNT_SHIFT;
+}
+
+static inline void softirq_exit(void) {
+	preempt_count -= 1 << SOFTIRQ_COUNT_SHIFT;
+}
+
+static inline void disable_preempt(void) {
+	preempt_count += 1 << PREEMPT_COUNT_SHIFT;
+}
+
+static inline void enable_preempt(void) {
+	preempt_count -= 1 << PREEMPT_COUNT_SHIFT;
+}
 
 struct task_s *get_current_thread();
 size_t		   get_current_subject_id();
