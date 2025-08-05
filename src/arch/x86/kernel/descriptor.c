@@ -5,6 +5,8 @@
  * @version 1.2
  * @date 2022-07-31
  */
+#include "kernel/driver_interface.h"
+#include "kernel/thread.h"
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -14,6 +16,7 @@
 #include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/page.h>
+#include <kernel/softirq.h>
 #include <kernel/tss.h>
 #include <string.h>
 
@@ -337,15 +340,30 @@ void exception_handler(
 		;
 }
 
+void irq_return(void) {
+	if (need_resched() && preempt_count() == 0) {
+		get_current_thread()->flags.need_resched = 0;
+		schedule();
+	}
+}
+
 void do_irq(int irq) {
 	// if (use_apic) {
 	// 	apic_eoi();
 	// } else {
 	// 	pic_eoi(irq);
 	// }
-	interrupt_eoi(irq);
+	hardirq_enter();
 	device_irq_handler(irq);
 	irq_table[irq](irq);
+
+	interrupt_eoi(irq);
+	hardirq_exit();
+	enable_interrupt();
+
+	do_softirq();
+
+	irq_return();
 }
 
 void default_irq_handler(int irq) {
@@ -354,7 +372,6 @@ void default_irq_handler(int irq) {
 	// } else {
 	// 	pic_eoi(irq);
 	// }
-	interrupt_eoi(irq);
 }
 
 void irq_enable(int irq) {
