@@ -8,7 +8,7 @@ endif
 X_ASFLAGS	:= $(ENV_AFLAGS) -I $(ARCH_DIR)/include/ -g
 X_CFLAGS    := $(ENV_CFLAGS) -fno-strict-aliasing -g
 ifeq ($(ARCH), x86)
-X_CFLAGS	+= -DARCH_X86
+X_CFLAGS	+= -DARCH_X86=32
 endif
 
 X_INCDIRS	:= ../include/ ./include/ $(ARCH_DIR)/include/
