@@ -1,4 +1,5 @@
-#include "bios_emu/bios_emu.h"
+#include "stdint.h"
+#include <bios_emu/bios_emu.h>
 #include <driver/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -14,8 +15,10 @@
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/feature.h>
+#include <kernel/func.h>
 #include <kernel/list.h>
 #include <objects/object.h>
+#include <random.h>
 #include <string.h>
 
 BusDriverOps platform_ops = {
@@ -68,6 +71,8 @@ void platform_init() {
 	register_cmos();
 
 	dma_init();
+
+	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
 }
 
 void platform_start_devices() {

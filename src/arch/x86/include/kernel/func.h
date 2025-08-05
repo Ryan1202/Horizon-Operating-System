@@ -1,6 +1,7 @@
 #ifndef _FUNC_H
 #define _FUNC_H
 
+#include <stdint.h>
 #define CR0_PE 0x01
 #define CR0_MP 0x02
 #define CR0_EM 0x04
@@ -107,6 +108,12 @@ static inline unsigned int bsf(unsigned int x) {
 	unsigned int index;
 	__asm__ __volatile__("bsfl %1, %0" : "=r"(index) : "r"(x));
 	return index;
+}
+
+static inline uint64_t read_tsc(void) {
+	unsigned int low, high;
+	__asm__ __volatile__("rdtsc" : "=a"(low), "=d"(high));
+	return ((uint64_t)high << 32) | low;
 }
 
 #define GET_REG(reg, var) __asm__ __volatile__("mov %%" reg ", %0" : "=g"(var));
