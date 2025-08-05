@@ -1,3 +1,5 @@
+#include "kernel/driver_interface.h"
+#include "kernel/spinlock.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/driver.h>
@@ -18,6 +20,8 @@ DriverResult check_dependency(Driver *driver) {
 
 			Bus		  *bus;
 			BusDriver *bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
+
+			disable_preempt(); // 禁用中断防止执行过程中被调度打断导致在进入等待循环前被“唤醒”
 			while (bus_driver == NULL ||
 				   bus_driver->subdriver.state != SUBDRIVER_STATE_READY) {
 				// 总线驱动还没准备好则等待
@@ -26,6 +30,7 @@ DriverResult check_dependency(Driver *driver) {
 				thread_wait();
 				bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
 			}
+			enable_preempt();
 
 			int j = 0;
 			list_for_each_owner (bus, &bus_driver->bus_lh, bus_list) {

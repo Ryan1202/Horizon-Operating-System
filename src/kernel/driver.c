@@ -141,11 +141,13 @@ void sub_driver_start_thread(void *arg) {
 			if (device->ops->init != NULL) { device->ops->init(device); }
 			if (device->ops->start != NULL) { device->ops->start(device); }
 		}
+		sub_driver->state = SUBDRIVER_STATE_READY;
 	} else if (sub_driver->type == DRIVER_TYPE_BUS_DRIVER) {
 		BusDriver *bus_driver = container_of(sub_driver, BusDriver, subdriver);
 		if (bus_driver->ops->init != NULL) {
 			bus_driver->ops->init(bus_driver);
 		}
+		sub_driver->state = SUBDRIVER_STATE_READY;
 
 		Bus *bus;
 		list_for_each_owner (bus, &bus_driver->bus_lh, bus_list) {
@@ -163,7 +165,6 @@ void sub_driver_start_thread(void *arg) {
 			}
 		}
 	}
-	sub_driver->state = SUBDRIVER_STATE_READY;
 }
 
 void driver_start_thread(void *arg) {
