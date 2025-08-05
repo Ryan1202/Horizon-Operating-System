@@ -19,7 +19,6 @@
 #include <objects/transfer.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 FsResult fat_check(Partition *partition);
