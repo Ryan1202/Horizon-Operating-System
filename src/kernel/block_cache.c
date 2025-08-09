@@ -119,8 +119,8 @@ void block_cache_read_done(BlockCacheEntry *entry) {
 
 void block_cache_write_done(
 	StorageDevice *storage_device, BlockCacheEntry *entry) {
-	if (storage_device->block_cache_lh.next != NULL &&
-		entry->list.prev == NULL) {
+	if (list_in_list(&storage_device->block_cache_lh) &&
+		list_in_list(&entry->list)) {
 		list_add_tail(&entry->list, &storage_device->block_cache_lh);
 	}
 	rwlock_write_unlock(&entry->lock);

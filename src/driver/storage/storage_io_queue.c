@@ -107,7 +107,7 @@ void storage_periodic_task(void *arg) {
 				&storage_device->io_queue_lh, StorageRequest, list);
 			storage_submit_request(request);
 		} else if (
-			storage_device->block_cache_lh.next != NULL &&
+			list_in_list(&storage_device->block_cache_lh) &&
 			!list_empty(&storage_device->block_cache_lh)) {
 			BlockCacheEntry *entry = list_first_owner(
 				&storage_device->block_cache_lh, BlockCacheEntry, list);
@@ -151,7 +151,7 @@ void storage_submit_request(StorageRequest *request) {
 	} else {
 		storage_device->ops->submit_read_request(storage_device, request);
 	}
-	if (request->list.next != NULL) list_del(&request->list);
+	if (list_in_list(&request->list)) list_del(&request->list); // TODO: bug
 }
 
 void storage_solve_read_request(StorageRequest *request) {

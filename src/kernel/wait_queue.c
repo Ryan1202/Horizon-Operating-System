@@ -46,7 +46,7 @@ bool wait_queue_empty(WaitQueue *wq) {
  */
 void wait_queue_add(WaitQueue *wq) {
 	struct task_s *task = get_current_thread();
-	if (task->wait_queue_tag.next != NULL) {
+	if (list_in_list(&task->wait_queue_tag)) {
 		printk("Error:Current thread(pid:%d) is in wait queue!\n", task->pid);
 		list_del(&task->wait_queue_tag);
 	}
@@ -60,12 +60,12 @@ void wait_queue_add(WaitQueue *wq) {
 
 void wait_queue_del(WaitQueue *wq) {
 	struct task_s *task = get_current_thread();
-	if (task->wait_queue_tag.next != NULL) {
+	if (list_in_list(&task->wait_queue_tag)) {
 		printk("Error:Current thread(pid:%d) is in wait queue!\n", task->pid);
 		list_del(&task->wait_queue_tag);
 	}
 	int flags = spin_lock_irqsave(&wq->lock);
-	if (task->wait_queue_tag.next != NULL) list_del(&task->wait_queue_tag);
+	if (list_in_list(&task->wait_queue_tag)) list_del(&task->wait_queue_tag);
 	spin_unlock_irqrestore(&wq->lock, flags);
 }
 

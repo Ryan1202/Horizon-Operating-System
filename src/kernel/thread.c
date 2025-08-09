@@ -160,7 +160,7 @@ struct task_s *thread_start(
 	spin_unlock_irqrestore(&thread_all_lock, flags);
 
 	flags = spin_lock_irqsave(&thread_ready_lock);
-	if (thread->general_tag.next != NULL) {
+	if (list_in_list(&thread->general_tag)) {
 		printk("[Thread Error]%s thread is already in thread_ready!\n", name);
 		list_del(&thread->general_tag);
 	}
@@ -193,7 +193,7 @@ void thread_exit(void) {
 	spin_unlock_irqrestore(&thread_all_lock, flags);
 
 	flags = spin_lock_irqsave(&thread_ready_lock);
-	if (cur->general_tag.next != NULL) list_del(&cur->general_tag);
+	if (list_in_list(&cur->general_tag)) list_del(&cur->general_tag);
 
 	// 切换线程
 	struct task_s *next;
@@ -249,7 +249,7 @@ void thread_set_status(task_status_t status) {
 void thread_wait() {
 	struct task_s *cur_thread = get_current_thread();
 
-	while (cur_thread->wait_queue_tag.next != NULL) {
+	while (list_in_list(&cur_thread->wait_queue_tag)) {
 		schedule();
 	}
 }
@@ -272,10 +272,10 @@ void thread_unblock(struct task_s *pthread) {
 		spin_unlock(&pthread->status_lock);
 
 		spin_lock(&thread_ready_lock);
-		if (pthread->general_tag.next != NULL) {
+		if (list_in_list(&pthread->general_tag)) {
 			list_del(&pthread->general_tag);
 		}
-		list_add_before(&pthread->general_tag, thread_ready.next);
+		list_add_after(&pthread->general_tag, &thread_ready);
 		spin_unlock_irqrestore(&thread_ready_lock, flags);
 	} else {
 		spin_unlock_irqrestore(&pthread->status_lock, flags);
@@ -331,7 +331,7 @@ void schedule(void) {
 
 	// 1. 判断当前线程是否需要加入到thread_ready
 	if (cur->status == TASK_RUNNING) {
-		if (cur->general_tag.next != NULL) {
+		if (list_in_list(&cur->general_tag)) {
 			printk(
 				"Error:Current thread(pid:%d) is in thread_ready list!\n",
 				cur->pid);
