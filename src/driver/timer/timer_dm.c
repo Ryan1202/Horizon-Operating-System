@@ -105,14 +105,13 @@ void timer_irq_handler(Device *device) {
 	timer_device->counter++;
 
 	Timer *cur, *next;
-	list_for_each_owner_safe (cur, next, &timer_device->timer_list_lh, list) {
-		if (cur->timeout > timer_device->counter) { break; }
+	list_for_each_owner_safe (
+		cur, next, &timer_device->timer_callback_lh, list) {
+		if (!timer_is_timeout(cur)) { break; }
+
 		list_del(&cur->list);
-		if (cur->period) {
-			timer_set_timeout(cur, cur->period);
-		} else {
-			cur->timeout = 0;
-		}
+		cur->timeout = 0;
+		if (cur->callback != NULL) cur->callback(cur->arg);
 	}
 
 	if (!list_empty(&thread_all)) {
@@ -122,7 +121,7 @@ void timer_irq_handler(Device *device) {
 			cur_thread->elapsed_ticks++;
 
 			if (cur_thread->ticks == 0) {
-				schedule();
+				cur_thread->flags.need_resched = 1;
 			} else {
 				cur_thread->ticks--;
 			}
@@ -136,7 +135,7 @@ DriverResult register_timer_device(
 	device->dm_ext		 = timer_device;
 	timer_device->device = device;
 
-	list_init(&timer_device->timer_list_lh);
+	list_init(&timer_device->timer_callback_lh);
 	list_add_tail(&device->dm_list, &timer_dm.device_lh);
 
 	return DRIVER_RESULT_OK;
@@ -145,7 +144,8 @@ DriverResult register_timer_device(
 DriverResult unregister_timer_device(
 	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device) {
 	Timer *timer, *next;
-	list_for_each_owner_safe (timer, next, &timer_device->timer_list_lh, list) {
+	list_for_each_owner_safe (
+		timer, next, &timer_device->timer_callback_lh, list) {
 		timer->timer_device = NULL;
 		timer->timeout		= 0;
 		list_del(&timer->list);

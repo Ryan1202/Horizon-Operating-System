@@ -3,6 +3,7 @@
 
 #include "kernel/device.h"
 #include "kernel/device_driver.h"
+#include "kernel/list.h"
 #include "result.h"
 #include "stdint.h"
 
@@ -27,7 +28,7 @@ typedef struct TimerOps {
 } TimerOps;
 
 typedef struct TimerDevice {
-	list_t timer_list_lh;
+	list_t timer_callback_lh;
 
 	Device	*device;
 	uint32_t current_frequency;
@@ -41,12 +42,18 @@ typedef struct TimerDevice {
 	TimerOps *timer_ops;
 } TimerDevice;
 
+typedef void (*TimerCallback)(void *arg);
+
 typedef struct Timer {
 	list_t list;
 
 	TimerDevice *timer_device;
-	uint32_t	 timeout;
-	uint32_t	 period;
+
+	bool	 will_wrap; // 计时器是否会溢出导致从0重新开始计数
+	uint32_t timeout;	// 计时器超时时间
+
+	TimerCallback callback;
+	void		 *arg;
 } Timer;
 
 typedef struct TimerDeviceManager {
@@ -67,5 +74,8 @@ void		 delay_ms_async(Timer *timer, uint32_t ms);
 bool		 timer_is_timeout(Timer *timer);
 DriverResult timer_set_timeout(Timer *timer, uint32_t count);
 size_t		 timer_get_counter();
+
+DriverResult timer_callback_enable(Timer *timer);
+DriverResult timer_callback_cancel(Timer *timer);
 
 #endif
