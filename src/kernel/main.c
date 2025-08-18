@@ -4,21 +4,27 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "bios_emu/bios_emu.h"
-#include "bios_emu/exceptions.h"
-#include "driver/sound/pcm.h"
-#include "driver/sound/sound_dm.h"
-#include "drivers/vesa_display.h"
-#include "kernel/page.h"
-#include "objects/handle.h"
-#include "string.h"
+#include "driver/network/buffer.h"
+#include <bios_emu/bios_emu.h>
+#include <bios_emu/exceptions.h>
+#include <bits.h>
 #include <driver/interrupt_dm.h>
+#include <driver/network/conn.h>
+#include <driver/network/ethernet/ethernet.h>
+#include <driver/network/protocols/arp.h>
+#include <driver/network/protocols/dhcp.h>
+#include <driver/network/protocols/ipv4.h>
+#include <driver/network/protocols/protocols.h>
+#include <driver/network/protocols/udp.h>
+#include <driver/sound/pcm.h>
+#include <driver/sound/sound_dm.h>
 #include <driver/storage/disk/volume.h>
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
 #include <driver/time_dm.h>
 #include <driver/timer_dm.h>
 #include <driver/video_dm.h>
+#include <drivers/vesa_display.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
 #include <kernel/app.h>
@@ -33,22 +39,16 @@
 #include <kernel/initcall.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
+#include <kernel/page.h>
 #include <kernel/periodic_task.h>
 #include <kernel/platform.h>
 #include <kernel/process.h>
 #include <kernel/thread.h>
 #include <network/arp.h>
-#include <network/dhcp.h>
-#include <network/eth.h>
-#include <network/ipv4.h>
-#include <network/netpack.h>
-#include <network/network.h>
-#include <network/tcp.h>
-#include <network/udp.h>
-#include <objects/object.h>
+#include <objects/handle.h>
 #include <objects/ops.h>
-#include <objects/transfer.h>
 #include <stdint.h>
+#include <string.h>
 
 void		   idle(void *arg);
 struct task_s *task_idle;
@@ -108,6 +108,8 @@ void thread_play(void *arg) {
 	}
 }
 
+void network_timer_init(void);
+
 int main() {
 	platform_early_init();
 
@@ -123,6 +125,7 @@ int main() {
 	register_device_manager(&video_dm);
 	register_device_manager(&sound_dm);
 	register_device_manager(&storage_dm);
+	register_device_manager(&network_dm);
 
 	init_object_tree();
 
@@ -142,6 +145,32 @@ int main() {
 
 	do_initcalls();
 	driver_start_all();
+
+	Object		*net;
+	ObjectResult result = open_object_by_path("\\Device\\Network0", &net);
+	if (result == OBJECT_OK) {
+		dhcp_start(net->value.device->dm_ext);
+		// uint8_t dst_mac[]  = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+		// uint8_t dst_ip[]   = {10, 0, 2, 2};
+		// uint8_t udp_data[] = "Hello, World!";
+
+		// NetworkConnection *conn = net_create_conn(net);
+		// conn->buffer			= net_buffer_create(128);
+		// net_buffer_init(conn->buffer, 128, 0, 0);
+
+		// eth_register(conn);
+		// ipv4_register(conn, NULL);
+		// udp_register(conn);
+
+		// // conn_put(conn, udp_data, sizeof(udp_data));
+
+		// udp_wrap(conn, 1234, 22);
+		// ipv4_wrap(conn, IP_PROTO_UDP, dst_ip, 64);
+		// eth_wrap(conn, dst_mac, ETH_PROTO_TYPE_IPV4);
+		// TRANSFER_OUT_STREAM(
+		// 	net, conn->handle, conn->buffer->head,
+		// 	conn->buffer->tail - conn->buffer->head);
+	}
 
 	// bios_emu_env.regs.ax		= 0x4f02;
 	// bios_emu_env.regs.bx		= 0x4192;			   // 1920x1080x32bit模式

@@ -6,8 +6,8 @@
 #include <network/ipv4.h>
 #include <network/network.h>
 #include <network/udp.h>
+#include <random.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 uint8_t dhcp_magic_cookie[4] = {99, 130, 83, 99};
 
@@ -50,7 +50,8 @@ int dhcp_main(net_device_t *net_dev) {
 
 	udp_send(netc, (uint16_t *)buf, sizeof(dhcp_basic_t) + 8);
 	netc_read(netc, buf, sizeof(dhcp_basic_t) + 4);
-	if (memcmp(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4) != 0) return -2;
+	if (memcmp(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4) != 0)
+		return -2;
 	netc_read(netc, &option, sizeof(option));
 	netc_read(netc, &len, sizeof(len));
 	if (option != DHCP_OPTION_MSG_TYPE) return -3;
@@ -106,7 +107,8 @@ int dhcp_main(net_device_t *net_dev) {
 	udp_send(netc, (uint16_t *)buf, sizeof(dhcp_basic_t) + 20);
 
 	netc_read(netc, buf, sizeof(dhcp_basic_t) + 4);
-	if (memcmp(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4) != 0) return -2;
+	if (memcmp(buf + sizeof(dhcp_basic_t), dhcp_magic_cookie, 4) != 0)
+		return -2;
 	ipv4_set_ip(netc, ((dhcp_basic_t *)buf)->yiAddr);
 	netc_read(netc, &option, sizeof(option));
 	netc_read(netc, &len, sizeof(len));

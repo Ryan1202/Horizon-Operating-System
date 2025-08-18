@@ -21,7 +21,7 @@ LD			:=  $(ENV_LD)
 export AS LD
 export ARCH_DIR
 
-SRC			:=	$(ARCH_DIR)/ fs/ driver/ kernel/ lib/ network/ objects/
+SRC			:=	$(ARCH_DIR)/ fs/ driver/ kernel/ lib/ objects/
 
 NAME		:=	kernel.elf
 

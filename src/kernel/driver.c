@@ -245,7 +245,7 @@ int dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg) {
 }
 
 void init_dm(void) {
-	init_network();
+	// init_network();
 }
 
 status_t driver_create(driver_func_t func, char *driver_name) {
@@ -281,34 +281,34 @@ void driver_inited() {
 status_t device_create(
 	driver_t *driver, unsigned long device_extension_size, char *name,
 	dev_type_t type, device_t **device) {
-	device_t *devobj = kmalloc(sizeof(device_t) + device_extension_size);
-	devobj->type	 = type;
-	spinlock_init(&devobj->lock);
-	if (devobj == NULL) { return FAILED; }
-	list_init(&devobj->list);
-	if (device_extension_size > 0) {
-		devobj->device_extension = (void *)(devobj + 1);
-	} else {
-		devobj->device_extension = NULL;
-	}
-	if (string_new(&devobj->name, name, DEVICE_MAX_NAME_LEN)) {
-		kfree(devobj);
-		return FAILED;
-	}
+	// device_t *devobj = kmalloc(sizeof(device_t) + device_extension_size);
+	// devobj->type	 = type;
+	// spinlock_init(&devobj->lock);
+	// if (devobj == NULL) { return FAILED; }
+	// list_init(&devobj->list);
+	// if (device_extension_size > 0) {
+	// 	devobj->device_extension = (void *)(devobj + 1);
+	// } else {
+	// 	devobj->device_extension = NULL;
+	// }
+	// if (string_new(&devobj->name, name, DEVICE_MAX_NAME_LEN)) {
+	// 	kfree(devobj);
+	// 	return FAILED;
+	// }
 
-	devobj->drv_obj = driver;
-	list_add_tail(&devobj->list, &driver->device_list);
-	*device = devobj;
+	// devobj->drv_obj = driver;
+	// list_add_tail(&devobj->list, &driver->device_list);
+	// *device = devobj;
 
-	if (type == DEV_ETH_NET) {
-		eth_dm.dm_register(&eth_dm, devobj, name);
-		driver->dm = &eth_dm;
-	} else {
-		// devobj->inode		  = vfs_create(name, ATTR_DEV, dev);
-		devobj->inode->device = devobj;
-		// devobj->inode->f_ops  = device_fops;
-		devobj->inode->fp	  = kmalloc(sizeof(struct file));
-	}
+	// if (type == DEV_ETH_NET) {
+	// 	eth_dm.dm_register(&eth_dm, devobj, name);
+	// 	driver->dm = &eth_dm;
+	// } else {
+	// 	// devobj->inode		  = vfs_create(name, ATTR_DEV, dev);
+	// 	devobj->inode->device = devobj;
+	// 	// devobj->inode->f_ops  = device_fops;
+	// 	devobj->inode->fp	  = kmalloc(sizeof(struct file));
+	// }
 
 	return SUCCUESS;
 }

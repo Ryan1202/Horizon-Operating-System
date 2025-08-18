@@ -9,8 +9,8 @@
 #include <network/netpack.h>
 #include <network/network.h>
 #include <network/tcp.h>
+#include <random.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #include <kernel/console.h>
 
