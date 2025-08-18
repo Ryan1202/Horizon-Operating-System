@@ -85,7 +85,7 @@ void wait_queue_wakeup_thread(WaitQueue *wq, struct task_s *thread) {
 
 	list_del(&thread->wait_queue_tag);
 
-	if (thread != get_current_thread()) thread_unblock(thread);
+	thread_unblock(thread);
 
 	spin_unlock_irqrestore(&wq->lock, flags);
 	return;

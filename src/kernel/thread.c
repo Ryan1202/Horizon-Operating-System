@@ -249,7 +249,8 @@ void thread_set_status(task_status_t status) {
 void thread_wait() {
 	struct task_s *cur_thread = get_current_thread();
 
-	while (list_in_list(&cur_thread->wait_queue_tag)) {
+	while (cur_thread->status == TASK_INTERRUPTIBLE) {
+		// while (list_in_list(&cur_thread->wait_queue_tag)) {
 		schedule();
 	}
 }
@@ -354,7 +355,7 @@ void schedule(void) {
 		list_del(&next->general_tag);
 	} else next = task_idle;
 	// 4. 改变状态并加入到thread_ready
-	next->status = TASK_RUNNING;
+	if (next->status == TASK_READY) next->status = TASK_RUNNING;
 
 	// 5. 切换线程
 	// 激活页表并跳转

@@ -27,7 +27,11 @@ DriverResult check_dependency(Driver *driver) {
 				// 总线驱动还没准备好则等待
 				thread_set_status(TASK_INTERRUPTIBLE);
 				wait_queue_add(&bus_driver->subdriver.wq);
+
+				enable_preempt();
 				thread_wait();
+				disable_preempt();
+
 				bus_driver = bus_drivers[deps[i].dependency_in_bus.type];
 			}
 			enable_preempt();
