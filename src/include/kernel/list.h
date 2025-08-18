@@ -161,7 +161,7 @@ static inline int list_empty(const struct list *head) {
 #define list_next_owner(pos, member) \
 	list_owner((pos)->member.next, typeof(*(pos)), member)
 
-#define list_prev_onwer(pos, member) \
+#define list_prev_owner(pos, member) \
 	list_owner((pos)->member.prev, typeof(*(pos)), member)
 
 #define list_for_each(pos, head) \
@@ -204,7 +204,7 @@ static inline int list_length(struct list *head) {
 
 #define list_for_each_owner_reverse(pos, head, member)      \
 	for (pos = list_last_owner(head, typeof(*pos), member); \
-		 &pos->member != (head); pos = list_prev_onwer(pos, member))
+		 &pos->member != (head); pos = list_prev_owner(pos, member))
 
 #define list_for_each_owner_safe(pos, next, head, member)    \
 	for (pos = list_first_owner(head, typeof(*pos), member), \
@@ -214,8 +214,8 @@ static inline int list_length(struct list *head) {
 
 #define list_for_each_owner_reverse_safe(pos, prev, head, member) \
 	for (pos = list_last_owner(head, typeof(*pos), member),       \
-		prev = list_prev_onwer(pos, member);                      \
+		prev = list_prev_owner(pos, member);                      \
 		 &pos->member != (head);                                  \
-		 pos = prev, prev = list_prev_onwer(prev, member))
+		 pos = prev, prev = list_prev_owner(prev, member))
 
 #endif
