@@ -484,9 +484,6 @@ void dhcp_init(DhcpClient *dhcp, NetworkConnection *conn) {
 	dhcp->conn			   = conn;
 	conn->udp.private_data = dhcp;
 
-	udp_bind(dhcp->conn, UDP_PORT_DHCP_CLIENT);
-	udp_set_callback(conn, dhcp_rx_handler);
-
 	timer_init(&dhcp->timeout_timer);
 	timer_init(&dhcp->lease_timer);
 	timer_init(&dhcp->renew_timer);
@@ -509,6 +506,9 @@ void dhcp_reset(DhcpClient *dhcp, NetworkConnection *conn) {
 	eth_register(conn);
 	ipv4_register(conn, NULL);
 	udp_register(conn);
+
+	udp_bind(dhcp->conn, UDP_PORT_DHCP_CLIENT);
+	udp_set_callback(conn, dhcp_rx_handler);
 
 	switch (dhcp->device->type) {
 	case NETWORK_TYPE_ETHERNET:
