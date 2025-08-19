@@ -91,8 +91,6 @@ ProtocolResult ipv4_wrap(
 	}
 	ipv4_checksum(ipv4_header);
 
-	conn->ipv4.header = ipv4_header;
-
 	return PROTO_OK;
 }
 
