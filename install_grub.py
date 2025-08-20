@@ -14,7 +14,10 @@ core_image_path = 'core.img'
 disk_dir_path = 'disk'
 grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
-grub_mkimage_path = "grub-mkimage"
+if os.uname().sysname == "Darwin":
+    grub_mkimage_path = "x86_64-elf-grub-mkimage"
+else:
+    grub_mkimage_path = "grub-mkimage"
 default_mods =\
 "minicmd normal gzio gcry_crc verifiers terminal \
 priority_queue gettext extcmd datetime crypto bufio boot \

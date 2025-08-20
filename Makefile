@@ -1,3 +1,5 @@
+UNAME_S := $(shell uname -s)
+
 DD			=	dd
 CP			=	cp
 GRUB_MKIMG	=	grub-mkimage
@@ -11,6 +13,14 @@ export ARCH
 ifeq ($(ARCH), x86)
 	QEMU		=	qemu-system-i386
 	TARGET_PLATFORM	=	i386-pc
+endif
+
+ifeq ($(UNAME_S),Linux)
+    QEMU_CFG = qemu-linux.cfg
+else ifeq ($(UNAME_S),Darwin)
+    QEMU_CFG = qemu-macos.cfg
+else ifeq ($(OS),Windows_NT)
+    QEMU_CFG = qemu-windows.cfg
 endif
 
 FD_IMG		=	./horizon.img
@@ -99,7 +109,8 @@ qemu_dbg:
 	-device usb-mouse \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
-	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
+	-object filter-dump,id=f1,netdev=nc1,file=dump.pcap \
+	-readconfig $(QEMU_CFG) \
 	-boot c
 	
 qemu:
@@ -110,8 +121,8 @@ qemu:
 	-hda $(HD_IMG) \
 	-usb \
 	-device usb-mouse \
-	-audio pa,model=sb16 \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
-	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
+	-object filter-dump,id=f1,netdev=nc1,file=dump.pcap \
+	-readconfig $(QEMU_CFG) \
 	-boot c

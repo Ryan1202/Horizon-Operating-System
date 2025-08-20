@@ -59,19 +59,19 @@ endif
 
 export ECHO_RM ECHO_CC ECHO_CXX ECHO_AS ECHO_LD ECHO_AR ECHO_OUTPUT ECHO_HOSTCC
 
-CROSS_COMPILE	?=
+CROSS_COMPILE	?= 
 
 # Make variables (CC, etc...)
-AS			:=	$(CROSS_COMPILE)clang -x assembler-with-cpp
-CC			:=	$(CROSS_COMPILE)clang
-CPP			:=	$(CROSS_COMPILE)clang -E
-CXX			:=	$(CROSS_COMPILE)clang++
-LD			:=	$(CROSS_COMPILE)lld
+AS			:=	$(CROSS_COMPILE)clang --target=x86_64-elf -x assembler-with-cpp
+CC			:=	$(CROSS_COMPILE)clang --target=x86_64-elf
+CPP			:=	$(CROSS_COMPILE)clang --target=x86_64-elf -E
+CXX			:=	$(CROSS_COMPILE)clang++ --target=x86_64-elf
+LD			:=	$(CROSS_COMPILE)ld
 AR			:=	$(CROSS_COMPILE)ar
 OC			:=	$(CROSS_COMPILE)objcopy
 OD			:=	$(CROSS_COMPILE)objdump
 NM			:=	$(CROSS_COMPILE)nm
 
-HOSTCC		:=	gcc
+HOSTCC		:=	clang
 
 export AS AR CC LD CPP CXX OC OD NM HOSTCC

@@ -11,7 +11,7 @@ ENV_APP_LD_SCRIPT	:= -T ../apps/app.lds
 
 # MacOS special
 ifeq ($(shell uname),Darwin)
-	ENV_LD		:=  i386-elf-ld -m elf_i386
+	ENV_LD		:=  x86_64-elf-ld -m elf_i386
 else
 	ENV_LD		:=  ld -m elf_i386
 endif
