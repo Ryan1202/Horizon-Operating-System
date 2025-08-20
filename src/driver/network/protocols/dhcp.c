@@ -105,6 +105,7 @@ void dhcp_ip_lease_handler(void *arg) {
 void dhcp_renew_handler(void *arg) {
 	DhcpClient *dhcp = arg;
 	if (dhcp->state == DHCP_STAT_BOUND) {
+		// TODO: 单播
 		uint8_t *ptr =
 			dhcp_create_message(dhcp, dhcp->conn->buffer->data, DHCP_REQUEST);
 
@@ -128,16 +129,16 @@ void dhcp_renew_handler(void *arg) {
 		int initial_timeout = DHCP_INIT_TIMEOUT(dhcp);
 		DHCP_SET_TIMEOUT(dhcp, initial_timeout);
 
+		dhcp->state			  = DHCP_STAT_RENEWING;
 		ProtocolResult result = dhcp_send(dhcp, sizeof(DhcpHeader) + len);
 		if (result != PROTO_OK) return;
-
-		dhcp->state = DHCP_STAT_RENEWING;
 	}
 }
 
 void dhcp_rebind_handler(void *arg) {
 	DhcpClient *dhcp = arg;
 	if (dhcp->state == DHCP_STAT_RENEWING) {
+		// TODO: 广播
 		uint8_t *ptr =
 			dhcp_create_message(dhcp, dhcp->conn->buffer->data, DHCP_REQUEST);
 
@@ -161,10 +162,9 @@ void dhcp_rebind_handler(void *arg) {
 		int initial_timeout = DHCP_INIT_TIMEOUT(dhcp);
 		DHCP_SET_TIMEOUT(dhcp, initial_timeout);
 
+		dhcp->state			  = DHCP_STAT_REBINDING;
 		ProtocolResult result = dhcp_send(dhcp, sizeof(DhcpHeader) + len);
 		if (result != PROTO_OK) return;
-
-		dhcp->state = DHCP_STAT_REBINDING;
 	}
 }
 
@@ -383,7 +383,7 @@ ProtocolResult dhcp_send(DhcpClient *dhcp, uint16_t len) {
 		UDP_PORT_DHCP_SERVER); // DHCP客户端端口68，服务器端口67
 	if (dhcp->state == DHCP_STAT_SELECTING ||
 		dhcp->state == DHCP_STAT_REQUESTING ||
-		dhcp->state == DHCP_STAT_RENEWING) {
+		dhcp->state == DHCP_STAT_REBINDING) {
 		ipv4_wrap(
 			dhcp->conn, IP_PROTO_UDP, (uint8_t *)&ipv4_broadcast_addr, 64);
 	} else {
