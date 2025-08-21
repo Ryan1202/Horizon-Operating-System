@@ -51,7 +51,7 @@ typedef struct NetworkDevice {
 	};
 
 	union {
-		uint8_t ipv4[4];
+		uint8_t ipv4_addr[4];
 	};
 } NetworkDevice;
 

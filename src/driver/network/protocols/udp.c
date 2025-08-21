@@ -89,8 +89,8 @@ void udp_set_callback(
 
 void udp_wrap(NetworkConnection *conn, uint16_t src_port, uint16_t dst_port) {
 	uint16_t size = CONN_CONTENT_SIZE(conn);
-	conn_header_alloc(conn, sizeof(UdpHeader));
-	UdpHeader *udp_header = (UdpHeader *)conn->buffer->head;
+	net_buffer_header_alloc(conn_buffer(conn), sizeof(UdpHeader));
+	UdpHeader *udp_header = (UdpHeader *)conn_buffer(conn)->head;
 	udp_header->src_port  = HOST2BE_WORD(src_port);
 	udp_header->dst_port  = HOST2BE_WORD(dst_port);
 	udp_header->length	  = HOST2BE_WORD(sizeof(UdpHeader) + size);
@@ -116,7 +116,7 @@ ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header) {
 
 	int length = BE2HOST_WORD(udp_header->length);
 	if (length < sizeof(UdpHeader)) return PROTO_ERROR_UNSUPPORT; // 数据包太小
-	if (length > size) return PROTO_ERROR_EXCEED_MAX_SIZE; // 长度不合法
+	if (length > size) return PROTO_ERROR_EXCEED_MAX_SIZE;		  // 长度不合法
 
 	// TODO: 先检查目标是否为本机IP
 

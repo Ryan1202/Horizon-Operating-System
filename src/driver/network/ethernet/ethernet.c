@@ -16,6 +16,7 @@
 #include <driver/network/conn.h>
 #include <driver/network/ethernet/ethernet.h>
 #include <driver/network/network_dm.h>
+#include <driver/network/protocols/arp.h>
 #include <kernel/device.h>
 #include <objects/handle.h>
 #include <objects/object.h>
@@ -46,25 +47,26 @@ void eth_register(NetworkConnection *conn) {
 }
 
 ProtocolResult eth_wrap(
-	NetworkConnection *conn, const uint8_t *dst_addr, uint16_t protocol) {
-	conn_header_alloc(conn, 14);
-	EthernetHeader *header = (EthernetHeader *)conn->buffer->head;
+	NetBuffer *buffer, uint8_t *mac_addr, const uint8_t *dst_addr,
+	uint16_t protocol) {
+	net_buffer_header_alloc(buffer, 14);
+	EthernetHeader *header = (EthernetHeader *)buffer->head;
 	memcpy(header->dst_mac, dst_addr, 6);
-	memcpy(header->src_mac, conn->ethernet.mac, 6);
+	memcpy(header->src_mac, mac_addr, 6);
 
-	int content_size = CONN_CONTENT_SIZE(conn);
+	int content_size = buffer->tail - buffer->head;
 	if (content_size > ETH_MAX_FRAME_SIZE) return PROTO_ERROR_EXCEED_MAX_SIZE;
 	if (content_size < ETH_MIN_FRAME_SIZE) {
 		// 填充最小帧长度
-		memset(conn->buffer->tail, 0, ETH_MIN_FRAME_SIZE - content_size);
-		conn->buffer->tail = conn->buffer->head + ETH_MIN_FRAME_SIZE;
+		memset(buffer->tail, 0, ETH_MIN_FRAME_SIZE - content_size);
+		buffer->tail = buffer->head + ETH_MIN_FRAME_SIZE;
 	}
 	header->protocol_type = HOST2BE_WORD(protocol);
 
 	return PROTO_OK;
 }
 
-ProtocolResult eth_recv(NetBuffer *net_buffer) {
+ProtocolResult eth_recv(NetworkDevice *device, NetBuffer *net_buffer) {
 	EthernetHeader *header = (EthernetHeader *)net_buffer->data;
 	int				size   = net_buffer->tail - net_buffer->data;
 	if (size < ETH_HEADER_SIZE) { return PROTO_ERROR_UNSUPPORT; }
@@ -78,6 +80,7 @@ ProtocolResult eth_recv(NetBuffer *net_buffer) {
 		result = ipv4_recv(net_buffer);
 		break;
 	case ETH_PROTO_TYPE_ARP:
+		result = arp_recv(device, net_buffer);
 		break;
 	default:
 		result = PROTO_ERROR_UNSUPPORT;

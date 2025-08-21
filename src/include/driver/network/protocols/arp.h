@@ -1,8 +1,8 @@
 #ifndef _ARP_H
 #define _ARP_H
 
-#include "../conn.h"
-#include "protocols.h"
+#include "driver/network/conn.h"
+#include "driver/network/protocols/protocols.h"
 #include <stdint.h>
 
 #define ARP_HTYPE_ETH 0x0001
@@ -20,8 +20,8 @@ typedef struct ArpHeader {
 	uint16_t opcode;
 } __attribute__((packed)) ArpHeader;
 
-ProtocolResult arp_wrap(
-	NetworkConnection *conn, uint8_t *dst_haddr, uint8_t *dst_paddr,
-	uint16_t opcode);
+extern NeighbourProtoOps arp_proto_ops;
+
+ProtocolResult arp_recv(NetworkDevice *device, NetBuffer *net_buffer);
 
 #endif

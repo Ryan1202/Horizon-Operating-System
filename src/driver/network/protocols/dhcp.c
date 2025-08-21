@@ -10,6 +10,7 @@
 #include "bits.h"
 #include "driver/network/buffer.h"
 #include "driver/network/ethernet/ethernet.h"
+#include "driver/network/neighbour.h"
 #include "driver/timer_dm.h"
 #include "kernel/driver_interface.h"
 #include "objects/transfer.h"
@@ -282,6 +283,13 @@ void dhcp_parse_options(
 	}
 }
 
+void dhcp_check_addr(DhcpClient *dhcp) {
+	NeighbourKey	key = ipv4_hash(dhcp->server_ip_addr);
+	NeighbourEntry *entry =
+		neighbour_table_lookup(dhcp->device, key, dhcp->server_ip_addr, 4);
+	memcpy(dhcp->server_haddr, entry->haddr, dhcp->haddr_len);
+}
+
 void dhcp_rx_handler(NetworkConnection *conn, NetBuffer *net_buffer) {
 	DhcpClient *dhcp   = (DhcpClient *)conn->udp.private_data;
 	DhcpHeader *header = (DhcpHeader *)net_buffer->data;
@@ -324,6 +332,7 @@ void dhcp_rx_handler(NetworkConnection *conn, NetBuffer *net_buffer) {
 				dhcp->ip_addr[3]);
 
 			// TODO: 检查地址冲突
+			dhcp_check_addr(dhcp);
 
 			dhcp_ack_handler(dhcp, conn, indexes);
 			dhcp_set_timers(dhcp);
@@ -372,7 +381,7 @@ void *dhcp_create_message(DhcpClient *dhcp, DhcpHeader *header, uint8_t op) {
 }
 
 ProtocolResult dhcp_send(DhcpClient *dhcp, uint16_t len) {
-	ProtocolResult result = conn_put(dhcp->conn, len);
+	ProtocolResult result = net_buffer_put(dhcp->conn->buffer, len);
 	if (result != PROTO_OK) {
 		printk("[DHCP] Failed to put DHCP message: %d\n", result);
 		return result;
@@ -391,7 +400,9 @@ ProtocolResult dhcp_send(DhcpClient *dhcp, uint16_t len) {
 	}
 	switch (dhcp->device->type) {
 	case NETWORK_TYPE_ETHERNET:
-		eth_wrap(dhcp->conn, dhcp->server_haddr, ETH_PROTO_TYPE_IPV4);
+		eth_wrap(
+			dhcp->conn->buffer, dhcp->device->ethernet->mac_addr,
+			dhcp->server_haddr, ETH_PROTO_TYPE_IPV4);
 		break;
 	case NETWORK_TYPE_UNKNOWN:
 		return PROTO_ERROR_UNSUPPORT;
@@ -502,6 +513,9 @@ void dhcp_reset(DhcpClient *dhcp, NetworkConnection *conn) {
 	dhcp->state = DHCP_STAT_INIT;
 	dhcp->xid	= rand();
 
+	memset(dhcp->ip_addr, 0, sizeof(dhcp->ip_addr));
+	memset(dhcp->server_ip_addr, 0, sizeof(dhcp->server_ip_addr));
+	memset(dhcp->server_haddr, 0, sizeof(dhcp->server_haddr));
 	net_buffer_init(conn->buffer, 576, 0, 0);
 	eth_register(conn);
 	ipv4_register(conn, NULL);

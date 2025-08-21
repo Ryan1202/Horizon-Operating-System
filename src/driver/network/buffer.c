@@ -30,20 +30,20 @@ void net_buffer_reset(NetBuffer *buffer) {
 	buffer->tail = buffer->data;
 }
 
-void conn_header_alloc(NetworkConnection *conn, uint16_t size) {
-	conn->buffer->head -= size;
+void net_buffer_header_alloc(NetBuffer *buffer, uint16_t size) {
+	buffer->head -= size;
 }
 
-void conn_header_free(NetworkConnection *conn, uint16_t size) {
-	conn->buffer->head += size;
+void net_buffer_header_free(NetBuffer *buffer, uint16_t size) {
+	buffer->head += size;
 }
 
-void conn_tail_alloc(NetworkConnection *conn, uint16_t size) {
-	conn->buffer->tail += size;
+void net_buffer_tail_alloc(NetBuffer *buffer, uint16_t size) {
+	buffer->tail += size;
 }
 
-void conn_tail_free(NetworkConnection *conn, uint16_t size) {
-	conn->buffer->tail -= size;
+void net_buffer_tail_free(NetBuffer *buffer, uint16_t size) {
+	buffer->tail -= size;
 }
 
 ProtocolResult net_buffer_data_alloc(NetBuffer *buffer, uint16_t size) {
@@ -55,8 +55,7 @@ ProtocolResult net_buffer_data_alloc(NetBuffer *buffer, uint16_t size) {
 	return PROTO_OK;
 }
 
-ProtocolResult conn_put(NetworkConnection *conn, uint16_t size) {
-	NetBuffer *buffer = conn->buffer;
+ProtocolResult net_buffer_put(NetBuffer *buffer, uint16_t size) {
 	if (buffer->tail + size > buffer->ptr + buffer->size) {
 		// 如果数据超过了缓冲区的大小，则不进行写入
 		return PROTO_ERROR_EXCEED_MAX_SIZE;

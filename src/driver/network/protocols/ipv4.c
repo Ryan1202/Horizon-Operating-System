@@ -10,6 +10,7 @@
 #include <bits.h>
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
+#include <driver/network/neighbour.h>
 #include <driver/network/protocols/ipv4.h>
 #include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/udp.h>
@@ -23,6 +24,11 @@ uint16_t ipv4_id_counter = 0;
 
 const uint32_t ipv4_broadcast_addr = 0xffffffff;
 const uint32_t ipv4_null_addr	   = 0x00000000;
+
+NeighbourKey ipv4_hash(uint8_t ip[4]) {
+	uint32_t ip32 = *(uint32_t *)ip;
+	return (ip32 ^ (ip32 >> 16)) % NEIGH_BUCKET_SIZE;
+}
 
 void ipv4_register(NetworkConnection *conn, uint8_t *ip_addr) {
 	conn->net_protocol = NET_PROTO_IPV4;
@@ -68,8 +74,8 @@ ProtocolResult ipv4_wrap(
 	NetworkConnection *conn, uint16_t protocol, uint8_t *dst_ip, uint8_t ttl) {
 	uint16_t size = CONN_CONTENT_SIZE(conn);
 
-	conn_header_alloc(conn, sizeof(Ipv4Header));
-	Ipv4Header *ipv4_header = (Ipv4Header *)conn->buffer->head;
+	net_buffer_header_alloc(conn_buffer(conn), sizeof(Ipv4Header));
+	Ipv4Header *ipv4_header = (Ipv4Header *)conn_buffer(conn)->head;
 	ipv4_header->ver_len	= (0x4 << 4) | (20 >> 2); // IPv4, 20字节
 	ipv4_header->tos		= 0;					  // Type of Service
 	ipv4_header->total_len	= HOST2BE_WORD(sizeof(Ipv4Header) + size);

@@ -28,10 +28,10 @@ void	   net_buffer_init(
 struct NetworkConnection;
 ProtocolResult net_buffer_data_alloc(NetBuffer *buffer, uint16_t size);
 void		   net_buffer_reset(NetBuffer *buffer);
-void		   conn_header_alloc(struct NetworkConnection *conn, uint16_t size);
-void		   conn_header_free(struct NetworkConnection *conn, uint16_t size);
-void		   conn_tail_alloc(struct NetworkConnection *conn, uint16_t size);
-void		   conn_tail_free(struct NetworkConnection *conn, uint16_t size);
-ProtocolResult conn_put(struct NetworkConnection *conn, uint16_t size);
+void		   net_buffer_header_alloc(NetBuffer *buffer, uint16_t size);
+void		   net_buffer_header_free(NetBuffer *buffer, uint16_t size);
+void		   net_buffer_tail_alloc(NetBuffer *buffer, uint16_t size);
+void		   net_buffer_tail_free(NetBuffer *buffer, uint16_t size);
+ProtocolResult net_buffer_put(NetBuffer *buffer, uint16_t size);
 
 #endif

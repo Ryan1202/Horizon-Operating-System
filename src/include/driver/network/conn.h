@@ -17,6 +17,8 @@
 
 #define CONN_CONTENT_SIZE(conn) ((conn)->buffer->tail - (conn)->buffer->head)
 
+#define conn_buffer(conn) ((conn)->buffer)
+
 struct NetworkConnection;
 typedef struct NetProtocol {
 	uint16_t head_size;

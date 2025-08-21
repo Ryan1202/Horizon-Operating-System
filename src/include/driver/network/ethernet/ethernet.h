@@ -36,7 +36,8 @@ extern const uint8_t eth_broadcast_mac[6];
 
 void		   eth_register(struct NetworkConnection *conn);
 ProtocolResult eth_wrap(
-	struct NetworkConnection *conn, const uint8_t *dst_addr, uint16_t protocol);
-ProtocolResult eth_recv(NetBuffer *net_buffer);
+	struct NetBuffer *buffer, uint8_t *mac_addr, const uint8_t *dst_addr,
+	uint16_t protocol);
+ProtocolResult eth_recv(NetworkDevice *device, NetBuffer *net_buffer);
 
 #endif

@@ -135,7 +135,7 @@ void rtl8139_net_rx_handler(void *data) {
 			} else {
 				memcpy(buffer, device->rx_buffer + i, length);
 			}
-			eth_recv(net_buffer);
+			eth_recv(device->net_device, net_buffer);
 		} else {
 			printk(
 				"[RTL8139]RX Error: status %#04x,size %#04x, cur %#04x\n",
@@ -206,8 +206,6 @@ DriverResult rtl8139_init(Device *device) {
 	rtl_device->mii.net_dev	  = device->dm_ext;
 	rtl_device->mii.mdio_read = mdio_read;
 	rtl_device->mii.mdio_write = mdio_write;
-	rtl_device->net_device->ethernet =
-		kmalloc_from_template(rtl8139_network_device_template);
 	timer_init(&rtl_device->timer);
 	SPINLOCK_INIT(rtl_device->lock);
 

@@ -1,6 +1,7 @@
 #ifndef _IPV4_H
 #define _IPV4_H
 
+#include "driver/network/neighbour.h"
 #include "kernel/list.h"
 #include "protocols.h"
 #include <stdint.h>
@@ -45,5 +46,6 @@ ProtocolResult ipv4_wrap(
 	struct NetworkConnection *conn, uint16_t protocol, uint8_t *dst_ip,
 	uint8_t ttl);
 ProtocolResult ipv4_recv(struct NetBuffer *net_buffer);
+NeighbourKey   ipv4_hash(uint8_t ip[4]);
 
 #endif

@@ -4,6 +4,7 @@
 #include "driver/network/network.h"
 #include "kernel/softirq.h"
 #include "objects/transfer.h"
+#include <driver/network/neighbour.h>
 #include <driver/network/network_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -31,6 +32,7 @@ DeviceManager		 network_dm = {
 DriverResult network_dm_load(DeviceManager *manager) {
 	manager->private_data = kmalloc(sizeof(NetworkDeviceManager));
 	softirq_register_handler(SOFTIRQ_NETWORK, network_softirq_handler);
+	neighbour_init();
 	return DRIVER_RESULT_OK;
 }
 
