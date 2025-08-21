@@ -1,3 +1,6 @@
+#include "driver/network/buffer.h"
+#include "driver/network/conn.h"
+#include "driver/network/ethernet/ethernet.h"
 #include "driver/network/network.h"
 #include "kernel/softirq.h"
 #include "objects/transfer.h"
@@ -53,6 +56,20 @@ DriverResult register_network_device(
 
 	device->object->out.type   = TRANSFER_TYPE_STREAM;
 	device->object->out.stream = network_transfer;
+
+	switch (network_device->type) {
+	case NETWORK_TYPE_ETHERNET: {
+		EthernetDevice *eth_device		  = kmalloc(sizeof(EthernetDevice));
+		network_device->ethernet		  = eth_device;
+		eth_device->arp_conn			  = net_create_conn(device->object);
+		conn_buffer(eth_device->arp_conn) = net_buffer_create(128);
+		net_buffer_init(conn_buffer(eth_device->arp_conn), 128, 0, 0);
+		eth_register(eth_device->arp_conn);
+		break;
+	}
+	default:
+		break;
+	}
 
 	return DRIVER_RESULT_OK;
 }

@@ -22,8 +22,9 @@ typedef struct EthernetHeader {
 } EthernetHeader;
 
 typedef struct EthernetDevice {
-	NetworkDevice *net_device;
-	uint8_t		   mac_addr[ETH_IDENTIFIER_SIZE];
+	struct NetworkConnection *arp_conn;
+	NetworkDevice			 *net_device;
+	uint8_t					  mac_addr[ETH_IDENTIFIER_SIZE];
 } EthernetDevice;
 
 void eth_set_mac_address(EthernetDevice *device, uint8_t *mac_addr);
