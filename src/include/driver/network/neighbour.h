@@ -21,6 +21,8 @@ typedef uint32_t NeighbourKey;
 struct NeighbourEntry;
 typedef struct {
 	void (*request)(struct NeighbourEntry *entry, void *arg);
+	void (*probe)(struct NetworkDevice *device);
+	void (*announce)(struct NetworkDevice *device);
 } NeighbourProtoOps;
 
 typedef struct NeighbourEntry {

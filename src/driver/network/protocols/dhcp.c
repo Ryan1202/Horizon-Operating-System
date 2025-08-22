@@ -11,6 +11,7 @@
 #include "driver/network/buffer.h"
 #include "driver/network/ethernet/ethernet.h"
 #include "driver/network/neighbour.h"
+#include "driver/network/protocols/acd.h"
 #include "driver/timer_dm.h"
 #include "kernel/driver_interface.h"
 #include "objects/transfer.h"
@@ -287,6 +288,8 @@ void dhcp_check_addr(DhcpClient *dhcp) {
 	NeighbourKey	key = ipv4_hash(dhcp->server_ip_addr);
 	NeighbourEntry *entry =
 		neighbour_table_lookup(dhcp->device, key, dhcp->server_ip_addr, 4);
+	entry->ops->probe(dhcp->device);
+	entry->ops->announce(dhcp->device);
 	memcpy(dhcp->server_haddr, entry->haddr, dhcp->haddr_len);
 }
 

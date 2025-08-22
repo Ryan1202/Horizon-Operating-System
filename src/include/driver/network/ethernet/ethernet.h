@@ -4,6 +4,7 @@
 #include "driver/network/buffer.h"
 #include "driver/network/network_dm.h"
 #include "driver/network/protocols/protocols.h"
+#include "driver/timer_dm.h"
 #include <stdint.h>
 
 #define ETH_MAX_FRAME_SIZE	1792
@@ -22,6 +23,15 @@ typedef struct EthernetHeader {
 } EthernetHeader;
 
 typedef struct EthernetDevice {
+	Timer	timer;
+	uint8_t probe_count, announce_count;
+	enum {
+		ACD_STATE_NONE,
+		ACD_STATE_PROBE,
+		ACD_STATE_ANNOUNCE,
+		ACD_STATE_IN_USE,
+	} acd_state;
+
 	struct NetworkConnection *arp_conn;
 	NetworkDevice			 *net_device;
 	uint8_t					  mac_addr[ETH_IDENTIFIER_SIZE];

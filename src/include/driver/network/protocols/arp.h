@@ -23,5 +23,7 @@ typedef struct ArpHeader {
 extern NeighbourProtoOps arp_proto_ops;
 
 ProtocolResult arp_recv(NetworkDevice *device, NetBuffer *net_buffer);
+void		   arp_send_request(NeighbourEntry *entry, void *arg);
+void		   arp_announce(NetworkDevice *device, uint8_t *ip_addr);
 
 #endif

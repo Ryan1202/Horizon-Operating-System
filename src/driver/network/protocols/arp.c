@@ -15,16 +15,17 @@
 #include <bits.h>
 #include <driver/network/conn.h>
 #include <driver/network/neighbour.h>
+#include <driver/network/protocols/acd.h>
 #include <driver/network/protocols/arp.h>
 #include <driver/network/protocols/protocols.h>
 #include <network/eth.h>
 #include <stdint.h>
 #include <string.h>
 
-void arp_send_request(NeighbourEntry *entry, void *arg);
-
 NeighbourProtoOps arp_proto_ops = {
-	.request = arp_send_request,
+	.request  = arp_send_request,
+	.probe	  = acd_probe,
+	.announce = acd_announce,
 };
 
 ProtocolResult arp_recv(NetworkDevice *device, NetBuffer *net_buffer) {
@@ -66,6 +67,10 @@ next:
 	if (ptype == ETH_TYPE_IPV4 && arp_header->plen == 4) {
 		hash_key = ipv4_hash(src_paddr) % NEIGH_BUCKET_SIZE;
 		paddr	 = device->ipv4_addr;
+		if (memcmp(src_paddr, paddr, 4) == 0) {
+			// 源地址与本机IP冲突
+			acd_conflict_detected();
+		}
 	} else {
 		return PROTO_ERROR_UNSUPPORT; // 不支持的协议类型
 	}
@@ -152,4 +157,41 @@ void arp_send_request(NeighbourEntry *entry, void *arg) {
 	entry->state = NEIGH_STATE_WAITING;
 
 	NETWORK_SEND(device, eth_device->arp_conn);
+}
+
+void arp_announce(NetworkDevice *device, uint8_t *ip_addr) {
+	EthernetDevice	  *eth_device = device->ethernet;
+	NetworkConnection *conn		  = eth_device->arp_conn;
+
+	// Fill in the ARP request details
+	ArpHeader *arp_header = (ArpHeader *)conn_buffer(conn)->data;
+	arp_header->htype	  = HOST2BE_WORD(ARP_HTYPE_ETH);
+	arp_header->ptype	  = HOST2BE_WORD(ETH_TYPE_IPV4);
+	arp_header->hlen	  = ETH_IDENTIFIER_SIZE;
+	arp_header->plen	  = 4;
+	arp_header->opcode	  = HOST2BE_WORD(ARP_OP_REQUEST);
+
+	void *p			= (void *)(arp_header + 1);
+	void *src_haddr = p;
+	void *src_paddr = p + arp_header->hlen;
+	void *dst_haddr = p + arp_header->hlen + arp_header->plen;
+	void *dst_paddr = p + arp_header->hlen * 2 + arp_header->plen;
+
+	// Copy the sender's hardware and protocol addresses
+	memcpy(src_haddr, eth_device->mac_addr, arp_header->hlen);
+	memcpy(src_paddr, ip_addr, arp_header->plen);
+
+	// Copy the target's hardware and protocol addresses
+	memcpy(dst_haddr, eth_broadcast_mac, arp_header->hlen);
+	memcpy(dst_paddr, ip_addr, arp_header->plen);
+
+	uint8_t size =
+		sizeof(ArpHeader) + arp_header->hlen * 2 + arp_header->plen * 2;
+	net_buffer_put(conn_buffer(conn), size);
+
+	// Send the ARP request
+	eth_wrap(
+		conn_buffer(conn), device->ethernet->mac_addr, eth_broadcast_mac,
+		ETH_TYPE_ARP);
+	NETWORK_SEND(device, conn);
 }

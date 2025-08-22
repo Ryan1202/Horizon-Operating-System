@@ -2,6 +2,7 @@
 #include "driver/network/conn.h"
 #include "driver/network/ethernet/ethernet.h"
 #include "driver/network/network.h"
+#include "driver/timer_dm.h"
 #include "kernel/softirq.h"
 #include "objects/transfer.h"
 #include <driver/network/neighbour.h>
@@ -63,9 +64,11 @@ DriverResult register_network_device(
 	case NETWORK_TYPE_ETHERNET: {
 		EthernetDevice *eth_device		  = kmalloc(sizeof(EthernetDevice));
 		network_device->ethernet		  = eth_device;
+		eth_device->acd_state			  = ACD_STATE_NONE;
 		eth_device->arp_conn			  = net_create_conn(device->object);
 		conn_buffer(eth_device->arp_conn) = net_buffer_create(128);
 		net_buffer_init(conn_buffer(eth_device->arp_conn), 128, 0, 0);
+		timer_init(&eth_device->timer);
 		eth_register(eth_device->arp_conn);
 		break;
 	}
