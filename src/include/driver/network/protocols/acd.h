@@ -19,7 +19,7 @@
 #define ACD_DEFEND_INTERVAL \
 	10 // minimum interval between defensive ARPs (10 seconds)
 
-ProtocolResult acd_conflict_detected();
+ProtocolResult acd_conflict_detected(NetworkDevice *device);
 void		   acd_probe(NetworkDevice *device);
 void		   acd_announce(NetworkDevice *device);
 

@@ -83,6 +83,11 @@ void dhcp_timeout_handler(void *arg) {
 	if (dhcp != NULL) {
 		dhcp->retry_times++;
 		switch (dhcp->state) {
+		case DHCP_STAT_INIT:
+			// 刚发送完DHCPDECLINE，需要重新请求
+			dhcp_reset(dhcp, dhcp->conn);
+			dhcp_discover(dhcp);
+			break;
 		case DHCP_STAT_SELECTING:
 		case DHCP_STAT_REQUESTING:
 		case DHCP_STAT_RENEWING:
@@ -90,6 +95,30 @@ void dhcp_timeout_handler(void *arg) {
 			dhcp_retransmit(dhcp);
 			break;
 		}
+	}
+}
+
+void dhcp_ip_conflict_handler(void *arg) {
+	DhcpClient *dhcp = arg;
+
+	// 发送DHCPDECLINE
+	if (dhcp->state == DHCP_STAT_BOUND) {
+		memset(dhcp->ip_addr, ipv4_null_addr, 4);
+		memset(dhcp->server_ip_addr, ipv4_null_addr, 4);
+		uint8_t *ptr =
+			dhcp_create_message(dhcp, dhcp->conn->buffer->data, DHCP_DECLINE);
+
+		*ptr = DHCP_OPTION_END;
+
+		int len = 4 /* magic cookie */
+				+ 3 /* message type */
+				+ 1 /* end */;
+		dhcp_send(dhcp, sizeof(DhcpHeader) + len);
+
+		// 至少等待10秒
+		dhcp->state = DHCP_STAT_INIT;
+		timer_set_timeout(&dhcp->timeout_timer, 10 * 1000);
+		timer_callback_enable(&dhcp->timeout_timer);
 	}
 }
 
@@ -289,7 +318,6 @@ void dhcp_check_addr(DhcpClient *dhcp) {
 	NeighbourEntry *entry =
 		neighbour_table_lookup(dhcp->device, key, dhcp->server_ip_addr, 4);
 	entry->ops->probe(dhcp->device);
-	entry->ops->announce(dhcp->device);
 	memcpy(dhcp->server_haddr, entry->haddr, dhcp->haddr_len);
 }
 

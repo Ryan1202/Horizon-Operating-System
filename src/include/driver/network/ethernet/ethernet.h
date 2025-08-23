@@ -29,8 +29,9 @@ typedef struct EthernetDevice {
 		ACD_STATE_NONE,
 		ACD_STATE_PROBE,
 		ACD_STATE_ANNOUNCE,
-		ACD_STATE_IN_USE,
+		ACD_STATE_CONFLICT,
 	} acd_state;
+	void (*acd_conflict_callback)(NetworkDevice *device);
 
 	struct NetworkConnection *arp_conn;
 	NetworkDevice			 *net_device;

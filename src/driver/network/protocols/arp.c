@@ -69,7 +69,7 @@ next:
 		paddr	 = device->ipv4_addr;
 		if (memcmp(src_paddr, paddr, 4) == 0) {
 			// 源地址与本机IP冲突
-			acd_conflict_detected();
+			acd_conflict_detected(device);
 		}
 	} else {
 		return PROTO_ERROR_UNSUPPORT; // 不支持的协议类型
@@ -182,7 +182,8 @@ void arp_announce(NetworkDevice *device, uint8_t *ip_addr) {
 	memcpy(src_paddr, ip_addr, arp_header->plen);
 
 	// Copy the target's hardware and protocol addresses
-	memcpy(dst_haddr, eth_broadcast_mac, arp_header->hlen);
+	uint8_t haddr[8] = {0};
+	memcpy(dst_haddr, haddr, arp_header->hlen);
 	memcpy(dst_paddr, ip_addr, arp_header->plen);
 
 	uint8_t size =

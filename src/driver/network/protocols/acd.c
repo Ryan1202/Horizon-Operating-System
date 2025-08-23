@@ -31,7 +31,8 @@ void acd_timer_callback(void *arg) {
 				neighbour_table_lookup(device, key, device->ipv4_addr, 4);
 			arp_send_request(entry, arg);
 		} else {
-			eth_device->acd_state = ACD_STATE_ANNOUNCE;
+			// 确认没有冲突，发送公告
+			acd_announce(device);
 		}
 	case ACD_STATE_ANNOUNCE:
 		if (eth_device->announce_count < ACD_ANNOUNCE_NUM) {
@@ -40,7 +41,7 @@ void acd_timer_callback(void *arg) {
 			timer_callback_enable(&eth_device->timer);
 			arp_announce(device, device->ipv4_addr);
 		} else {
-			eth_device->acd_state = ACD_STATE_IN_USE;
+			eth_device->acd_state = ACD_STATE_NONE;
 		}
 		break;
 	default:
@@ -48,7 +49,13 @@ void acd_timer_callback(void *arg) {
 	}
 }
 
-ProtocolResult acd_conflict_detected() {
+ProtocolResult acd_conflict_detected(NetworkDevice *device) {
+	EthernetDevice *eth_device = device->ethernet;
+	timer_callback_cancel(&eth_device->timer);
+	eth_device->acd_state = ACD_STATE_CONFLICT;
+	if (eth_device->acd_conflict_callback)
+		eth_device->acd_conflict_callback(device);
+	return PROTO_OK;
 }
 
 void acd_probe(NetworkDevice *device) {
