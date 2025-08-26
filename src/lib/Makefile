@@ -4,3 +4,4 @@ SRC += string.c
 SRC += vsprintf.c
 SRC += random.c
 SRC += dyn_array.c
+SRC += hash/
