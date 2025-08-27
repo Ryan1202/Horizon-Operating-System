@@ -167,13 +167,9 @@ ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header) {
 			return PROTO_OK;
 		}
 	}
-	if (info->list.next == &udp_lh) {
-		// 没有找到匹配的连接，丢弃数据包
-	drop:
-		kfree(net_buffer->ptr);
-		kfree(net_buffer);
-		return PROTO_DROP;
-	}
-
-	return PROTO_OK;
+	// 没有找到匹配的连接，丢弃数据包
+drop:
+	kfree(net_buffer->ptr);
+	kfree(net_buffer);
+	return PROTO_DROP;
 }
