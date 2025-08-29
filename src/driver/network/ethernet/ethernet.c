@@ -59,7 +59,6 @@ ProtocolResult eth_wrap(
 	if (content_size < ETH_MIN_FRAME_SIZE) {
 		// 填充最小帧长度
 		memset(buffer->tail, 0, ETH_MIN_FRAME_SIZE - content_size);
-		buffer->tail = buffer->head + ETH_MIN_FRAME_SIZE;
 	}
 	header->protocol_type = HOST2BE_WORD(protocol);
 
