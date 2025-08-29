@@ -28,6 +28,7 @@ void	   net_buffer_init(
 struct NetworkConnection;
 ProtocolResult net_buffer_data_alloc(NetBuffer *buffer, uint16_t size);
 void		   net_buffer_reset(NetBuffer *buffer);
+void		   net_buffer_clean_data(NetBuffer *buffer);
 void		   net_buffer_header_alloc(NetBuffer *buffer, uint16_t size);
 void		   net_buffer_header_free(NetBuffer *buffer, uint16_t size);
 void		   net_buffer_tail_alloc(NetBuffer *buffer, uint16_t size);

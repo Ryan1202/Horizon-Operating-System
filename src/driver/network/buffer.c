@@ -30,6 +30,10 @@ void net_buffer_reset(NetBuffer *buffer) {
 	buffer->tail = buffer->data;
 }
 
+void net_buffer_clean_data(NetBuffer *buffer) {
+	buffer->tail = buffer->data;
+}
+
 void net_buffer_header_alloc(NetBuffer *buffer, uint16_t size) {
 	buffer->head -= size;
 }
