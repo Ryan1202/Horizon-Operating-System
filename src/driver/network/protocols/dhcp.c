@@ -14,6 +14,7 @@
 #include "driver/network/protocols/acd.h"
 #include "driver/timer_dm.h"
 #include "kernel/driver_interface.h"
+#include "kernel/thread.h"
 #include "objects/transfer.h"
 #include <driver/network/conn.h>
 #include <driver/network/network_dm.h>
@@ -216,18 +217,20 @@ void dhcp_offer_handler(
 }
 
 void dhcp_ack_handler(
-	DhcpClient *dhcp, NetworkConnection *conn, uint16_t indexes[DOI_MAX]) {
-	DhcpHeader *header					= conn->buffer->data;
-	*(uint32_t *)conn->ipv4.subnet_mask = 0;
-	*(uint32_t *)conn->ipv4.gateway_ip	= 0;
+	DhcpClient *dhcp, NetworkConnection *conn, DhcpHeader *header,
+	uint16_t indexes[DOI_MAX]) {
+	NetworkDevice *device				  = conn->net_device;
+	*(uint32_t *)device->ipv4.subnet_mask = 0;
+	*(uint32_t *)device->ipv4.gateway_ip  = 0;
+	memcpy(device->ipv4.ip, dhcp->ip_addr, 4);
 
 	if (indexes[DOI_SUBNET_MASK] != 0) {
-		*(uint32_t *)conn->ipv4.subnet_mask =
+		*(uint32_t *)device->ipv4.subnet_mask =
 			*(uint32_t *)&header->options[indexes[DOI_SUBNET_MASK]];
 	}
 
 	if (indexes[DOI_ROUTER] != 0) {
-		*(uint32_t *)conn->ipv4.gateway_ip =
+		*(uint32_t *)device->ipv4.gateway_ip =
 			*(uint32_t *)&header->options[indexes[DOI_ROUTER]];
 	}
 
@@ -318,7 +321,9 @@ void dhcp_check_addr(DhcpClient *dhcp) {
 	NeighbourEntry *entry =
 		neighbour_table_lookup(dhcp->device, key, dhcp->server_ip_addr, 4);
 	entry->ops->probe(dhcp->device);
-	memcpy(dhcp->server_haddr, entry->haddr, dhcp->haddr_len);
+	if (entry->state == NEIGH_STATE_REACHABLE) {
+		memcpy(dhcp->server_haddr, entry->haddr, dhcp->haddr_len);
+	}
 }
 
 void dhcp_rx_handler(NetworkConnection *conn, NetBuffer *net_buffer) {
@@ -365,12 +370,12 @@ void dhcp_rx_handler(NetworkConnection *conn, NetBuffer *net_buffer) {
 			// TODO: 检查地址冲突
 			dhcp_check_addr(dhcp);
 
-			dhcp_ack_handler(dhcp, conn, indexes);
+			dhcp_ack_handler(dhcp, conn, header, indexes);
 			dhcp_set_timers(dhcp);
 		} else if (
 			dhcp->state == DHCP_STAT_RENEWING ||
 			dhcp->state == DHCP_STAT_REBINDING) {
-			dhcp_ack_handler(dhcp, conn, indexes);
+			dhcp_ack_handler(dhcp, conn, header, indexes);
 			dhcp_set_timers(dhcp);
 		}
 	} else if (msg_type == DHCP_NAK) {

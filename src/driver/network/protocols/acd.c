@@ -26,20 +26,21 @@ void acd_timer_callback(void *arg) {
 			timer_set_timeout(&eth_device->timer, ACD_PROBE_MIN * 1000);
 			timer_callback_enable(&eth_device->timer);
 
-			NeighbourKey	key = ipv4_hash(device->ipv4_addr);
+			NeighbourKey	key = ipv4_hash(device->ipv4.ip);
 			NeighbourEntry *entry =
-				neighbour_table_lookup(device, key, device->ipv4_addr, 4);
+				neighbour_table_lookup(device, key, device->ipv4.ip, 4);
 			arp_send_request(entry, arg);
 		} else {
 			// 确认没有冲突，发送公告
 			acd_announce(device);
 		}
+		break;
 	case ACD_STATE_ANNOUNCE:
 		if (eth_device->announce_count < ACD_ANNOUNCE_NUM) {
 			eth_device->announce_count++;
 			timer_set_timeout(&eth_device->timer, ACD_ANNOUNCE_INTERVAL * 1000);
 			timer_callback_enable(&eth_device->timer);
-			arp_announce(device, device->ipv4_addr);
+			arp_announce(device, device->ipv4.ip);
 		} else {
 			eth_device->acd_state = ACD_STATE_NONE;
 		}

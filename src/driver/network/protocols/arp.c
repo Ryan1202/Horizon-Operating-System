@@ -66,7 +66,7 @@ next:
 	uint16_t ptype = BE2HOST_WORD(arp_header->ptype);
 	if (ptype == ETH_TYPE_IPV4 && arp_header->plen == 4) {
 		hash_key = ipv4_hash(src_paddr) % NEIGH_BUCKET_SIZE;
-		paddr	 = device->ipv4_addr;
+		paddr	 = device->ipv4.ip;
 		if (memcmp(src_paddr, paddr, 4) == 0) {
 			// 源地址与本机IP冲突
 			acd_conflict_detected(device);
@@ -123,6 +123,8 @@ void arp_send_request(NeighbourEntry *entry, void *arg) {
 	EthernetDevice	  *eth_device = device->ethernet;
 	NetworkConnection *conn		  = eth_device->arp_conn;
 
+	net_buffer_reset(conn->buffer);
+
 	// Fill in the ARP request details
 	ArpHeader *arp_header = (ArpHeader *)conn_buffer(conn)->data;
 	arp_header->htype	  = HOST2BE_WORD(ARP_HTYPE_ETH);
@@ -139,7 +141,7 @@ void arp_send_request(NeighbourEntry *entry, void *arg) {
 
 	// Copy the sender's hardware and protocol addresses
 	memcpy(src_haddr, eth_device->mac_addr, arp_header->hlen);
-	memcpy(src_paddr, device->ipv4_addr, arp_header->plen);
+	memcpy(src_paddr, device->ipv4.ip, arp_header->plen);
 
 	// Copy the target's hardware and protocol addresses
 	uint8_t eth_dst_addr[ETH_IDENTIFIER_SIZE] = {0};

@@ -10,6 +10,9 @@
 #define IP_PROTO_TCP  6
 #define IP_PROTO_UDP  17
 
+#define CONN_LOCAL_IP(conn)	 conn->ipv4.conn_info.local.ip
+#define CONN_REMOTE_IP(conn) conn->ipv4.conn_info.remote.ip
+
 typedef struct Ipv4Header {
 	uint8_t	 ver_len;			// Version and Internet Header Length
 	uint8_t	 tos;				// Type of Service
@@ -30,9 +33,9 @@ typedef struct Ipv4Endpoint {
 } Ipv4Endpoint;
 
 typedef struct Ipv4ConnInfo {
-	list_t		 list;
 	Ipv4Endpoint local;	 // 本地IP和端口
 	Ipv4Endpoint remote; // 远程IP和端口
+	list_t		 list;
 } Ipv4ConnInfo;
 
 extern const uint32_t ipv4_broadcast_addr;
@@ -45,7 +48,11 @@ void		   ipv4_enable_fragment(struct NetworkConnection *conn);
 ProtocolResult ipv4_wrap(
 	struct NetworkConnection *conn, uint16_t protocol, uint8_t *dst_ip,
 	uint8_t ttl);
+void		   ipv4_rewrap(struct NetworkConnection *conn);
 ProtocolResult ipv4_recv(struct NetBuffer *net_buffer);
 NeighbourKey   ipv4_hash(uint8_t ip[4]);
+ProtocolResult ipv4_lookup_mac(
+	NetworkDevice *device, uint8_t ip[4], uint8_t mac[8]);
+uint16_t ipv4_get_packet_length(Ipv4Header *ipv4_header);
 
 #endif

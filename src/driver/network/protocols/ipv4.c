@@ -7,6 +7,9 @@
  * RFC 791: INTERNET PROTOCOL
  *
  */
+#include "driver/network/network_dm.h"
+#include "driver/network/protocols/tcp.h"
+#include "kernel/thread.h"
 #include <bits.h>
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
@@ -33,9 +36,9 @@ NeighbourKey ipv4_hash(uint8_t ip[4]) {
 void ipv4_register(NetworkConnection *conn, uint8_t *ip_addr) {
 	conn->net_protocol = NET_PROTO_IPV4;
 	if (ip_addr) {
-		memcpy(conn->ipv4.ip, ip_addr, 4);
+		memcpy(CONN_LOCAL_IP(conn), ip_addr, 4);
 	} else {
-		memset(conn->ipv4.ip, 0, 4);
+		memcpy(CONN_LOCAL_IP(conn), conn->net_device->ipv4.ip, 4);
 	}
 	// 默认禁用分段
 	conn->ipv4.fragment.enable_fragment = 0;
@@ -72,10 +75,11 @@ void ipv4_checksum(Ipv4Header *header) {
 
 ProtocolResult ipv4_wrap(
 	NetworkConnection *conn, uint16_t protocol, uint8_t *dst_ip, uint8_t ttl) {
-	uint16_t size = CONN_CONTENT_SIZE(conn);
+	uint16_t size = CONN_PACKET_SIZE(conn);
 
 	net_buffer_header_alloc(conn_buffer(conn), sizeof(Ipv4Header));
 	Ipv4Header *ipv4_header = (Ipv4Header *)conn_buffer(conn)->head;
+	conn->ipv4.header		= ipv4_header;
 	ipv4_header->ver_len	= (0x4 << 4) | (20 >> 2); // IPv4, 20字节
 	ipv4_header->tos		= 0;					  // Type of Service
 	ipv4_header->total_len	= HOST2BE_WORD(sizeof(Ipv4Header) + size);
@@ -89,7 +93,7 @@ ProtocolResult ipv4_wrap(
 	ipv4_header->ttl	  = ttl;
 	ipv4_header->protocol = protocol;
 	ipv4_header->checksum = 0;
-	memcpy(ipv4_header->src_ip, conn->ipv4.ip, 4);
+	memcpy(ipv4_header->src_ip, CONN_LOCAL_IP(conn), 4);
 	if (dst_ip) {
 		memcpy(ipv4_header->dst_ip, dst_ip, 4);
 	} else {
@@ -100,9 +104,20 @@ ProtocolResult ipv4_wrap(
 	return PROTO_OK;
 }
 
+void ipv4_rewrap(NetworkConnection *conn) {
+	Ipv4Header *ipv4_header = conn->ipv4.header;
+	if (!ipv4_header) return;
+
+	ipv4_header->total_len =
+		HOST2BE_WORD(conn->buffer->tail - (void *)ipv4_header);
+	ipv4_header->checksum = 0;
+	ipv4_checksum(ipv4_header);
+}
+
 ProtocolResult ipv4_recv(NetBuffer *net_buffer) {
 	Ipv4Header *ipv4_header = (Ipv4Header *)net_buffer->data;
 	int			size		= net_buffer->tail - net_buffer->data;
+	int			length		= ipv4_get_packet_length(ipv4_header);
 
 	if (size < sizeof(Ipv4Header)) return PROTO_ERROR_UNSUPPORT;
 
@@ -130,6 +145,8 @@ ProtocolResult ipv4_recv(NetBuffer *net_buffer) {
 		result = udp_recv(net_buffer, ipv4_header);
 		break;
 	case IP_PROTO_TCP:
+		result = tcp_recv(
+			net_buffer, length, ipv4_header->src_ip, ipv4_header->dst_ip, 4);
 		break;
 	case IP_PROTO_ICMP:
 		break;
@@ -138,4 +155,37 @@ ProtocolResult ipv4_recv(NetBuffer *net_buffer) {
 	}
 
 	return result;
+}
+
+ProtocolResult ipv4_lookup_mac(
+	NetworkDevice *device, uint8_t ip[4], uint8_t mac[8]) {
+	if (!ip || !mac) return PROTO_ERROR_NULL_PTR;
+	NeighbourKey hash_key;
+	uint32_t	 subnet_mask = *(uint32_t *)device->ipv4.subnet_mask;
+	uint32_t	 gateway_ip	 = *(uint32_t *)device->ipv4.gateway_ip;
+	uint32_t	 _ip		 = *(uint32_t *)ip;
+
+	NeighbourEntry *entry;
+	if ((_ip & subnet_mask) == (gateway_ip & subnet_mask)) {
+		// 在子网内
+		hash_key = ipv4_hash(ip);
+		entry	 = neighbour_table_lookup(device, hash_key, ip, 4);
+	} else {
+		// 在子网外
+		hash_key = ipv4_hash(device->ipv4.gateway_ip);
+		entry	 = neighbour_table_lookup(
+			   device, hash_key, device->ipv4.gateway_ip, 4);
+	}
+
+	if (entry == NULL) return PROTO_ERROR_CANNOT_FIND;
+	while (entry->state == NEIGH_STATE_WAITING) {
+		schedule();
+	}
+	memcpy(mac, entry->haddr, 8);
+	return PROTO_OK;
+}
+
+uint16_t ipv4_get_packet_length(Ipv4Header *ipv4_header) {
+	return BE2HOST_WORD(ipv4_header->total_len) -
+		   ((ipv4_header->ver_len & 0x0F) << 2);
 }

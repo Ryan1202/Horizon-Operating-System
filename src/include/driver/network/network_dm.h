@@ -39,6 +39,7 @@ typedef struct NetworkDevice {
 
 	uint16_t head_size;
 	uint16_t tail_size;
+	int		 mtu;
 
 	NetworkDeviceState state;
 	NetworkQueue	   tx_queue;
@@ -51,7 +52,12 @@ typedef struct NetworkDevice {
 	};
 
 	union {
-		uint8_t ipv4_addr[4];
+		struct {
+			uint8_t ip[4];
+
+			uint8_t subnet_mask[4];
+			uint8_t gateway_ip[4];
+		} ipv4;
 	};
 } NetworkDevice;
 

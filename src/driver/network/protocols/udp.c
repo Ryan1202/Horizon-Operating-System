@@ -88,7 +88,7 @@ void udp_set_callback(
 }
 
 void udp_wrap(NetworkConnection *conn, uint16_t src_port, uint16_t dst_port) {
-	uint16_t size = CONN_CONTENT_SIZE(conn);
+	uint16_t size = CONN_PACKET_SIZE(conn);
 	net_buffer_header_alloc(conn_buffer(conn), sizeof(UdpHeader));
 	UdpHeader *udp_header = (UdpHeader *)conn_buffer(conn)->head;
 	udp_header->src_port  = HOST2BE_WORD(src_port);
