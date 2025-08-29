@@ -26,6 +26,7 @@
 #include "driver/network/network.h"
 #include "kernel/softirq.h"
 #include "kernel/thread.h"
+#include "network/eth.h"
 #include "objects/transfer.h"
 #include "rtl8139.h"
 
@@ -89,6 +90,7 @@ const NetworkDevice rtl8139_network_device_template = {
 	.tail_size = 0,
 	.type	   = NETWORK_TYPE_ETHERNET,
 	.ops	   = &rtl8139_net_device_ops,
+	.mtu	   = ETH_MTU,
 };
 
 void rtl8139_handler(Device *device) {
@@ -99,14 +101,48 @@ void rtl8139_handler(Device *device) {
 
 	if (status == 0xffff) goto end;
 
-	io_out_word(rtl_device->io_base + REG_ISR, status);
+	int _status = 0;
 	if (status & IMR_TOK) {
 		rtl_device->tx_done_idx = (rtl_device->tx_done_idx + 1) % TX_DESC_NR;
+		_status |= IMR_TOK;
 	}
-	if (status & IMR_ROK) pending_softirq();
-	if (status & IMR_RXOVW) print_error("RTL8139", "RX Overflow\n");
-	if (status & IMR_FOVW) print_error("RTL8139", "FIFO Overflow\n");
-	if (status & IMR_PUN_LINKCHG) { print_device_info(device, "Link Changed"); }
+	if (status & IMR_TER) {
+		print_error("RTL8139", "TX Error\n");
+		_status |= IMR_TER;
+	}
+	if (status & IMR_ROK) {
+		pending_softirq();
+		_status |= IMR_ROK;
+	}
+	if (status & IMR_RER) {
+		print_error("RTL8139", "RX Error\n");
+		_status |= IMR_RER;
+	}
+	if (status & IMR_RXOVW) {
+		print_error("RTL8139", "RX Overflow\n");
+		_status |= IMR_RXOVW;
+	}
+	if (status & IMR_FOVW) {
+		print_error("RTL8139", "FIFO Overflow\n");
+		_status |= IMR_FOVW;
+	}
+	if (status & IMR_PUN_LINKCHG) {
+		print_device_info(device, "Link Changed");
+		_status |= IMR_PUN_LINKCHG;
+	}
+	if (status & IMR_LEN_CHG) {
+		print_device_info(device, "Length Changed");
+		_status |= IMR_LEN_CHG;
+	}
+	if (status & IMR_TIMEOUT) {
+		print_error("RTL8139", "TX Timeout\n");
+		_status |= IMR_TIMEOUT;
+	}
+	if (status & IMR_SERR) {
+		print_error("RTL8139", "System Error\n");
+		_status |= IMR_SERR;
+	}
+	io_out_word(rtl_device->io_base + REG_ISR, _status);
 
 end:
 	spin_unlock(&rtl_device->lock);
@@ -120,30 +156,33 @@ void rtl8139_net_rx_handler(void *data) {
 	while (!(cmd & RTL8139_CR_BUFE)) {
 		int i			= device->rx_offset;
 		rx_status		= LE2HOST_DWORD(*(uint32_t *)(device->rx_buffer + i));
-		uint16_t length = (rx_status >> 16) - 4;
+		uint16_t length = (rx_status >> 16);
+		int		 packet_len = length - 4;
 		i += 4;
-		if (length >= ETH_HEADER_SIZE && (rx_status & RTL8139_RX_STAT_ROK)) {
-			NetBuffer *net_buffer = net_buffer_create(length);
-			net_buffer_init(net_buffer, length, 0, length);
+		if (packet_len >= ETH_HEADER_SIZE &&
+			(rx_status & RTL8139_RX_STAT_ROK)) {
+			NetBuffer *net_buffer = net_buffer_create(packet_len);
+			net_buffer_init(net_buffer, packet_len, 0, packet_len);
 			void *buffer = net_buffer->ptr;
 
-			if (i + length >= RTL8139_RECV_BUF_SIZE) {
+			if (i + packet_len >= RTL8139_RECV_BUF_SIZE) {
+				int first_len = RTL8139_RECV_BUF_SIZE - i;
+				memcpy(buffer, device->rx_buffer + i, first_len);
 				memcpy(
-					buffer, device->rx_buffer + i, RTL8139_RECV_BUF_SIZE - i);
-				i = RTL8139_RECV_BUF_SIZE - i;
-				memcpy(buffer + i, device->rx_buffer + i, length - i);
+					buffer + first_len, device->rx_buffer + i,
+					packet_len - first_len);
 			} else {
-				memcpy(buffer, device->rx_buffer + i, length);
+				memcpy(buffer, device->rx_buffer + i, packet_len);
 			}
 			eth_recv(device->net_device, net_buffer);
 		} else {
 			printk(
 				"[RTL8139]RX Error: status %#04x,size %#04x, cur %#04x\n",
-				rx_status, length + 4, device->rx_offset);
+				rx_status, packet_len, device->rx_offset);
 		}
-		device->rx_offset = (device->rx_offset + length + 8 + 3) &
+		device->rx_offset = (device->rx_offset + length + 4 + 3) &
 							~3; // +8:4字节CRC和4字节包头；+3:4字节对齐用
-		device->rx_offset %= RTL8139_RECV_BUF_SIZE;
+		device->rx_offset &= RTL8139_RX_READ_POINTER_MASK;
 		io_out_word(device->io_base + RTL8139_CAPR, device->rx_offset - 0x10);
 
 		cmd = io_in8(device->io_base + RTL8139_CR);
@@ -258,7 +297,7 @@ DriverResult rtl8139_start(Device *device) {
 	io_out_byte(rtl_device->io_base + REG_CR, CR_RE | CR_TE);
 
 	// 配置接收缓冲区
-	rtl_device->rx_buffer	  = kmalloc(RTL8139_RECV_BUF_SIZE);
+	rtl_device->rx_buffer = kernel_alloc_continuous_pages(8 << RECV_BUF_LEN);
 	rtl_device->rx_buffer_phy = vir2phy((size_t)rtl_device->rx_buffer);
 	io_out_dword(rtl_device->io_base + REG_RBSTART, rtl_device->rx_buffer_phy);
 	io_out_dword(
