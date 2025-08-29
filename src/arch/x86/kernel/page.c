@@ -267,18 +267,44 @@ void *kernel_alloc_pages(int pages) {
 	vir_page_addr = alloc_vir_pages(pages); // 分配一个虚拟地址的页
 	if (vir_page_addr < 0) return NULL;
 	fill_vir_page_table(
-		vir_page_addr,
+		vir_page_addr, alloc_mem_page(),
 		SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
 
 	vir_page_addr_more = vir_page_addr + PAGE_SIZE; // 分配一个虚拟地址的页
 	for (i = 1; i < pages; i++) {
 		fill_vir_page_table(
-			vir_page_addr_more,
+			vir_page_addr_more, alloc_mem_page(),
 			SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
 		vir_page_addr_more += PAGE_SIZE;
 	}
 
 	memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
+	io_store_eflags(old_status);
+
+	return (void *)vir_page_addr;
+}
+
+/**
+ * @brief 分配物理地址连续的页
+ *
+ * @param pages 页数
+ * @return void* 起始地址
+ */
+void *kernel_alloc_continuous_pages(int pages) {
+	size_t vir_page_addr = 0;
+
+	int old_status = io_load_eflags();
+	io_cli();
+
+	vir_page_addr = alloc_vir_pages(pages);
+
+	size_t paddr = alloc_mem_pages(pages);
+	for (int i = 0; i < pages; i++) {
+		fill_vir_page_table(
+			vir_page_addr + i * PAGE_SIZE, paddr + i * PAGE_SIZE,
+			SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
+	}
+	if (!paddr) return NULL;
 	io_store_eflags(old_status);
 
 	return (void *)vir_page_addr;
@@ -321,7 +347,7 @@ void kernel_free_page(int vaddr, int pages) {
  * @param vaddr 虚拟内存地址
  * @param sign 是用户内存还是系统内存(SIGN_SYS:系统内存,SIGN_USER:用户内存)
  */
-void fill_vir_page_table(uint32_t vaddr, uint8_t sign) {
+void fill_vir_page_table(uint32_t vaddr, uint32_t paddr, uint8_t sign) {
 	uint32_t *pde, *pte;
 	pde = pde_ptr(vaddr);
 	if (((*pde) & 0x00000001) != 0x00000001) { // 不存在页表
@@ -329,12 +355,10 @@ void fill_vir_page_table(uint32_t vaddr, uint8_t sign) {
 		pt |= SIGN_RW | SIGN_P | (sign & SIGN_US);
 		*pde = pt; // 填写页目录项为页表的地址
 	}
-	pte = pte_ptr(vaddr);
-	if (((*pte) & 0x00000001) != 0x00000001) { // 不存在页表项
-		uint32_t page = alloc_mem_page();	   // 分配页地址
-		page |= SIGN_RW | SIGN_P | (sign & SIGN_US);
-		*pte = page; // 填写页表项为页的地址
-	}
+	pte			  = pte_ptr(vaddr);
+	uint32_t page = paddr;
+	page |= SIGN_RW | SIGN_P | (sign & SIGN_US);
+	*pte = page; // 填写页表项为页的地址
 }
 
 /**
@@ -371,6 +395,24 @@ uint32_t alloc_mem_page(void) {
 	return mem_addr;
 }
 
+uint32_t alloc_mem_pages(int pages) {
+	int addr = 0;
+	int idx;
+	int mem_addr;
+	idx = mmap_search(&phy_page_mmap, pages);
+	if (idx != -1) {
+		for (int i = 0; i < pages; i++) {
+			mmap_set(&phy_page_mmap, idx + i, 1);
+		}
+	} else {
+		return (int)NULL;
+	}
+	mem_addr = idx * 0x1000 + PHY_MEM_BASE_ADDR;
+
+	return mem_addr;
+	return addr;
+}
+
 /**
  * @brief 释放一个物理页
  *
@@ -403,7 +445,7 @@ void *thread_get_page(struct task_s *thread, uint32_t vaddr) {
 
 	mmap_set(&thread->vir_page_mmap, idx, 1);
 
-	fill_vir_page_table(vaddr, SIGN_USER);
+	fill_vir_page_table(vaddr, alloc_mem_page(), SIGN_USER);
 	return (void *)vaddr;
 }
 
@@ -456,7 +498,7 @@ void *thread_alloc_page(struct task_s *thread, int pages) {
 	vir_page_addr = thread_alloc_vir_page(thread); // 分配一个虚拟地址的页
 
 	fill_vir_page_table(
-		vir_page_addr,
+		vir_page_addr, alloc_mem_page(),
 		SIGN_USER); // 把页添加到当前页目录表系统中，使他可以被使用
 
 	if (pages == 1) { // 如果只有一个页
@@ -467,7 +509,7 @@ void *thread_alloc_page(struct task_s *thread, int pages) {
 			vir_page_addr_more =
 				thread_alloc_vir_page(thread); // 分配一个虚拟地址的页
 			fill_vir_page_table(
-				vir_page_addr_more,
+				vir_page_addr_more, alloc_mem_page(),
 				SIGN_USER); // 把页添加到当前页目录表系统中，使他可以被使用
 		}
 		memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
@@ -535,7 +577,7 @@ MemoryResult thread_use_page(
 		MEMORY_RESULT_DELIVER_CALL(remap, pt & 0xfffff000, PAGE_SIZE, &pt);
 
 		pte = (uint32_t *)(pt + ((vaddr & 0x003ff000) >> 12) * 4);
-		if (((*pte) & 0x00000001) != 0x00000001) { // 不存在页表项
+		if (((*pte) & 0x00000001) != 0x00000001) {		// 不存在页表项
 			*pte = addr | SIGN_P | SIGN_RW | SIGN_USER; // 填写页表项为页的地址
 			addr += PAGE_SIZE;
 		}
