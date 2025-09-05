@@ -3,9 +3,10 @@ import subprocess
 import shutil
 import struct
 import argparse
+from grub_dep_detect import GrubModDependencyResolver
 
 # 定义变量
-imagetool_path = '\"tools/bin/imagetool\"'
+imagetool_path = os.path.join('tools', 'bin', 'imagetool')
 hd_img_path = 'hd0.img'
 hd_size = '64M'
 embed_area_size = '1M'
@@ -14,19 +15,16 @@ core_image_path = 'core.img'
 disk_dir_path = 'disk'
 grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
-if os.uname().sysname == "Darwin":
+if os.name == "Darwin":
     grub_mkimage_path = "x86_64-elf-grub-mkimage"
 else:
     grub_mkimage_path = "grub-mkimage"
 default_mods =\
-"minicmd normal gzio gcry_crc verifiers terminal \
-priority_queue gettext extcmd datetime crypto bufio boot \
-biosdisk part_gpt part_msdos fat ext2 fshelp net multiboot2 \
-all_video gfxterm"
+"normal biosdisk part_gpt part_msdos fat ext2 multiboot2 all_video"
 
 def run_command(command, hide=False):
     if not hide:
-        print("excute command: ", command)
+        print("execute command: ", command)
     subprocess.run(command, shell=True, text=True, check=True)
 
 def write_boot_sector(image_path, boot_img_path):
@@ -73,9 +71,9 @@ def install_grub(disk_image_path, grub_dir_path, platform, fs, mods):
     # 检查 boot.img 是否存在
     if not os.path.isfile(boot_img_path):
         # 复制 boot.img
-        grub_dir_path += platform + "/"
-        if not os.path.isfile(grub_dir_path + 'boot.img'):
-            print(f"{grub_dir_path}boot.img不存在，请检查")
+        _grub_dir_path = os.path.join(grub_dir_path, platform)
+        if not os.path.isfile(os.path.join(_grub_dir_path, 'boot.img')):
+            print(f"{_grub_dir_path}boot.img不存在，请检查")
             return
         shutil.copy(os.path.join(grub_dir_path, 'boot.img'), boot_img_path)
 
@@ -84,7 +82,9 @@ def install_grub(disk_image_path, grub_dir_path, platform, fs, mods):
     if fs[0:3] == "fat":
         prefix_device += "msdos1"
     prefix_device += ')'
-    run_command(f"{grub_mkimage_path} -O {platform} -o {core_image_path} --prefix \"{prefix_device + prefix_path}\" {mods}")
+    resolver = GrubModDependencyResolver(os.path.join(grub_dir_path, platform))
+    all_deps = " ".join(resolver.resolve_dependencies(mods.split()))
+    run_command(f"{grub_mkimage_path} -O {platform} -o {core_image_path} --prefix \"{prefix_device + prefix_path}\" {all_deps}")
 
     # 写入引导扇区
     write_boot_sector(disk_image_path, boot_img_path)
@@ -107,9 +107,7 @@ if __name__ == "__main__":
     if os.name == 'nt':
         print("检测到为Windows,请输入grub路径：")
         path = input()
-        if path[-1] != '/':
-            path += '/'
         grub_dir_path = path
-        grub_mkimage_path = path + grub_mkimage_path
+        grub_mkimage_path = os.path.join(grub_dir_path, "grub-mkimage")
 
     install_grub(args.image, grub_dir_path, args.platform, args.fs, args.mods)

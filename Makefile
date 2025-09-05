@@ -52,6 +52,8 @@ KERNEL_ELF	=	$(KERNEL_SRC)/kernel.elf
 
 IMAGETOOL	=	$(TOOL_SRC)/bin/imagetool
 
+INSTALL_GRUB_SCRIPT =	$(TOOL_SRC)/grub/install_grub.py
+
 .PHONY: cld
 
 cld: kernel libs
@@ -61,7 +63,7 @@ run: kernel libs qemu
 run_dbg: kernel libs qemu_dbg
 
 hd: tool
-	$(PYTHON) ./install_grub.py \
+	$(PYTHON) $(INSTALL_GRUB_SCRIPT) \
 		--image $(HD_IMG) \
 		--fs fat32 \
 		--platform $(TARGET_PLATFORM)
