@@ -15,10 +15,9 @@ core_image_path = 'core.img'
 disk_dir_path = 'disk'
 grub_cfg_path = 'grub.cfg'
 prefix_path = "/boot/grub/"
-if os.name == "Darwin":
-    grub_mkimage_path = "x86_64-elf-grub-mkimage"
-else:
-    grub_mkimage_path = "grub-mkimage"
+cross_prefix = ""
+default_grub_dir = "/usr/lib/grub/"
+grub_mkimage_path = ""
 default_mods =\
 "normal biosdisk part_gpt part_msdos fat ext2 multiboot2 all_video"
 
@@ -101,13 +100,48 @@ if __name__ == "__main__":
     parser.add_argument("--platform", help="目标平台", required=True)
     parser.add_argument("--fs", help="文件系统", required=True)
     parser.add_argument("--mods", help="要额外附加的模块", default=default_mods)
+    parser.add_argument("--grub-dir", help=f"GRUB平台目录(如{default_grub_dir})", default=default_grub_dir)
+    parser.add_argument("--grub-mkimage", help="grub-mkimage路径")
     args = parser.parse_args()
 
-    grub_dir_path = "/usr/lib/grub/"
-    if os.name == 'nt':
-        print("检测到为Windows,请输入grub路径：")
-        path = input()
-        grub_dir_path = path
-        grub_mkimage_path = os.path.join(grub_dir_path, "grub-mkimage")
+    grub_mkimage_path = "grub-mkimage"
+    if args.grub_dir == None:
+        # 使用了默认设置，检查一下
+        if os.name == "Darwin":
+            if args.grub_mkimage == None:
+                if args.platform == "i386-pc":
+                    cross_prefix = "i686-elf-"
+                elif args.platform == "x86_64-efi":
+                    cross_prefix = "x86_64-elf-"
+                grub_mkimage_path = cross_prefix + grub_mkimage_path
+
+            def get_brew_prefix():
+                try:
+                    result = subprocess.run(['brew', '--prefix', cross_prefix + 'grub'], capture_output=True, text=True, check=True)
+                    return result.stdout.strip()
+                except subprocess.CalledProcessError:
+                    print("Error: Unable to get Homebrew prefix. Make sure Homebrew is installed.")
+                    exit(1)
+            brew_prefix = get_brew_prefix()
+
+            versions = sorted(os.listdir(brew_prefix))
+            latest_version = versions[-1]
+            grub_dir_path = os.path.join(brew_prefix, latest_version, 'lib', cross_prefix[:-1], 'grub')
+            grub_mkimage_path = cross_prefix + grub_mkimage_path
+        elif os.name == "nt":
+            print("检测到为Windows,请输入grub路径：")
+            path = input()
+            grub_dir_path = path
+            if args.grub_mkimage == None:
+                grub_mkimage_path = cross_prefix + grub_mkimage_path
+                grub_mkimage_path = os.path.join(grub_dir_path, grub_mkimage_path)
+            else:
+                grub_mkimage_path = args.grub_mkimage
+        else:
+            if args.grub_mkimage != None:
+                grub_mkimage_path = args.grub_mkimage
+    else:
+        if args.grub_mkimage != None:
+            grub_mkimage_path = args.grub_mkimage
 
     install_grub(args.image, grub_dir_path, args.platform, args.fs, args.mods)
