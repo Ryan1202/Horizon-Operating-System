@@ -31,6 +31,28 @@
 - python(3.12.3)
 - rust：[Install Rust - Rust Programming Language(rust-lang.org)](https://www.rust-lang.org/tools/install)
 
+### Grub
+
+在虚拟机中运行使用grub引导，所以需要先安装grub
+
+#### Windows
+
+使用Windows需要先下载 [Grub for Windows (2.12)](https://ftp.gnu.org/gnu/grub/grub-2.12-for-windows.zip) 并解压，在执行安装脚本时会提示输入grub路径
+
+#### macOS
+
+使用macOS需要使用homebrew安装i686-elf-grub
+
+```
+brew install i686-elf-grub
+```
+
+#### Linux
+
+大多数Linux发行版默认使用grub引导，`install_grub.py`脚本可以自动从`/usr/lib/grub`找到模块目录
+
+如果不是或者使用的并非x86 pc，需要自行安装grub
+
 ### VSCode
 
 需要安装的插件：
@@ -44,7 +66,7 @@
 > 
 > qemu 7.1开始不再支持-soundhw，</font> 
 > 
-> qemu 7.1之前的版本要把Makefile中的
+> qemu 7.1之前的版本要把
 > ```
 > -audio pa,model=sb16
 > ```
