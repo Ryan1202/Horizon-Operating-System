@@ -9,14 +9,14 @@
  *             Networks
  *
  */
-#include "driver/network/protocols/ipv4.h"
+#include "driver/network/protocols/ipv4/ipv4.h"
 #include "driver/network/protocols/protocols.h"
 #include <bits.h>
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
 #include <driver/network/ethernet/ethernet.h>
 #include <driver/network/network_dm.h>
-#include <driver/network/protocols/arp.h>
+#include <driver/network/protocols/ipv4/arp.h>
 #include <kernel/device.h>
 #include <objects/handle.h>
 #include <objects/object.h>

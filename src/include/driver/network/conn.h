@@ -4,7 +4,7 @@
 #include "buffer.h"
 #include "driver/network/ethernet/ethernet.h"
 #include "driver/network/network_dm.h"
-#include "driver/network/protocols/ipv4.h"
+#include "driver/network/protocols/ipv4/ipv4.h"
 #include "kernel/list.h"
 #include "kernel/spinlock.h"
 #include "kernel/thread.h"

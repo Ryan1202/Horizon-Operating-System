@@ -3,7 +3,7 @@
 
 #include "driver/network/neighbour.h"
 #include "kernel/list.h"
-#include "protocols.h"
+#include <driver/network/protocols/protocols.h>
 #include <stdint.h>
 
 #define IP_PROTO_ICMP 1

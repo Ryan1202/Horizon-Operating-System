@@ -18,7 +18,7 @@
 #include "kernel/thread.h"
 #include "math.h"
 #include <driver/network/conn.h>
-#include <driver/network/protocols/ipv4.h>
+#include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/tcp.h>
 #include <hash.h>
 #include <kernel/list.h>

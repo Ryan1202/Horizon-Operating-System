@@ -1,5 +1,5 @@
 #include "driver/network/ethernet/ethernet.h"
-#include "driver/network/protocols/ipv4.h"
+#include "driver/network/protocols/ipv4/ipv4.h"
 #include "driver/network/protocols/protocols.h"
 #include "kernel/list.h"
 #include "kernel/spinlock.h"

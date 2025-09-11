@@ -14,7 +14,7 @@
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
 #include <driver/network/neighbour.h>
-#include <driver/network/protocols/ipv4.h>
+#include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/udp.h>
 #include <kernel/spinlock.h>

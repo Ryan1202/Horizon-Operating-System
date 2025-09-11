@@ -15,8 +15,8 @@
 #include <bits.h>
 #include <driver/network/conn.h>
 #include <driver/network/neighbour.h>
-#include <driver/network/protocols/acd.h>
-#include <driver/network/protocols/arp.h>
+#include <driver/network/protocols/ipv4/acd.h>
+#include <driver/network/protocols/ipv4/arp.h>
 #include <driver/network/protocols/protocols.h>
 #include <network/eth.h>
 #include <stdint.h>

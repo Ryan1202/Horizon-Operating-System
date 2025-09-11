@@ -14,7 +14,7 @@
 #include "kernel/spinlock.h"
 #include "kernel/thread.h"
 #include <driver/network/conn.h>
-#include <driver/network/protocols/ipv4.h>
+#include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/udp.h>
 #include <kernel/list.h>
 #include <stdint.h>

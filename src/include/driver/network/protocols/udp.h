@@ -2,7 +2,7 @@
 #define _UDP_H
 
 #include "driver/network/buffer.h"
-#include "driver/network/protocols/ipv4.h"
+#include "driver/network/protocols/ipv4/ipv4.h"
 #include <stdint.h>
 
 #define UDP_PORT_DHCP_SERVER 67
