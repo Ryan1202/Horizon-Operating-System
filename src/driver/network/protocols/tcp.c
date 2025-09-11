@@ -306,11 +306,16 @@ ProtocolResult tcp_shutdown(NetworkConnection *conn, uint8_t how) {
 
 	switch (how) {
 	case TCP_SHUT_RD:
+		kfree(tcp->recv_window);
+		tcp->recv_window = NULL;
 		break;
 	case TCP_SHUT_WR:
 		tcp_half_close(conn, tcp);
 		break;
 	case TCP_SHUT_RDWR:
+		kfree(tcp->recv_window);
+		tcp->recv_window = NULL;
+		tcp_half_close(conn, tcp);
 		break;
 	default:
 		return PROTO_ERROR_UNSUPPORT;
@@ -391,10 +396,10 @@ void tcp_ack_handler(
 			tcp->recv.next += length;
 			tcp->recv.next %= tcp->recv.total_size;
 			tcp->recv.window -= length;
-			tcp->send.wl1 = seq;
 		}
 
-		tcp->cur.ack = seq + length;
+		tcp->send.wl1 = seq;
+		tcp->cur.ack  = seq + length;
 		tcp_ack(tcp->conn, tcp, 0);
 	}
 
