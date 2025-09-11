@@ -16,6 +16,8 @@
 #define ETH_PROTO_TYPE_IPV4 0x0800
 #define ETH_PROTO_TYPE_ARP	0x0806
 
+#define ETH_MTU 1500
+
 typedef struct EthernetHeader {
 	uint8_t	 dst_mac[ETH_IDENTIFIER_SIZE];
 	uint8_t	 src_mac[ETH_IDENTIFIER_SIZE];

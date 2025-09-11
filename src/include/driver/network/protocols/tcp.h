@@ -22,6 +22,7 @@
 
 #define TCP_MSL 120 * 1000
 
+// TCP头部，options不算在头部内
 typedef struct {
 	uint16_t src_port;
 	uint16_t dest_port;
@@ -34,6 +35,11 @@ typedef struct {
 	uint16_t urgent_pointer;
 	uint8_t	 options[0];
 } TcpHeader;
+
+typedef enum {
+	TOI_MSS = 0,
+	TOI_MAX,
+} TcpOptionIndex;
 
 //                               +---------+ ---------\      active OPEN
 //                               |  CLOSED |            \    -----------
@@ -97,7 +103,6 @@ typedef struct Tcp {
 	NetworkConnection *conn;
 	TcpState		   state;
 	TcpHeader		  *header;
-	int				   header_size;
 	int				   mss;
 
 	struct task_s *thread;

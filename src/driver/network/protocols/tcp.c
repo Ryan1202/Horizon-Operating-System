@@ -86,9 +86,7 @@ uint16_t tcp_checksum(
 void tcp_register(NetworkConnection *conn) {
 	conn->trans_protocol = TRANS_PROTO_TCP;
 	if (conn->tcp.info == NULL) { conn->tcp.info = kmalloc(sizeof(Tcp)); }
-	Tcp *tcp		 = conn->tcp.info;
-	tcp->header_size = sizeof(TcpHeader) + 4;
-	NET_BUF_RESV_HEAD(conn, tcp->header_size);
+	NET_BUF_RESV_HEAD(conn, sizeof(TcpHeader));
 }
 
 uint32_t tcp_generate_isn(void *ip_port_pair, int len) {
@@ -144,6 +142,7 @@ ProtocolResult tcp_bind(NetworkConnection *conn, uint16_t port) {
 	conn_info->local.port = port;
 
 	Tcp *tcp			 = conn->tcp.info;
+	tcp->mss			 = conn->mtu - sizeof(Ipv4Header) - sizeof(TcpHeader);
 	tcp->cur.seq		 = 0;
 	tcp->cur.ack		 = 0;
 	tcp->state			 = TCP_STATE_CLOSED;
@@ -191,21 +190,30 @@ ProtocolResult tcp_connect(
 		tcp_generate_isn(&conn_info, sizeof(Ipv4ConnInfo) - sizeof(list_t));
 	tcp->cur.seq = tcp->send.iss;
 	// 构造SYN报文
-	net_buffer_header_alloc(conn->buffer, tcp->header_size);
-	tcp->header			   = (TcpHeader *)conn->buffer->head;
+	net_buffer_header_alloc(conn->buffer, sizeof(TcpHeader));
+	tcp->header = (TcpHeader *)conn->buffer->head;
+
+	int		   option_len  = 4 /* Max Segment Size */;
 	TcpHeader *header	   = tcp->header;
 	header->src_port	   = HOST2BE_WORD(conn_info->local.port);
 	header->dest_port	   = HOST2BE_WORD(conn_info->remote.port);
 	header->seq			   = HOST2BE_DWORD(tcp->cur.seq);
 	header->ack			   = 0;
-	header->data_offset	   = (tcp->header_size / 4) << 4;
+	header->data_offset	   = ((sizeof(TcpHeader) + option_len) / 4) << 4;
 	header->flags		   = TCP_FLAG_SYN;
 	header->window_size	   = HOST2BE_WORD(tcp->recv.window);
 	header->urgent_pointer = 0;
-	header->checksum	   = 0;
-	header->checksum	   = HOST2BE_WORD(tcp_checksum(
-		  header, tcp->header_size, conn_info->local.ip, conn_info->remote.ip,
-		  4));
+
+	// TCP Options算在NetBuffer的data区域内
+	header->options[0]				   = TCP_OPTION_MSS;
+	header->options[1]				   = 4;
+	*(uint16_t *)(header->options + 2) = HOST2BE_WORD(tcp->mss);
+	net_buffer_put(conn->buffer, option_len);
+
+	header->checksum = 0;
+	int length		 = sizeof(TcpHeader) + CONN_CONTENT_SIZE(conn);
+	header->checksum = HOST2BE_WORD(tcp_checksum(
+		header, length, conn_info->local.ip, conn_info->remote.ip, 4));
 
 	conn_wrap(conn, PROTO_LEVEL_NETWORK);
 
@@ -342,7 +350,7 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 	tcp_header->flags	  = TCP_FLAG_RST;
 	tcp_header->ack		  = 0;
 	tcp_header->checksum  = HOST2BE_WORD(tcp_checksum(
-		 tcp_header, tcp->header_size, conn->ipv4.conn_info.local.ip,
+		 tcp_header, sizeof(TcpHeader), conn->ipv4.conn_info.local.ip,
 		 conn->ipv4.conn_info.remote.ip, 4));
 	kfree(tcp->send_window);
 	kfree(tcp->recv_window);
@@ -355,9 +363,10 @@ void tcp_send(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
 	tcp_header->seq			= HOST2BE_DWORD(tcp->cur.seq);
 	tcp_header->ack			= HOST2BE_DWORD(tcp->cur.ack);
 	tcp_header->window_size = HOST2BE_WORD(tcp->recv.window);
+	tcp_header->data_offset = ((sizeof(TcpHeader)) >> 2) << 4;
 
 	tcp_header->checksum = tcp_checksum(
-		tcp_header, CONN_CONTENT_SIZE(conn) + tcp->header_size,
+		tcp_header, CONN_CONTENT_SIZE(conn) + sizeof(TcpHeader),
 		conn->ipv4.conn_info.local.ip, conn->ipv4.conn_info.remote.ip, 4);
 	tcp_header->checksum = HOST2BE_WORD(tcp_header->checksum);
 
@@ -466,6 +475,35 @@ void tcp_timeout_handler(void *arg) {
 	}
 }
 
+void tcp_options_handler(
+	TcpHeader *tcp_header, TcpOptionIndex indexes[TOI_MAX]) {
+	int options_size =
+		((tcp_header->data_offset & 0xf0) >> 2) - sizeof(TcpHeader);
+	if (options_size <= 0) return;
+
+	uint8_t *options = (uint8_t *)(tcp_header + 1);
+	int		 i		 = 0;
+	while (i < options_size) {
+		uint8_t kind = options[i];
+		i++;
+		if (kind == TCP_OPTION_END) break;
+		else if (kind == TCP_OPTION_NOP) continue;
+		else {
+			if (i >= options_size) break;
+			uint8_t length = options[i];
+			if (i + length - 1 > options_size) break;
+			switch (kind) {
+			case TCP_OPTION_MSS:
+				indexes[TOI_MSS] = i + 1;
+				break;
+			default:
+				break;
+			}
+			i += length - 1;
+		}
+	}
+}
+
 void tcp_rx_handler(
 	NetworkConnection *conn, TcpHeader *tcp_header, NetBuffer *net_buffer,
 	int length) {
@@ -477,18 +515,28 @@ void tcp_rx_handler(
 
 	uint8_t extra_flags = 0;
 	if (tcp_header->flags & TCP_FLAG_RST) { tcp->state = TCP_STATE_CLOSED; }
+
+	TcpOptionIndex indexes[TOI_MAX] = {TOI_MAX};
+	tcp_options_handler(tcp_header, indexes);
 	switch (tcp->state) {
 	case TCP_STATE_CLOSED:
 		tcp_reset_conn(conn, tcp);
 		break;
 	case TCP_STATE_LISTEN:
 		if (syn_flag) {
+			if (indexes[TOI_MSS] < TOI_MAX) {
+				uint16_t mss = BE2HOST_WORD(
+					*(uint16_t *)(tcp_header->options + indexes[TOI_MSS]));
+				tcp->mss = MIN(mss, tcp->mss);
+			}
+
 			tcp->recv.irs = seq;
 			tcp->cur.ack  = seq + 1;
 			tcp->send.remote_window_size =
 				BE2HOST_WORD(tcp_header->window_size);
 			tcp->state = TCP_STATE_SYN_RECEIVED;
 			extra_flags |= TCP_FLAG_SYN;
+			net_buffer_clean_data(tcp->conn->buffer);
 			tcp_ack(conn, tcp, extra_flags);
 		}
 		break;
@@ -506,6 +554,11 @@ void tcp_rx_handler(
 			tcp->state	  = TCP_STATE_SYN_RECEIVED;
 		}
 	case TCP_STATE_SYN_RECEIVED:
+		if (indexes[TOI_MSS] < TOI_MAX) {
+			uint16_t mss = BE2HOST_WORD(
+				*(uint16_t *)(tcp_header->options + indexes[TOI_MSS]));
+			tcp->mss = MIN(mss, tcp->mss);
+		}
 		timer_callback_cancel(&tcp->timeout_timer);
 		// 处理ACK
 		if (ack != tcp->cur.seq + 1) {
@@ -516,6 +569,7 @@ void tcp_rx_handler(
 			tcp->cur.seq = ack;
 			tcp->state	 = TCP_STATE_ESTABLISHED;
 		}
+		net_buffer_clean_data(tcp->conn->buffer);
 		tcp_ack(conn, tcp, extra_flags);
 		thread_unblock(tcp->thread);
 		break;
@@ -525,6 +579,7 @@ void tcp_rx_handler(
 			tcp->cur.seq = ack;
 			tcp->cur.ack = seq + 1;
 			tcp->state	 = TCP_STATE_CLOSE_WAIT;
+			net_buffer_clean_data(tcp->conn->buffer);
 			tcp_ack(conn, tcp, extra_flags);
 			break;
 		}
@@ -535,6 +590,7 @@ void tcp_rx_handler(
 			tcp->state	 = TCP_STATE_CLOSE_WAIT;
 			extra_flags |= TCP_FLAG_FIN;
 		}
+		net_buffer_clean_data(tcp->conn->buffer);
 		tcp_ack(conn, tcp, extra_flags);
 		break;
 	case TCP_STATE_CLOSE_WAIT:
@@ -569,6 +625,7 @@ void tcp_rx_handler(
 			uint32_t count = timer_count_ms(&tcp->timeout_timer, 2 * TCP_MSL);
 			timer_set_timeout(&tcp->timeout_timer, count);
 			timer_callback_enable(&tcp->timeout_timer);
+			net_buffer_clean_data(tcp->conn->buffer);
 			tcp_ack(conn, tcp, extra_flags);
 		}
 		break;

@@ -46,6 +46,7 @@ typedef struct NetworkConnection {
 			uint8_t mac[6];
 		} ethernet;
 	};
+	int mtu;
 
 	// data link layer protocol
 	enum {

@@ -43,6 +43,7 @@ void eth_register(NetworkConnection *conn) {
 	EthernetDevice *eth_device = conn->net_device->ethernet;
 	conn->phy_protocol		   = PHY_PROTO_ETHERNET;
 	eth_get_mac_address(eth_device, conn->ethernet.mac);
+	conn->mtu = ETH_MTU;
 	NET_BUF_RESV_HEAD(conn, 14);
 }
 

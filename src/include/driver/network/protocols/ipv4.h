@@ -10,6 +10,8 @@
 #define IP_PROTO_TCP  6
 #define IP_PROTO_UDP  17
 
+#define IPv4_DEFAULT_MSS 536
+
 #define CONN_LOCAL_IP(conn)	 conn->ipv4.conn_info.local.ip
 #define CONN_REMOTE_IP(conn) conn->ipv4.conn_info.remote.ip
 
