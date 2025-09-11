@@ -41,7 +41,7 @@ const int max_ephemeral_port = 65535;
 
 const int tcp_max_retries = 15;
 
-const int tcp_fin_timeout = 60;
+const int tcp_fin_timeout = 60 * 1000;
 
 void tcp_timeout_handler(void *arg);
 void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp);
@@ -106,23 +106,23 @@ void tcp_compute_retransmission_timer(Tcp *tcp, int r) {
 	if (tcp == NULL) return;
 
 	if (r == 0) {
-		if (tcp->rtt == 0) {
+		if (tcp->rttvar == 0) {
 			// 还没完成RTT测量
-			tcp->rto = 1;
+			tcp->rto = 1 * 1000;
 		}
 	} else {
-		if (tcp->rtt == 0) {
+		if (tcp->rttvar == 0) {
 			// 完成初次RTT测量
-			tcp->srtt = r;
-			tcp->rtt  = r / 2;
-			tcp->rto  = tcp->srtt + MAX(1, 4 * tcp->rtt);
+			tcp->srtt	= r;
+			tcp->rttvar = r / 2;
+			tcp->rto	= tcp->srtt + MAX(1 * 1000, 4 * tcp->rttvar);
 		} else {
 			// 完成后续RTT测量
-			tcp->rtt  = (3 * tcp->rtt + 1 * abs(tcp->srtt - r)) / 4;
-			tcp->srtt = (7 * tcp->srtt + 1 * r) / 8;
-			tcp->rto  = tcp->srtt + MAX(1, 4 * tcp->rtt);
+			tcp->rttvar = (3 * tcp->rttvar + 1 * abs(tcp->srtt - r)) / 4;
+			tcp->srtt	= (7 * tcp->srtt + 1 * r) / 8;
+			tcp->rto	= tcp->srtt + MAX(1 * 1000, 4 * tcp->rttvar);
 		}
-		tcp->rto = MIN(tcp->rto, 60); // 最长1分钟
+		tcp->rto = MIN(tcp->rto, 60 * 1000); // 最长1分钟
 	}
 }
 
@@ -152,7 +152,7 @@ ProtocolResult tcp_bind(NetworkConnection *conn, uint16_t port) {
 	tcp->recv.window	 = recv_win_default_size;
 	tcp->recv.total_size = recv_win_default_size;
 	tcp->recv.read		 = 0;
-	tcp->rtt = tcp->rto = tcp->srtt = 0;
+	tcp->rttvar = tcp->rto = tcp->srtt = 0;
 	tcp_compute_retransmission_timer(tcp, 0);
 	timer_init(&tcp->timeout_timer);
 	tcp->timeout_timer.callback = tcp_timeout_handler;
@@ -211,7 +211,8 @@ ProtocolResult tcp_connect(
 
 	tcp->state = TCP_STATE_SYN_SENT;
 
-	timer_set_timeout(&tcp->timeout_timer, tcp->rto * 1000);
+	timer_set_timeout(
+		&tcp->timeout_timer, timer_count_ms(&tcp->timeout_timer, tcp->rto));
 	timer_callback_enable(&tcp->timeout_timer);
 	NETWORK_SEND(conn->net_device, conn);
 
@@ -227,6 +228,7 @@ ProtocolResult tcp_connect(
 	tcp->send.total_size = send_win_default_size;
 	tcp->send.window = MIN(tcp->send.total_size, tcp->send.remote_window_size);
 	tcp->send_window = kmalloc(tcp->send.total_size);
+	tcp->send_time	 = timer_get_counter();
 
 	return PROTO_OK;
 }
@@ -359,9 +361,14 @@ void tcp_send(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
 		conn->ipv4.conn_info.local.ip, conn->ipv4.conn_info.remote.ip, 4);
 	tcp_header->checksum = HOST2BE_WORD(tcp_header->checksum);
 
+	if (tcp->send_time == 0) {
+		tcp->send_time = timer_get_counter();
+		tcp->send_seq  = tcp->cur.seq;
+	}
 	// 如果没有设置重传计时则设置一个
 	if (set_timer && timer_is_timeout(&tcp->timeout_timer)) {
-		timer_set_timeout(&tcp->timeout_timer, tcp->rto * 1000);
+		timer_set_timeout(
+			&tcp->timeout_timer, timer_count_ms(&tcp->timeout_timer, tcp->rto));
 		timer_callback_enable(&tcp->timeout_timer);
 	}
 	ipv4_rewrap(conn);
@@ -385,6 +392,11 @@ void tcp_ack_handler(
 	uint32_t ack = BE2HOST_DWORD(header->ack);
 
 	if (length > 0) {
+		if (ack >= tcp->send_seq && tcp->send_seq != 0) {
+			int rtt = timer_get_counter() - tcp->send_time;
+			tcp_compute_retransmission_timer(tcp, rtt);
+			tcp->send_seq = 0;
+		}
 		if (tcp->recv_window != NULL) {
 			int size1 = MIN(tcp->recv.total_size - tcp->recv.next, length);
 			// size2 = min(length - size1, tcp->recv.window - size1)
@@ -430,7 +442,9 @@ void tcp_timeout_handler(void *arg) {
 			if (tcp->state == TCP_STATE_SYN_SENT ||
 				tcp->state == TCP_STATE_SYN_RECEIVED)
 				tcp->rto = MIN(tcp->rto, 3);
-			timer_set_timeout(&tcp->timeout_timer, tcp->rto * 1000);
+			timer_set_timeout(
+				&tcp->timeout_timer,
+				timer_count_ms(&tcp->timeout_timer, tcp->rto));
 			timer_callback_enable(&tcp->timeout_timer);
 			tcp_send(tcp, tcp->conn, true);
 		} else {
@@ -534,7 +548,9 @@ void tcp_rx_handler(
 			extra_flags |= TCP_FLAG_FIN;
 
 			timer_callback_cancel(&tcp->timeout_timer);
-			timer_set_timeout(&tcp->timeout_timer, tcp_fin_timeout * 1000);
+			timer_set_timeout(
+				&tcp->timeout_timer,
+				timer_count_ms(&tcp->timeout_timer, tcp_fin_timeout));
 			timer_callback_enable(&tcp->timeout_timer);
 		}
 		if (tcp_header->flags & TCP_FLAG_FIN) {
@@ -550,7 +566,8 @@ void tcp_rx_handler(
 			extra_flags |= TCP_FLAG_ACK;
 
 			timer_callback_cancel(&tcp->timeout_timer);
-			timer_set_timeout(&tcp->timeout_timer, 2 * TCP_MSL * 1000);
+			uint32_t count = timer_count_ms(&tcp->timeout_timer, 2 * TCP_MSL);
+			timer_set_timeout(&tcp->timeout_timer, count);
 			timer_callback_enable(&tcp->timeout_timer);
 			tcp_ack(conn, tcp, extra_flags);
 		}

@@ -20,7 +20,7 @@
 #define TCP_SHUT_RD	  1
 #define TCP_SHUT_RDWR 2
 
-#define TCP_MSL 120
+#define TCP_MSL 120 * 1000
 
 typedef struct {
 	uint16_t src_port;
@@ -155,9 +155,10 @@ typedef struct Tcp {
 		uint32_t prc;	 // segment precedence value
 	} cur;
 
-	int	  rtt, srtt, rto;
-	int	  retry_times;
-	Timer timeout_timer;
+	uint32_t send_time, send_seq;
+	int		 rttvar, srtt, rto;
+	int		 retry_times;
+	Timer	 timeout_timer;
 } Tcp;
 
 void		   tcp_register(NetworkConnection *conn);
