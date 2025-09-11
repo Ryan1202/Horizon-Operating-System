@@ -53,6 +53,14 @@ Mkfile.old
 dkms.conf
 compile_commands.json
 
+# Cache
+__pycache__/
+*.pyc
+.cache/
+
+# Rubbish
+.DS_Store
+
 # Others
 /disk/
 tools/bin/
