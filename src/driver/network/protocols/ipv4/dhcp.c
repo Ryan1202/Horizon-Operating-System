@@ -211,6 +211,8 @@ void dhcp_offer_handler(
 
 		memcpy(dhcp->server_ip_addr, &header->options[index_sid], 4);
 		memcpy(dhcp->ip_addr, &header->yiaddr, 4);
+		memcpy(conn->net_device->ipv4.ip, dhcp->ip_addr, 4);
+		memcpy(conn->ipv4.conn_info.local.ip, dhcp->ip_addr, 4);
 
 		dhcp_select(dhcp);
 	}
@@ -223,6 +225,7 @@ void dhcp_ack_handler(
 	*(uint32_t *)device->ipv4.subnet_mask = 0;
 	*(uint32_t *)device->ipv4.gateway_ip  = 0;
 	memcpy(device->ipv4.ip, dhcp->ip_addr, 4);
+	memcpy(conn->ipv4.conn_info.local.ip, dhcp->ip_addr, 4);
 
 	if (indexes[DOI_SUBNET_MASK] != 0) {
 		*(uint32_t *)device->ipv4.subnet_mask =
@@ -550,6 +553,7 @@ void dhcp_reset(DhcpClient *dhcp, NetworkConnection *conn) {
 	dhcp->state = DHCP_STAT_INIT;
 	dhcp->xid	= rand();
 
+	memcpy(conn->net_device->ipv4.ip, &ipv4_null_addr, 4);
 	memset(dhcp->ip_addr, 0, sizeof(dhcp->ip_addr));
 	memset(dhcp->server_ip_addr, 0, sizeof(dhcp->server_ip_addr));
 	memset(dhcp->server_haddr, 0, sizeof(dhcp->server_haddr));

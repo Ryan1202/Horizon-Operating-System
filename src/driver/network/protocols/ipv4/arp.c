@@ -18,7 +18,6 @@
 #include <driver/network/protocols/ipv4/acd.h>
 #include <driver/network/protocols/ipv4/arp.h>
 #include <driver/network/protocols/protocols.h>
-#include <network/eth.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -43,13 +42,15 @@ ProtocolResult arp_recv(NetworkDevice *device, NetBuffer *net_buffer) {
 	uint8_t *mac_addr = device->ethernet->mac_addr;
 	if (htype == ARP_HTYPE_ETH && device->type == NETWORK_TYPE_ETHERNET) {
 		if (arp_header->hlen == ETH_IDENTIFIER_SIZE) {
-			if (memcmp(dst_haddr, eth_broadcast_mac, arp_header->hlen) == 0) {
-				// 处理广播地址
-				p = mac_addr;
-				goto next;
-			} else if (memcmp(dst_haddr, mac_addr, arp_header->hlen) == 0) {
+			if (memcmp(dst_haddr, mac_addr, arp_header->hlen) == 0) {
 				// 处理本地地址
 				p = dst_haddr;
+				goto next;
+			} else if (
+				memcmp(dst_haddr, eth_broadcast_mac, arp_header->hlen) == 0 ||
+				memcmp(dst_haddr, eth_null_mac, arp_header->hlen) == 0) {
+				// 处理其他地址
+				p = mac_addr;
 				goto next;
 			}
 		}
@@ -64,7 +65,7 @@ next:
 	// 检查协议类型
 	uint8_t *paddr = NULL;
 	uint16_t ptype = BE2HOST_WORD(arp_header->ptype);
-	if (ptype == ETH_TYPE_IPV4 && arp_header->plen == 4) {
+	if (ptype == ETH_PROTO_TYPE_IPV4 && arp_header->plen == 4) {
 		hash_key = ipv4_hash(src_paddr) % NEIGH_BUCKET_SIZE;
 		paddr	 = device->ipv4.ip;
 		if (memcmp(src_paddr, paddr, 4) == 0) {
@@ -90,6 +91,8 @@ next:
 		spin_unlock(&entry->lock);
 	}
 	spin_unlock(&neighbour_table.lock[hash_key]);
+
+	if (memcmp(dst_paddr, device->ipv4.ip, 4)) return PROTO_OK;
 
 	if (!merge_flag) {
 		// Create a new neighbour entry
@@ -129,7 +132,7 @@ void arp_send_request(NeighbourEntry *entry, void *arg) {
 	// Fill in the ARP request details
 	ArpHeader *arp_header = (ArpHeader *)conn_buffer(conn)->data;
 	arp_header->htype	  = HOST2BE_WORD(ARP_HTYPE_ETH);
-	arp_header->ptype	  = HOST2BE_WORD(ETH_TYPE_IPV4);
+	arp_header->ptype	  = HOST2BE_WORD(ETH_PROTO_TYPE_IPV4);
 	arp_header->hlen	  = 6;
 	arp_header->plen	  = 4;
 	arp_header->opcode	  = HOST2BE_WORD(ARP_OP_REQUEST);
@@ -156,7 +159,7 @@ void arp_send_request(NeighbourEntry *entry, void *arg) {
 	// Send the ARP request
 	eth_wrap(
 		conn_buffer(conn), device->ethernet->mac_addr, eth_broadcast_mac,
-		ETH_TYPE_ARP);
+		ETH_PROTO_TYPE_ARP);
 	entry->state = NEIGH_STATE_WAITING;
 
 	NETWORK_SEND(device, eth_device->arp_conn);
@@ -169,7 +172,7 @@ void arp_announce(NetworkDevice *device, uint8_t *ip_addr) {
 	// Fill in the ARP request details
 	ArpHeader *arp_header = (ArpHeader *)conn_buffer(conn)->data;
 	arp_header->htype	  = HOST2BE_WORD(ARP_HTYPE_ETH);
-	arp_header->ptype	  = HOST2BE_WORD(ETH_TYPE_IPV4);
+	arp_header->ptype	  = HOST2BE_WORD(ETH_PROTO_TYPE_IPV4);
 	arp_header->hlen	  = ETH_IDENTIFIER_SIZE;
 	arp_header->plen	  = 4;
 	arp_header->opcode	  = HOST2BE_WORD(ARP_OP_REQUEST);
@@ -196,6 +199,6 @@ void arp_announce(NetworkDevice *device, uint8_t *ip_addr) {
 	// Send the ARP request
 	eth_wrap(
 		conn_buffer(conn), device->ethernet->mac_addr, eth_broadcast_mac,
-		ETH_TYPE_ARP);
+		ETH_PROTO_TYPE_ARP);
 	NETWORK_SEND(device, conn);
 }
