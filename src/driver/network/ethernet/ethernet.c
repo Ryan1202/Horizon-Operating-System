@@ -77,7 +77,9 @@ ProtocolResult eth_recv(NetworkDevice *device, NetBuffer *net_buffer) {
 	ProtocolResult result = PROTO_OK;
 	switch (BE2HOST_WORD(header->protocol_type)) {
 	case ETH_PROTO_TYPE_IPV4:
-		result = ipv4_recv(net_buffer);
+		ipv4_neigh_update(
+			device, net_buffer, header->src_mac, ETH_IDENTIFIER_SIZE);
+		result = ipv4_recv(device, net_buffer);
 		break;
 	case ETH_PROTO_TYPE_ARP:
 		result = arp_recv(device, net_buffer);

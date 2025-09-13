@@ -8,16 +8,16 @@
  *
  */
 #include "driver/network/network_dm.h"
-#include "driver/network/protocols/tcp.h"
-#include "kernel/thread.h"
 #include <bits.h>
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
 #include <driver/network/neighbour.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
+#include <driver/network/protocols/tcp.h>
 #include <driver/network/protocols/udp.h>
 #include <kernel/spinlock.h>
+#include <kernel/thread.h>
 #include <random.h>
 #include <stdint.h>
 #include <string.h>
@@ -46,6 +46,27 @@ void ipv4_register(NetworkConnection *conn, uint8_t *ip_addr) {
 	conn->ipv4.fragment.frag_offset		= 0;
 	conn->ipv4.id						= 0;
 	NET_BUF_RESV_HEAD(conn, sizeof(Ipv4Header));
+}
+
+void ipv4_neigh_update(
+	NetworkDevice *device, NetBuffer *buffer, uint8_t *mac, int hlen) {
+	if (!buffer || !mac) return;
+	Ipv4Header *ipv4_header = (Ipv4Header *)buffer->data;
+	uint8_t	   *ip			= ipv4_header->src_ip;
+
+	uint32_t _ip = *(uint32_t *)ip;
+	if (_ip == ipv4_null_addr || _ip == ipv4_broadcast_addr) return;
+
+	NeighbourKey	hash_key = ipv4_hash(ip);
+	NeighbourEntry *entry = neighbour_table_try_lookup(device, hash_key, ip, 4);
+	if (entry == NULL) {
+		entry = neighbour_entry_create(device, hash_key, ip, 4);
+		if (entry == NULL) return;
+	}
+	spin_lock(&entry->lock);
+	entry->state = NEIGH_STATE_REACHABLE;
+	memcpy(entry->haddr, mac, hlen);
+	spin_unlock(&entry->lock);
 }
 
 void ipv4_enable_fragment(NetworkConnection *conn) {
@@ -114,7 +135,7 @@ void ipv4_rewrap(NetworkConnection *conn) {
 	ipv4_checksum(ipv4_header);
 }
 
-ProtocolResult ipv4_recv(NetBuffer *net_buffer) {
+ProtocolResult ipv4_recv(NetworkDevice *device, NetBuffer *net_buffer) {
 	Ipv4Header *ipv4_header = (Ipv4Header *)net_buffer->data;
 	int			size		= net_buffer->tail - net_buffer->data;
 	int			length		= ipv4_get_packet_length(ipv4_header);

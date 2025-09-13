@@ -8,7 +8,6 @@
 #include "kernel/list.h"
 #include "kernel/spinlock.h"
 #include "kernel/thread.h"
-#include "kernel/wait_queue.h"
 #include "objects/handle.h"
 #include "objects/object.h"
 #include <stdint.h>

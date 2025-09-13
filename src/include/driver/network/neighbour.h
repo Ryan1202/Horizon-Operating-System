@@ -31,7 +31,10 @@ typedef struct NeighbourEntry {
 
 	NeighbourKey   key;
 	NeighbourState state;
-	uint8_t		   haddr[8]; // Hardware address (MAC address)
+
+	int		hlen;
+	uint8_t haddr[8]; // Hardware address (MAC address)
+
 	NetworkDevice *device;
 
 	void			  *arg;
@@ -55,6 +58,9 @@ void			neighbour_init(void);
 NeighbourEntry *neighbour_entry_create(
 	NetworkDevice *device, NeighbourKey hash_key, uint8_t *addr,
 	uint8_t length);
+NeighbourEntry *neighbour_table_try_lookup(
+	NetworkDevice *device, NeighbourKey hash_key, uint8_t *ip_addr,
+	uint8_t ip_length);
 NeighbourEntry *neighbour_table_lookup(
 	NetworkDevice *device, NeighbourKey hash_key, uint8_t *ip_addr,
 	uint8_t ip_length);

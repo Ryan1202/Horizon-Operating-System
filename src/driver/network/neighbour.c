@@ -30,6 +30,7 @@ NeighbourEntry *neighbour_entry_create(
 	entry->key	  = hash_key;
 	entry->state  = NEIGH_STATE_NONE;
 	entry->device = device;
+	entry->hlen	  = 0;
 	memset(entry->haddr, 0, sizeof(entry->haddr));
 	memcpy(entry->ip_addr, addr, length);
 
@@ -54,7 +55,7 @@ NeighbourEntry *neighbour_entry_create(
 	return entry;
 }
 
-NeighbourEntry *neighbour_table_lookup(
+NeighbourEntry *neighbour_table_try_lookup(
 	NetworkDevice *device, NeighbourKey hash_key, uint8_t *ip_addr,
 	uint8_t ip_length) {
 	NeighbourEntry *entry = NULL;
@@ -69,6 +70,16 @@ NeighbourEntry *neighbour_table_lookup(
 		}
 	}
 	spin_unlock(&neighbour_table.lock[hash_key]);
+
+	return NULL;
+}
+
+NeighbourEntry *neighbour_table_lookup(
+	NetworkDevice *device, NeighbourKey hash_key, uint8_t *ip_addr,
+	uint8_t ip_length) {
+	NeighbourEntry *entry =
+		neighbour_table_try_lookup(device, hash_key, ip_addr, ip_length);
+	if (entry != NULL) return entry;
 
 	entry = neighbour_entry_create(device, hash_key, ip_addr, ip_length);
 

@@ -322,6 +322,7 @@ void dhcp_check_addr(DhcpClient *dhcp) {
 		neighbour_table_lookup(dhcp->device, key, dhcp->server_ip_addr, 4);
 	entry->ops->probe(dhcp->device);
 	if (entry->state == NEIGH_STATE_REACHABLE) {
+		entry->hlen = dhcp->haddr_len;
 		memcpy(dhcp->server_haddr, entry->haddr, dhcp->haddr_len);
 	}
 }

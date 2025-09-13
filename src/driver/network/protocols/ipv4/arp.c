@@ -101,6 +101,7 @@ next:
 	} else {
 	}
 	entry->state = NEIGH_STATE_REACHABLE;
+	entry->hlen	 = arp_header->hlen;
 	memcpy(entry->haddr, src_haddr, arp_header->hlen);
 	spin_unlock(&entry->lock);
 

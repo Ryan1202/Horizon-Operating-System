@@ -51,8 +51,11 @@ ProtocolResult ipv4_wrap(
 	struct NetworkConnection *conn, uint16_t protocol, uint8_t *dst_ip,
 	uint8_t ttl);
 void		   ipv4_rewrap(struct NetworkConnection *conn);
-ProtocolResult ipv4_recv(struct NetBuffer *net_buffer);
-NeighbourKey   ipv4_hash(uint8_t ip[4]);
+ProtocolResult ipv4_recv(
+	struct NetworkDevice *device, struct NetBuffer *net_buffer);
+NeighbourKey ipv4_hash(uint8_t ip[4]);
+void		 ipv4_neigh_update(
+			NetworkDevice *device, struct NetBuffer *buffer, uint8_t *mac, int hlen);
 ProtocolResult ipv4_lookup_mac(
 	NetworkDevice *device, uint8_t ip[4], uint8_t mac[8]);
 uint16_t ipv4_get_packet_length(Ipv4Header *ipv4_header);
