@@ -12,6 +12,7 @@
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
 #include <driver/network/neighbour.h>
+#include <driver/network/protocols/ipv4/icmp.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/tcp.h>
@@ -135,7 +136,9 @@ void ipv4_rewrap(NetworkConnection *conn) {
 	ipv4_checksum(ipv4_header);
 }
 
-ProtocolResult ipv4_recv(NetworkDevice *device, NetBuffer *net_buffer) {
+ProtocolResult ipv4_recv(
+	NetworkDevice *device, NetBuffer *net_buffer, ProtocolReplyCallback *stack,
+	int stack_size) {
 	Ipv4Header *ipv4_header = (Ipv4Header *)net_buffer->data;
 	int			size		= net_buffer->tail - net_buffer->data;
 	int			length		= ipv4_get_packet_length(ipv4_header);
@@ -170,6 +173,7 @@ ProtocolResult ipv4_recv(NetworkDevice *device, NetBuffer *net_buffer) {
 			net_buffer, length, ipv4_header->src_ip, ipv4_header->dst_ip, 4);
 		break;
 	case IP_PROTO_ICMP:
+		result = icmp_recv(device, net_buffer, ipv4_header, stack, stack_size);
 		break;
 	default:
 		result = PROTO_ERROR_UNSUPPORT;

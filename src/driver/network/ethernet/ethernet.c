@@ -67,7 +67,22 @@ ProtocolResult eth_wrap(
 	return PROTO_OK;
 }
 
-ProtocolResult eth_recv(NetworkDevice *device, NetBuffer *net_buffer) {
+ProtocolResult eth_reply(NetworkDevice *device, NetBuffer *buffer) {
+	EthernetHeader *header = (EthernetHeader *)buffer->head;
+	uint8_t			tmp[ETH_IDENTIFIER_SIZE];
+	if (memcmp(header->dst_mac, eth_broadcast_mac, ETH_IDENTIFIER_SIZE) == 0) {
+		// 广播包不回复
+		return PROTO_ERROR_CANNOT_FIND_ROUTE;
+	}
+	memcpy(tmp, header->dst_mac, ETH_IDENTIFIER_SIZE);
+	memcpy(header->dst_mac, header->src_mac, ETH_IDENTIFIER_SIZE);
+	memcpy(header->src_mac, tmp, ETH_IDENTIFIER_SIZE);
+	return PROTO_OK;
+}
+
+ProtocolResult eth_recv(
+	NetworkDevice *device, NetBuffer *net_buffer, ProtocolReplyCallback *stack,
+	int stack_size) {
 	EthernetHeader *header = (EthernetHeader *)net_buffer->data;
 	int				size   = net_buffer->tail - net_buffer->data;
 	if (size < ETH_HEADER_SIZE) { return PROTO_ERROR_UNSUPPORT; }
@@ -76,11 +91,14 @@ ProtocolResult eth_recv(NetworkDevice *device, NetBuffer *net_buffer) {
 	net_buffer->data += sizeof(EthernetHeader);
 
 	ProtocolResult result = PROTO_OK;
+
+	*stack++ = eth_reply;
+	stack_size--;
 	switch (BE2HOST_WORD(header->protocol_type)) {
 	case ETH_PROTO_TYPE_IPV4:
 		ipv4_neigh_update(
 			device, net_buffer, header->src_mac, ETH_IDENTIFIER_SIZE);
-		result = ipv4_recv(device, net_buffer);
+		result = ipv4_recv(device, net_buffer, stack, stack_size);
 		break;
 	case ETH_PROTO_TYPE_ARP:
 		result = arp_recv(device, net_buffer);

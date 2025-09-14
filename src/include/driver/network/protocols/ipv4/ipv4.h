@@ -46,13 +46,15 @@ extern const uint32_t ipv4_null_addr;
 struct NetworkConnection;
 struct NetBuffer;
 void		   ipv4_register(struct NetworkConnection *conn, uint8_t *ip_addr);
+void		   ipv4_checksum(Ipv4Header *header);
 void		   ipv4_enable_fragment(struct NetworkConnection *conn);
 ProtocolResult ipv4_wrap(
 	struct NetworkConnection *conn, uint16_t protocol, uint8_t *dst_ip,
 	uint8_t ttl);
 void		   ipv4_rewrap(struct NetworkConnection *conn);
 ProtocolResult ipv4_recv(
-	struct NetworkDevice *device, struct NetBuffer *net_buffer);
+	struct NetworkDevice *device, struct NetBuffer *net_buffer,
+	ProtocolReplyCallback *stack, int stack_size);
 NeighbourKey ipv4_hash(uint8_t ip[4]);
 void		 ipv4_neigh_update(
 			NetworkDevice *device, struct NetBuffer *buffer, uint8_t *mac, int hlen);

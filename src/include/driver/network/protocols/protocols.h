@@ -20,4 +20,12 @@ typedef enum {
 	PROTO_ERROR_OTHER,
 } ProtocolResult;
 
+struct NetworkDevice;
+struct NetBuffer;
+typedef ProtocolResult (*ProtocolReplyCallback)(
+	struct NetworkDevice *device, struct NetBuffer *net_buffer);
+ProtocolResult protocol_reply(
+	struct NetworkDevice *device, struct NetBuffer *net_buffer,
+	ProtocolReplyCallback *stack, int stack_size);
+
 #endif

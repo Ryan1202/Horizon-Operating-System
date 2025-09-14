@@ -1,6 +1,5 @@
 #include "driver/network/network_dm.h"
 #include "driver/network/protocols/ipv4/arp.h"
-#include "kernel/driver.h"
 #include "kernel/list.h"
 #include "kernel/spinlock.h"
 #include <driver/network/neighbour.h>

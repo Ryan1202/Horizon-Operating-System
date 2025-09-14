@@ -52,6 +52,9 @@ void		   eth_register(struct NetworkConnection *conn);
 ProtocolResult eth_wrap(
 	struct NetBuffer *buffer, uint8_t *mac_addr, const uint8_t *dst_addr,
 	uint16_t protocol);
-ProtocolResult eth_recv(NetworkDevice *device, NetBuffer *net_buffer);
+ProtocolResult eth_reply(NetworkDevice *device, NetBuffer *buffer);
+ProtocolResult eth_recv(
+	NetworkDevice *device, NetBuffer *net_buffer, ProtocolReplyCallback *stack,
+	int stack_size);
 
 #endif

@@ -1,6 +1,7 @@
 #include "driver/network/network.h"
 #include "driver/network/buffer.h"
 #include "driver/network/conn.h"
+#include "driver/network/protocols/protocols.h"
 #include "kernel/list.h"
 #include <bits.h>
 #include <driver/network/net_queue.h>
@@ -59,4 +60,29 @@ NetBuffer *network_recv(NetworkConnection *conn) {
 		enable_preempt();
 	}
 	return net_buffer;
+}
+
+ProtocolResult protocol_recv(
+	NetworkDevice *device, NetBuffer *net_buffer, NetworkDeviceType type) {
+	ProtocolReplyCallback callback_stack[NET_CONN_MAX_PROTOCOLS];
+	switch (type) {
+	case NETWORK_TYPE_ETHERNET:
+		return eth_recv(
+			device, net_buffer, callback_stack, NET_CONN_MAX_PROTOCOLS);
+	default:
+		return PROTO_ERROR_UNSUPPORT;
+	}
+}
+
+ProtocolResult protocol_reply(
+	NetworkDevice *device, NetBuffer *net_buffer, ProtocolReplyCallback *stack,
+	int stack_size) {
+	ProtocolResult result = PROTO_OK;
+	while (stack_size++ < NET_CONN_MAX_PROTOCOLS) {
+		result = (*--stack)(device, net_buffer);
+		if (result != PROTO_OK) { return result; }
+	}
+	device->ops->send(
+		device, net_buffer->head, net_buffer->tail - net_buffer->head);
+	return result;
 }

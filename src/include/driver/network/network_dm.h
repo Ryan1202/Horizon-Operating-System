@@ -7,6 +7,7 @@
 #include "kernel/driver.h"
 #include "net_queue.h"
 #include "objects/transfer.h"
+#include "protocols/protocols.h"
 #include <stdint.h>
 
 #define NETWORK_SEND(device, conn) \
@@ -80,5 +81,8 @@ TransferResult network_transfer(
 	struct Object *object, struct ObjectHandle *obj_handle,
 	TransferDirection direction, uint8_t *buf, size_t size);
 struct NetBuffer *network_recv(struct NetworkConnection *conn);
+ProtocolResult	  protocol_recv(
+	   NetworkDevice *device, struct NetBuffer *net_buffer,
+	   NetworkDeviceType type);
 
 #endif

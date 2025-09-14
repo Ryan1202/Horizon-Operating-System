@@ -174,7 +174,8 @@ void rtl8139_net_rx_handler(void *data) {
 			} else {
 				memcpy(buffer, device->rx_buffer + i, packet_len);
 			}
-			eth_recv(device->net_device, net_buffer);
+			protocol_recv(
+				device->net_device, net_buffer, NETWORK_TYPE_ETHERNET);
 		} else {
 			printk(
 				"[RTL8139]RX Error: status %#04x,size %#04x, cur %#04x\n",
