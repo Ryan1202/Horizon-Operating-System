@@ -169,6 +169,8 @@ void arp_announce(NetworkDevice *device, uint8_t *ip_addr) {
 	EthernetDevice	  *eth_device = device->ethernet;
 	NetworkConnection *conn		  = eth_device->arp_conn;
 
+	net_buffer_reset(conn->buffer);
+
 	// Fill in the ARP request details
 	ArpHeader *arp_header = (ArpHeader *)conn_buffer(conn)->data;
 	arp_header->htype	  = HOST2BE_WORD(ARP_HTYPE_ETH);

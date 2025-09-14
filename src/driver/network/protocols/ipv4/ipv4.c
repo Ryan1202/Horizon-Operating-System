@@ -193,6 +193,9 @@ ProtocolResult ipv4_lookup_mac(
 		entry	 = neighbour_table_lookup(device, hash_key, ip, 4);
 	} else {
 		// 在子网外
+		if (gateway_ip == ipv4_null_addr) {
+			return PROTO_ERROR_CANNOT_FIND_ROUTE;
+		}
 		hash_key = ipv4_hash(device->ipv4.gateway_ip);
 		entry	 = neighbour_table_lookup(
 			   device, hash_key, device->ipv4.gateway_ip, 4);

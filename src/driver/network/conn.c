@@ -50,6 +50,7 @@ ProtocolResult conn_wrap(NetworkConnection *conn, ProtocolLevel level) {
 	uint16_t net_protocol	= 0;
 	uint8_t	 dst_mac[8]		= {0};
 
+	ProtocolResult result = PROTO_OK;
 	switch (level) {
 	case PROTO_LEVEL_TRANSPORT:
 	case PROTO_LEVEL_NETWORK:
@@ -67,8 +68,9 @@ ProtocolResult conn_wrap(NetworkConnection *conn, ProtocolLevel level) {
 		}
 		switch (conn->net_protocol) {
 		case NET_PROTO_IPV4:
-			ipv4_wrap(conn, trans_protocol, CONN_REMOTE_IP(conn), 64);
-			ipv4_lookup_mac(
+			result = ipv4_wrap(conn, trans_protocol, CONN_REMOTE_IP(conn), 64);
+			if (result != PROTO_OK) return result;
+			result = ipv4_lookup_mac(
 				conn->net_device, conn->ipv4.conn_info.remote.ip, dst_mac);
 			break;
 		default:
@@ -100,7 +102,8 @@ ProtocolResult conn_wrap(NetworkConnection *conn, ProtocolLevel level) {
 		}
 		switch (conn->phy_protocol) {
 		case PHY_PROTO_ETHERNET:
-			eth_wrap(conn->buffer, conn->ethernet.mac, dst_mac, net_protocol);
+			result = eth_wrap(
+				conn->buffer, conn->ethernet.mac, dst_mac, net_protocol);
 			break;
 		default:
 			return PROTO_ERROR_UNSUPPORT;
@@ -108,5 +111,5 @@ ProtocolResult conn_wrap(NetworkConnection *conn, ProtocolLevel level) {
 		break;
 	}
 
-	return PROTO_OK;
+	return result;
 }

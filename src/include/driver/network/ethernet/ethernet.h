@@ -46,6 +46,7 @@ void eth_get_mac_address(EthernetDevice *device, uint8_t *mac_addr);
 struct NetworkConnection;
 
 extern const uint8_t eth_broadcast_mac[6];
+extern const uint8_t eth_null_mac[6];
 
 void		   eth_register(struct NetworkConnection *conn);
 ProtocolResult eth_wrap(

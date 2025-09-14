@@ -30,6 +30,7 @@ NetProtocol ethernet_protocol = {
 };
 
 const uint8_t eth_broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+const uint8_t eth_null_mac[6]	   = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 void eth_set_mac_address(EthernetDevice *device, uint8_t *mac_addr) {
 	memcpy(device->mac_addr, mac_addr, 6);
