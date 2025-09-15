@@ -172,6 +172,7 @@ void		   tcp_register(NetworkConnection *conn);
 ProtocolResult tcp_bind(NetworkConnection *conn, uint16_t port);
 ProtocolResult tcp_connect(
 	NetworkConnection *conn, uint8_t *dst_ip, uint16_t dst_port);
+ProtocolResult tcp_listen(NetworkConnection *conn);
 ProtocolResult tcp_send_data(NetworkConnection *conn, uint8_t *buf, int length);
 ProtocolResult tcp_recv_data(Tcp *tcp, void *buffer, uint32_t *length);
 void		   tcp_reset(NetworkConnection *conn);

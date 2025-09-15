@@ -47,7 +47,8 @@ const int tcp_fin_timeout = 60 * 1000;
 
 void tcp_timeout_handler(void *arg);
 void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp);
-void tcp_send_packet(Tcp *tcp, NetworkConnection *conn, bool set_timer);
+void tcp_send_packet(
+	Tcp *tcp, NetworkConnection *conn, uint8_t option_size, bool set_timer);
 
 uint16_t tcp_checksum(
 	TcpHeader *header, int length, const uint8_t *src_ip, const uint8_t *dst_ip,
@@ -244,6 +245,44 @@ ProtocolResult tcp_connect(
 	return PROTO_OK;
 }
 
+ProtocolResult tcp_listen(NetworkConnection *conn) {
+	if (conn->tcp.info == NULL) { return PROTO_ERROR_NULL_PTR; }
+	Tcp *tcp = conn->tcp.info;
+	if (tcp->state != TCP_STATE_CLOSED) return PROTO_ERROR_REBIND;
+
+	net_buffer_header_alloc(conn->buffer, sizeof(TcpHeader));
+	tcp->header = (TcpHeader *)conn->buffer->head;
+
+	tcp->mss			 = conn->pmtu - sizeof(Ipv4Header) - sizeof(TcpHeader);
+	tcp->cur.seq		 = 0;
+	tcp->cur.ack		 = 0;
+	tcp->state			 = TCP_STATE_LISTEN;
+	tcp->recv_window	 = kmalloc(recv_win_default_size);
+	tcp->recv.next		 = 0;
+	tcp->recv.window	 = recv_win_default_size;
+	tcp->recv.total_size = recv_win_default_size;
+	tcp->recv.read		 = 0;
+	tcp->rttvar = tcp->rto = tcp->srtt = 0;
+	tcp_compute_retransmission_timer(tcp, 0);
+	timer_init(&tcp->timeout_timer);
+	tcp->timeout_timer.callback = tcp_timeout_handler;
+	tcp->timeout_timer.arg		= tcp;
+	conn_wrap(conn, PROTO_LEVEL_NETWORK);
+
+	thread_set_status(TASK_INTERRUPTIBLE);
+	thread_wait();
+
+	tcp->send.unack		 = 0;
+	tcp->send.next		 = 0;
+	tcp->send.wl1		 = tcp->cur.ack;
+	tcp->send.wl2		 = tcp->cur.seq;
+	tcp->send.total_size = send_win_default_size;
+	tcp->send.window = MIN(tcp->send.total_size, tcp->send.remote_window_size);
+	tcp->send_window = kmalloc(tcp->send.total_size);
+	tcp->send_time	 = timer_get_counter();
+	return PROTO_OK;
+}
+
 ProtocolResult tcp_send_data(
 	NetworkConnection *conn, uint8_t *buf, int length) {
 	if (conn == NULL || buf == NULL || length <= 0) {
@@ -273,6 +312,7 @@ ProtocolResult tcp_send_data(
 	used_space += length;
 
 	// 发送数据
+	net_buffer_clean_data(tcp->conn->buffer);
 	int total_size = 0;
 	int max		   = MIN(tcp->mss, tcp->send.window);
 	if (tcp->send.unack < tcp->send.next) {
@@ -293,7 +333,7 @@ ProtocolResult tcp_send_data(
 	net_buffer_put(conn_buffer(conn), total_size);
 	tcp->header->flags = TCP_FLAG_PSH;
 	tcp->header->flags |= TCP_FLAG_ACK;
-	tcp_send_packet(tcp, conn, true);
+	tcp_send_packet(tcp, conn, 0, true);
 	return PROTO_OK;
 }
 
@@ -344,7 +384,7 @@ ProtocolResult tcp_half_close(NetworkConnection *conn, Tcp *tcp) {
 	kfree(tcp->send_window);
 	tcp->send.window = 0;
 	tcp->send_window = NULL;
-	tcp_send_packet(tcp, conn, true);
+	tcp_send_packet(tcp, conn, 0, true);
 	return PROTO_OK;
 }
 
@@ -399,12 +439,13 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 	NETWORK_SEND(conn->net_device, conn);
 }
 
-void tcp_send_packet(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
+void tcp_send_packet(
+	Tcp *tcp, NetworkConnection *conn, uint8_t option_size, bool set_timer) {
 	TcpHeader *tcp_header	= tcp->header;
 	tcp_header->seq			= HOST2BE_DWORD(tcp->cur.seq);
 	tcp_header->ack			= HOST2BE_DWORD(tcp->cur.ack);
 	tcp_header->window_size = HOST2BE_WORD(tcp->recv.window);
-	tcp_header->data_offset = ((sizeof(TcpHeader)) >> 2) << 4;
+	tcp_header->data_offset = ((sizeof(TcpHeader) + option_size) >> 2) << 4;
 
 	tcp_header->checksum = tcp_checksum(
 		tcp_header, CONN_CONTENT_SIZE(conn) + sizeof(TcpHeader),
@@ -429,7 +470,9 @@ void tcp_send_packet(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
 	NETWORK_SEND(conn->net_device, conn);
 }
 
-void tcp_ack(NetworkConnection *conn, Tcp *tcp, uint8_t extra_flag) {
+void tcp_ack(
+	NetworkConnection *conn, Tcp *tcp, uint8_t option_size,
+	uint8_t extra_flag) {
 	if (conn == NULL || tcp == NULL) return;
 
 	TcpHeader *tcp_header = tcp->header;
@@ -437,7 +480,7 @@ void tcp_ack(NetworkConnection *conn, Tcp *tcp, uint8_t extra_flag) {
 	tcp_header->flags = extra_flag;
 
 	tcp_header->flags |= TCP_FLAG_ACK;
-	tcp_send_packet(tcp, conn, true);
+	tcp_send_packet(tcp, conn, option_size, true);
 }
 
 void tcp_ack_handler(
@@ -466,7 +509,7 @@ void tcp_ack_handler(
 
 		tcp->send.wl1 = seq;
 		tcp->cur.ack  = seq + length;
-		tcp_ack(tcp->conn, tcp, 0);
+		tcp_ack(tcp->conn, tcp, 0, 0);
 	}
 
 	uint32_t acked = ack - tcp->send.wl2;
@@ -478,6 +521,7 @@ void tcp_ack_handler(
 		tcp->cur.seq += acked;
 		net_buffer_clean_data(tcp->conn->buffer);
 	}
+	printk("acked: %d seq=%d\n", acked, tcp->cur.seq - tcp->send.iss);
 }
 
 void tcp_timeout_handler(void *arg) {
@@ -500,7 +544,7 @@ void tcp_timeout_handler(void *arg) {
 				&tcp->timeout_timer,
 				timer_count_ms(&tcp->timeout_timer, tcp->rto));
 			timer_callback_enable(&tcp->timeout_timer);
-			tcp_send_packet(tcp, tcp->conn, true);
+			tcp_send_packet(tcp, tcp->conn, 0, true);
 		} else {
 			tcp_reset_conn(tcp->conn, tcp);
 		}
@@ -552,7 +596,7 @@ void tcp_options_handler(
 
 void tcp_rx_handler(
 	NetworkConnection *conn, TcpHeader *tcp_header, NetBuffer *net_buffer,
-	int length) {
+	int length, uint8_t *src_ip, int ip_len) {
 	Tcp		*tcp	  = conn->tcp.info;
 	bool	 syn_flag = tcp_header->flags & TCP_FLAG_SYN;
 	bool	 ack_flag = tcp_header->flags & TCP_FLAG_ACK;
@@ -579,6 +623,17 @@ void tcp_rx_handler(
 				tcp->mss = MIN(mss, tcp->mss);
 			}
 
+			conn->ipv4.conn_info.remote.port =
+				BE2HOST_WORD(tcp_header->src_port);
+			memcpy(conn->ipv4.conn_info.remote.ip, src_ip, ip_len);
+			memcpy(conn->ipv4.header->dst_ip, src_ip, ip_len);
+			tcp->header->src_port =
+				HOST2BE_WORD(conn->ipv4.conn_info.local.port);
+			tcp->header->dest_port =
+				HOST2BE_WORD(conn->ipv4.conn_info.remote.port);
+			tcp->send.iss = tcp_generate_isn(
+				&conn->ipv4.conn_info, sizeof(Ipv4ConnInfo) - sizeof(list_t));
+			tcp->cur.seq  = tcp->send.iss;
 			tcp->recv.irs = seq;
 			tcp->cur.ack  = seq + 1;
 			tcp->send.remote_window_size =
@@ -586,7 +641,11 @@ void tcp_rx_handler(
 			tcp->state = TCP_STATE_SYN_RECEIVED;
 			extra_flags |= TCP_FLAG_SYN;
 			net_buffer_clean_data(tcp->conn->buffer);
-			tcp_ack(conn, tcp, extra_flags);
+			tcp_header->options[0]				   = TCP_OPTION_MSS;
+			tcp_header->options[1]				   = 4;
+			*(uint16_t *)(tcp_header->options + 2) = HOST2BE_WORD(tcp->mss);
+			net_buffer_put(tcp->conn->buffer, 4);
+			tcp_ack(conn, tcp, 4, extra_flags);
 		}
 		break;
 	case TCP_STATE_SYN_SENT:
@@ -602,6 +661,26 @@ void tcp_rx_handler(
 			tcp->cur.ack  = seq + 1;
 			tcp->state	  = TCP_STATE_SYN_RECEIVED;
 		}
+		if (indexes[TOI_MSS] < TOI_MAX) {
+			uint16_t mss = BE2HOST_WORD(
+				*(uint16_t *)(tcp_header->options + indexes[TOI_MSS]));
+			tcp->mss = MIN(mss, tcp->mss);
+		}
+		timer_callback_cancel(&tcp->timeout_timer);
+		// 处理ACK
+		if (ack_flag) {
+			if (ack != tcp->cur.seq + 1) {
+				tcp_reset_conn(conn, tcp);
+				break;
+			}
+			tcp->cur.seq = ack;
+			conn->state	 = CONN_STATE_OPENED;
+			tcp->state	 = TCP_STATE_ESTABLISHED;
+		}
+		net_buffer_clean_data(tcp->conn->buffer);
+		tcp_ack(conn, tcp, 0, extra_flags);
+		thread_unblock(tcp->thread);
+		break;
 	case TCP_STATE_SYN_RECEIVED:
 		if (indexes[TOI_MSS] < TOI_MAX) {
 			uint16_t mss = BE2HOST_WORD(
@@ -610,17 +689,16 @@ void tcp_rx_handler(
 		}
 		timer_callback_cancel(&tcp->timeout_timer);
 		// 处理ACK
-		if (ack != tcp->cur.seq + 1) {
-			tcp_reset_conn(conn, tcp);
-			break;
-		}
 		if (ack_flag) {
+			if (ack != tcp->cur.seq + 1) {
+				tcp_reset_conn(conn, tcp);
+				break;
+			}
 			tcp->cur.seq = ack;
-			tcp->state	 = TCP_STATE_ESTABLISHED;
 			conn->state	 = CONN_STATE_OPENED;
+			tcp->state	 = TCP_STATE_ESTABLISHED;
 		}
 		net_buffer_clean_data(tcp->conn->buffer);
-		tcp_ack(conn, tcp, extra_flags);
 		thread_unblock(tcp->thread);
 		break;
 	case TCP_STATE_ESTABLISHED:
@@ -631,7 +709,7 @@ void tcp_rx_handler(
 			tcp->state	= TCP_STATE_CLOSE_WAIT;
 			conn->state = CONN_STATE_CLOSING;
 			net_buffer_clean_data(tcp->conn->buffer);
-			tcp_ack(conn, tcp, extra_flags);
+			tcp_ack(conn, tcp, 0, extra_flags);
 			break;
 		}
 		break;
@@ -643,7 +721,7 @@ void tcp_rx_handler(
 			extra_flags |= TCP_FLAG_FIN;
 		}
 		net_buffer_clean_data(tcp->conn->buffer);
-		tcp_ack(conn, tcp, extra_flags);
+		tcp_ack(conn, tcp, 0, extra_flags);
 		break;
 	case TCP_STATE_CLOSE_WAIT:
 		tcp_reset_conn(conn, tcp);
@@ -678,7 +756,7 @@ void tcp_rx_handler(
 			timer_set_timeout(&tcp->timeout_timer, count);
 			timer_callback_enable(&tcp->timeout_timer);
 			net_buffer_clean_data(tcp->conn->buffer);
-			tcp_ack(conn, tcp, extra_flags);
+			tcp_ack(conn, tcp, 0, extra_flags);
 		}
 		break;
 	case TCP_STATE_LAST_ACK:
@@ -720,12 +798,15 @@ ProtocolResult tcp_recv(
 	spin_lock(&tcp_lock);
 	list_for_each_owner_safe (info, next, &tcp_lh, list) {
 		if (info->local.port == BE2HOST_WORD(tcp_header->dest_port) &&
-			(info->remote.port == BE2HOST_WORD(tcp_header->src_port))) {
+			(info->remote.port == BE2HOST_WORD(tcp_header->src_port) ||
+			 info->remote.port == 0)) {
 			if (memcmp(info->local.ip, dst_ip, ip_len) == 0 &&
-				memcmp(info->remote.ip, src_ip, ip_len) == 0) {
+				(memcmp(info->remote.ip, src_ip, ip_len) == 0 ||
+				 memcmp(info->remote.ip, &ipv4_null_addr, ip_len) == 0)) {
 				NetworkConnection *conn =
 					container_of(info, NetworkConnection, ipv4.conn_info);
-				tcp_rx_handler(conn, tcp_header, net_buffer, data_length);
+				tcp_rx_handler(
+					conn, tcp_header, net_buffer, data_length, src_ip, ip_len);
 
 				spin_unlock(&tcp_lock);
 				return PROTO_OK;
