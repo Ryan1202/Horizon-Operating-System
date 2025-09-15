@@ -158,6 +158,8 @@ typedef struct Tcp {
 		uint32_t window; // segment window
 		uint32_t urg_p;	 // segment urgent pointer
 		uint32_t prc;	 // segment precedence value
+
+		uint32_t fin_seq;
 	} cur;
 
 	uint32_t send_time, send_seq;
@@ -171,6 +173,7 @@ ProtocolResult tcp_bind(NetworkConnection *conn, uint16_t port);
 ProtocolResult tcp_connect(
 	NetworkConnection *conn, uint8_t *dst_ip, uint16_t dst_port);
 ProtocolResult tcp_send_data(NetworkConnection *conn, uint8_t *buf, int length);
+ProtocolResult tcp_recv_data(Tcp *tcp, void *buffer, uint32_t *length);
 void		   tcp_reset(NetworkConnection *conn);
 ProtocolResult tcp_shutdown(NetworkConnection *conn, uint8_t how);
 ProtocolResult tcp_recv(

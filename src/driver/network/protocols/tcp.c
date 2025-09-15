@@ -13,6 +13,7 @@
 #include "driver/network/network_dm.h"
 #include "driver/network/protocols/protocols.h"
 #include "driver/timer_dm.h"
+#include "kernel/console.h"
 #include "kernel/memory.h"
 #include "kernel/spinlock.h"
 #include "kernel/thread.h"
@@ -46,7 +47,7 @@ const int tcp_fin_timeout = 60 * 1000;
 
 void tcp_timeout_handler(void *arg);
 void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp);
-void tcp_send(Tcp *tcp, NetworkConnection *conn, bool set_timer);
+void tcp_send_packet(Tcp *tcp, NetworkConnection *conn, bool set_timer);
 
 uint16_t tcp_checksum(
 	TcpHeader *header, int length, const uint8_t *src_ip, const uint8_t *dst_ip,
@@ -292,7 +293,44 @@ ProtocolResult tcp_send_data(
 	net_buffer_put(conn_buffer(conn), total_size);
 	tcp->header->flags = TCP_FLAG_PSH;
 	tcp->header->flags |= TCP_FLAG_ACK;
-	tcp_send(tcp, conn, true);
+	tcp_send_packet(tcp, conn, true);
+	return PROTO_OK;
+}
+
+ProtocolResult tcp_recv_data(Tcp *tcp, void *buffer, uint32_t *length) {
+	if (tcp == NULL || buffer == NULL || length == NULL)
+		return PROTO_ERROR_NULL_PTR;
+	uint32_t next = tcp->recv.next;
+	uint32_t read = tcp->recv.read;
+	uint32_t len  = *length;
+	int		 real_length;
+	if (next >= read) {
+		real_length = MIN(len, next - read);
+		memcpy(buffer, tcp->recv_window + read, real_length);
+		tcp->recv.read += real_length;
+	} else {
+		int size1	= MIN(len, tcp->recv.total_size - read);
+		int size2	= MIN(len - size1, next);
+		real_length = size1 + size2;
+		memcpy(buffer, tcp->recv_window + read, size1);
+		memcpy((uint8_t *)buffer + size1, tcp->recv_window, size2);
+		tcp->recv.read += size1 + size2;
+	}
+	if (real_length == 0) {
+		switch (tcp->conn->state) {
+		case CONN_STATE_INIT:
+		case CONN_STATE_OPENING:
+		case CONN_STATE_CLOSED:
+			return PROTO_ERROR_NOT_CONNECTED;
+		case CONN_STATE_NET_UNREACHABLE:
+			return PROTO_ERROR_NET_UNREACHABLE;
+		case CONN_STATE_HOST_UNREACHABLE:
+			return PROTO_ERROR_HOST_UNREACHABLE;
+		default:
+			break;
+		}
+	}
+	*length = real_length;
 	return PROTO_OK;
 }
 
@@ -306,7 +344,7 @@ ProtocolResult tcp_half_close(NetworkConnection *conn, Tcp *tcp) {
 	kfree(tcp->send_window);
 	tcp->send.window = 0;
 	tcp->send_window = NULL;
-	tcp_send(tcp, conn, true);
+	tcp_send_packet(tcp, conn, true);
 	return PROTO_OK;
 }
 
@@ -361,7 +399,7 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 	NETWORK_SEND(conn->net_device, conn);
 }
 
-void tcp_send(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
+void tcp_send_packet(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
 	TcpHeader *tcp_header	= tcp->header;
 	tcp_header->seq			= HOST2BE_DWORD(tcp->cur.seq);
 	tcp_header->ack			= HOST2BE_DWORD(tcp->cur.ack);
@@ -376,6 +414,10 @@ void tcp_send(Tcp *tcp, NetworkConnection *conn, bool set_timer) {
 	if (tcp->send_time == 0) {
 		tcp->send_time = timer_get_counter();
 		tcp->send_seq  = tcp->cur.seq;
+	}
+	if (tcp_header->flags & TCP_FLAG_FIN) {
+		// 记录FIN的序号，用于后续确认
+		tcp->cur.fin_seq = tcp->cur.seq;
 	}
 	// 如果没有设置重传计时则设置一个
 	if (set_timer && timer_is_timeout(&tcp->timeout_timer)) {
@@ -395,7 +437,7 @@ void tcp_ack(NetworkConnection *conn, Tcp *tcp, uint8_t extra_flag) {
 	tcp_header->flags = extra_flag;
 
 	tcp_header->flags |= TCP_FLAG_ACK;
-	tcp_send(tcp, conn, true);
+	tcp_send_packet(tcp, conn, true);
 }
 
 void tcp_ack_handler(
@@ -458,7 +500,7 @@ void tcp_timeout_handler(void *arg) {
 				&tcp->timeout_timer,
 				timer_count_ms(&tcp->timeout_timer, tcp->rto));
 			timer_callback_enable(&tcp->timeout_timer);
-			tcp_send(tcp, tcp->conn, true);
+			tcp_send_packet(tcp, tcp->conn, true);
 		} else {
 			tcp_reset_conn(tcp->conn, tcp);
 		}
@@ -585,18 +627,19 @@ void tcp_rx_handler(
 		tcp_ack_handler(tcp, tcp_header, net_buffer, length);
 		if (tcp_header->flags & TCP_FLAG_FIN) {
 			tcp->cur.seq = ack;
-			tcp->cur.ack = seq + 1;
-			tcp->state	 = TCP_STATE_CLOSE_WAIT;
-			conn->state	 = CONN_STATE_CLOSING;
+			tcp->cur.ack++;
+			tcp->state	= TCP_STATE_CLOSE_WAIT;
+			conn->state = CONN_STATE_CLOSING;
 			net_buffer_clean_data(tcp->conn->buffer);
 			tcp_ack(conn, tcp, extra_flags);
 			break;
 		}
 		break;
 	case TCP_STATE_CLOSING:
-		if (ack_flag && ack == tcp->cur.seq + 1) {
+		if (ack_flag) tcp_ack_handler(tcp, tcp_header, net_buffer, length);
+		if (ack_flag && ack > tcp->cur.fin_seq) {
 			tcp->cur.seq = ack;
-			tcp->state	 = TCP_STATE_CLOSE_WAIT;
+			tcp->state	 = TCP_STATE_TIME_WAIT;
 			extra_flags |= TCP_FLAG_FIN;
 		}
 		net_buffer_clean_data(tcp->conn->buffer);
@@ -607,7 +650,7 @@ void tcp_rx_handler(
 		break;
 	case TCP_STATE_FIN_WAIT1:
 		if (ack_flag) tcp_ack_handler(tcp, tcp_header, net_buffer, length);
-		if (ack_flag && ack == tcp->cur.seq + 1) {
+		if (ack_flag && ack > tcp->cur.fin_seq) {
 			tcp->cur.seq = ack;
 			tcp->state	 = TCP_STATE_FIN_WAIT2;
 			extra_flags |= TCP_FLAG_FIN;
@@ -619,15 +662,15 @@ void tcp_rx_handler(
 			timer_callback_enable(&tcp->timeout_timer);
 		}
 		if (tcp_header->flags & TCP_FLAG_FIN) {
-			tcp->cur.ack = seq + 1;
-			tcp->state	 = TCP_STATE_CLOSING;
+			tcp->cur.ack++;
+			tcp->state = TCP_STATE_CLOSING;
 		}
 		break;
 	case TCP_STATE_FIN_WAIT2:
 		if (ack_flag) tcp_ack_handler(tcp, tcp_header, net_buffer, length);
 		if (tcp_header->flags & TCP_FLAG_FIN) {
-			tcp->cur.ack = seq + 1;
-			tcp->state	 = TCP_STATE_TIME_WAIT;
+			tcp->cur.ack++;
+			tcp->state = TCP_STATE_TIME_WAIT;
 			extra_flags |= TCP_FLAG_ACK;
 
 			timer_callback_cancel(&tcp->timeout_timer);
@@ -639,17 +682,17 @@ void tcp_rx_handler(
 		}
 		break;
 	case TCP_STATE_LAST_ACK:
-		if (ack_flag && ack == tcp->cur.seq + 1) {
+		if (ack_flag && ack > tcp->cur.fin_seq) {
 			tcp->cur.seq = ack;
 			tcp->state	 = TCP_STATE_CLOSED;
 			conn->state	 = CONN_STATE_CLOSED;
-			thread_unblock(tcp->thread);
 		}
 		break;
 	case TCP_STATE_TIME_WAIT:
 		tcp_reset_conn(conn, tcp);
 		break;
 	}
+	thread_unblock(tcp->thread);
 }
 
 ProtocolResult tcp_recv(
