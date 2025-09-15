@@ -30,6 +30,15 @@ typedef struct NetworkConnection {
 	Object		  *object;
 	ObjectHandle  *handle;
 	NetworkDevice *net_device;
+	enum {
+		CONN_STATE_INIT,
+		CONN_STATE_OPENING,
+		CONN_STATE_OPENED,
+		CONN_STATE_CLOSING,
+		CONN_STATE_CLOSED,
+		CONN_STATE_HOST_UNREACHABLE,
+		CONN_STATE_NET_UNREACHABLE,
+	} state;
 
 	NetBuffer *buffer;
 
@@ -45,7 +54,7 @@ typedef struct NetworkConnection {
 			uint8_t mac[6];
 		} ethernet;
 	};
-	int mtu;
+	int pmtu;
 
 	// data link layer protocol
 	enum {

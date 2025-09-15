@@ -110,7 +110,7 @@ qemu_dbg:
 	-device usb-kbd \
 	-device usb-mouse \
 	-device rtl8139,netdev=nc1 \
-	-netdev vmnet-host,id=nc1 \
+	-netdev user,id=nc1 \
 	-object filter-dump,id=f1,netdev=nc1,file=dump.pcap \
 	-readconfig $(QEMU_CFG) \
 	-boot c

@@ -142,7 +142,7 @@ ProtocolResult tcp_bind(NetworkConnection *conn, uint16_t port) {
 	conn_info->local.port = port;
 
 	Tcp *tcp			 = conn->tcp.info;
-	tcp->mss			 = conn->mtu - sizeof(Ipv4Header) - sizeof(TcpHeader);
+	tcp->mss			 = conn->pmtu - sizeof(Ipv4Header) - sizeof(TcpHeader);
 	tcp->cur.seq		 = 0;
 	tcp->cur.ack		 = 0;
 	tcp->state			 = TCP_STATE_CLOSED;
@@ -217,7 +217,8 @@ ProtocolResult tcp_connect(
 
 	conn_wrap(conn, PROTO_LEVEL_NETWORK);
 
-	tcp->state = TCP_STATE_SYN_SENT;
+	tcp->state	= TCP_STATE_SYN_SENT;
+	conn->state = CONN_STATE_OPENING;
 
 	timer_set_timeout(
 		&tcp->timeout_timer, timer_count_ms(&tcp->timeout_timer, tcp->rto));
@@ -299,6 +300,7 @@ ProtocolResult tcp_half_close(NetworkConnection *conn, Tcp *tcp) {
 	net_buffer_clean_data(conn->buffer);
 	tcp->header->flags = TCP_FLAG_FIN | TCP_FLAG_ACK;
 	tcp->state		   = TCP_STATE_FIN_WAIT1;
+	conn->state		   = CONN_STATE_CLOSING;
 
 	kfree(tcp->send_window);
 	tcp->send.window = 0;
@@ -466,7 +468,8 @@ void tcp_timeout_handler(void *arg) {
 		break;
 	case TCP_STATE_TIME_WAIT:
 		// 2MSL时间到，关闭连接
-		tcp->state = TCP_STATE_CLOSED;
+		tcp->state		 = TCP_STATE_CLOSED;
+		tcp->conn->state = CONN_STATE_CLOSED;
 		kfree(tcp->recv_window);
 		tcp->recv_window = NULL;
 		break;
@@ -514,7 +517,10 @@ void tcp_rx_handler(
 	uint32_t ack	  = BE2HOST_DWORD(tcp_header->ack);
 
 	uint8_t extra_flags = 0;
-	if (tcp_header->flags & TCP_FLAG_RST) { tcp->state = TCP_STATE_CLOSED; }
+	if (tcp_header->flags & TCP_FLAG_RST) {
+		tcp->state	= TCP_STATE_CLOSED;
+		conn->state = CONN_STATE_CLOSED;
+	}
 
 	TcpOptionIndex indexes[TOI_MAX] = {TOI_MAX};
 	tcp_options_handler(tcp_header, indexes);
@@ -568,6 +574,7 @@ void tcp_rx_handler(
 		if (ack_flag) {
 			tcp->cur.seq = ack;
 			tcp->state	 = TCP_STATE_ESTABLISHED;
+			conn->state	 = CONN_STATE_OPENED;
 		}
 		net_buffer_clean_data(tcp->conn->buffer);
 		tcp_ack(conn, tcp, extra_flags);
@@ -579,6 +586,7 @@ void tcp_rx_handler(
 			tcp->cur.seq = ack;
 			tcp->cur.ack = seq + 1;
 			tcp->state	 = TCP_STATE_CLOSE_WAIT;
+			conn->state	 = CONN_STATE_CLOSING;
 			net_buffer_clean_data(tcp->conn->buffer);
 			tcp_ack(conn, tcp, extra_flags);
 			break;
@@ -633,6 +641,7 @@ void tcp_rx_handler(
 		if (ack_flag && ack == tcp->cur.seq + 1) {
 			tcp->cur.seq = ack;
 			tcp->state	 = TCP_STATE_CLOSED;
+			conn->state	 = CONN_STATE_CLOSED;
 			thread_unblock(tcp->thread);
 		}
 		break;

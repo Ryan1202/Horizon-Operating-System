@@ -108,7 +108,7 @@ ProtocolResult ipv4_wrap(
 	ipv4_header->id			= HOST2BE_WORD(conn->ipv4.id);
 
 	ipv4_header->flags_frag_offset = HOST2BE_WORD(
-		conn->ipv4.fragment.enable_fragment << 14 |
+		(!conn->ipv4.fragment.enable_fragment) << 14 |
 		conn->ipv4.fragment.last_fragment << 15 |
 		conn->ipv4.fragment.frag_offset);
 

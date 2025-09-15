@@ -18,6 +18,7 @@ NetworkConnection *net_create_conn(Object *object) {
 	conn->object	 = object;
 	conn->handle	 = object_handle_create(object);
 	conn->net_device = object->value.device->dm_ext;
+	conn->state		 = CONN_STATE_INIT;
 
 	conn->thread = get_current_thread();
 

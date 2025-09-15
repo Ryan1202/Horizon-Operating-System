@@ -102,12 +102,14 @@ void udp_bind(NetworkConnection *conn, uint16_t port) {
 	if (list_in_list(&conn_info->list)) return; // 已经绑定了端口
 	conn_info->local.port = port;
 	list_add_tail(&conn_info->list, &udp_lh);
+	conn->state = CONN_STATE_OPENED;
 }
 
 void udp_unbind(NetworkConnection *conn) {
 	Ipv4ConnInfo *conn_info = &conn->ipv4.conn_info;
 	if (!list_in_list(&conn_info->list)) return; // 没有绑定端口
 	list_del(&conn_info->list);
+	conn->state = CONN_STATE_CLOSED;
 }
 
 ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header) {
