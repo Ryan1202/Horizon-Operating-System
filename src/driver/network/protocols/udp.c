@@ -136,10 +136,6 @@ ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header) {
 
 	// IPv4
 	Ipv4ConnInfo *info, *next;
-	if (list_empty(&udp_lh)) {
-		// 没有绑定的连接
-		goto drop;
-	}
 	list_for_each_owner_safe (info, next, &udp_lh, list) {
 		if (info->local.port == BE2HOST_WORD(udp_header->dst_port) &&
 			(info->remote.port == 0 ||
@@ -147,15 +143,12 @@ ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header) {
 			NetworkConnection *conn =
 				container_of(info, NetworkConnection, ipv4.conn_info);
 			if (memcmp(info->local.ip, ipv4_header->dst_ip, 4)) {
-				if ((memcmp(
-						conn->net_device->ipv4.ip, (void *)&ipv4_null_addr,
-						4)) && // 本机已有IP地址
-					(memcmp(
+				if (memcmp(
 						 info->local.ip, (void *)&ipv4_null_addr,
-						 4) || // 不是发送到0.0.0.0
+						4) != 0 && // 不是发送到0.0.0.0
 					 memcmp(
 						 ipv4_header->dst_ip, (void *)&ipv4_broadcast_addr,
-						 4))) // 也不是广播
+						4) != 0) // 也不是广播
 					continue;
 			}
 

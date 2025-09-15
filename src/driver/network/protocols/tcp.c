@@ -447,10 +447,10 @@ void tcp_timeout_handler(void *arg) {
 		tcp->retry_times++;
 		if (tcp->retry_times < tcp_max_retries) {
 			tcp->rto <<= 1; // 指数退避
-			tcp->rto = MIN(tcp->rto, 60);
+			tcp->rto = MIN(tcp->rto, 60 * 1000);
 			if (tcp->state == TCP_STATE_SYN_SENT ||
 				tcp->state == TCP_STATE_SYN_RECEIVED)
-				tcp->rto = MIN(tcp->rto, 3);
+				tcp->rto = MIN(tcp->rto, 3 * 1000);
 			timer_set_timeout(
 				&tcp->timeout_timer,
 				timer_count_ms(&tcp->timeout_timer, tcp->rto));
