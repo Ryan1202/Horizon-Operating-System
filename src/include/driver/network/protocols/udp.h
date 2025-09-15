@@ -25,5 +25,7 @@ void udp_set_callback(
 void		   udp_bind(struct NetworkConnection *conn, uint16_t port);
 void		   udp_unbind(struct NetworkConnection *conn);
 ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header);
+void		   udp_notify_unreachable(
+			  void *data, uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int code);
 
 #endif

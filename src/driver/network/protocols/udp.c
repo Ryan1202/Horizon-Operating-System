@@ -146,10 +146,10 @@ ProtocolResult udp_recv(NetBuffer *net_buffer, Ipv4Header *ipv4_header) {
 				container_of(info, NetworkConnection, ipv4.conn_info);
 			if (memcmp(info->local.ip, ipv4_header->dst_ip, 4)) {
 				if (memcmp(
-						 info->local.ip, (void *)&ipv4_null_addr,
+						info->local.ip, (void *)&ipv4_null_addr,
 						4) != 0 && // 不是发送到0.0.0.0
-					 memcmp(
-						 ipv4_header->dst_ip, (void *)&ipv4_broadcast_addr,
+					memcmp(
+						ipv4_header->dst_ip, (void *)&ipv4_broadcast_addr,
 						4) != 0) // 也不是广播
 					continue;
 			}
@@ -170,4 +170,34 @@ drop:
 	kfree(net_buffer->ptr);
 	kfree(net_buffer);
 	return PROTO_DROP;
+}
+
+void udp_notify_unreachable(
+	void *data, uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int code) {
+	Ipv4ConnInfo	  *info, *next;
+	NetworkConnection *conn;
+	UdpHeader		  *udp_header = (UdpHeader *)data;
+
+	bool flag = false;
+	list_for_each_owner_safe (info, next, &udp_lh, list) {
+		if (info->local.port == BE2HOST_WORD(udp_header->dst_port) &&
+			(info->remote.port == 0 ||
+			 info->remote.port == BE2HOST_WORD(udp_header->src_port))) {
+			conn = container_of(info, NetworkConnection, ipv4.conn_info);
+			if (memcmp(info->local.ip, dst_ip, 4)) {
+				if (memcmp(
+						info->local.ip, (void *)&ipv4_null_addr,
+						4) != 0 && // 不是发送到0.0.0.0
+					memcmp(
+						dst_ip, (void *)&ipv4_broadcast_addr,
+						4) != 0) // 也不是广播
+					continue;
+			}
+
+			// 找到匹配的连接
+			flag = true;
+			break;
+		}
+	}
+	if (!flag) return;
 }

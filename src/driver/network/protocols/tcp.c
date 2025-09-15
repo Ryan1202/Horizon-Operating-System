@@ -18,6 +18,7 @@
 #include "kernel/thread.h"
 #include "math.h"
 #include <driver/network/conn.h>
+#include <driver/network/protocols/ipv4/icmp.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/tcp.h>
 #include <hash.h>
@@ -694,4 +695,74 @@ drop:
 	kfree(net_buffer->ptr);
 	kfree(net_buffer);
 	return PROTO_DROP;
+}
+
+void tcp_notify_unreachable(
+	void *data, uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int code) {
+	Ipv4ConnInfo	  *info, *next;
+	NetworkConnection *conn;
+	TcpHeader		  *header = (TcpHeader *)data;
+	bool			   flag	  = false;
+
+	spin_lock(&tcp_lock);
+	list_for_each_owner_safe (info, next, &tcp_lh, list) {
+		if (info->local.port == BE2HOST_WORD(header->dest_port) &&
+			(info->remote.port == BE2HOST_WORD(header->src_port))) {
+			if (memcmp(info->local.ip, dst_ip, ip_len) == 0 &&
+				memcmp(info->remote.ip, src_ip, ip_len) == 0) {
+				flag = true;
+				break;
+			}
+		}
+	}
+	spin_unlock(&tcp_lock);
+	if (!flag) return;
+
+	conn = container_of(info, NetworkConnection, ipv4.conn_info);
+	switch (code) {
+	case ICMP_UNREACHABLE_NET:
+		tcp_reset_conn(conn, conn->tcp.info);
+		conn->state = CONN_STATE_NET_UNREACHABLE;
+		break;
+	case ICMP_UNREACHABLE_HOST:
+		tcp_reset_conn(conn, conn->tcp.info);
+		conn->state = CONN_STATE_HOST_UNREACHABLE;
+		break;
+	default:
+		break;
+	}
+}
+
+void tcp_update_mtu(uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int mtu) {
+	Ipv4ConnInfo	  *info, *next;
+	NetworkConnection *conn;
+	bool			   flag = false;
+
+	spin_lock(&tcp_lock);
+	list_for_each_owner_safe (info, next, &tcp_lh, list) {
+		// if (memcmp(info->local.ip, dst_ip, ip_len) == 0 &&
+		// 	memcmp(info->remote.ip, src_ip, ip_len) == 0) {
+		flag = true;
+		break;
+		// }
+	}
+	spin_unlock(&tcp_lock);
+	if (!flag) return;
+
+	conn	 = container_of(info, NetworkConnection, ipv4.conn_info);
+	Tcp *tcp = conn->tcp.info;
+	if (mtu < conn->pmtu && mtu > 0) {
+		mtu		   = MIN(MAX(IPv4_DEFAULT_MSS, mtu), conn->pmtu);
+		conn->pmtu = mtu;
+		tcp->mss   = mtu - sizeof(Ipv4Header) - sizeof(TcpHeader);
+		if (conn->state == CONN_STATE_OPENED) {
+			conn->buffer->tail =
+				MIN(conn->buffer->tail, conn->buffer->data + tcp->mss);
+			ipv4_rewrap(conn);
+			NETWORK_SEND(conn->net_device, conn);
+		}
+	} else if (mtu > conn->pmtu) {
+		conn->pmtu = mtu;
+		tcp->mss   = mtu - sizeof(Ipv4Header) - sizeof(TcpHeader);
+	}
 }

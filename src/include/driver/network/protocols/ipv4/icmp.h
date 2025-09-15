@@ -19,6 +19,13 @@
 #define ICMP_TYPE_INFO_REQUEST	   15
 #define ICMP_TYPE_INFO_REPLY	   16
 
+#define ICMP_UNREACHABLE_NET	  0
+#define ICMP_UNREACHABLE_HOST	  1
+#define ICMP_UNREACHABLE_PROTOCOL 2
+#define ICMP_UNREACHABLE_PORT	  3
+#define ICMP_UNREACHABLE_NEEDFRAG 4
+#define ICMP_UNREACHABLE_SRCFAIL  5
+
 typedef struct {
 	uint8_t	 type;
 	uint8_t	 code;
@@ -29,6 +36,10 @@ typedef struct {
 			uint8_t pointer;
 			uint8_t unused[3];
 		} param;
+		struct {
+			uint16_t unused;
+			uint16_t mtu;
+		} pmtu;
 		uint8_t gateway_ip[4];
 		struct {
 			uint16_t id;

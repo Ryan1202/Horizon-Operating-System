@@ -176,5 +176,8 @@ ProtocolResult tcp_shutdown(NetworkConnection *conn, uint8_t how);
 ProtocolResult tcp_recv(
 	NetBuffer *net_buffer, int length, uint8_t *src_ip, uint8_t *dst_ip,
 	int ip_len);
+void tcp_notify_unreachable(
+	void *data, uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int code);
+void tcp_update_mtu(uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int mtu);
 
 #endif

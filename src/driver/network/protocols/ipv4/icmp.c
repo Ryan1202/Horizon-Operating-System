@@ -3,21 +3,24 @@
 #include <driver/network/protocols/ipv4/icmp.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
+#include <driver/network/protocols/tcp.h>
+#include <driver/network/protocols/udp.h>
 #include <stdint.h>
 
-ProtocolResult icmp_recv_unsupport(
-	NetworkDevice *device, NetBuffer *net_buffer, Ipv4Header *header,
-	IcmpHeader *icmp_header, ProtocolReplyCallback *stack, int stack_size);
-ProtocolResult icmp_recv_echo_message(
-	NetworkDevice *device, NetBuffer *net_buffer, Ipv4Header *header,
-	IcmpHeader *icmp_header, ProtocolReplyCallback *stack, int stack_size);
+#define ICMP_RECV_MSG_DEF(type)                                           \
+	ProtocolResult icmp_recv_##type(                                      \
+		NetworkDevice *device, NetBuffer *net_buffer, Ipv4Header *header, \
+		IcmpHeader *icmp_header, ProtocolReplyCallback *stack, int stack_size)
+ICMP_RECV_MSG_DEF(unsupport);
+ICMP_RECV_MSG_DEF(unreachable);
+ICMP_RECV_MSG_DEF(echo);
 
 ProtocolResult (*icmp_recv_handlers[17])(
 	NetworkDevice *device, NetBuffer *net_buffer, Ipv4Header *header,
 	IcmpHeader *icmp_header, ProtocolReplyCallback *stack, int stack_size) = {
-	[ICMP_TYPE_ECHO]			 = icmp_recv_echo_message,
+	[ICMP_TYPE_ECHO]			 = icmp_recv_echo,
 	[ICMP_TYPE_ECHO_REPLY]		 = icmp_recv_unsupport,
-	[ICMP_TYPE_DEST_UNREACHABLE] = icmp_recv_unsupport,
+	[ICMP_TYPE_DEST_UNREACHABLE] = icmp_recv_unreachable,
 	[ICMP_TYPE_SOURCE_QUENCH]	 = icmp_recv_unsupport,
 	[ICMP_TYPE_REDIRECT]		 = icmp_recv_unsupport,
 	[ICMP_TYPE_TIME_EXCEEDED]	 = icmp_recv_unsupport,
@@ -65,15 +68,38 @@ ProtocolResult icmp_recv(
 	return PROTO_ERROR_UNSUPPORT;
 }
 
-ProtocolResult icmp_recv_unsupport(
-	NetworkDevice *device, NetBuffer *net_buffer, Ipv4Header *header,
-	IcmpHeader *icmp_header, ProtocolReplyCallback *stack, int stack_size) {
+ICMP_RECV_MSG_DEF(unsupport) {
 	return PROTO_ERROR_UNSUPPORT;
 }
 
-ProtocolResult icmp_recv_echo_message(
-	NetworkDevice *device, NetBuffer *net_buffer, Ipv4Header *header,
-	IcmpHeader *icmp_header, ProtocolReplyCallback *stack, int stack_size) {
+ICMP_RECV_MSG_DEF(unreachable) {
+	Ipv4Header *msg_header =
+		(Ipv4Header *)(icmp_header + 8); // ICMP头部后面紧跟着的是IP头部
+	switch (icmp_header->code) {
+	case ICMP_UNREACHABLE_NET:
+	case ICMP_UNREACHABLE_HOST:
+	case ICMP_UNREACHABLE_PROTOCOL:
+	case ICMP_UNREACHABLE_PORT:
+		tcp_notify_unreachable(
+			msg_header + 1, msg_header->src_ip, msg_header->dst_ip, 4,
+			icmp_header->code);
+		udp_notify_unreachable(
+			msg_header + 1, msg_header->src_ip, msg_header->dst_ip, 4,
+			icmp_header->code);
+		break;
+	case ICMP_UNREACHABLE_NEEDFRAG:
+		tcp_update_mtu(
+			msg_header->src_ip, msg_header->dst_ip, 4,
+			BE2HOST_WORD(icmp_header->pmtu.mtu));
+		break;
+	case ICMP_UNREACHABLE_SRCFAIL:
+	default:
+		return PROTO_ERROR_UNSUPPORT;
+	}
+	return PROTO_OK;
+}
+
+ICMP_RECV_MSG_DEF(echo) {
 	if (net_buffer->tail - net_buffer->data < 8) {
 		return PROTO_ERROR_UNSUPPORT;
 	}
