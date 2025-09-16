@@ -56,7 +56,7 @@ DriverResult register_video_device(
 		&name, "Video", 5, video_dm_ext.video_device_count++);
 
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, name, device_driver->bus, device, attr);
+		register_device, device_driver, name, device->bus, device, attr);
 
 	list_init(&video_device->video_list_lh);
 	list_add_tail(&device->dm_list, &video_dm.device_lh);

@@ -3,7 +3,6 @@
 #include <drivers/cmos.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
-#include <kernel/platform.h>
 
 extern Driver core_driver;
 
@@ -26,7 +25,6 @@ TimeDeviceOps rtc_time_device_ops = {
 
 DeviceDriver rtc_device_driver = {
 	.name			   = STRING_INIT("RTC"),
-	.bus			   = &platform_bus,
 	.type			   = DEVICE_TYPE_TIME,
 	.priority		   = DRIVER_PRIORITY_BASIC,
 	.ops			   = &rtc_device_driver_ops,

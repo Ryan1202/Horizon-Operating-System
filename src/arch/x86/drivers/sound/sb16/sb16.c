@@ -97,7 +97,6 @@ Driver sb_driver = {
 };
 DeviceDriver sb16_device_driver = {
 	.name	  = STRING_INIT("SoundBlaster16"),
-	.bus	  = NULL,
 	.type	  = DEVICE_TYPE_SOUND,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.ops	  = &sb16_device_driver_ops,

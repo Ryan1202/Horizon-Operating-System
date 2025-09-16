@@ -37,7 +37,6 @@ typedef struct DeviceDriver {
 
 	list_t		   bus_list;
 	list_t		   device_lh;
-	struct Bus	  *bus;
 	string_t	   name;
 	DeviceType	   type;
 	DriverPriority priority;

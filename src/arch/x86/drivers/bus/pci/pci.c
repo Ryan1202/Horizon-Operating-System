@@ -77,7 +77,6 @@ Driver pci_driver = {
 };
 DeviceDriver pci_device_driver = {
 	.name			   = STRING_INIT("PCI Device Driver"),
-	.bus			   = NULL,
 	.type			   = DEVICE_TYPE_BUS_CONTROLLER,
 	.state			   = DRIVER_STATE_UNREGISTERED,
 	.private_data_size = 0,
@@ -639,8 +638,7 @@ DriverResult pci_probe(BusDriver *bus_driver, Bus *bus) {
 }
 
 DriverResult pci_driver_init(Driver *driver) {
-	pci_device_driver.bus = pci_dependencies[0].out_bus;
-	ObjectAttr attr		  = device_object_attr;
+	ObjectAttr attr = device_object_attr;
 	DRIVER_RESULT_PASS(register_bus_controller_device(
 		&pci_device_driver, &pci_bus_driver, &pci_device,
 		&pci_bus_controller_device, &attr));

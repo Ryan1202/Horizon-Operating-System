@@ -67,7 +67,6 @@ Driver rtl8139_driver = {
 };
 DeviceDriver rtl8139_device_driver = {
 	.name	  = STRING_INIT("RTL8139"),
-	.bus	  = NULL,
 	.type	  = DEVICE_TYPE_ETHERNET,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.ops	  = &rtl8139_device_driver_ops,

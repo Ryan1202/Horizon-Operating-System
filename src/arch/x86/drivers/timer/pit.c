@@ -56,7 +56,6 @@ DeviceIrq pit_irq = {
 
 DeviceDriver pit_device_driver = {
 	.name	  = STRING_INIT("PIT"),
-	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_TIMER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,

@@ -119,7 +119,6 @@ TimerOps apic_timer_ops = {
 
 DeviceDriver apic_device_driver = {
 	.name	  = STRING_INIT("APIC"),
-	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_INTERRUPT_CONTROLLER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
@@ -138,7 +137,6 @@ InterruptDevice apic_interrupt_device = {
 
 DeviceDriver apic_timer_device_driver = {
 	.name	  = STRING_INIT("APIC Timer"),
-	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_TIMER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,

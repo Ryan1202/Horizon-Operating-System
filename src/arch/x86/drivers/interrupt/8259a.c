@@ -51,7 +51,6 @@ InterruptDeviceOps pic_interrupt_ops = {
 DeviceDriver pic_device_driver = {
 	.name	  = STRING_INIT("PIC Driver"),
 	.type	  = DEVICE_TYPE_INTERRUPT_CONTROLLER,
-	.bus	  = &platform_bus,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
 	.ops	  = &pic_device_driver_ops,
@@ -85,8 +84,8 @@ DriverResult pic_init(Device *device) {
 	io_out_byte(PIC0_IMR, 0xff); // 屏蔽主PIC的所有中断
 	io_out_byte(PIC1_IMR, 0xff); // 屏蔽从PIC的所有中断
 
-	io_out_byte(PIC0_ICW1, 0x11); // 级联，边沿触发
-	io_out_byte(PIC0_ICW2, 0x20); // 起始中断向量号位0x20(0x00~0x1f为内部中断)
+	io_out_byte(PIC0_ICW1, 0x11);	// 级联，边沿触发
+	io_out_byte(PIC0_ICW2, 0x20);	// 起始中断向量号位0x20(0x00~0x1f为内部中断)
 	io_out_byte(PIC0_ICW3, 1 << 2); // IRQ2用于连接从PIC
 	// 全嵌套模式，非缓冲模式，手动结束中断，x86处理器
 	io_out_byte(PIC0_ICW4, 0x01);

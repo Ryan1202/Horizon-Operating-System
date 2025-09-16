@@ -52,14 +52,13 @@ DriverDependency isa_dependencies[] = {
 	 },
 };
 Driver isa_driver = {
-	.short_name		  = STRING_INIT("PciDriver"),
+	.short_name		  = STRING_INIT("IsaDriver"),
 	.dependency_count = sizeof(isa_dependencies) / sizeof(DriverDependency),
 	.dependencies	  = isa_dependencies,
 	.init			  = isa_driver_init,
 };
 DeviceDriver isa_device_driver = {
 	.name			   = STRING_INIT("ISA Device Driver"),
-	.bus			   = NULL,
 	.type			   = DEVICE_TYPE_BUS_CONTROLLER,
 	.state			   = DRIVER_STATE_UNREGISTERED,
 	.private_data_size = 0,
@@ -124,8 +123,7 @@ DriverResult isa_init_bus(BusDriver *bus_driver) {
 }
 
 DriverResult isa_driver_init(Driver *driver) {
-	isa_device_driver.bus = isa_dependencies[0].out_bus;
-	ObjectAttr attr		  = device_object_attr;
+	ObjectAttr attr = device_object_attr;
 	DRIVER_RESULT_PASS(register_bus_controller_device(
 		&isa_device_driver, &isa_bus_driver, &isa_device,
 		&isa_bus_controller_device, &attr));

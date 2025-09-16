@@ -29,7 +29,6 @@ DeviceOps vesa_display_device_ops = {
 
 DeviceDriver vesa_display_device_driver = {
 	.name	  = STRING_INIT("VESA Display Device Driver"),
-	.bus	  = &platform_bus,
 	.type	  = DEVICE_TYPE_VIDEO,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
@@ -37,6 +36,7 @@ DeviceDriver vesa_display_device_driver = {
 };
 Device vesa_display_device = {
 	.name			   = STRING_INIT("Vesa Display"),
+	.bus			   = &platform_bus,
 	.device_driver	   = &vesa_display_device_driver,
 	.ops			   = &vesa_display_device_ops,
 	.private_data_size = 0,
