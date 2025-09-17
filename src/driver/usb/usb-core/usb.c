@@ -1,11 +1,11 @@
 #include "kernel/list.h"
 #include <bits.h>
 #include <driver/timer_dm.h>
+#include <driver/usb/descriptors.h>
+#include <driver/usb/func.h>
+#include <driver/usb/hub.h>
+#include <driver/usb/usb.h>
 #include <drivers/pit.h>
-#include <drivers/usb/descriptors.h>
-#include <drivers/usb/func.h>
-#include <drivers/usb/hub.h>
-#include <drivers/usb/usb.h>
 #include <kernel/driver.h>
 #include <kernel/memory.h>
 #include <stdint.h>

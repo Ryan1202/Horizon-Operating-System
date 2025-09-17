@@ -2,7 +2,7 @@
 #define _USB_H
 
 #include <bits.h>
-#include <drivers/usb/hcd.h>
+#include <driver/usb/hcd.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <stdint.h>

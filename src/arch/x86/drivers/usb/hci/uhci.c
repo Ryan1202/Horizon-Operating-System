@@ -12,15 +12,14 @@
 #include "driver/timer_dm.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
-#include "kernel/thread.h"
 #include "objects/object.h"
 #include <bits.h>
+#include <driver/usb/hcd.h>
+#include <driver/usb/usb.h>
 #include <drivers/bus/pci/pci.h>
 #include <drivers/bus/usb.h>
 #include <drivers/pit.h>
-#include <drivers/usb/hcd.h>
 #include <drivers/usb/uhci.h>
-#include <drivers/usb/usb.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/device.h>

@@ -1,9 +1,9 @@
 #include "driver/timer_dm.h"
 #include <bits.h>
+#include <driver/usb/hcd.h>
+#include <driver/usb/usb.h>
 #include <drivers/pit.h>
-#include <drivers/usb/hcd.h>
 #include <drivers/usb/uhci.h>
-#include <drivers/usb/usb.h>
 #include <kernel/console.h>
 #include <kernel/driver.h>
 #include <kernel/memory.h>

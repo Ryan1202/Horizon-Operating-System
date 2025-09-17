@@ -1,6 +1,6 @@
-#include <drivers/usb/descriptors.h>
-#include <drivers/usb/func.h>
-#include <drivers/usb/usb.h>
+#include <driver/usb/descriptors.h>
+#include <driver/usb/func.h>
+#include <driver/usb/usb.h>
 #include <kernel/console.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>

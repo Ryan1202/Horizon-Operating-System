@@ -1,11 +1,11 @@
 #ifndef _UHCI_H
 #define _UHCI_H
 
-#include "drivers/usb/hcd.h"
 #include <bits.h>
 #include <driver/timer_dm.h>
+#include <driver/usb/hcd.h>
+#include <driver/usb/usb.h>
 #include <drivers/bus/pci/pci.h>
-#include <drivers/usb/usb.h>
 #include <stdint.h>
 
 #define FRAMELIST_SIZE 1024

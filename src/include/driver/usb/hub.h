@@ -1,7 +1,7 @@
 #ifndef _USB_HUB_H
 #define _USB_HUB_H
 
-#include <drivers/usb/usb.h>
+#include <driver/usb/usb.h>
 
 #define HUB_FEAT_C_LOCAL_POWER	0
 #define HUB_FEAT_C_OVER_CURRENT 1

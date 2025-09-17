@@ -1,8 +1,8 @@
 #include "kernel/spinlock.h"
+#include <driver/usb/hcd.h>
+#include <driver/usb/usb.h>
 #include <drivers/bus/usb.h>
-#include <drivers/usb/hcd.h>
 #include <drivers/usb/uhci.h>
-#include <drivers/usb/usb.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
 #include <kernel/list.h>

@@ -1,7 +1,7 @@
 #ifndef _USB_FUNC_H
 #define _USB_FUNC_H
 
-#include <drivers/usb/usb.h>
+#include <driver/usb/usb.h>
 
 #define REQ_GET_PORT_STATUS_SIZE 4
 
