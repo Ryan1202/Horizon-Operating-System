@@ -32,6 +32,7 @@ typedef enum {
 	DEVICE_TYPE_BUS_CONTROLLER,
 	DEVICE_TYPE_ETHERNET,
 	DEVICE_TYPE_TIME, // 时间设备（如：Unix时间戳/UTC时间）
+	DEVICE_TYPE_USB,
 	DEVICE_TYPE_MAX,
 } DeviceType;
 

@@ -1,51 +1,51 @@
 #ifndef HCD_H
 #define HCD_H
 
+#include <kernel/bus_driver.h>
+#include <kernel/device.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <stdint.h>
 #include <string.h>
 
-struct usb_device;
-struct usb_transfer;
-struct usb_request;
+struct UsbDevice;
+struct UsbTransfer;
+struct UsbRequest;
 
-typedef struct usb_hcd_port {
-	uint32_t		port;
-	struct usb_hcd *hcd;
+typedef struct UsbHcdPort {
+	uint32_t	   port;
+	struct UsbHcd *hcd;
 
 	uint8_t suspend;
 	uint8_t enable;
 	uint8_t connected;
-} usb_hcd_port_t;
+} UsbHcdPort;
 
-typedef struct usb_hcd_interface {
-	enum usb_setup_status (*control_transaction_in)(
-		struct usb_hcd *hcd, struct usb_device *device,
-		struct usb_transfer *transfer, void *buffer, uint32_t data_length,
-		struct usb_request *usb_req);
-	enum usb_setup_status (*control_transaction_out)(
-		struct usb_hcd *hcd, struct usb_device *device,
-		struct usb_transfer *transfer, void *buffer, uint32_t data_length,
-		struct usb_request *usb_req);
-} usb_hcd_interface_t;
+typedef struct UsbHcdOps {
+	void *(*create_sched)(void);
+	enum UsbSetupStatus (*ctrl_transfer_in)(
+		struct UsbHcd *hcd, struct UsbDevice *device, void *buffer,
+		uint32_t data_length, struct UsbRequest *usb_req);
+	enum UsbSetupStatus (*ctrl_transfer_out)(
+		struct UsbHcd *hcd, struct UsbDevice *device, void *buffer,
+		uint32_t data_length, struct UsbRequest *usb_req);
+} UsbHcdOps;
 
-typedef struct usb_hcd {
-	list_t			list;
-	usb_hcd_port_t *ports;
+typedef struct UsbHcd {
+	list_t		list;
+	UsbHcdPort *ports;
 
-	usb_hcd_interface_t *interface;
+	UsbHcdOps *ops;
 
 	string_t *name;
-	device_t *device;
+	Device	 *device;
 
 	uint8_t device_count;
 
 	list_t usb_devices;
-} usb_hcd_t;
+} UsbHcd;
 
-usb_hcd_t *usb_hcd_register(
-	device_t *device, char *name, uint32_t port_cnt,
-	usb_hcd_interface_t *interface);
+UsbHcd *usb_hcd_register(
+	Device *device, char *name, uint32_t port_cnt, UsbHcdOps *interface);
 
 #endif // HCD_H

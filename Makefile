@@ -107,10 +107,11 @@ qemu_dbg:
 	-m 1024 \
 	-hda $(HD_IMG) \
 	-usb \
+	-device piix3-usb-uhci \
 	-device usb-kbd \
 	-device usb-mouse \
 	-device rtl8139,netdev=nc1 \
-	-netdev user,id=nc1 \
+	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
 	-object filter-dump,id=f1,netdev=nc1,file=dump.pcap \
 	-readconfig $(QEMU_CFG) \
 	-boot c
@@ -122,6 +123,8 @@ qemu:
 	-m 1024 \
 	-hda $(HD_IMG) \
 	-usb \
+	-device piix3-usb-uhci \
+	-device usb-kbd \
 	-device usb-mouse \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \

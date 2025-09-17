@@ -1,48 +1,50 @@
+#include <drivers/usb/descriptors.h>
 #include <drivers/usb/func.h>
 #include <drivers/usb/usb.h>
 #include <kernel/console.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <stdint.h>
+#include <string.h>
 
-struct usb_device_descriptor *usb_get_device_descriptor(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep) {
-	struct usb_device_descriptor *desc =
-		kmalloc(sizeof(struct usb_device_descriptor));
+struct UsbDeviceDescriptor *usb_get_device_descriptor(
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
+	struct UsbDeviceDescriptor *desc =
+		kmalloc(sizeof(struct UsbDeviceDescriptor));
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_GET_DESCRIPTOR, USB_DESC_TYPE_DEVICE, 0, 0,
 		USB_DESC_TYPE_DEVICE_SIZE);
-	usb_control_transaction_in(
-		hcd, device, ep, desc, usb_req, USB_DESC_TYPE_DEVICE_SIZE);
+
+	hcd->ops->ctrl_transfer_in(
+		hcd, device, desc, USB_DESC_TYPE_DEVICE_SIZE, &usb_req);
 	return desc;
 }
 
-struct usb_config_descriptor *usb_get_config_descriptor(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep) {
-	struct usb_config_descriptor *desc =
-		kmalloc(sizeof(struct usb_config_descriptor));
+struct UsbConfigDescriptor *usb_get_config_descriptor(
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
+	struct UsbConfigDescriptor *desc =
+		kmalloc(sizeof(struct UsbConfigDescriptor));
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_GET_DESCRIPTOR, USB_DESC_TYPE_CONFIG, 0, 0,
 		USB_DESC_TYPE_CONFIG_SIZE);
-	usb_control_transaction_in(
-		hcd, device, ep, desc, usb_req, USB_DESC_TYPE_CONFIG_SIZE);
+	hcd->ops->ctrl_transfer_in(
+		hcd, device, desc, USB_DESC_TYPE_CONFIG_SIZE, &usb_req);
 
-	uint8_t *buffer	 = kmalloc(desc->wTotalLength);
-	usb_req->wLength = desc->wTotalLength;
-	usb_control_transaction_in(
-		hcd, device, ep, buffer, usb_req, desc->wTotalLength);
+	uint8_t *buffer = kmalloc(desc->wTotalLength);
+	usb_req.wLength = desc->wTotalLength;
+	hcd->ops->ctrl_transfer_in(hcd, device, buffer, usb_req.wLength, &usb_req);
 
 	int length = desc->wTotalLength;
 	while (length > 0) {
 		uint8_t type = buffer[1];
 		if (type == USB_DESC_TYPE_INTERFACE) {
-			struct usb_interface_descriptor *interface_desc =
-				(struct usb_interface_descriptor *)buffer;
-			usb_interface_t *interface = kmalloc(sizeof(usb_interface_t));
+			struct UsbInterfaceDescriptor *interface_desc =
+				(struct UsbInterfaceDescriptor *)buffer;
+			UsbInterface *interface = kmalloc(sizeof(UsbInterface));
 
 			interface->interface = interface_desc->bInterfaceNumber;
 			interface->class	 = interface_desc->bInterfaceClass;
@@ -52,11 +54,11 @@ struct usb_config_descriptor *usb_get_config_descriptor(
 			list_add_tail(&interface->list, &device->interface_lh);
 
 		} else if (type == USB_DESC_TYPE_ENDPOINT) {
-			struct usb_endpoint_descriptor *endpoint_desc =
-				(struct usb_endpoint_descriptor *)buffer;
+			struct UsbEndpointDescriptor *endpoint_desc =
+				(struct UsbEndpointDescriptor *)buffer;
 
-			usb_endpoint_t *ep = usb_create_endpoint(
-				endpoint_desc->bEndpointAddress & 0x0f,
+			UsbEndpoint *ep = usb_create_endpoint(
+				hcd, endpoint_desc->bEndpointAddress & 0x0f,
 				endpoint_desc->bmAttributes & 0x03,
 				endpoint_desc->bEndpointAddress >> 7,
 				endpoint_desc->wMaxPacketSize & 0x07ff);
@@ -69,109 +71,104 @@ struct usb_config_descriptor *usb_get_config_descriptor(
 	return desc;
 }
 
-uint8_t usb_get_config(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep) {
+uint8_t usb_get_config(UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
 	uint8_t config;
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_GET_CONFIGURATION, 0, 0, 0, 1);
-	usb_control_transaction_in(hcd, device, ep, &config, usb_req, 1);
+	hcd->ops->ctrl_transfer_in(hcd, device, &config, 1, &usb_req);
 
 	return config;
 }
 
-usb_setup_status_t usb_set_config(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep, uint8_t config) {
+UsbSetupStatus usb_set_config(
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, uint8_t config) {
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_SET_CONFIGURATION, config, 0, 0, 0);
-
-	return usb_control_transaction_out(hcd, device, ep, NULL, usb_req, 0);
+	return hcd->ops->ctrl_transfer_out(hcd, device, NULL, 0, &usb_req);
 }
 
-struct usb_hub_descriptor *usb_get_hub_descriptor(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep) {
-	struct usb_hub_descriptor *desc =
-		kmalloc(sizeof(struct usb_hub_descriptor));
+struct UsbHubDescriptor *usb_get_hub_descriptor(
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
+	struct UsbHubDescriptor *desc = kmalloc(sizeof(struct UsbHubDescriptor));
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_GET_DESCRIPTOR, USB_DESC_TYPE_HUB, 0, 0,
 		USB_DESC_TYPE_HUB_SIZE);
-	usb_control_transaction_in(
-		hcd, device, ep, desc, usb_req, USB_DESC_TYPE_HUB_SIZE);
+	hcd->ops->ctrl_transfer_in(
+		hcd, device, desc, USB_DESC_TYPE_HUB_SIZE, &usb_req);
 	return desc;
 }
 
-uint32_t usb_get_hub_status(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep) {
+uint32_t usb_get_hub_status(UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
 	uint32_t stat;
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_GET_STATUS, 0, 0, 0, 4);
-	usb_control_transaction_in(hcd, device, ep, &stat, usb_req, 4);
+	hcd->ops->ctrl_transfer_in(hcd, device, &stat, 4, &usb_req);
 	return stat;
 }
 
 uint32_t usb_get_port_status(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep, uint8_t port) {
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, uint8_t port) {
 	uint32_t stat;
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_OTHER,
 		USB_REQ_GET_STATUS, 0, 0, port, REQ_GET_PORT_STATUS_SIZE);
-	usb_control_transaction_in(
-		hcd, device, ep, &stat, usb_req, REQ_GET_PORT_STATUS_SIZE);
+	hcd->ops->ctrl_transfer_in(
+		hcd, device, &stat, REQ_GET_PORT_STATUS_SIZE, &usb_req);
 	return stat;
 }
 
-struct usb_string_descriptor *usb_get_string_descriptor(
-	usb_hcd_t *hcd, usb_device_t *device, uint8_t index, usb_endpoint_t *ep) {
+struct UsbStringDescriptor *usb_get_string_descriptor(
+	UsbHcd *hcd, UsbDevice *device, uint8_t index, UsbEndpoint *ep) {
 	uint8_t buffer[2];
 
-	usb_request_t *usb_req = usb_create_request(
+	UsbRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_GET_DESCRIPTOR, USB_DESC_TYPE_STRING, index, 0x0409, 2);
 
-	usb_control_transaction_in(hcd, device, ep, buffer, usb_req, 2);
+	hcd->ops->ctrl_transfer_in(hcd, device, buffer, 2, &usb_req);
 
-	struct usb_string_descriptor *desc =
-		kmalloc(sizeof(struct usb_string_descriptor) + buffer[0]);
-	usb_req->wLength = buffer[0];
-	usb_control_transaction_in(hcd, device, ep, desc, usb_req, buffer[0]);
+	struct UsbStringDescriptor *desc =
+		kmalloc(sizeof(struct UsbStringDescriptor) + buffer[0]);
+	usb_req.wLength = buffer[0];
+	hcd->ops->ctrl_transfer_in(hcd, device, desc, buffer[0], &usb_req);
 
 	return desc;
 }
 
-usb_setup_status_t usb_set_address(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep,
-	uint32_t address) {
+UsbSetupStatus usb_set_address(
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, uint32_t address) {
 
-	usb_request_t *req = usb_create_request(
+	UsbRequest req = USB_BUILD_REQUEST(
 		USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
 		USB_REQ_SET_ADDRESS, address >> 8, address & 0xff, 0, 0);
 
-	return usb_control_transaction_out(hcd, device, ep, NULL, req, 0);
+	return hcd->ops->ctrl_transfer_out(hcd, device, NULL, 0, &req);
 }
 
-usb_setup_status_t usb_set_port_feature(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep, uint8_t port,
+UsbSetupStatus usb_set_port_feature(
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, uint8_t port,
 	uint16_t feature) {
 
-	usb_request_t *req = usb_create_request(
+	UsbRequest req = USB_BUILD_REQUEST(
 		USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_OTHER,
 		USB_REQ_SET_FEATURE, feature >> 8, feature & 0xff, port, 0);
 
-	return usb_control_transaction_out(hcd, device, ep, NULL, req, 0);
+	return hcd->ops->ctrl_transfer_out(hcd, device, NULL, 0, &req);
 }
 
 void usb_show_device_descriptor(
-	usb_hcd_t *hcd, usb_device_t *device, usb_endpoint_t *ep,
-	struct usb_device_descriptor *desc) {
-	printk("USB Device Descriptor:\n");
+	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep,
+	struct UsbDeviceDescriptor *desc) {
+	printk("\nUSB Device Descriptor:\n");
 	printk("Length: %d\n", desc->bLength);
 	printk("DescriptorType: %d\n", desc->bDescriptorType);
 	printk(
@@ -188,7 +185,7 @@ void usb_show_device_descriptor(
 		desc->bcdDevice & 0xff);
 
 	printk("Manufacturer: ");
-	struct usb_string_descriptor *str1 =
+	struct UsbStringDescriptor *str1 =
 		usb_get_string_descriptor(hcd, device, desc->iManufacturer, ep);
 	for (int i = 0; i < (str1->bLength - 2) / 2; i++) {
 		printk("%c", str1->wData[i]);
@@ -196,7 +193,7 @@ void usb_show_device_descriptor(
 	printk("\n");
 
 	printk("Product: ");
-	struct usb_string_descriptor *str2 =
+	struct UsbStringDescriptor *str2 =
 		usb_get_string_descriptor(hcd, device, desc->iProduct, ep);
 	for (int i = 0; i < (str2->bLength - 2) / 2; i++) {
 		printk("%c", str2->wData[i]);
@@ -204,7 +201,7 @@ void usb_show_device_descriptor(
 	printk("\n");
 
 	printk("Serial Number: ");
-	struct usb_string_descriptor *str3 =
+	struct UsbStringDescriptor *str3 =
 		usb_get_string_descriptor(hcd, device, desc->iSerialNumber, ep);
 	for (int i = 0; i < (str3->bLength - 2) / 2; i++) {
 		printk("%c", str3->wData[i]);
@@ -214,8 +211,8 @@ void usb_show_device_descriptor(
 	printk("Number of Configurations: %d\n", desc->bNumConfigurations);
 }
 
-void usb_show_hub_descriptor(struct usb_hub_descriptor *desc) {
-	printk("USB Hub Descriptor:\n");
+void usb_show_hub_descriptor(struct UsbHubDescriptor *desc) {
+	printk("\nUSB Hub Descriptor:\n");
 	printk("Length: %d\n", desc->bLength);
 	printk("DescriptorType: %d\n", desc->bDescriptorType);
 	printk("Number of Ports: %d\n", desc->bNbrPorts);

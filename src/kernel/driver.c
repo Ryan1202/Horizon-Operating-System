@@ -147,7 +147,6 @@ void sub_driver_start_thread(void *arg) {
 		if (bus_driver->ops->init != NULL) {
 			bus_driver->ops->init(bus_driver);
 		}
-		sub_driver->state = SUBDRIVER_STATE_READY;
 
 		Bus *bus;
 		list_for_each_owner (bus, &bus_driver->bus_lh, bus_list) {
@@ -164,6 +163,7 @@ void sub_driver_start_thread(void *arg) {
 				bus->ops->probe_device(bus_driver, bus);
 			}
 		}
+		sub_driver->state = SUBDRIVER_STATE_READY;
 	}
 }
 

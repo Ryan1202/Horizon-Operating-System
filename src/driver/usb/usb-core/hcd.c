@@ -1,7 +1,10 @@
+#include "kernel/spinlock.h"
+#include <drivers/bus/usb.h>
 #include <drivers/usb/hcd.h>
 #include <drivers/usb/uhci.h>
 #include <drivers/usb/usb.h>
 #include <kernel/driver.h>
+#include <kernel/driver_dependency.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
@@ -9,25 +12,26 @@
 #include <string.h>
 
 LIST_HEAD(hcd_list);
+SPINLOCK(bus_num_lock);
+uint8_t new_bus_num = 0;
 
-usb_hcd_t *usb_hcd_register(
-	device_t *device, char *name, uint32_t port_cnt,
-	usb_hcd_interface_t *interface) {
-	usb_hcd_t *hcd = kmalloc(sizeof(usb_hcd_t));
+UsbHcd *usb_hcd_register(
+	Device *device, char *name, uint32_t port_cnt, UsbHcdOps *interface) {
+	UsbHcd *hcd = kmalloc(sizeof(UsbHcd));
 	if (hcd == NULL) return NULL;
 
 	list_add_tail(&hcd->list, &hcd_list);
 	hcd->device		  = device;
 	hcd->device_count = 0;
 
-	hcd->interface = interface;
+	hcd->ops = interface;
 
 	string_t *string = kmalloc(sizeof(string_t));
 	string_init(string);
 	string_new(string, name, strlen(name));
 	hcd->name = string;
 
-	hcd->ports = kmalloc(sizeof(usb_hcd_port_t) * port_cnt);
+	hcd->ports = kmalloc(sizeof(UsbHcdPort) * port_cnt);
 
 	for (int i = 0; i < port_cnt; i++) {
 		hcd->ports[i].port		= i;
