@@ -6,14 +6,6 @@ SRC		+=	memory.c
 SRC		+=	sync.c
 SRC		+=	thread.c
 SRC		+=	initcall.c
-SRC		+=	driver.c
-SRC		+=	bus_driver.c
-SRC		+=	device_driver.c
-SRC		+=	device_manager.c
-SRC		+=	driver_manager.c
-SRC		+=	driver_interface.c
-SRC		+=	driver_dependency.c
-SRC		+=	device.c
 SRC		+=	process.c
 SRC		+=	syscall.c
 SRC		+=	app.c
@@ -23,8 +15,8 @@ SRC		+=	periodic_task.c
 SRC		+=	block_cache.c
 SRC		+=	rwlock.c
 SRC		+=	condvar.c
-SRC		+=	dma.c
 SRC		+=	softirq.c
+SRC 	+=	driver/
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 
