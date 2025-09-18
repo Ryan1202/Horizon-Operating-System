@@ -1,6 +1,7 @@
 #ifndef HCD_H
 #define HCD_H
 
+#include "driver/bus_dm.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/driver.h>
@@ -37,8 +38,11 @@ typedef struct UsbHcd {
 
 	UsbHcdOps *ops;
 
-	string_t *name;
-	Device	 *device;
+	string_t name;
+
+	BusControllerDevice *bus_ctrlr_device;
+	Device				*device;
+	Bus					*bus;
 
 	uint8_t device_count;
 
@@ -46,6 +50,7 @@ typedef struct UsbHcd {
 } UsbHcd;
 
 UsbHcd *usb_hcd_register(
-	Device *device, char *name, uint32_t port_cnt, UsbHcdOps *interface);
+	DeviceDriver *device_driver, Device *device, char *name, int name_len,
+	uint32_t port_cnt, UsbHcdOps *ops);
 
 #endif // HCD_H

@@ -71,18 +71,11 @@ typedef enum UsbDeviceSpeed {
 	USB_SPEED_HIGH,
 } UsbDeviceSpeed;
 
-typedef struct UsbDevice {
-	list_t	list;
-	uint8_t address;
-
-	list_t ep_lh;
-	list_t interface_lh;
-
-	struct UsbDeviceDescriptor *desc;
-	UsbDeviceSpeed				speed;
-
-	struct UsbEndpoint *ep0;
-} UsbDevice;
+typedef enum {
+	USB_STATE_UNINITED, // 未被枚举
+	USB_STATE_INITED,	// 已被枚举
+	USB_STATE_ACTIVE,	// 正常工作
+} UsbDeviceState;
 
 typedef enum {
 	USB_EP_CONTROL,
@@ -143,8 +136,9 @@ typedef struct UsbRequest {
 
 extern UsbEndpoint usb_ep0;
 
-UsbDevice *usb_create_device(UsbDeviceSpeed speed, uint8_t address);
-int		   usb_destroy_device(UsbDevice *device);
+struct UsbDevice *usb_create_device(
+	UsbHcd *hcd, UsbDeviceSpeed speed, uint8_t address);
+int usb_destroy_device(struct UsbDevice *device);
 
 UsbRequest *usb_create_request(
 	uint8_t direction, uint8_t type, uint8_t recipient, uint8_t request_id,
@@ -153,6 +147,6 @@ UsbEndpoint *usb_create_endpoint(
 	UsbHcd *hcd, uint8_t endpoint, UsbEpTransferType transfer_type,
 	UsbEpDirection direction, uint16_t max_packet_size);
 
-int usb_init_device(UsbHcd *hcd, UsbDevice *device);
+int usb_init_device(UsbHcd *hcd, struct UsbDevice *device);
 
 #endif

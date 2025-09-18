@@ -14,7 +14,7 @@
 
 void *uhci_create_sched(void);
 
-UsbHcdOps uhci_interface = {
+UsbHcdOps uhci_ops = {
 	.create_sched	   = uhci_create_sched,
 	.ctrl_transfer_in  = uhci_ctrl_transfer_in,
 	.ctrl_transfer_out = uhci_ctrl_transfer_out,

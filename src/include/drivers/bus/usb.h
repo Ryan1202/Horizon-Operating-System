@@ -8,6 +8,7 @@
 extern BusDriver usb_bus_driver;
 extern Driver	 usb_driver;
 extern list_t	 hci_lh;
+extern DeviceOps usb_device_ops;
 
 typedef struct HciInit {
 	list_t list;

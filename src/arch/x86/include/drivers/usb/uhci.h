@@ -5,6 +5,7 @@
 #include <driver/timer_dm.h>
 #include <driver/usb/hcd.h>
 #include <driver/usb/usb.h>
+#include <driver/usb/usb_dm.h>
 #include <drivers/bus/pci/pci.h>
 #include <stdint.h>
 

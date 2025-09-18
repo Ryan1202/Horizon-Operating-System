@@ -5,6 +5,7 @@
 #include <driver/usb/hcd.h>
 #include <driver/usb/hub.h>
 #include <driver/usb/usb.h>
+#include <driver/usb/usb_dm.h>
 #include <drivers/pit.h>
 #include <stdint.h>
 
@@ -35,6 +36,7 @@ void usb_init_hub(UsbHcd *hcd, UsbDevice *device) {
 		status = usb_get_port_status(hcd, device, ep0, i);
 		if (BIN_IS_EN(status, USB_PORT_STAT_CONNECTION)) {
 			UsbDevice *dev = usb_create_device(
+				hcd,
 				(BIN_IS_EN(status, USB_PORT_STAT_LOW_SPEED) ? USB_SPEED_LOW
 															: USB_SPEED_FULL),
 				0);

@@ -35,9 +35,6 @@ DeviceOps usb_device_ops = {
 	.destroy = NULL,
 	.status	 = NULL,
 };
-BusControllerDeviceOps usb_bus_controller_ops = {
-	.probe = NULL,
-};
 
 DriverDependency usb_dependencies[] = {
 	{
@@ -53,8 +50,9 @@ Driver usb_driver = {
 	.init			  = NULL,
 };
 BusDriver usb_bus_driver = {
+	.name			   = STRING_INIT("USB"),
 	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
-	.bus_type		   = BUS_TYPE_PCI,
+	.bus_type		   = BUS_TYPE_USB,
 	.state			   = DRIVER_STATE_UNREGISTERED,
 	.private_data_size = 0,
 	.ops			   = &usb_bus_driver_ops,
@@ -79,21 +77,11 @@ BusControllerDevice usb_bus_controller_device = {
 	.bus_driver			= &usb_bus_driver,
 	.bus_controller_ops = NULL,
 };
-Bus usb_bus = {
-	.bus_num		   = 0,
-	.ops			   = &usb_bus_ops,
-	.bus_driver		   = &usb_bus_driver,
-	.name			   = STRING_INIT("Universal Serial Bus"),
-	.controller_device = &usb_device,
-};
 
 static __init void usb_bus_driver_entry(void) {
-	register_driver(&usb_driver);
-	register_device_driver(&usb_driver, &usb_device_driver);
 	ObjectAttr attr = device_object_attr;
-	register_bus_controller_device(
-		&usb_device_driver, &usb_bus_driver, &usb_device,
-		&usb_bus_controller_device, &attr);
+	register_driver(&usb_driver);
+	register_bus_driver(&usb_driver, &usb_bus_driver, &attr);
 
 	HciInit *hci_init;
 	list_for_each_owner (hci_init, &hci_lh, list) {

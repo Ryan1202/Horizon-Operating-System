@@ -8,11 +8,9 @@
  * 目前仅仅只是初始化了UHCI而已，其他涉及USB协议的东西都还没做
  *
  */
-#include "driver/bus_dm.h"
 #include "driver/timer_dm.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
-#include "objects/object.h"
 #include <bits.h>
 #include <driver/usb/hcd.h>
 #include <driver/usb/usb.h>
@@ -38,15 +36,16 @@
 #define UHCI_SUBCLASSID 0x03
 #define UHCI_PROGIF		0x00
 
-#define DRV_NAME "Universal Serial Bus(USB) Driver"
-#define DEV_NAME "Universal Host Controller Interface(UHCI)"
+#define DRV_NAME	  "Universal Serial Bus(USB) Driver"
+#define DEV_NAME	  "UHCI"
+#define DEV_FULL_NAME "Universal Host Controller Interface(UHCI)"
 
 void		 uhci_register(Driver *driver);
 DriverResult uhci_init(Device *device);
 DriverResult uhci_start(Device *device);
 DriverResult uhci_pci_probe(PciDevice *pci_device);
 
-extern UsbHcdOps uhci_interface;
+extern UsbHcdOps uhci_ops;
 
 DeviceDriverOps uhci_device_driver_ops = {
 	.device_driver_init	  = NULL,
@@ -75,12 +74,6 @@ PciDriver uhci_pci_driver = {
 	.find_type			   = FIND_BY_CLASSCODE_SUBCLASS_PROGIF,
 	.class_subclass_progif = {UHCI_CLASSID, UHCI_SUBCLASSID, UHCI_PROGIF},
 	.ops				   = &uhci_pci_driver_ops,
-};
-BusControllerDevice uhci_bus_controller_device = {
-	.short_name			= STRING_INIT("UHCI Controller"),
-	.device				= NULL, // 由probe函数设置
-	.bus_driver			= &usb_bus_driver,
-	.bus_controller_ops = NULL,
 };
 const Device uhci_device_template = {
 	.name			   = STRING_INIT("UHCI Controller"),
@@ -172,6 +165,7 @@ void uhci_port_init(UsbHcd *hcd, int port) {
 	if (BIN_IS_EN(port_status, UHCI_PORT_SC_CONNECTED)) {
 		printk("[UHCI]port %d connected.\n", port);
 		UsbDevice *usb_device = usb_create_device(
+			hcd,
 			BIN_IS_EN(port_status, UHCI_PORT_SC_LOWSPEED) ? USB_SPEED_LOW
 														  : USB_SPEED_FULL,
 			0);
@@ -235,21 +229,28 @@ DriverResult uhci_pci_probe(PciDevice *pci_device) {
 	uint32_t io_base = pci_device->common.bar[4].base_addr & 0xfffffff0;
 	if (io_base == 0) { return DRIVER_RESULT_UNSUPPORT_DEVICE; }
 
-	Device *device = kmalloc_from_template(uhci_device_template);
-	device->bus	   = pci_device->bus;
+	Device *device	 = kmalloc_from_template(uhci_device_template);
+	device->bus		 = pci_device->bus;
+	uint8_t port_cnt = (pci_device->common.bar[4].length - UHCI_PORTSC1) / 2;
 
-	ObjectAttr attr = driver_object_attr;
-	register_bus_controller_device(
-		&uhci_device_driver, &usb_bus_driver, device,
-		&uhci_bus_controller_device, &attr);
+	uint16_t status;
+	for (int i = 0; i < port_cnt; i++) {
+		status = io_in_word(io_base + UHCI_PORTSC1 + i * 2);
+		if ((status & 0x80) == 0 || status == 0xffff) {
+			port_cnt = i;
+			break;
+		}
+	}
+
+	UsbHcd *hcd = usb_hcd_register(
+		&uhci_device_driver, device, DEV_NAME, sizeof(DEV_NAME), port_cnt,
+		&uhci_ops);
+
 	Uhci *uhci	   = device->private_data;
 	uhci->device   = pci_device;
 	uhci->io_base  = io_base;
-	uhci->port_cnt = (pci_device->common.bar[4].length - UHCI_PORTSC1) / 2;
-
-	UsbHcd *hcd =
-		usb_hcd_register(device, DEV_NAME, uhci->port_cnt, &uhci_interface);
-	uhci->hcd = hcd;
+	uhci->port_cnt = port_cnt;
+	uhci->hcd	   = hcd;
 
 	return DRIVER_RESULT_OK;
 }
