@@ -15,8 +15,7 @@ typedef struct list {
 	struct list *next;
 } list_t;
 
-#define LIST_HEAD_INIT(name) \
-	{ &(name), &(name) }
+#define LIST_HEAD_INIT(name) {&(name), &(name)}
 
 #define LIST_HEAD(name) struct list name = LIST_HEAD_INIT(name)
 
@@ -133,7 +132,8 @@ static inline int list_is_last(
 }
 
 static inline int list_empty(const struct list *head) {
-	return (head->next == head); // 链表头的下一个是否为自己
+	return (head->next == head) || !head->next ||
+		   !head->prev; // 链表头的下一个是否为自己
 }
 
 #define list_owner(ptr, type, member) container_of(ptr, type, member)

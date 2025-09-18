@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#define ARDS_ADDR 0x500				  // ARDS结构从哪儿开始储存
-#define ARDS_NR	  (0x500 + 0x100 - 4) // 记录的ards数量
+#define ARDS_ADDR 0x1500			   // ARDS结构从哪儿开始储存
+#define ARDS_NR	  (0x1500 + 0x100 - 4) // 记录的ards数量
 
 /*
 ards结构体

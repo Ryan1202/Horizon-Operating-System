@@ -38,6 +38,7 @@ void setup_page(void) {
 		pt[i] = addr;
 		addr += PAGE_SIZE;
 	}
+	pt[0] &= ~SIGN_P; // 0x00000000不可用
 
 	// 0x00800000 - 0x00bfffff
 	pdt[2] = (DMA_PT_PHY_ADDR2 | SIGN_RW | SIGN_SYS | SIGN_P);

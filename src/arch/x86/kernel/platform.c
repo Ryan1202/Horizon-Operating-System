@@ -59,6 +59,7 @@ void platform_init() {
 	platform_bus.object = platform_bus_driver.object;
 	list_init(&platform_bus_driver.bus_lh);
 	list_add_tail(&platform_bus.bus_list, &platform_bus_driver.bus_lh);
+	list_init(&platform_bus.device_lh);
 
 	read_features();
 
