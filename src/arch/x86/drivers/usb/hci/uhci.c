@@ -11,6 +11,7 @@
 #include "driver/timer_dm.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
+#include "kernel/thread.h"
 #include <bits.h>
 #include <driver/usb/hcd.h>
 #include <driver/usb/usb.h>
@@ -203,6 +204,20 @@ DriverResult uhci_init(Device *device) {
 	return DRIVER_RESULT_OK;
 }
 
+void uhci_probe_thread(void *arg) {
+	Uhci *uhci = (Uhci *)arg;
+	for (int i = 0; i < uhci->port_cnt; i++) {
+		uhci_port_init(uhci->hcd, i);
+	}
+}
+
+void uhci_probe(Device *device) {
+	// 通过独立线程初始化，避免usb初始化长时间的等待导致系统阻塞
+	thread_start(
+		"UHCI Probe", THREAD_DEFAULT_PRIO, uhci_probe_thread,
+		device->private_data, NULL);
+}
+
 DriverResult uhci_start(Device *device) {
 	Uhci *uhci			= device->private_data;
 	uhci->fl.frames_vir = (uint32_t *)kernel_alloc_pages(1);
@@ -218,9 +233,7 @@ DriverResult uhci_start(Device *device) {
 	uint16_t cmd = io_in_word(uhci->io_base + UHCI_REG_CMD);
 	io_out_word(uhci->io_base + UHCI_REG_CMD, cmd | UHCI_CMD_RUN);
 
-	for (int i = 0; i < uhci->port_cnt; i++) {
-		uhci_port_init(uhci->hcd, i);
-	}
+	uhci_probe(device);
 
 	return DRIVER_RESULT_OK;
 }
