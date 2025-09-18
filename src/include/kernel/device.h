@@ -68,6 +68,7 @@ typedef struct Device {
 	list_t				 bus_list;
 	list_t				 device_list;
 	list_t				 dm_list;
+	list_t				 new_device_list;
 	string_t			 name;
 	DeviceState			 state;
 	struct DeviceDriver *device_driver;

@@ -7,3 +7,4 @@ SRC += driver_dependency.c
 SRC += driver_interface.c
 SRC += driver_manager.c
 SRC += driver.c
+SRC += dynamic_device_manager.c
