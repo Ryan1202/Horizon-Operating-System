@@ -5,14 +5,18 @@
 
 static int type_number = OBJECT_TYPE_BUILTIN_MAX;
 
-#define DEFINE_OBJECT_TYPE(type_name) \
-	{ .name = STRING_INIT(#type_name), .value.type = OBJECT_TYPE_##type_name, }
+#define DEFINE_OBJECT_TYPE(type_name)          \
+	{                                          \
+		.name		= STRING_INIT(#type_name), \
+		.value.type = OBJECT_TYPE_##type_name, \
+	}
 
 Object object_builtin_types[OBJECT_TYPE_BUILTIN_MAX] = {
 	DEFINE_OBJECT_TYPE(TYPE),	  DEFINE_OBJECT_TYPE(DIRECTORY),
 	DEFINE_OBJECT_TYPE(DRIVER),	  DEFINE_OBJECT_TYPE(DEVICE),
 	DEFINE_OBJECT_TYPE(FILE),	  DEFINE_OBJECT_TYPE(VALUE),
 	DEFINE_OBJECT_TYPE(SYM_LINK), DEFINE_OBJECT_TYPE(PARTITION),
+	DEFINE_OBJECT_TYPE(VOLUME),
 };
 
 Object object_type_directory = {
@@ -27,6 +31,7 @@ ObjectResult init_builtin_types() {
 	for (int i = 0; i < OBJECT_TYPE_BUILTIN_MAX; i++) {
 		add_object(&object_type_directory, &object_builtin_types[i]);
 		init_base_obj_sys_attr(&object_builtin_types[i]);
+		object_builtin_types[i].attr->type = OBJECT_TYPE_TYPE;
 	}
 
 	return OBJECT_OK;
