@@ -1,3 +1,4 @@
+#include "kernel/console.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -19,8 +20,12 @@
  * @return DriverResult
  */
 DriverResult register_device(
-	DeviceDriver *device_driver, string_t name, Bus *bus, Device *device,
+	DeviceDriver *device_driver, string_t *name, Bus *bus, Device *device,
 	ObjectAttr *attr) {
+	if (device->ops == NULL) {
+		printk(COLOR_RED "Error: Device %s has no ops!\n", device->name.text);
+		return DRIVER_RESULT_NO_OPS;
+	}
 
 	device->state = DEVICE_STATE_REGISTERED;
 
@@ -41,9 +46,9 @@ DriverResult register_device(
 
 	bus_register_device(device, bus, attr);
 
-	if (name.text != NULL && name.length != 0) {
+	if (name != NULL && name->text != NULL && name->length != 0) {
 		attr->type			   = OBJECT_TYPE_SYM_LINK;
-		Object *object		   = create_object(&device_object, name, *attr);
+		Object *object		   = create_object(&device_object, *name, *attr);
 		object->value.sym_link = device->object;
 	}
 

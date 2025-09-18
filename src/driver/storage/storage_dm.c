@@ -59,7 +59,7 @@ DriverResult register_storage_device(
 	string_t name;
 	string_new_with_number(&name, "Storage", 7, storage_dm_ext.device_count++);
 	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, name, device->bus, device, attr);
+		register_device, device_driver, &name, device->bus, device, attr);
 	list_add_tail(&device->dm_list, &storage_dm.device_lh);
 
 	device->object->in.type				 = TRANSFER_TYPE_BLOCK;

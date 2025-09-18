@@ -44,7 +44,7 @@ DriverResult register_sound_device(
 	string_t name;
 	string_new_with_number(&name, "Sound", 5, sound_dm_ext.device_count++);
 	DRIVER_RESULT_PASS(register_device(
-		device->device_driver, name, device->bus, device, attr));
+		device->device_driver, &name, device->bus, device, attr));
 
 	return DRIVER_RESULT_OK;
 }

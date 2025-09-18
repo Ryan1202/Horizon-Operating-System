@@ -37,30 +37,30 @@ DriverResult check_intterupt_ops(InterruptDevice *interrupt_device) {
 	if (!interrupt_device->interrupt_ops) {
 		print_error_with_position(
 			"%s has no operations\n", interrupt_device->device->name.text);
-		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_NO_OPS;
+		return DRIVER_RESULT_NO_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->disable_irq) {
 		print_error_with_position(
 			"%s has no disable_irq operation\n",
 			interrupt_device->device->name.text);
-		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
+		return DRIVER_RESULT_INCOMPLETABLE_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->enable_irq) {
 		print_error_with_position(
 			"%s has no enable_irq operation\n",
 			interrupt_device->device->name.text);
-		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
+		return DRIVER_RESULT_INCOMPLETABLE_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->eoi) {
 		print_error_with_position(
 			"%s has no eoi operation\n", interrupt_device->device->name.text);
-		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
+		return DRIVER_RESULT_INCOMPLETABLE_OPS;
 	}
 	if (!interrupt_device->interrupt_ops->redirect_irq) {
 		print_error_with_position(
 			"%s has no redirect_irq operation\n",
 			interrupt_device->device->name.text);
-		return DRIVER_RESULT_DEVICE_DRIVER_HAVE_INCOMPLETABLE_OPS;
+		return DRIVER_RESULT_INCOMPLETABLE_OPS;
 	}
 	return DRIVER_RESULT_OK;
 }

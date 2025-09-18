@@ -55,7 +55,7 @@ DriverResult register_network_device(
 	string_t name;
 	string_new_with_number(&name, "Network", 7, network_dm_ext.device_count++);
 	DRIVER_RESULT_PASS(register_device(
-		device->device_driver, name, device->bus, device, attr));
+		device->device_driver, &name, device->bus, device, attr));
 
 	device->object->out.type   = TRANSFER_TYPE_STREAM;
 	device->object->out.stream = network_transfer;

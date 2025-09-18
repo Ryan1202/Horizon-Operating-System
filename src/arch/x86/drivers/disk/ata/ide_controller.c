@@ -77,10 +77,9 @@ void ide_detect_channel_mode(
 
 DriverResult ide_controller_probe(PciDevice *pci_device) {
 	Device	  *device = kmalloc_from_template(ide_controller_device_templete);
-	string_t   name	  = STRING_INIT("");
 	ObjectAttr attr	  = device_object_attr;
 	register_device(
-		&ide_controller_device_driver, name, pci_device->bus, device, &attr);
+		&ide_controller_device_driver, NULL, pci_device->bus, device, &attr);
 
 	IdeControllerInfo *info = device->private_data;
 	info->pci_device		= pci_device;
