@@ -89,7 +89,7 @@ DriverResult init_device(Device *device) {
 	if (device->ops->init != NULL) {
 		DriverResult result = device->ops->init(device);
 		if (result != DRIVER_RESULT_OK) {
-			if (result != DRIVER_RESULT_DEVICE_NOT_EXIST) {
+			if (result != DRIVER_RESULT_NOT_EXIST) {
 				DRV_PRINT_RESULT(result, device->ops->init, device);
 				return result;
 			} else {

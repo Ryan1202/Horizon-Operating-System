@@ -109,5 +109,5 @@ DriverResult video_get_video_device(int in_index, VideoDevice **out_device) {
 		}
 		i++;
 	}
-	return DRIVER_RESULT_DEVICE_NOT_EXIST;
+	return DRIVER_RESULT_NOT_EXIST;
 }

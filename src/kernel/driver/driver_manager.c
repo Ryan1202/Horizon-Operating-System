@@ -23,7 +23,7 @@ DriverResult register_driver_manager(DriverManager *driver_manager) {
 DriverResult unregister_driver_manager(DriverManager *driver_manager) {
 	DriverManager *old_manager = driver_managers[driver_manager->type];
 
-	if (old_manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
+	if (old_manager == NULL) return DRIVER_RESULT_NOT_EXIST;
 	DM_OPS_CALL(old_manager, dm_unload_hook, old_manager);
 
 	driver_managers[driver_manager->type] = NULL;

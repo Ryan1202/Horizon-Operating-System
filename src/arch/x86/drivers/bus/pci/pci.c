@@ -216,7 +216,7 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 		for (j = 0; j < PCI_MAX_FUNC; j++) {
 			DriverResult result =
 				pci_scan_device(bus, bus->bus_num, i, j, &pci_device);
-			if (result == DRIVER_RESULT_DEVICE_NOT_EXIST) {
+			if (result == DRIVER_RESULT_NOT_EXIST) {
 				continue;
 			} else if (result == DRIVER_RESULT_NULL_POINTER) {
 				print_error_with_position(
@@ -336,7 +336,7 @@ DriverResult pci_scan_device(
 	uint32_t value	  = pci_read32(bus_num, device_num, function_num, 0);
 	uint16_t vendorID = value & 0xffff;
 	uint16_t deviceID = value >> 16;
-	if (vendorID == 0xffff) { return DRIVER_RESULT_DEVICE_NOT_EXIST; }
+	if (vendorID == 0xffff) { return DRIVER_RESULT_NOT_EXIST; }
 
 	value				  = pci_read32(bus_num, device_num, function_num, 0x0c);
 	uint8_t bist		  = value >> 24;

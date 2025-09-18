@@ -54,10 +54,10 @@ DriverResult register_bus_driver(
 	Driver *driver, BusDriver *bus_driver, ObjectAttr *attr) {
 
 	DriverManager *manager = driver_managers[DRIVER_TYPE_BUS_DRIVER];
-	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
+	if (manager == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	BusDriver *_bus_driver = bus_drivers[bus_driver->bus_type];
-	if (_bus_driver != NULL) return DRIVER_RESULT_BUS_DRIVER_ALREADY_EXIST;
+	if (_bus_driver != NULL) return DRIVER_RESULT_ALREADY_EXIST;
 
 	bus_driver->private_data = kmalloc(bus_driver->private_data_size);
 	bus_driver->state		 = DRIVER_STATE_UNINITED;
@@ -78,10 +78,10 @@ DriverResult register_bus_driver(
 DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 
 	DriverManager *manager = driver_managers[DRIVER_TYPE_BUS_DRIVER];
-	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
+	if (manager == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	BusDriver *bus_driver = bus_drivers[type];
-	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+	if (bus_driver == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	// TODO: delete_object(&bus_driver->object);
 
@@ -104,7 +104,7 @@ DriverResult unregister_bus_driver(Driver *driver, BusType type) {
 DriverResult register_bus(
 	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus,
 	ObjectAttr *attr) {
-	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+	if (bus_driver == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	Bus *primary_bus = bus->primary_bus;
 	Bus *tmp_bus	 = bus;
@@ -130,7 +130,7 @@ DriverResult register_bus(
 
 DriverResult unregister_bus(Bus *bus) {
 	BusDriver *bus_driver = bus->bus_driver;
-	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+	if (bus_driver == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	// TODO: delete_object(&bus->object);
 
@@ -149,7 +149,7 @@ DriverResult unregister_bus(Bus *bus) {
 
 DriverResult bus_register_device(Device *device, Bus *bus, ObjectAttr *attr) {
 	BusDriver *bus_driver = bus->bus_driver;
-	if (bus_driver == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+	if (bus_driver == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	device->bus = bus;
 	list_add_tail(&device->bus_list, &bus->device_lh);
@@ -166,7 +166,7 @@ DriverResult bus_register_device(Device *device, Bus *bus, ObjectAttr *attr) {
 
 DriverResult bus_unregister_device(Device *device) {
 	Bus *bus = device->bus;
-	if (bus == NULL) return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+	if (bus == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	BUS_OPS_CALL(bus, unregister_device_hook, device);
 	list_del(&device->bus_list);

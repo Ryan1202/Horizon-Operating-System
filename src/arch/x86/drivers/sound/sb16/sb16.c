@@ -153,7 +153,7 @@ DriverResult sb16_reset(Sb16Ports *ports) {
 			if (io_in8(ports->read) == 0xaa) { return DRIVER_RESULT_OK; }
 		}
 	}
-	return DRIVER_RESULT_DEVICE_NOT_EXIST;
+	return DRIVER_RESULT_NOT_EXIST;
 }
 
 DriverResult sb16_write(Sb16Ports *ports, uint8_t value) {

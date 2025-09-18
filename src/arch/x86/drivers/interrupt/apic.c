@@ -232,7 +232,7 @@ DriverResult apic_driver_init(struct DeviceDriver *driver) {
 		mask_8259a();
 		xapic_init(driver);
 	} else {
-		return DRIVER_RESULT_DEVICE_NOT_EXIST;
+		return DRIVER_RESULT_NOT_EXIST;
 	}
 	return DRIVER_RESULT_OK;
 }

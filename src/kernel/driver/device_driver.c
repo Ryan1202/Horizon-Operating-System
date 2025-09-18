@@ -58,7 +58,7 @@ DriverResult register_device_driver(
 	Driver *driver, DeviceDriver *device_driver) {
 
 	DriverManager *manager = driver_managers[DRIVER_TYPE_DEVICE_DRIVER];
-	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
+	if (manager == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	list_init(&device_driver->device_lh);
 	device_driver->private_data = kmalloc(device_driver->private_data_size);
@@ -79,7 +79,7 @@ DriverResult unregister_device_driver(
 	Driver *driver, DeviceDriver *device_driver) {
 
 	DriverManager *manager = driver_managers[device_driver->type];
-	if (manager == NULL) return DRIVER_RESULT_DRIVER_MANAGER_NOT_EXIST;
+	if (manager == NULL) return DRIVER_RESULT_NOT_EXIST;
 
 	DRV_RESULT_DELIVER_CALL(
 		unregister_sub_driver, driver, &device_driver->subdriver);

@@ -15,7 +15,7 @@ DriverResult check_dependency(Driver *driver) {
 	for (int i = 0; i < count; i++) {
 		if (deps[i].in_type == DRIVER_DEPENDENCY_TYPE_BUS) {
 			if (deps[i].dependency_in_bus.type > BUS_TYPE_MAX) {
-				return DRIVER_RESULT_BUS_DRIVER_NOT_EXIST;
+				return DRIVER_RESULT_NOT_EXIST;
 			}
 
 			Bus		  *bus;
@@ -46,7 +46,7 @@ DriverResult check_dependency(Driver *driver) {
 			}
 		} else if (deps[i].in_type == DRIVER_DEPENDENCY_TYPE_DEVICE) {
 			if (deps[i].in_device_type > DEVICE_TYPE_MAX) {
-				return DRIVER_RESULT_DEVICE_MANAGER_NOT_EXIST;
+				return DRIVER_RESULT_NOT_EXIST;
 			}
 			// TODO: device依赖
 		}

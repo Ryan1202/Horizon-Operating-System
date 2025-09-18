@@ -14,7 +14,7 @@ DriverResult timer_init(Timer *timer) {
 }
 
 DriverResult timer_set_timeout(Timer *timer, uint32_t count) {
-	if (timer->timer_device == NULL) return DRIVER_RESULT_DEVICE_NOT_EXIST;
+	if (timer->timer_device == NULL) return DRIVER_RESULT_NOT_EXIST;
 	uint32_t counter = timer->timer_device->counter;
 	timer->timeout	 = counter + count;
 	timer->will_wrap = (timer->timeout > counter) ? false : true;
@@ -24,7 +24,7 @@ DriverResult timer_set_timeout(Timer *timer, uint32_t count) {
 
 DriverResult timer_callback_enable(Timer *timer) {
 	if (timer == NULL || timer->timer_device == NULL)
-		return DRIVER_RESULT_DEVICE_NOT_EXIST;
+		return DRIVER_RESULT_NOT_EXIST;
 	// 在插入时排序
 	if (!list_empty(&timer->timer_device->timer_callback_lh)) {
 		Timer *last_timer = list_last_owner(
@@ -41,7 +41,7 @@ DriverResult timer_callback_enable(Timer *timer) {
 
 DriverResult timer_callback_cancel(Timer *timer) {
 	if (timer == NULL || timer->timer_device == NULL)
-		return DRIVER_RESULT_DEVICE_NOT_EXIST;
+		return DRIVER_RESULT_NOT_EXIST;
 
 	if (list_in_list(&timer->list)) list_del(&timer->list);
 	else return DRIVER_RESULT_OTHER_ERROR;
