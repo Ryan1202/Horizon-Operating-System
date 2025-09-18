@@ -143,13 +143,14 @@ int strncmp(const char *s1, const char *s2, int n) {
 	return (*s1 - *s2);
 }
 
-char *itoa(char **ps, int val, int base) {
+char *itoa(char *ps, int val, int base) {
 	int m = val % base;
 	int q = val / base;
 	if (q) { itoa(ps, q, base); }
-	*(*ps)++ = (m < 10) ? (m + '0') : (m - 10 + 'A');
+	*ps = (m < 10) ? (m + '0') : (m - 10 + 'A');
+	ps++;
 
-	return *ps;
+	return ps;
 }
 
 int atoi(const char *src) {

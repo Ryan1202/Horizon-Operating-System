@@ -13,7 +13,7 @@
 
 #define STRING_MAX_LEN 256
 #define STRING_INIT(str) \
-	{ .text = str "\0", .length = sizeof(str), .max_length = sizeof(str) }
+	{.text = str "\0", .length = sizeof(str), .max_length = sizeof(str)}
 
 typedef struct _string {
 	unsigned int length;
@@ -31,7 +31,7 @@ int string_new_with_string_number(
 void string_del(string_t *string);
 int	 string_cpy(string_t *dest, string_t *src);
 
-char *itoa(char **ps, int val, int base);
+char *itoa(char *ps, int val, int base);
 int	  atoi(const char *src);
 char *itoa16_align(char *str, int num);
 
