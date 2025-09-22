@@ -1,3 +1,5 @@
+#include "kernel/driver_interface.h"
+#include "kernel/func.h"
 #include "kernel/list.h"
 #include <driver/timer_dm.h>
 #include <kernel/driver.h>
@@ -62,8 +64,11 @@ void delay_ms(Timer *timer, uint32_t ms) {
 	uint32_t count = timer_count_ms(timer, ms);
 	timer_set_timeout(timer, count);
 
+	uint32_t status = load_interrupt_status();
+	enable_interrupt();
 	while (!timer_is_timeout(timer))
 		;
+	store_interrupt_status(status);
 }
 
 void delay_ms_async(Timer *timer, uint32_t ms) {
