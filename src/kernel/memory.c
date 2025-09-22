@@ -107,7 +107,7 @@ int mmap_search(struct mmap *btmp, unsigned int cnt) {
 
 void mmap_set(struct mmap *btmp, unsigned int bit_index, int value) {
 	unsigned int byte_idx = bit_index / 8; // 向下取整用于索引数组下标
-	unsigned int bit_odd = bit_index % 8; // 取余用于索引数组内的位
+	unsigned int bit_odd  = bit_index % 8; // 取余用于索引数组内的位
 
 	/* 一般都会用个0x1这样的数对字节中的位操作,
 	 * 将1任意移动后再取反,或者先取反再移位,可用来对位置0操作。*/
@@ -236,13 +236,13 @@ void *kmalloc(uint32_t size) {
 			return NULL;
 		}
 		memory_manage->free_blocks[index].address = (uint32_t)address;
-		memory_manage->free_blocks[index].size = pages; // 大小是页的数量
-		memory_manage->free_blocks[index].flags = MEMORY_BLOCK_ALLOCATED;
-		memory_manage->free_blocks[index].mode	= MEMORY_BLOCK_MODE_BIG;
+		memory_manage->free_blocks[index].size	  = pages; // 大小是页的数量
+		memory_manage->free_blocks[index].flags	  = MEMORY_BLOCK_ALLOCATED;
+		memory_manage->free_blocks[index].mode	  = MEMORY_BLOCK_MODE_BIG;
 		store_interrupt_status(flags);
 		return (void *)address;
-	} else if (0 < size && size <= 2048) {					// size <= 2048
-		int pow = MAX(aligned_log2n(size), MEMORY_MIN_POW); // 指数
+	} else if (0 < size && size <= 2048) {					   // size <= 2048
+		int pow = MAX(aligned_up_log2n(size), MEMORY_MIN_POW); // 指数
 		size	= 1 << pow;
 		// 第一次寻找，如果在块中没有找到，就打散一个页
 		if (!list_empty(
@@ -300,7 +300,7 @@ int kfree(void *address) {
 				store_interrupt_status(flags);
 				return 0;
 			} else if (block->mode == MEMORY_BLOCK_MODE_SMALL) {
-				int pow		 = aligned_log2n(block->size);
+				int pow		 = aligned_up_log2n(block->size);
 				block->flags = MEMORY_BLOCK_USING;
 				list_add_tail(
 					&block->list,
