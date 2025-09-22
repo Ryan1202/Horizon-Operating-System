@@ -7,40 +7,48 @@
 #include <driver/usb/usb.h>
 #include <driver/usb/usb_dm.h>
 #include <drivers/pit.h>
+#include <kernel/memory.h>
 #include <stdint.h>
 
-void usb_init_hub(UsbHcd *hcd, UsbDevice *device) {
-	Timer		 timer;
-	UsbEndpoint *ep0 =
-		usb_create_endpoint(hcd, 0, USB_EP_CONTROL, USB_EP_OUT, 64);
-	device->ep0 = ep0;
+void usb_init_hub(UsbHcd *hcd, UsbEndpoint *ep0, UsbDevice *usb_device) {
+	Timer timer;
 	timer_init(&timer);
 
-	hcd->device_count++;
-	usb_set_address(hcd, device, ep0, hcd->device_count);
-	delay_ms(&timer, 2);
-	device->address = hcd->device_count;
-
-	struct UsbHubDescriptor *desc	= usb_get_hub_descriptor(hcd, device, ep0);
+	// TODO: UsbHub
+	struct UsbHubDescriptor *desc =
+		usb_get_hub_descriptor(hcd, usb_device, ep0);
 	// usb_show_hub_descriptor(desc);
-	uint32_t				 status = usb_get_hub_status(hcd, device, ep0);
+	uint32_t status = usb_get_hub_status(hcd, usb_device, ep0);
 
-	int i;
+	int			   i;
+	UsbSetupStatus status2;
+	UsbEndpoint	  *endpoints = kmalloc(sizeof(UsbEndpoint) * desc->bNbrPorts);
 	for (i = 1; i <= desc->bNbrPorts; i++) {
-
-		usb_set_port_feature(hcd, device, ep0, i, HUB_FEAT_PORT_POWER);
-		delay_ms(&timer, 50);
-		usb_set_port_feature(hcd, device, ep0, i, HUB_FEAT_PORT_RESET);
-		delay_ms(&timer, 200);
-
-		status = usb_get_port_status(hcd, device, ep0, i);
+		status = usb_get_port_status(hcd, usb_device, ep0, i);
 		if (BIN_IS_EN(status, USB_PORT_STAT_CONNECTION)) {
-			UsbDevice *dev = usb_create_device(
-				hcd,
-				(BIN_IS_EN(status, USB_PORT_STAT_LOW_SPEED) ? USB_SPEED_LOW
-															: USB_SPEED_FULL),
-				0);
-			usb_init_device(hcd, dev);
+			status2 = usb_set_port_feature(
+				hcd, usb_device, ep0, i, HUB_FEAT_PORT_POWER);
+			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) { continue; }
+			delay_ms(&timer, 50);
+			status2 = usb_set_port_feature(
+				hcd, usb_device, ep0, i, HUB_FEAT_PORT_RESET);
+			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) { continue; }
+			delay_ms(&timer, 200);
+
+			UsbDeviceSpeed speed =
+				BIN_IS_EN(status, USB_PORT_STAT_LOW_SPEED)	  ? USB_SPEED_LOW
+				: BIN_IS_EN(status, USB_PORT_STAT_HIGH_SPEED) ? USB_SPEED_HIGH
+															  : USB_SPEED_FULL;
+			UsbDevice *dev = usb_create_device(hcd, speed, 0);
+			struct UsbEndpointDescriptor *endpoint_desc =
+				kmalloc(sizeof(struct UsbEndpointDescriptor));
+			endpoint_desc->bLength = sizeof(struct UsbEndpointDescriptor);
+			endpoint_desc->bDescriptorType	= USB_DESC_TYPE_ENDPOINT;
+			endpoint_desc->bEndpointAddress = USB_EP_OUT << 7 | 0; // ep0 out
+			endpoint_desc->bmAttributes		= USB_EP_CONTROL;
+			endpoint_desc->wMaxPacketSize	= HOST2LE_WORD(64);
+			endpoint_desc->bInterval		= 0;
+			usb_init_device(hcd, &endpoints[i - 1], endpoint_desc, dev);
 			delay_ms(&timer, 100);
 		}
 	}

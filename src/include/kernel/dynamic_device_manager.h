@@ -25,6 +25,8 @@ typedef struct DynamicDeviceManager {
 	DynamicDeviceEvents *events;
 } DynamicDeviceManager;
 
+extern list_t new_device_lh;
+
 DriverResult register_dynamic_device_manager(
 	DynamicDeviceEvents *events, DeviceManager *device_manager);
 void dynamic_device_manager(void *arg);

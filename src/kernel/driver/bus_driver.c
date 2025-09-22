@@ -155,8 +155,9 @@ DriverResult bus_register_device(Device *device, Bus *bus, ObjectAttr *attr) {
 	list_add_tail(&device->bus_list, &bus->device_lh);
 	BUS_OPS_CALL(bus, register_device_hook, device);
 
+	// TODO: 名字冲突
 	string_t name;
-	string_new_with_number(&name, "", 0, bus->last_device_num++);
+	string_new_with_number(&name, "_", 1, bus->last_device_num++);
 	attr->type					 = OBJECT_TYPE_DEVICE;
 	device->object				 = create_object(bus->object, name, *attr);
 	device->object->value.device = device;

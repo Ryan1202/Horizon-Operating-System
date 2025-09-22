@@ -1,6 +1,7 @@
 #ifndef _USB_H
 #define _USB_H
 
+#include "driver/usb/descriptors.h"
 #include <bits.h>
 #include <driver/usb/hcd.h>
 #include <kernel/driver.h>
@@ -65,6 +66,35 @@
 		.wLength	   = HOST2LE_WORD(length),                                 \
 	}
 
+typedef enum UsbInterfaceType {
+	USB_INTERFACE_TYPE_DEVICE = 0,
+	USB_INTERFACE_TYPE_AUDIO,
+	USB_INTERFACE_TYPE_COMM,
+	USB_INTERFACE_TYPE_HID,
+	USB_INTERFACE_TYPE_PHYSICAL,
+	USB_INTERFACE_TYPE_IMAGE,
+	USB_INTERFACE_TYPE_PRINTER,
+	USB_INTERFACE_TYPE_MASS_STORAGE,
+	USB_INTERFACE_TYPE_HUB,
+	USB_INTERFACE_TYPE_CDC_DATA,
+	USB_INTERFACE_TYPE_SMART_CARD,
+	USB_INTERFACE_TYPE_CONTENT_SECURITY,
+	USB_INTERFACE_TYPE_VIDEO,
+	USB_INTERFACE_TYPE_PERSONAL_HEALTHCARE,
+	USB_INTERFACE_TYPE_AUDIO_VIDEO,
+	USB_INTERFACE_TYPE_BILLBOARD,
+	USB_INTERFACE_TYPE_TYPE_C_BRIDGE,
+	USB_INTERFACE_TYPE_BULK_DISPLAY_PROTOCOL,
+	USB_INTERFACE_TYPE_MTCP,
+	USB_INTERFACE_TYPE_I3C,
+	USB_INTERFACE_TYPE_DIAGNOSTIC,
+	USB_INTERFACE_TYPE_WIRELESS_CONTROLLER,
+	USB_INTERFACE_TYPE_MISCELLANEOUS,
+	USB_INTERFACE_TYPE_APPLICATION_SPECIFIC,
+	USB_INTERFACE_TYPE_VENDOR_SPECIFIC,
+	USB_INTERFACE_TYPE_MAX,
+} UsbInterfaceType;
+
 typedef enum UsbDeviceSpeed {
 	USB_SPEED_LOW,
 	USB_SPEED_FULL,
@@ -78,7 +108,7 @@ typedef enum {
 } UsbDeviceState;
 
 typedef enum {
-	USB_EP_CONTROL,
+	USB_EP_CONTROL = 0,
 	USB_EP_ISOCHRONOUS,
 	USB_EP_BULK,
 	USB_EP_INTERRUPT,
@@ -92,21 +122,21 @@ typedef enum {
 typedef struct UsbEndpoint {
 	list_t list;
 
-	uint8_t			  endpoint;
-	UsbEpTransferType transfer_type;
-	UsbEpDirection	  direction;
-	uint16_t		  max_packet_size;
+	struct UsbEndpointDescriptor *desc;
 
-	void *sched;
+	void *pipe;
+
+	uint8_t data_toggle;
 } UsbEndpoint;
 
 typedef struct UsbInterface {
 	list_t list;
 
-	uint8_t interface;
-	uint8_t class;
-	uint8_t subclass;
-	uint8_t protocol;
+	struct UsbDriver *usb_driver;
+
+	struct UsbInterfaceDescriptor *desc;
+
+	UsbEndpoint *endpoints[0];
 } UsbInterface;
 
 typedef enum UsbStatus {
@@ -126,13 +156,41 @@ typedef enum UsbSetupStatus {
 	USB_SETUP_DATABUFFER_ERR,
 } UsbSetupStatus;
 
-typedef struct UsbRequest {
+typedef struct UsbControlRequest {
 	uint8_t	 bmRequestType;
 	uint8_t	 bRequest;
 	uint16_t wValue;
 	uint16_t wIndex;
 	uint16_t wLength;
-} __attribute__((packed)) UsbRequest;
+} __attribute__((packed)) UsbControlRequest;
+
+static const uint8_t usb_interface_map[] = {
+	[USB_INTERFACE_TYPE_DEVICE]				   = 0x00,
+	[USB_INTERFACE_TYPE_AUDIO]				   = 0x01,
+	[USB_INTERFACE_TYPE_COMM]				   = 0x02,
+	[USB_INTERFACE_TYPE_HID]				   = 0x03,
+	[USB_INTERFACE_TYPE_PHYSICAL]			   = 0x04,
+	[USB_INTERFACE_TYPE_IMAGE]				   = 0x05,
+	[USB_INTERFACE_TYPE_PRINTER]			   = 0x06,
+	[USB_INTERFACE_TYPE_MASS_STORAGE]		   = 0x07,
+	[USB_INTERFACE_TYPE_HUB]				   = 0x08,
+	[USB_INTERFACE_TYPE_CDC_DATA]			   = 0x09,
+	[USB_INTERFACE_TYPE_SMART_CARD]			   = 0x0a,
+	[USB_INTERFACE_TYPE_CONTENT_SECURITY]	   = 0x0b,
+	[USB_INTERFACE_TYPE_VIDEO]				   = 0x0c,
+	[USB_INTERFACE_TYPE_PERSONAL_HEALTHCARE]   = 0x0d,
+	[USB_INTERFACE_TYPE_AUDIO_VIDEO]		   = 0x0e,
+	[USB_INTERFACE_TYPE_BILLBOARD]			   = 0x0f,
+	[USB_INTERFACE_TYPE_TYPE_C_BRIDGE]		   = 0x10,
+	[USB_INTERFACE_TYPE_BULK_DISPLAY_PROTOCOL] = 0x11,
+	[USB_INTERFACE_TYPE_MTCP]				   = 0x12,
+	[USB_INTERFACE_TYPE_I3C]				   = 0x13,
+	[USB_INTERFACE_TYPE_DIAGNOSTIC]			   = 0x14,
+	[USB_INTERFACE_TYPE_WIRELESS_CONTROLLER]   = 0x3c,
+	[USB_INTERFACE_TYPE_MISCELLANEOUS]		   = 0xef,
+	[USB_INTERFACE_TYPE_APPLICATION_SPECIFIC]  = 0xfe,
+	[USB_INTERFACE_TYPE_VENDOR_SPECIFIC]	   = 0xff,
+};
 
 extern UsbEndpoint usb_ep0;
 
@@ -140,13 +198,15 @@ struct UsbDevice *usb_create_device(
 	UsbHcd *hcd, UsbDeviceSpeed speed, uint8_t address);
 int usb_destroy_device(struct UsbDevice *device);
 
-UsbRequest *usb_create_request(
+UsbControlRequest *usb_create_request(
 	uint8_t direction, uint8_t type, uint8_t recipient, uint8_t request_id,
 	uint8_t value_hi, uint8_t value_lo, uint16_t index, uint16_t length);
-UsbEndpoint *usb_create_endpoint(
-	UsbHcd *hcd, uint8_t endpoint, UsbEpTransferType transfer_type,
-	UsbEpDirection direction, uint16_t max_packet_size);
+void usb_init_endpoint(
+	struct UsbDevice *usb_device, UsbEndpoint *ep,
+	struct UsbEndpointDescriptor *desc);
 
-int usb_init_device(UsbHcd *hcd, struct UsbDevice *device);
+int usb_init_device(
+	UsbHcd *hcd, UsbEndpoint *ep0, struct UsbEndpointDescriptor *ep_desc,
+	struct UsbDevice *usb_device);
 
 #endif

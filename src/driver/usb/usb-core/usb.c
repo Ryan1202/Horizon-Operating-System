@@ -1,4 +1,3 @@
-#include "kernel/bus_driver.h"
 #include "kernel/device.h"
 #include "kernel/list.h"
 #include "objects/object.h"
@@ -30,6 +29,7 @@ UsbDevice *usb_create_device(
 	usb_device->address = address;
 	usb_device->state	= USB_STATE_UNINITED;
 	usb_device->device	= device;
+	usb_device->hcd		= hcd;
 
 	return usb_device;
 }
@@ -38,10 +38,11 @@ int usb_destroy_device(UsbDevice *device) {
 	return kfree(device);
 }
 
-UsbRequest *usb_create_request(
+UsbControlRequest *usb_create_request(
 	uint8_t direction, uint8_t type, uint8_t recipient, uint8_t request_id,
 	uint8_t value_hi, uint8_t value_lo, uint16_t index, uint16_t length) {
-	UsbRequest *request	   = (UsbRequest *)kmalloc(sizeof(UsbRequest));
+	UsbControlRequest *request =
+		(UsbControlRequest *)kmalloc(sizeof(UsbControlRequest));
 	request->bmRequestType = direction << 7 | type << 5 | recipient;
 	request->bRequest	   = request_id;
 	request->wValue		   = HOST2LE_WORD(value_hi << 8 | value_lo);
@@ -50,22 +51,18 @@ UsbRequest *usb_create_request(
 	return request;
 }
 
-UsbEndpoint *usb_create_endpoint(
-	UsbHcd *hcd, uint8_t endpoint, UsbEpTransferType transfer_type,
-	UsbEpDirection direction, uint16_t max_packet_size) {
-	UsbEndpoint *ep		= (UsbEndpoint *)kmalloc(sizeof(UsbEndpoint));
-	ep->endpoint		= endpoint;
-	ep->transfer_type	= transfer_type;
-	ep->direction		= direction;
-	ep->max_packet_size = max_packet_size;
+void usb_init_endpoint(
+	UsbDevice *usb_device, UsbEndpoint *ep,
+	struct UsbEndpointDescriptor *desc) {
+	ep->desc = desc;
 
-	ep->sched = hcd->ops->create_sched();
-	return ep;
+	ep->pipe = usb_device->hcd->ops->create_pipeline(usb_device, ep);
 }
 
-int usb_init_device(UsbHcd *hcd, UsbDevice *usb_device) {
-	UsbEndpoint *ep0 =
-		usb_create_endpoint(hcd, 0, USB_EP_CONTROL, USB_EP_OUT, 64);
+int usb_init_device(
+	UsbHcd *hcd, UsbEndpoint *ep0, struct UsbEndpointDescriptor *ep_desc,
+	UsbDevice *usb_device) {
+	usb_init_endpoint(usb_device, ep0, ep_desc);
 	usb_device->ep0 = ep0;
 
 	struct UsbDeviceDescriptor *desc =
@@ -87,6 +84,8 @@ int usb_init_device(UsbHcd *hcd, UsbDevice *usb_device) {
 	register_usb_device(
 		hcd->device->device_driver, usb_device->device, usb_device, &attr);
 
-	if (desc->bDeviceClass == USB_CLASS_HUB) { usb_init_hub(hcd, usb_device); }
+	if (desc->bDeviceClass == USB_CLASS_HUB) {
+		usb_init_hub(hcd, ep0, usb_device);
+	}
 	return 0;
 }

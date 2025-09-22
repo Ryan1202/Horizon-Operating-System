@@ -15,6 +15,7 @@ typedef struct UsbDevice {
 	list_t interface_lh;
 
 	UsbDeviceState state;
+	UsbHcd		  *hcd;
 	Device		  *device;
 
 	struct UsbDeviceDescriptor *desc;

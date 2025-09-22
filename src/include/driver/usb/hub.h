@@ -23,6 +23,6 @@
 #define HUB_FEAT_PORT_TEST		21
 #define HUB_FEAT_PORT_INDICATOR 22
 
-void usb_init_hub(UsbHcd *hcd, struct UsbDevice *device);
+void usb_init_hub(UsbHcd *hcd, UsbEndpoint *ep0, struct UsbDevice *usb_device);
 
 #endif
