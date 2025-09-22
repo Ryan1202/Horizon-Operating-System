@@ -10,8 +10,9 @@
 #include <string.h>
 
 struct UsbDevice;
-struct UsbTransfer;
-struct UsbRequest;
+struct UsbRequestBlock;
+struct UsbControlRequest;
+struct UsbEndpoint;
 
 typedef struct UsbHcdPort {
 	uint32_t	   port;
@@ -23,13 +24,18 @@ typedef struct UsbHcdPort {
 } UsbHcdPort;
 
 typedef struct UsbHcdOps {
-	void *(*create_sched)(void);
+	void *(*create_pipeline)(
+		struct UsbDevice *usb_device, struct UsbEndpoint *endpoint);
 	enum UsbSetupStatus (*ctrl_transfer_in)(
 		struct UsbHcd *hcd, struct UsbDevice *device, void *buffer,
-		uint32_t data_length, struct UsbRequest *usb_req);
+		uint32_t data_length, struct UsbControlRequest *usb_req);
 	enum UsbSetupStatus (*ctrl_transfer_out)(
 		struct UsbHcd *hcd, struct UsbDevice *device, void *buffer,
-		uint32_t data_length, struct UsbRequest *usb_req);
+		uint32_t data_length, struct UsbControlRequest *usb_req);
+	void (*add_interrupt_transfer)(
+		struct UsbHcd *hcd, struct UsbDevice *device, struct UsbEndpoint *ep,
+		struct UsbRequestBlock *urb);
+	void (*interrupt_transfer)(struct UsbHcd *hcd, struct UsbEndpoint *ep);
 } UsbHcdOps;
 
 typedef struct UsbHcd {

@@ -9,10 +9,13 @@
  *
  */
 #include "driver/timer_dm.h"
+#include "driver/usb/descriptors.h"
 #include "kernel/driver_interface.h"
 #include "kernel/list.h"
+#include "kernel/softirq.h"
 #include "kernel/thread.h"
 #include <bits.h>
+#include <driver/interrupt_dm.h>
 #include <driver/usb/hcd.h>
 #include <driver/usb/usb.h>
 #include <drivers/bus/pci/pci.h>
@@ -85,16 +88,73 @@ const Device uhci_device_template = {
 HciInit uhci_hci_init = {
 	.init = uhci_register,
 };
-// const UsbHciDevice uhci_hci_device_template = {
-// 	.head_size = 0,
-// 	.tail_size = 0,
-// };
 
 void uhci_port_reset(Uhci *devext, int port);
-void uhci_port_init(UsbHcd *hcd, int port);
+void uhci_port_init(UsbHcd *hcd, UsbEndpoint *ep0, int port);
 
-void uhci_handler(int irq) {
-	return;
+void uhci_handler(Device *device) {
+	Uhci   *uhci = device->private_data;
+	UhciQh *qhs	 = uhci->skel->qh, *qh;
+
+	// 清除UHCI状态寄存器
+	uint16_t status = io_in_word(uhci->io_base + UHCI_REG_STS);
+	if (status == 0) return;
+	if (status & UHCI_STAT_INTERRUPT) {
+		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_INTERRUPT);
+	}
+	if (status & UHCI_STAT_ERROR_INT) {
+		print_error("UHCI", "Error Interrupt");
+		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_ERROR_INT);
+	}
+	if (status & UHCI_STAT_RESUME_DETECT) {
+		print_error("UHCI", "Resume Detect");
+		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_RESUME_DETECT);
+	}
+	if (status & UHCI_STAT_HOST_SYSTEM_ERROR) {
+		print_error("UHCI", "Host System Error");
+		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_HOST_SYSTEM_ERROR);
+	}
+	if (status & UHCI_STAT_HC_PROCESS_ERROR) {
+		print_error("UHCI", "HC Process Error");
+		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_HC_PROCESS_ERROR);
+	}
+	if (status & UHCI_STAT_HC_HALTED) {
+		print_error("UHCI", "HC Halted");
+		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_HC_HALTED);
+	}
+
+	for (int i = 0; i < UHCI_SKEL_QH_COUNT; i++) {
+		if (qhs[i].qe_link == UHCI_TERMINATE) continue;
+		if (!(qhs[i].qe_link & UHCI_QH_TD_SELECT)) continue;
+		// 每一个Endpoint都有一个对应的QH，这个QH下只有TD
+		qh = (UhciQh *)qhs[i].first_qh;
+		if (qh->endpoint == NULL) continue;
+		while (qh != NULL && qh->first_td != NULL) {
+			UhciTd *td = (UhciTd *)qh->first_td;
+			qh		   = qh->next;
+			while (td != NULL) {
+				if (td->active || !td->interrupt_on_complete) {
+					td = td->next;
+					continue;
+				}
+				// 传输完成
+				td->interrupt_on_complete = 0;
+				if (td->urb != NULL) {
+					td->urb->actual_len += td->actlen;
+					td->urb->status =
+						td->stalled ? USB_STATUS_STALL
+						: (td->crc_timeout_Error | td->bitstuff_Error |
+						   td->databuffer_Error)
+							? USB_STATUS_ERR
+						: td->NAK_received ? USB_STATUS_NAK
+										   : USB_STATUS_ACK;
+					list_add_tail(&td->urb->list, &urb_lh);
+					pending_softirq();
+				}
+				td = td->next;
+			}
+		}
+	}
 }
 
 void uhci_print_status(Uhci *devext) {
@@ -154,7 +214,7 @@ void uhci_port_reset(Uhci *uhci, int port) {
 	delay_ms(&uhci->timer, 10);
 }
 
-void uhci_port_init(UsbHcd *hcd, int port) {
+void uhci_port_init(UsbHcd *hcd, UsbEndpoint *ep0, int port) {
 	Uhci	   *devext	 = (Uhci *)hcd->device->private_data;
 	uint32_t	io_port	 = devext->io_base + UHCI_PORTSC1 + port * 2;
 	UsbHcdPort *hcd_port = &hcd->ports[port];
@@ -164,16 +224,23 @@ void uhci_port_init(UsbHcd *hcd, int port) {
 
 	// 重置端口，注册设备
 	if (BIN_IS_EN(port_status, UHCI_PORT_SC_CONNECTED)) {
+		UsbDeviceSpeed speed = BIN_IS_EN(port_status, UHCI_PORT_SC_LOWSPEED)
+								 ? USB_SPEED_LOW
+								 : USB_SPEED_FULL;
 		printk("[UHCI]port %d connected.\n", port);
-		UsbDevice *usb_device = usb_create_device(
-			hcd,
-			BIN_IS_EN(port_status, UHCI_PORT_SC_LOWSPEED) ? USB_SPEED_LOW
-														  : USB_SPEED_FULL,
-			0);
+		UsbDevice *usb_device = usb_create_device(hcd, speed, 0);
 
 		uhci_port_reset(devext, port);
 
-		usb_init_device(hcd, usb_device);
+		struct UsbEndpointDescriptor *endpoint_desc =
+			kmalloc(sizeof(struct UsbEndpointDescriptor));
+		endpoint_desc->bLength			= sizeof(struct UsbEndpointDescriptor);
+		endpoint_desc->bDescriptorType	= USB_DESC_TYPE_ENDPOINT;
+		endpoint_desc->bEndpointAddress = USB_EP_OUT << 7 | 0; // ep0 out
+		endpoint_desc->bmAttributes		= USB_EP_CONTROL;
+		endpoint_desc->wMaxPacketSize	= HOST2LE_WORD(64);
+		endpoint_desc->bInterval		= 0;
+		usb_init_device(hcd, ep0, endpoint_desc, usb_device);
 	}
 
 	// 输出端口信息
@@ -205,9 +272,10 @@ DriverResult uhci_init(Device *device) {
 }
 
 void uhci_probe_thread(void *arg) {
-	Uhci *uhci = (Uhci *)arg;
+	Uhci		*uhci	   = (Uhci *)arg;
+	UsbEndpoint *endpoints = kmalloc(sizeof(UsbEndpoint) * uhci->port_cnt);
 	for (int i = 0; i < uhci->port_cnt; i++) {
-		uhci_port_init(uhci->hcd, i);
+		uhci_port_init(uhci->hcd, &endpoints[i], i);
 	}
 }
 
@@ -234,6 +302,13 @@ DriverResult uhci_start(Device *device) {
 	io_out_word(uhci->io_base + UHCI_REG_CMD, cmd | UHCI_CMD_RUN);
 
 	uhci_probe(device);
+
+	device->irq			 = kmalloc(sizeof(DeviceIrq));
+	device->irq->device	 = device;
+	device->irq->irq	 = uhci->device->irqline;
+	device->irq->handler = uhci_handler;
+	register_device_irq(device->irq);
+	interrupt_enable_irq(device->irq->irq);
 
 	return DRIVER_RESULT_OK;
 }
