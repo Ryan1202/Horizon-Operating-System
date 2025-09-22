@@ -147,13 +147,14 @@ void sub_driver_start_thread(void *arg) {
 		}
 
 		Bus *bus;
+		sub_driver->state = SUBDRIVER_STATE_READY;
+		wait_queue_wakeup_all(&bus_driver->subdriver.wq);
 		list_for_each_owner (bus, &bus_driver->bus_lh, bus_list) {
 			// 先等待Bus Controller Device就绪
 			while (bus->controller_device->device_driver->subdriver.state !=
 				   SUBDRIVER_STATE_READY) {
 				schedule();
 			}
-			wait_queue_wakeup_all(&bus_driver->subdriver.wq);
 			if (bus->ops->scan_bus != NULL) {
 				bus->ops->scan_bus(bus_driver, bus);
 			}
@@ -161,7 +162,6 @@ void sub_driver_start_thread(void *arg) {
 				bus->ops->probe_device(bus_driver, bus);
 			}
 		}
-		sub_driver->state = SUBDRIVER_STATE_READY;
 	}
 }
 
