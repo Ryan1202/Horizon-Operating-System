@@ -158,16 +158,17 @@ static inline UhciTd *uhci_out_transcation(
 int uhci_wait_transfer(UhciQh *qh) {
 	Timer timer;
 	timer_init(&timer);
-	int			  timeout = 150;
-	UhciPipeline *pipe	  = (UhciPipeline *)qh;
-	// UhciTd	  *td	   = &pipe->tds[pipe->td_index - 1];
-	UhciTd		 *td	  = qh->first_td;
-	while (timeout > 0) {
-		if (td->active == 0) { return 1; }
+	UhciTd *td = qh->first_td;
+	while (td->active) {
+		if (td->active == 0) { break; }
 
-		delay_ms(&timer, 10);
-		timeout--;
+		delay_ms(&timer, 1);
 	}
+	if (!(td->crc_timeout_Error | td->bitstuff_Error | td->databuffer_Error |
+		  td->stalled | td->NAK_received))
+		return 0;
+
+	// 发送错误
 	uint32_t *raw = (uint32_t *)td; // TD 在内存首地址
 	printk(
 		"TD raw: w0=%08x w1=%08x w2=%08x w3=%08x\n", raw[0], raw[1], raw[2],

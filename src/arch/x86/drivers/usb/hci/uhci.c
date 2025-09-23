@@ -57,7 +57,7 @@ void		 uhci_register(Driver *driver);
 DriverResult uhci_init(Device *device);
 DriverResult uhci_start(Device *device);
 DriverResult uhci_pci_probe(PciDevice *pci_device);
-void		 uhci_port_reset(Uhci *devext, int port);
+void		 uhci_port_reset(Uhci *uhci, int port);
 void		 uhci_port_init(UsbHub *hub, UsbHcd *hcd, int port);
 
 DeviceDriverOps uhci_device_driver_ops = {
@@ -192,6 +192,7 @@ UsbSetupStatus uhci_clear_port_feature(
 	default:
 		return USB_SETUP_STALLED;
 	}
+	return USB_SETUP_SUCCESS;
 }
 
 uint32_t uhci_get_hub_status(UsbHub *hub) {
@@ -222,17 +223,7 @@ UsbSetupStatus uhci_set_port_feature(
 	uint16_t value	 = io_in_word(io_port);
 	switch (feature) {
 	case HUB_FEAT_PORT_RESET:
-		io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_RESET));
-		delay_ms(&uhci->timer, 50);
-		value = io_in_word(io_port);
-		io_out_word(io_port, BIN_DIS(value, UHCI_PORT_SC_RESET));
-		do {
-			value = io_in_word(io_port);
-		} while (BIN_IS_EN(value, UHCI_PORT_SC_RESET));
-		delay_ms(&uhci->timer, 10);
-		if (value & UHCI_PORT_SC_CONNECTED) {
-			io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_ENABLE));
-		}
+		uhci_port_reset(uhci, port);
 		break;
 	case HUB_FEAT_PORT_SUSPEND:
 		io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_SUSPEND));
@@ -269,7 +260,7 @@ void uhci_port_reset(Uhci *uhci, int port) {
 	uint16_t value = io_in_word(io_port);
 	io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_RESET));
 
-	delay_ms(&uhci->timer, 50);
+	delay_ms(&uhci->timer, 10);
 
 	value = io_in_word(io_port);
 	io_out_word(io_port, BIN_DIS(value, UHCI_PORT_SC_RESET));

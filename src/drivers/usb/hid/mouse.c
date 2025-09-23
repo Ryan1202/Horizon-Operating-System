@@ -63,10 +63,6 @@ DriverResult usb_hid_mouse_init(Device *device) {
 		if ((ep->desc->bmAttributes & 0x03) == USB_EP_INTERRUPT &&
 			(ep->desc->bEndpointAddress >> 7) == USB_EP_IN) {
 			// 找到中断输入端点
-			printk(
-				"Mouse Interrupt IN Endpoint Found: 0x%02x\n",
-				ep->desc->bEndpointAddress);
-
 			int size	  = ep->desc->wMaxPacketSize & 0x7ff;
 			mouse->buffer = kmalloc(size);
 			mouse->urb	  = usb_create_urb(
@@ -83,12 +79,6 @@ DriverResult usb_hid_mouse_start(Device *device) {
 	ep->data_toggle	   = 1;
 	mouse->usb_device->hcd->ops->add_interrupt_transfer(
 		mouse->usb_device->hcd, mouse->usb_device, ep, mouse->urb);
-	// UsbControlRequest req = USB_BUILD_REQUEST(
-	// 	USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_INTERFACE,
-	// 	0x0b, 0x00, 0x00, mouse->interface->desc->bInterfaceNumber, 0);
-	// uint8_t data = 0;
-	// mouse->usb_device->hcd->ops->ctrl_transfer_out(
-	// 	mouse->usb_device->hcd, mouse->usb_device, &data, 0, &req);
 	return DRIVER_RESULT_OK;
 }
 
