@@ -29,16 +29,30 @@ void usb_init_hub(
 	UsbSetupStatus status2;
 	UsbEndpoint	  *endpoints =
 		kmalloc(sizeof(UsbEndpoint) * hub->desc->bNbrPorts);
-	for (i = 1; i <= hub->desc->bNbrPorts; i++) {
-		status = hub->ops->get_port_status(hub, i);
-		if (BIN_IS_EN(status, USB_PORT_STAT_CONNECTION)) {
-			status2 = hub->ops->set_port_feature(hub, i, HUB_FEAT_PORT_POWER);
-			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
-			delay_ms(&timer, hub->desc->bPwrOn2PwrGood * 2);
-			status2 = hub->ops->set_port_feature(hub, i, HUB_FEAT_PORT_RESET);
-			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
-			delay_ms(&timer, 200);
 
+	uint32_t port_status[hub->desc->bNbrPorts];
+	for (i = 0; i < hub->desc->bNbrPorts; i++) {
+		port_status[i] = hub->ops->get_port_status(hub, i + 1);
+		if (BIN_IS_EN(port_status[i], USB_PORT_STAT_CONNECTION)) {
+			status2 =
+				hub->ops->set_port_feature(hub, i + 1, HUB_FEAT_PORT_POWER);
+			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
+		}
+	}
+	delay_ms(&timer, hub->desc->bPwrOn2PwrGood * 2);
+
+	for (i = 0; i < hub->desc->bNbrPorts; i++) {
+		if (BIN_IS_EN(port_status[i], USB_PORT_STAT_CONNECTION)) {
+			status2 =
+				hub->ops->set_port_feature(hub, i + 1, HUB_FEAT_PORT_RESET);
+			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
+		}
+	}
+	delay_ms(&timer, 200);
+
+	for (i = 0; i < hub->desc->bNbrPorts; i++) {
+		status = port_status[i];
+		if (BIN_IS_EN(status, USB_PORT_STAT_CONNECTION)) {
 			UsbDeviceSpeed speed =
 				BIN_IS_EN(status, USB_PORT_STAT_LOW_SPEED)	  ? USB_SPEED_LOW
 				: BIN_IS_EN(status, USB_PORT_STAT_HIGH_SPEED) ? USB_SPEED_HIGH
@@ -52,8 +66,8 @@ void usb_init_hub(
 			endpoint_desc->bmAttributes		= USB_EP_CONTROL;
 			endpoint_desc->wMaxPacketSize	= HOST2LE_WORD(64);
 			endpoint_desc->bInterval		= 0;
-			usb_init_device(hcd, &endpoints[i - 1], endpoint_desc, dev);
-			delay_ms(&timer, 100);
+			usb_init_device(hcd, &endpoints[i], endpoint_desc, dev);
 		}
 	}
+	delay_ms(&timer, 100);
 }
