@@ -2,6 +2,7 @@
 #include "driver/usb/usb_dm.h"
 #include "kernel/dynamic_device_manager.h"
 #include "kernel/list.h"
+#include <driver/input/input_dm.h>
 #include <driver/usb/usb.h>
 #include <drivers/usb/hid.h>
 #include <drivers/usb/keyboard.h>
@@ -38,6 +39,9 @@ DeviceDriver usb_hid_keyboard_device_driver = {
 	.private_data_size = 0,
 	.ops			   = &usb_hid_keyboard_device_driver_ops,
 };
+InputDevice usb_hid_keyboard_input_device = {
+	.type = INPUT_TYPE_KEYBOARD,
+};
 
 void usb_hid_keyboard_handler(UsbRequestBlock *urb) {
 	UsbHidKeyboardReport *report	 = (UsbHidKeyboardReport *)urb->buffer;
@@ -51,6 +55,57 @@ void usb_hid_keyboard_handler(UsbRequestBlock *urb) {
 			report->modifier_keys, report->keycodes[0], report->keycodes[1],
 			report->keycodes[2], report->keycodes[3], report->keycodes[4],
 			report->keycodes[5]);
+		if (report->modifier_keys != keyboard->last_keys[0]) {
+			for (int i = 0; i < 8; i++) {
+				uint8_t mask = 1 << i;
+				if ((report->modifier_keys & mask) |
+					(keyboard->last_keys[0] & mask)) {
+					KeyEvent *event = new_key_event();
+					event->page		= 0;
+					event->keycode	= INPUT_KEY_EVENT_MODIFIER_BASE + i;
+					if (keyboard->last_keys[0] & mask) {
+						event->pressed = 0;
+					} else {
+						event->pressed = 1;
+					}
+				}
+			}
+		}
+		if (memcmp(&keyboard->last_keys[1], report->keycodes, 6) != 0) {
+			// 有按键变化
+			for (int i = 0; i < 6; i++) {
+				if (report->keycodes[i] == keyboard->last_keys[i + 1]) {
+					continue;
+				}
+
+				bool found1 = false, found2 = false;
+				for (int j = i; j < 6; j++) {
+					if (report->keycodes[i] == keyboard->last_keys[j + 1]) {
+						found1 = true;
+					}
+					if (keyboard->last_keys[i + 1] == report->keycodes[j]) {
+						found2 = true;
+					}
+					if (found1 && found2) break;
+				}
+				if (!found1) {
+					KeyEvent *event = new_key_event();
+					event->page		= 0;
+					event->keycode =
+						INPUT_KEY_EVENT_KEYBOARD_BASE + report->keycodes[i];
+					event->pressed = 1;
+				}
+				if (!found2) {
+					KeyEvent *event = new_key_event();
+					event->page		= 0;
+					event->keycode	= INPUT_KEY_EVENT_KEYBOARD_BASE +
+									 keyboard->last_keys[i + 1];
+					event->pressed = 0;
+				}
+			}
+		}
+		memcpy(&keyboard->last_keys[1], report->keycodes, 6);
+		keyboard->last_keys[0] = report->modifier_keys;
 		urb->ep->data_toggle ^= 1;
 		usb_device->hcd->ops->interrupt_transfer(usb_device->hcd, urb->ep);
 	} else {
@@ -107,10 +162,9 @@ DriverResult usb_hid_keyboard_probe(
 	device->state		  = DEVICE_STATE_UNREGISTERED;
 	interface->usb_driver = &usb_hid_usb_driver;
 
-	ObjectAttr attr = device_object_attr;
-	register_device(
-		&usb_hid_keyboard_device_driver, &device->name, usb_device->device->bus,
-		device, &attr);
+	register_input_device(
+		&usb_hid_keyboard_device_driver, device, usb_device->device->bus,
+		&usb_hid_keyboard_input_device);
 
 	UsbHidKeyboard *keyboard = device->private_data;
 	keyboard->device		 = device;

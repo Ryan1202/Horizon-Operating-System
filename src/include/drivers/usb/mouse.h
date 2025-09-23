@@ -21,6 +21,8 @@ typedef struct {
 	UsbRequestBlock *urb;
 
 	uint8_t *buffer;
+
+	uint8_t last_buttons;
 } UsbHidMouse;
 
 extern DeviceOps	usb_hid_mouse_device_ops;

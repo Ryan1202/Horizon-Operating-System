@@ -21,6 +21,8 @@ typedef struct {
 	UsbRequestBlock *urb;
 
 	uint8_t *buffer;
+
+	uint8_t last_keys[7];
 } UsbHidKeyboard;
 
 extern DeviceOps	usb_hid_keyboard_device_ops;

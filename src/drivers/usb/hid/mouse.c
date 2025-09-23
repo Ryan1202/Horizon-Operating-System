@@ -1,3 +1,4 @@
+#include "driver/input/input_dm.h"
 #include "driver/usb/descriptors.h"
 #include "driver/usb/usb_dm.h"
 #include "kernel/dynamic_device_manager.h"
@@ -37,6 +38,9 @@ DeviceDriver usb_hid_mouse_device_driver = {
 	.private_data_size = 0,
 	.ops			   = &usb_hid_mouse_device_driver_ops,
 };
+InputDevice usb_hid_mouse_input_device = {
+	.type = INPUT_TYPE_MOUSE,
+};
 
 void usb_hid_mouse_handler(UsbRequestBlock *urb) {
 	UsbHidMouseReport *report	  = (UsbHidMouseReport *)urb->buffer;
@@ -46,6 +50,22 @@ void usb_hid_mouse_handler(UsbRequestBlock *urb) {
 		printk(
 			"Mouse Report: Buttons: 0x%02x, X: %d, Y: %d\n", report->buttons,
 			report->x, report->y);
+		if (report->x != 0 || report->y != 0) {
+			PointerEvent *event = new_pointer_event();
+			if (event) {
+				event->type = POINTER_TYPE_MOVE;
+				event->dx	= report->x;
+				event->dy	= report->y;
+			}
+		}
+		if ((report->buttons & 7) != (mouse->last_buttons & 7)) {
+			KeyEvent *event = new_key_event();
+			if (event) {
+				event->keycode = report->buttons + INPUT_KEY_EVENT_MOUSE_BASE;
+				event->pressed = 1;
+				event->page	   = 0;
+			}
+		}
 		urb->ep->data_toggle ^= 1;
 		usb_device->hcd->ops->interrupt_transfer(usb_device->hcd, urb->ep);
 	} else {
@@ -86,16 +106,15 @@ DriverResult usb_hid_mouse_probe(
 	UsbDevice *usb_device, UsbInterface *interface) {
 	Device *device			  = kmalloc(sizeof(Device));
 	device->private_data_size = sizeof(UsbHidMouse);
-	string_new(&device->name, "USB HID Mouse", 14);
+	string_new(&device->name, "UsbHidMouse", 12);
 	device->device_driver = &usb_hid_mouse_device_driver;
 	device->ops			  = &usb_hid_mouse_device_ops;
 	device->state		  = DEVICE_STATE_UNREGISTERED;
 	interface->usb_driver = &usb_hid_usb_driver;
 
-	ObjectAttr attr = device_object_attr;
-	register_device(
-		&usb_hid_mouse_device_driver, &device->name, usb_device->device->bus,
-		device, &attr);
+	register_input_device(
+		&usb_hid_mouse_device_driver, device, usb_device->device->bus,
+		&usb_hid_mouse_input_device);
 
 	UsbHidMouse *mouse = device->private_data;
 	mouse->device	   = device;
