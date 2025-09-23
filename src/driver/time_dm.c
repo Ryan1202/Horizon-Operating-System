@@ -9,8 +9,8 @@ DriverResult timer_dm_load(DeviceManager *manager);
 DriverResult timer_dm_unload(DeviceManager *manager);
 
 DeviceManagerOps time_dm_ops = {
-	.dm_load   = timer_dm_load,
-	.dm_unload = timer_dm_unload,
+	.dm_load   = NULL,
+	.dm_unload = NULL,
 };
 
 TimeDeviceManager time_dm_ext;
@@ -19,16 +19,6 @@ DeviceManager	  time_dm = {
 		.ops		  = &time_dm_ops,
 		.private_data = &time_dm_ext,
 };
-
-DriverResult time_dm_load(DeviceManager *manager) {
-	manager->private_data = kmalloc(sizeof(TimeDeviceManager));
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult time_dm_unload(DeviceManager *manager) {
-	kfree(manager->private_data);
-	return DRIVER_RESULT_OK;
-}
 
 DriverResult register_time_device(
 	DeviceDriver *driver, Device *device, TimeDevice *time_device) {
