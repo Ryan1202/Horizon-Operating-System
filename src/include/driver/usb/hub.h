@@ -2,6 +2,8 @@
 #define _USB_HUB_H
 
 #include <driver/usb/usb.h>
+#include <driver/usb/usb_dm.h>
+#include <stdint.h>
 
 #define HUB_FEAT_C_LOCAL_POWER	0
 #define HUB_FEAT_C_OVER_CURRENT 1
@@ -23,6 +25,27 @@
 #define HUB_FEAT_PORT_TEST		21
 #define HUB_FEAT_PORT_INDICATOR 22
 
-void usb_init_hub(UsbHcd *hcd, UsbEndpoint *ep0, struct UsbDevice *usb_device);
+typedef struct UsbHub {
+	UsbDevice *usb_device;
+	UsbHcd	  *hcd;
+
+	struct UsbHubDescriptor *desc;
+	struct UsbHubOps		*ops;
+} UsbHub;
+
+typedef struct UsbHubOps {
+	void (*init)(struct UsbHub *hub);
+	UsbSetupStatus (*clear_port_feature)(
+		struct UsbHub *hub, uint8_t port, uint16_t feature);
+	UsbSetupStatus (*set_port_feature)(
+		struct UsbHub *hub, uint8_t port, uint16_t feature);
+	uint32_t (*get_hub_status)(struct UsbHub *hub);
+	uint32_t (*get_port_status)(struct UsbHub *hub, uint8_t port);
+} UsbHubOps;
+
+extern UsbHubOps usb_hub_ops;
+
+void usb_init_hub(
+	UsbHcd *hcd, UsbHub *hub, UsbEndpoint *ep0, struct UsbDevice *usb_device);
 
 #endif

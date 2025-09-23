@@ -10,36 +10,40 @@
 #include <kernel/memory.h>
 #include <stdint.h>
 
-void usb_init_hub(UsbHcd *hcd, UsbEndpoint *ep0, UsbDevice *usb_device) {
+UsbHubOps usb_hub_ops = {
+	.init				= NULL,
+	.clear_port_feature = usb_clear_port_feature,
+	.set_port_feature	= usb_set_port_feature,
+	.get_hub_status		= usb_get_hub_status,
+	.get_port_status	= usb_get_port_status,
+};
+
+void usb_init_hub(
+	UsbHcd *hcd, UsbHub *hub, UsbEndpoint *ep0, UsbDevice *usb_device) {
 	Timer timer;
 	timer_init(&timer);
 
-	// TODO: UsbHub
-	struct UsbHubDescriptor *desc =
-		usb_get_hub_descriptor(hcd, usb_device, ep0);
-	// usb_show_hub_descriptor(desc);
-	uint32_t status = usb_get_hub_status(hcd, usb_device, ep0);
+	uint32_t status = hub->ops->get_hub_status(hub);
 
 	int			   i;
 	UsbSetupStatus status2;
-	UsbEndpoint	  *endpoints = kmalloc(sizeof(UsbEndpoint) * desc->bNbrPorts);
-	for (i = 1; i <= desc->bNbrPorts; i++) {
-		status = usb_get_port_status(hcd, usb_device, ep0, i);
+	UsbEndpoint	  *endpoints =
+		kmalloc(sizeof(UsbEndpoint) * hub->desc->bNbrPorts);
+	for (i = 1; i <= hub->desc->bNbrPorts; i++) {
+		status = hub->ops->get_port_status(hub, i);
 		if (BIN_IS_EN(status, USB_PORT_STAT_CONNECTION)) {
-			status2 = usb_set_port_feature(
-				hcd, usb_device, ep0, i, HUB_FEAT_PORT_POWER);
-			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) { continue; }
-			delay_ms(&timer, 50);
-			status2 = usb_set_port_feature(
-				hcd, usb_device, ep0, i, HUB_FEAT_PORT_RESET);
-			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) { continue; }
+			status2 = hub->ops->set_port_feature(hub, i, HUB_FEAT_PORT_POWER);
+			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
+			delay_ms(&timer, hub->desc->bPwrOn2PwrGood * 2);
+			status2 = hub->ops->set_port_feature(hub, i, HUB_FEAT_PORT_RESET);
+			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
 			delay_ms(&timer, 200);
 
 			UsbDeviceSpeed speed =
 				BIN_IS_EN(status, USB_PORT_STAT_LOW_SPEED)	  ? USB_SPEED_LOW
 				: BIN_IS_EN(status, USB_PORT_STAT_HIGH_SPEED) ? USB_SPEED_HIGH
 															  : USB_SPEED_FULL;
-			UsbDevice *dev = usb_create_device(hcd, speed, 0);
+			UsbDevice *dev = usb_create_device(hcd, hub, speed, 0);
 			struct UsbEndpointDescriptor *endpoint_desc =
 				kmalloc(sizeof(struct UsbEndpointDescriptor));
 			endpoint_desc->bLength = sizeof(struct UsbEndpointDescriptor);

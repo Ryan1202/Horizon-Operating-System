@@ -14,7 +14,7 @@
 #include <stdint.h>
 
 UsbDevice *usb_create_device(
-	UsbHcd *hcd, UsbDeviceSpeed speed, uint8_t address) {
+	UsbHcd *hcd, UsbHub *hub, UsbDeviceSpeed speed, uint8_t address) {
 	Device *device			  = kmalloc(sizeof(Device));
 	device->private_data_size = 0;
 	device->ops				  = NULL;
@@ -30,6 +30,7 @@ UsbDevice *usb_create_device(
 	usb_device->state	= USB_STATE_UNINITED;
 	usb_device->device	= device;
 	usb_device->hcd		= hcd;
+	usb_device->hub		= hub;
 
 	return usb_device;
 }
@@ -85,7 +86,15 @@ int usb_init_device(
 		hcd->device->device_driver, usb_device->device, usb_device, &attr);
 
 	if (desc->bDeviceClass == USB_CLASS_HUB) {
-		usb_init_hub(hcd, ep0, usb_device);
+		UsbHub *hub		= kmalloc(sizeof(UsbHub));
+		hub->usb_device = usb_device;
+		hub->ops		= &usb_hub_ops;
+		hub->hcd		= hcd;
+
+		hub->desc = usb_get_hub_descriptor(hub);
+		// usb_show_hub_descriptor(desc);
+
+		usb_init_hub(hcd, hub, ep0, usb_device);
 	}
 	return 0;
 }

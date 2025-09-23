@@ -1,5 +1,6 @@
 #include <driver/usb/descriptors.h>
 #include <driver/usb/func.h>
+#include <driver/usb/hub.h>
 #include <driver/usb/usb.h>
 #include <driver/usb/usb_dm.h>
 #include <kernel/console.h>
@@ -110,9 +111,10 @@ UsbSetupStatus usb_set_config(
 	return hcd->ops->ctrl_transfer_out(hcd, device, NULL, 0, &usb_req);
 }
 
-struct UsbHubDescriptor *usb_get_hub_descriptor(
-	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
-	struct UsbHubDescriptor *desc = kmalloc(sizeof(struct UsbHubDescriptor));
+struct UsbHubDescriptor *usb_get_hub_descriptor(UsbHub *hub) {
+	UsbDevice				*device = hub->usb_device;
+	UsbHcd					*hcd	= device->hcd;
+	struct UsbHubDescriptor *desc	= kmalloc(sizeof(struct UsbHubDescriptor));
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_DEVICE,
@@ -123,8 +125,10 @@ struct UsbHubDescriptor *usb_get_hub_descriptor(
 	return desc;
 }
 
-uint32_t usb_get_hub_status(UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
-	uint32_t stat;
+uint32_t usb_get_hub_status(UsbHub *hub) {
+	uint32_t   stat;
+	UsbDevice *device = hub->usb_device;
+	UsbHcd	  *hcd	  = device->hcd;
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
@@ -133,9 +137,10 @@ uint32_t usb_get_hub_status(UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep) {
 	return stat;
 }
 
-uint32_t usb_get_port_status(
-	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, uint8_t port) {
-	uint32_t stat;
+uint32_t usb_get_port_status(UsbHub *hub, uint8_t port) {
+	uint32_t   stat;
+	UsbDevice *device = hub->usb_device;
+	UsbHcd	  *hcd	  = device->hcd;
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_OTHER,
@@ -173,9 +178,22 @@ UsbSetupStatus usb_set_address(
 	return hcd->ops->ctrl_transfer_out(hcd, device, NULL, 0, &req);
 }
 
+UsbSetupStatus usb_clear_port_feature(
+	UsbHub *hub, uint8_t port, uint16_t feature) {
+	UsbDevice *device = hub->usb_device;
+	UsbHcd	  *hcd	  = device->hcd;
+
+	UsbControlRequest req = USB_BUILD_REQUEST(
+		USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_OTHER,
+		USB_REQ_CLEAR_FEATURE, feature >> 8, feature & 0xff, port, 0);
+
+	return hcd->ops->ctrl_transfer_out(hcd, device, NULL, 0, &req);
+}
+
 UsbSetupStatus usb_set_port_feature(
-	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, uint8_t port,
-	uint16_t feature) {
+	UsbHub *hub, uint8_t port, uint16_t feature) {
+	UsbDevice *device = hub->usb_device;
+	UsbHcd	  *hcd	  = device->hcd;
 
 	UsbControlRequest req = USB_BUILD_REQUEST(
 		USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_OTHER,

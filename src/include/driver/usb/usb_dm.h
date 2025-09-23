@@ -17,6 +17,7 @@ typedef struct UsbDevice {
 	UsbDeviceState state;
 	UsbHcd		  *hcd;
 	Device		  *device;
+	struct UsbHub *hub;
 
 	struct UsbDeviceDescriptor *desc;
 	UsbDeviceSpeed				speed;

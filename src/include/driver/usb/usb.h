@@ -194,8 +194,9 @@ static const uint8_t usb_interface_map[] = {
 
 extern UsbEndpoint usb_ep0;
 
+struct UsbHub;
 struct UsbDevice *usb_create_device(
-	UsbHcd *hcd, UsbDeviceSpeed speed, uint8_t address);
+	UsbHcd *hcd, struct UsbHub *hub, UsbDeviceSpeed speed, uint8_t address);
 int usb_destroy_device(struct UsbDevice *device);
 
 UsbControlRequest *usb_create_request(

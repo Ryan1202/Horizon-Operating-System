@@ -17,6 +17,7 @@
 #include <bits.h>
 #include <driver/interrupt_dm.h>
 #include <driver/usb/hcd.h>
+#include <driver/usb/hub.h>
 #include <driver/usb/usb.h>
 #include <drivers/bus/pci/pci.h>
 #include <drivers/bus/usb.h>
@@ -44,12 +45,20 @@
 #define DEV_NAME	  "UHCI"
 #define DEV_FULL_NAME "Universal Host Controller Interface(UHCI)"
 
+extern UsbHcdOps uhci_ops;
+
+uint32_t	   uhci_get_hub_status(UsbHub *hub);
+uint32_t	   uhci_get_port_status(UsbHub *hub, uint8_t port);
+UsbSetupStatus uhci_clear_port_feature(
+	UsbHub *hub, uint8_t port, uint16_t feature);
+UsbSetupStatus uhci_set_port_feature(
+	UsbHub *hub, uint8_t port, uint16_t feature);
 void		 uhci_register(Driver *driver);
 DriverResult uhci_init(Device *device);
 DriverResult uhci_start(Device *device);
 DriverResult uhci_pci_probe(PciDevice *pci_device);
-
-extern UsbHcdOps uhci_ops;
+void		 uhci_port_reset(Uhci *devext, int port);
+void		 uhci_port_init(UsbHub *hub, UsbHcd *hcd, int port);
 
 DeviceDriverOps uhci_device_driver_ops = {
 	.device_driver_init	  = NULL,
@@ -64,6 +73,13 @@ DeviceOps uhci_device_ops = {
 	.destroy = NULL,
 	.status	 = NULL,
 	.stop	 = NULL,
+};
+UsbHubOps uhci_root_hub_ops = {
+	.init				= NULL,
+	.clear_port_feature = uhci_clear_port_feature,
+	.set_port_feature	= uhci_set_port_feature,
+	.get_hub_status		= uhci_get_hub_status,
+	.get_port_status	= uhci_get_port_status,
 };
 
 DeviceDriver uhci_device_driver = {
@@ -88,9 +104,6 @@ const Device uhci_device_template = {
 HciInit uhci_hci_init = {
 	.init = uhci_register,
 };
-
-void uhci_port_reset(Uhci *devext, int port);
-void uhci_port_init(UsbHcd *hcd, UsbEndpoint *ep0, int port);
 
 void uhci_handler(Device *device) {
 	Uhci   *uhci = device->private_data;
@@ -157,15 +170,79 @@ void uhci_handler(Device *device) {
 	}
 }
 
-void uhci_print_status(Uhci *devext) {
-	uint16_t status = io_in_word(devext->io_base + UHCI_REG_STS);
-	printk("\n[UHCI]Status:\n");
-	if (status & 0x20) { printk("[UHCI]HC Halted.\n"); }
-	if (status & 0x10) { printk("[UHCI]HC Process Error.\n"); }
-	if (status & 0x08) { printk("[UHCI]Host System Error.\n"); }
-	if (status & 0x04) { printk("[UHCI]Resume Detect.\n"); }
-	printk("[UHCI]Error Int:%d\n", status & 0x02);
-	printk("[UHCI]Interrupt:%d\n", status & 0x01);
+UsbSetupStatus uhci_clear_port_feature(
+	UsbHub *hub, uint8_t port, uint16_t feature) {
+	UsbHcd	*hcd	 = hub->hcd;
+	Uhci	*uhci	 = (Uhci *)hcd->device->private_data;
+	uint32_t io_port = uhci->io_base + UHCI_PORTSC1 + port * 2;
+	uint16_t value	 = io_in_word(io_port);
+	switch (feature) {
+	case HUB_FEAT_PORT_ENABLE:
+		io_out_word(io_port, BIN_DIS(value, UHCI_PORT_SC_ENABLE));
+		break;
+	case HUB_FEAT_C_PORT_CONNECTION:
+		io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_CONN_CHG));
+		break;
+	case HUB_FEAT_C_PORT_ENABLE:
+		io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_EN_CHG));
+		break;
+	case HUB_FEAT_C_PORT_RESET:
+		io_out_word(io_port, BIN_DIS(value, UHCI_PORT_SC_RESET));
+		break;
+	default:
+		return USB_SETUP_STALLED;
+	}
+}
+
+uint32_t uhci_get_hub_status(UsbHub *hub) {
+	return 0b00;
+}
+
+uint32_t uhci_get_port_status(UsbHub *hub, uint8_t port) {
+	UsbHcd	*hcd			  = hub->hcd;
+	Uhci	*uhci			  = (Uhci *)hcd->device->private_data;
+	uint32_t io_port		  = uhci->io_base + UHCI_PORTSC1 + port * 2;
+	uint16_t uhci_port_status = io_in_word(io_port);
+	uint16_t usb_port_status;
+
+	usb_port_status = (uhci_port_status & UHCI_PORT_SC_CONNECTED) |
+					  (uhci_port_status & UHCI_PORT_SC_ENABLE) >> 1 |
+					  (uhci_port_status & UHCI_PORT_SC_SUSPEND) >> 10 |
+					  (uhci_port_status & UHCI_PORT_SC_RESET) >> 5 |
+					  USB_PORT_STAT_POWER |
+					  (uhci_port_status & UHCI_PORT_SC_LOWSPEED);
+	return usb_port_status;
+}
+
+UsbSetupStatus uhci_set_port_feature(
+	UsbHub *hub, uint8_t port, uint16_t feature) {
+	UsbHcd	*hcd	 = hub->hcd;
+	Uhci	*uhci	 = (Uhci *)hcd->device->private_data;
+	uint32_t io_port = uhci->io_base + UHCI_PORTSC1 + port * 2;
+	uint16_t value	 = io_in_word(io_port);
+	switch (feature) {
+	case HUB_FEAT_PORT_RESET:
+		io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_RESET));
+		delay_ms(&uhci->timer, 50);
+		value = io_in_word(io_port);
+		io_out_word(io_port, BIN_DIS(value, UHCI_PORT_SC_RESET));
+		do {
+			value = io_in_word(io_port);
+		} while (BIN_IS_EN(value, UHCI_PORT_SC_RESET));
+		delay_ms(&uhci->timer, 10);
+		if (value & UHCI_PORT_SC_CONNECTED) {
+			io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_ENABLE));
+		}
+		break;
+	case HUB_FEAT_PORT_SUSPEND:
+		io_out_word(io_port, BIN_EN(value, UHCI_PORT_SC_SUSPEND));
+		break;
+	case HUB_FEAT_PORT_POWER:
+		break;
+	default:
+		return USB_SETUP_STALLED;
+	}
+	return USB_SETUP_SUCCESS;
 }
 
 void uhci_reset(Uhci *uhci) {
@@ -214,7 +291,7 @@ void uhci_port_reset(Uhci *uhci, int port) {
 	delay_ms(&uhci->timer, 10);
 }
 
-void uhci_port_init(UsbHcd *hcd, UsbEndpoint *ep0, int port) {
+void uhci_port_init(UsbHub *hub, UsbHcd *hcd, int port) {
 	Uhci	   *devext	 = (Uhci *)hcd->device->private_data;
 	uint32_t	io_port	 = devext->io_base + UHCI_PORTSC1 + port * 2;
 	UsbHcdPort *hcd_port = &hcd->ports[port];
@@ -228,10 +305,11 @@ void uhci_port_init(UsbHcd *hcd, UsbEndpoint *ep0, int port) {
 								 ? USB_SPEED_LOW
 								 : USB_SPEED_FULL;
 		printk("[UHCI]port %d connected.\n", port);
-		UsbDevice *usb_device = usb_create_device(hcd, speed, 0);
+		UsbDevice *usb_device = usb_create_device(hcd, hub, speed, 0);
 
 		uhci_port_reset(devext, port);
 
+		UsbEndpoint					 *ep0 = kmalloc(sizeof(UsbEndpoint));
 		struct UsbEndpointDescriptor *endpoint_desc =
 			kmalloc(sizeof(struct UsbEndpointDescriptor));
 		endpoint_desc->bLength			= sizeof(struct UsbEndpointDescriptor);
@@ -272,10 +350,25 @@ DriverResult uhci_init(Device *device) {
 }
 
 void uhci_probe_thread(void *arg) {
-	Uhci		*uhci	   = (Uhci *)arg;
-	UsbEndpoint *endpoints = kmalloc(sizeof(UsbEndpoint) * uhci->port_cnt);
+	Uhci *uhci = (Uhci *)arg;
+
+	UsbHub *hub		= kmalloc(sizeof(UsbHub));
+	hub->usb_device = NULL;
+	hub->ops		= &uhci_root_hub_ops;
+
+	struct UsbHubDescriptor *desc = kmalloc(sizeof(struct UsbHubDescriptor));
+	hub->desc					  = desc;
+	desc->bLength				  = 9;
+	desc->bDescriptorType		  = USB_DESC_TYPE_HUB;
+	desc->bNbrPorts				  = uhci->port_cnt;
+	desc->wHubCharacteristics = HOST2LE_WORD(0x0009); // 无电源开关，单独供电
+	desc->bPwrOn2PwrGood	  = 0;
+	desc->bHubContrCurrent	  = 0;
+	memset(&desc->DeviceRemovable, 0xff, 8); // 都是可移除的
+	memset(&desc->PortPwrCtrlMask, 0xff, 8); // 都是电源控制的
+
 	for (int i = 0; i < uhci->port_cnt; i++) {
-		uhci_port_init(uhci->hcd, &endpoints[i], i);
+		uhci_port_init(hub, uhci->hcd, i);
 	}
 }
 
