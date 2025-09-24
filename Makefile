@@ -103,9 +103,9 @@ qemu_dbg:
 	$(QEMU) \
 	-no-reboot \
 	-s -S \
-	-monitor stdio \
+	-serial stdio \
 	-m 1024 \
-	-hda $(HD_IMG) \
+	-drive file=$(HD_IMG),if=ide,format=raw \
 	-usb \
 	-device piix3-usb-uhci \
 	-device usb-kbd \
@@ -121,7 +121,7 @@ qemu:
 	-no-reboot \
 	-monitor stdio \
 	-m 1024 \
-	-hda $(HD_IMG) \
+	-drive file=$(HD_IMG),if=ide,format=raw \
 	-usb \
 	-device piix3-usb-uhci \
 	-device usb-kbd \

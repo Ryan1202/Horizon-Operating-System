@@ -1,3 +1,4 @@
+#include "driver/serial/serial_dm.h"
 #include "stdint.h"
 #include <bios_emu/bios_emu.h>
 #include <driver/interrupt_dm.h>
@@ -6,6 +7,7 @@
 #include <drivers/bus/isa/dma.h>
 #include <drivers/cmos.h>
 #include <drivers/pit.h>
+#include <drivers/serial.h>
 #include <drivers/vesa_display.h>
 #include <drivers/video.h>
 #include <kernel/bus_driver.h>
@@ -65,6 +67,7 @@ void platform_init() {
 
 	bios_emu_init();
 
+	register_serial();
 	register_vesa_display();
 	register_pic();
 	register_apic();
@@ -76,11 +79,20 @@ void platform_init() {
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
 }
 
+void serial_receive(uint8_t data) {
+	printk("%c", data);
+}
+
 void platform_start_devices() {
+	Object *serial_object;
 	init_and_start(&vesa_display_device);
 	init_console();
-	print_features();
 	interrupt_dm_start(); // 启动由interrupt_dm选择的中断控制器
+
+	open_object_by_path("\\Device\\Serial0", &serial_object);
+	serial_device_open(serial_object, SERIAL_BAUD_115200, serial_receive);
+
+	print_features();
 	DRV_RESULT_PRINT_CALL(init_and_start, &pit_device);
 	DRV_RESULT_PRINT_CALL(init_and_start, &apic_timer_device);
 	DRV_RESULT_PRINT_CALL(init_and_start, &rtc_device);

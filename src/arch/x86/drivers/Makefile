@@ -8,6 +8,7 @@ SRC += disk.c
 #SRC += mouse.c
 SRC += msr.c
 SRC += pit.c
+SRC += serial.c
 SRC += smbios.c
 SRC	+= vesa_display.c
 SRC += cmos.c

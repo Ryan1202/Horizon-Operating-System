@@ -32,6 +32,7 @@ typedef enum {
 	DEVICE_TYPE_ETHERNET,
 	DEVICE_TYPE_TIME, // 时间设备（如：Unix时间戳/UTC时间）
 	DEVICE_TYPE_USB,
+	DEVICE_TYPE_SERIAL,
 	DEVICE_TYPE_MAX,
 } DeviceType;
 
@@ -124,6 +125,7 @@ DriverResult unregister_device(
 DriverResult unregister_child_device(ChildDevice *child_device);
 DriverResult register_child_device(Device *device, int private_data_size);
 DriverResult init_device(Device *device);
+DriverResult start_device(Device *device);
 DriverResult init_and_start(Device *device);
 
 #endif

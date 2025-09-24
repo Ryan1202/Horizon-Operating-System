@@ -4,6 +4,7 @@ SRC += timer/
 SRC += network/
 SRC += usb/
 SRC += input/
+SRC += serial/
 SRC += interrupt_dm.c
 SRC += video_dm.c
 SRC += video.c

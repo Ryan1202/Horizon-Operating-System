@@ -2,6 +2,7 @@
 #include <kernel/device_driver.h>
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
+#include <kernel/driver_manager.h>
 #include <kernel/list.h>
 #include <result.h>
 
@@ -15,6 +16,7 @@ DriverResult register_device_manager(DeviceManager *manager) {
 
 	list_init(&manager->device_lh);
 	device_managers[manager->type] = manager;
+	list_add_tail(&manager->dm_list, &device_driver_manager.dm_lh);
 	if (manager->ops->dm_load != NULL) {
 		DRV_RESULT_DELIVER_CALL(manager->ops->dm_load, manager);
 	}
