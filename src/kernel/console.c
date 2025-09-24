@@ -5,8 +5,8 @@
  * @version 0.3
  * @date 2022-07-15
  */
-#include <driver/video.h>
-#include <driver/video_dm.h>
+#include <driver/framebuffer/fb.h>
+#include <driver/framebuffer/fb_dm.h>
 #include <kernel/console.h>
 #include <kernel/font.h>
 #include <kernel/sync.h>
@@ -16,7 +16,7 @@
 #include <stdio.h>
 
 struct console {
-	struct VideoDevice *video_device;
+	FrameBufferDevice *fb_device;
 
 	uint8_t *vram;
 	uint8_t *cur_vram;
@@ -37,15 +37,15 @@ struct console console;
  *
  */
 void init_console(void) {
-	video_get_video_device(0, &console.video_device);
+	framebuffer_get_device(0, &console.fb_device);
 
-	console.vram	 = console.video_device->framebuffer_address;
+	console.vram	 = console.fb_device->framebuffer_address;
 	console.cur_vram = console.vram;
 	console.font	 = font16;
 	console.cur_x	 = 0;
 	console.cur_y	 = 0;
-	console.width	 = console.video_device->mode_info.width / 10;
-	console.height	 = console.video_device->mode_info.height / 16;
+	console.width	 = console.fb_device->mode_info.width / 10;
+	console.height	 = console.fb_device->mode_info.height / 16;
 	console.color	 = 0xc0c0c0;
 	console.flag	 = CMD_FLAG_OUTPUT;
 }
@@ -107,9 +107,9 @@ void console_input(char c)
 
 void scroll_screen(void) {
 	int i, j;
-	int screen_width  = console.video_device->mode_info.width;
-	int screen_height = console.video_device->mode_info.height;
-	int bpp			  = console.video_device->mode_info.bytes_per_pixel;
+	int screen_width  = console.fb_device->mode_info.width;
+	int screen_height = console.fb_device->mode_info.height;
+	int bpp			  = console.fb_device->mode_info.bytes_per_pixel;
 
 	uint32_t *dst = (uint32_t *)console.vram;
 	uint32_t *src = (uint32_t *)(console.vram + 16 * screen_width * bpp);
@@ -120,7 +120,7 @@ void scroll_screen(void) {
 			src += 1;
 		}
 	}
-	draw_rect(console.video_device, 0, screen_height - 16, screen_width, 16, 0);
+	draw_rect(console.fb_device, 0, screen_height - 16, screen_width, 16, 0);
 }
 
 /**
@@ -131,14 +131,14 @@ void scroll_screen(void) {
  */
 void print_char(unsigned char c, unsigned int color) {
 	if (c > 127) { c = '?'; }
-	int bpp = console.video_device->mode_info.bytes_per_pixel;
+	int bpp = console.fb_device->mode_info.bytes_per_pixel;
 	print_word(
-		console.video_device->framebuffer_ops, &console.video_device->mode_info,
+		console.fb_device->framebuffer_ops, &console.fb_device->mode_info,
 		console.cur_vram + 1 * bpp, console.font + c * 16, color);
 	console.cur_x++;
 	console.cur_vram += 10 * bpp;
 	if (console.cur_x >= console.width) {
-		int screen_width = console.video_device->mode_info.width;
+		int screen_width = console.fb_device->mode_info.width;
 		console.cur_x	 = 0;
 		console.cur_y++;
 		console.cur_vram =
@@ -164,8 +164,8 @@ int printk(const char *fmt, ...) {
 
 	char *p			   = buf, c;
 	int	  len		   = i;
-	int	  bpp		   = console.video_device->mode_info.bytes_per_pixel;
-	int	  screen_width = console.video_device->mode_info.width;
+	int	  bpp		   = console.fb_device->mode_info.bytes_per_pixel;
+	int	  screen_width = console.fb_device->mode_info.width;
 	while (len) {
 		c = *p++;
 		if (c == '<' && len == i) {
@@ -243,7 +243,7 @@ int printk(const char *fmt, ...) {
 					console.cur_x--;
 					console.cur_vram -= 10 * bpp;
 					draw_rect(
-						console.video_device, console.cur_x * 10 + 1,
+						console.fb_device, console.cur_x * 10 + 1,
 						console.cur_y * 16, 8, 16, 0);
 				}
 			}
@@ -258,8 +258,8 @@ int printk(const char *fmt, ...) {
 			break;
 		default:
 			draw_rect(
-				console.video_device, console.cur_x * 10, console.cur_y * 16,
-				10, 16, 0);
+				console.fb_device, console.cur_x * 10, console.cur_y * 16, 10,
+				16, 0);
 			print_char(c, color);
 			break;
 		}

@@ -4,18 +4,20 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "driver/network/buffer.h"
+#include "driver/input/input_dm.h"
+#include "driver/network/network_dm.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
 #include <bits.h>
+#include <driver/framebuffer/fb_dm.h>
 #include <driver/interrupt_dm.h>
 #include <driver/network/conn.h>
 #include <driver/network/ethernet/ethernet.h>
-#include <driver/network/protocols/arp.h>
-#include <driver/network/protocols/dhcp.h>
-#include <driver/network/protocols/ipv4.h>
+#include <driver/network/protocols/ipv4/dhcp.h>
+#include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/udp.h>
+#include <driver/serial/serial_dm.h>
 #include <driver/sound/pcm.h>
 #include <driver/sound/sound_dm.h>
 #include <driver/storage/disk/volume.h>
@@ -23,7 +25,7 @@
 #include <driver/storage/storage_io_queue.h>
 #include <driver/time_dm.h>
 #include <driver/timer_dm.h>
-#include <driver/video_dm.h>
+#include <driver/usb/usb_dm.h>
 #include <drivers/vesa_display.h>
 #include <fs/fs.h>
 #include <fs/vfs.h>
@@ -35,6 +37,7 @@
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
 #include <kernel/driver_manager.h>
+#include <kernel/dynamic_device_manager.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/list.h>
@@ -44,7 +47,6 @@
 #include <kernel/platform.h>
 #include <kernel/process.h>
 #include <kernel/thread.h>
-#include <network/arp.h>
 #include <objects/handle.h>
 #include <objects/ops.h>
 #include <stdint.h>
@@ -117,17 +119,20 @@ int main() {
 
 	uint8_t *zero = 0;
 
+	init_object_tree();
+
 	register_driver_manager(&device_driver_manager);
 	register_driver_manager(&bus_driver_manager);
 	register_device_manager(&interrupt_dm);
 	register_device_manager(&timer_dm);
 	register_device_manager(&time_dm);
-	register_device_manager(&video_dm);
+	register_device_manager(&framebuffer_dm);
 	register_device_manager(&sound_dm);
 	register_device_manager(&storage_dm);
 	register_device_manager(&network_dm);
-
-	init_object_tree();
+	register_device_manager(&usb_dm);
+	register_device_manager(&input_dm);
+	register_device_manager(&serial_dm);
 
 	register_driver(&core_driver);
 	driver_init(&core_driver);
@@ -145,6 +150,10 @@ int main() {
 
 	do_initcalls();
 	driver_start_all();
+
+	thread_start(
+		"Dynamic Device Manager", THREAD_DEFAULT_PRIO, dynamic_device_manager,
+		NULL, NULL);
 
 	Object		*net;
 	ObjectResult result = open_object_by_path("\\Device\\Network0", &net);
@@ -175,10 +184,10 @@ int main() {
 	// bios_emu_env.regs.ax		= 0x4f02;
 	// bios_emu_env.regs.bx		= 0x4192;			   // 1920x1080x32bit模式
 	// BiosEmuExceptions exception = emu_interrupt(0x10); // 调用BIOS 0x10中断
-	// VideoDevice		 *video_device;
-	// video_get_video_device(0, &video_device);
-	// video_device->mode_info.width  = 1920;
-	// video_device->mode_info.height = 1080;
+	// FrameBufferDevice		 *fb_device;
+	// framebuffer_get_device(0, &fb_device);
+	// fb_device->mode_info.width  = 1920;
+	// fb_device->mode_info.height = 1080;
 	// init_console(); // 重置控制台配置
 	// if (exception == EventInterruptDone) {
 	// 	printk("VBE Call Result: %d\n", bios_emu_env.regs.ax);
@@ -205,48 +214,6 @@ int main() {
 	// } while (!is_done);
 
 	// show_object_tree();
-
-	// thread_start(
-	// 	"NetworkRxPacketProcess", THREAD_DEFAULT_PRIO, net_process_pack,
-	// NULL);
-
-	// int ret = dhcp_main(default_net_dev);
-	// while (ret == -4) {
-	// 	ret = dhcp_main(default_net_dev);
-	// }
-	// if (ret < 0) { printk("[DHCP]ipv4 address request failed!\n"); }
-	// struct ipv4_data *ipv4 = default_net_dev->info->ipv4_data;
-	// memcpy(ipv4->ip_addr, (uint8_t[4]){10, 0, 2, 15}, 4);
-	// memcpy(ipv4->router_ip, (uint8_t[4]){10, 0, 2, 2}, 4);
-
-	// uint8_t dst_ip[4] = {180, 101, 50, 188}, *router_mac;
-	// netc_t *netc	  = netc_create(default_net_dev, ETH_TYPE_ARP, 0);
-	// netc_set_dest(netc, broadcast_mac, NULL, 0);
-	// router_mac = ip2mac(
-	// 	netc, ((struct ipv4_data
-	// *)netc->net_dev->info->ipv4_data)->router_ip); netc_delete(netc);
-
-	// netc = netc_create(default_net_dev, ETH_TYPE_IPV4, PROTOCOL_TCP);
-	// netc_set_dest(netc, router_mac, dst_ip, 4);
-	// tcp_create(netc);
-	// tcp_bind(netc, 12345);
-	// tcp_ipv4_connect(netc, dst_ip, 80);
-	// uint8_t	 data[] = "GET / HTTP/1.1\r\nHost:
-	// 180.101.50.188\r\nAccept: "
-	// 				  "*/*\r\nConnection: keep-alive\r\n\r\n";
-	// uint8_t *rb		= kmalloc(2048);
-	// tcp_write(netc, data, sizeof(data));
-	// int len = 10499;
-	// int i, tmp;
-	// do {
-	// 	tmp = tcp_read(netc, rb, 1152);
-	// 	len -= tmp;
-	// 	// for (i = 0; i < tmp; i++) {
-	// 	// 	printk("%c", rb[i]);
-	// 	// }
-	// } while (len > 0);
-	// printk("\nend.\n");
-	// tcp_ipv4_close(netc);
 
 	console_start();
 

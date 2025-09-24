@@ -1,4 +1,4 @@
-#include <driver/video_dm.h>
+#include <driver/framebuffer/fb_dm.h>
 #include <drivers/vesa_display.h>
 #include <drivers/video.h>
 #include <kernel/device.h>
@@ -29,7 +29,7 @@ DeviceOps vesa_display_device_ops = {
 
 DeviceDriver vesa_display_device_driver = {
 	.name	  = STRING_INIT("VESA Display Device Driver"),
-	.type	  = DEVICE_TYPE_VIDEO,
+	.type	  = DEVICE_TYPE_FRAMEBUFFER,
 	.priority = DRIVER_PRIORITY_BASIC,
 	.state	  = DRIVER_STATE_UNREGISTERED,
 	.ops	  = &vesa_display_driver_ops,
@@ -41,16 +41,16 @@ Device vesa_display_device = {
 	.ops			   = &vesa_display_device_ops,
 	.private_data_size = 0,
 };
-VideoDevice vesa_display_video_device = {
+FrameBufferDevice vesa_display_fb_device = {
 	.device = &vesa_display_device,
 };
 
 void register_vesa_display(void) {
 	register_device_driver(&core_driver, &vesa_display_device_driver);
 	ObjectAttr attr = device_object_attr;
-	register_video_device(
+	register_framebuffer_device(
 		&vesa_display_device_driver, &vesa_display_device,
-		&vesa_display_video_device, &attr);
+		&vesa_display_fb_device, &attr);
 }
 
 #define SEG_ADDR2LINEAR_ADDR(addr)                              \
@@ -72,14 +72,13 @@ DriverResult vesa_display_device_init(Device *device) {
 }
 
 DriverResult vesa_display_device_start(Device *device) {
-	vesa_display_info.vram				   = (uint8_t *)VRAM_VIR_ADDR;
-	VideoDevice *video_device			   = device->dm_ext;
-	video_device->mode_info.width		   = vesa_display_info.width;
-	video_device->mode_info.height		   = vesa_display_info.height;
-	video_device->mode_info.bits_per_pixel = vesa_display_info.BitsPerPixel;
-	video_device->mode_info.bytes_per_pixel =
-		vesa_display_info.BitsPerPixel / 8;
-	video_device->framebuffer_address = vesa_display_info.vram;
+	vesa_display_info.vram				 = (uint8_t *)VRAM_VIR_ADDR;
+	FrameBufferDevice *fb_device		 = device->dm_ext;
+	fb_device->mode_info.width			 = vesa_display_info.width;
+	fb_device->mode_info.height			 = vesa_display_info.height;
+	fb_device->mode_info.bits_per_pixel	 = vesa_display_info.BitsPerPixel;
+	fb_device->mode_info.bytes_per_pixel = vesa_display_info.BitsPerPixel / 8;
+	fb_device->framebuffer_address		 = vesa_display_info.vram;
 
 	return DRIVER_RESULT_OK;
 }

@@ -1,8 +1,8 @@
-#include <driver/video.h>
-#include <driver/video_dm.h>
+#include <driver/framebuffer/fb.h>
+#include <driver/framebuffer/fb_dm.h>
 #include <stdint.h>
 
-extern struct VideoDeviceManager video_dm_ext;
+extern struct FrameBufferDeviceManager video_dm_ext;
 void write_pixel_rgbto8(uint8_t *vram, uint8_t r, uint8_t g, uint8_t b) {
 	*vram = (r * 6 / 256) + (g * 6 / 256) * 6 + (b * 6 / 256) * 36;
 }
@@ -65,11 +65,11 @@ FramebufferOps fb_ops_32 = {
  * @param color 颜色
  */
 void inline write_pixel(
-	VideoDevice *video_device, int x, int y, uint32_t color) {
-	uint8_t *vram = video_device->framebuffer_address;
-	vram += (y * video_device->mode_info.width + x) *
-			(video_device->mode_info.bits_per_pixel / 8);
-	video_device->framebuffer_ops->write_pixel_raw(vram, color);
+	FrameBufferDevice *fb_device, int x, int y, uint32_t color) {
+	uint8_t *vram = fb_device->framebuffer_address;
+	vram += (y * fb_device->mode_info.width + x) *
+			(fb_device->mode_info.bits_per_pixel / 8);
+	fb_device->framebuffer_ops->write_pixel_raw(vram, color);
 }
 
 /**
@@ -82,17 +82,18 @@ void inline write_pixel(
  * @param b 蓝色
  */
 void inline write_pixel_rgb(
-	VideoDevice *video_device, int x, int y, uint8_t r, uint8_t g, uint8_t b) {
-	uint8_t *vram = video_device->framebuffer_address;
-	vram += (y * video_device->mode_info.width + x) *
-			(video_device->mode_info.bits_per_pixel / 8);
-	video_device->framebuffer_ops->write_pixel_rgb(vram, r, g, b);
+	FrameBufferDevice *fb_device, int x, int y, uint8_t r, uint8_t g,
+	uint8_t b) {
+	uint8_t *vram = fb_device->framebuffer_address;
+	vram += (y * fb_device->mode_info.width + x) *
+			(fb_device->mode_info.bits_per_pixel / 8);
+	fb_device->framebuffer_ops->write_pixel_rgb(vram, r, g, b);
 }
 
 /**
  * @brief 画矩形
  *
- * @param video_device 显示设备
+ * @param fb_device 显示设备
  * @param x x坐标
  * @param y y坐标
  * @param width 宽度
@@ -100,15 +101,16 @@ void inline write_pixel_rgb(
  * @param color 颜色
  */
 void draw_rect(
-	VideoDevice *video_device, int x, int y, int width, int height, int color) {
-	int		 bpp = video_device->mode_info.bytes_per_pixel;
+	FrameBufferDevice *fb_device, int x, int y, int width, int height,
+	int color) {
+	int		 bpp = fb_device->mode_info.bytes_per_pixel;
 	int		 x0, y0;
-	uint8_t *vram = video_device->framebuffer_address +
-					(y * video_device->mode_info.width + x) * bpp;
-	int delta = (video_device->mode_info.width - width) * bpp;
+	uint8_t *vram = fb_device->framebuffer_address +
+					(y * fb_device->mode_info.width + x) * bpp;
+	int delta = (fb_device->mode_info.width - width) * bpp;
 	for (y0 = 0; y0 < height; y0++) {
 		for (x0 = 0; x0 < width; x0++) {
-			video_device->framebuffer_ops->write_pixel_raw(vram, color);
+			fb_device->framebuffer_ops->write_pixel_raw(vram, color);
 			vram += bpp;
 		}
 		vram += delta;
@@ -127,16 +129,16 @@ void draw_rect(
  * @param b 蓝色
  */
 void draw_rect_rgb(
-	VideoDevice *video_device, int x, int y, int width, int height, uint8_t r,
-	uint8_t g, uint8_t b) {
-	int		 bpp = video_device->mode_info.bytes_per_pixel;
+	FrameBufferDevice *fb_device, int x, int y, int width, int height,
+	uint8_t r, uint8_t g, uint8_t b) {
+	int		 bpp = fb_device->mode_info.bytes_per_pixel;
 	int		 x0, y0;
-	uint8_t *vram = video_device->framebuffer_address +
-					(y * video_device->mode_info.width + x) * bpp;
-	int delta = (video_device->mode_info.width - width) * bpp;
+	uint8_t *vram = fb_device->framebuffer_address +
+					(y * fb_device->mode_info.width + x) * bpp;
+	int delta = (fb_device->mode_info.width - width) * bpp;
 	for (y0 = y; y0 < y + height; y0++) {
 		for (x0 = 0; x0 < width; x0++) {
-			video_device->framebuffer_ops->write_pixel_rgb(vram, r, g, b);
+			fb_device->framebuffer_ops->write_pixel_rgb(vram, r, g, b);
 			vram += bpp;
 		}
 		vram += delta;
@@ -152,7 +154,7 @@ void draw_rect_rgb(
  * @param color 颜色
  */
 void print_word(
-	FramebufferOps *ops, VideoModeInfo *mode_info, uint8_t *vram,
+	FramebufferOps *ops, FrameBufferModeInfo *mode_info, uint8_t *vram,
 	uint8_t *ascii, int color) {
 	int		i;
 	char	d;
@@ -191,8 +193,8 @@ void print_word(
  * @param b 蓝色
  */
 void print_word_rgb(
-	FramebufferOps *ops, VideoModeInfo *mode_info, uint8_t *vram, char *ascii,
-	uint8_t r, uint8_t g, uint8_t b) {
+	FramebufferOps *ops, FrameBufferModeInfo *mode_info, uint8_t *vram,
+	char *ascii, uint8_t r, uint8_t g, uint8_t b) {
 	int		i;
 	char	d;
 	uint8_t bpp	  = mode_info->bytes_per_pixel;
