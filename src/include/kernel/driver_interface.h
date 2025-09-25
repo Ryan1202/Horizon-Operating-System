@@ -35,16 +35,18 @@
 #endif
 
 #include <kernel/console.h>
-#define print_error_with_position(str, ...) \
-	printk(COLOR_RED __FILE__ " Line %d: " str, __LINE__, ##__VA_ARGS__)
+#define print_error_with_position(str, ...)                        \
+	printk(                                                        \
+		COLOR_RED __FILE__ " Line %d: " str COLOR_RESET, __LINE__, \
+		##__VA_ARGS__)
 #define print_error(source, str, ...) \
-	printk(COLOR_RED "[" source "]" str, ##__VA_ARGS__)
+	printk(COLOR_RED "[" source "]" str COLOR_RESET, ##__VA_ARGS__)
 #define print_warning(source, str, ...) \
-	printk(COLOR_YELLOW "[%s]" str, source, ##__VA_ARGS__)
+	printk(COLOR_BYELLOW "[%s]" str COLOR_RESET, source, ##__VA_ARGS__)
 #define print_device_info(device, str, ...) \
-	printk("[%s]" str, device->name.text, ##__VA_ARGS__)
+	printk("[%s]" str COLOR_RESET, device->name.text, ##__VA_ARGS__)
 #define print_driver_info(driver, str, ...) \
-	printk("[%s]" str, driver.short_name.text, ##__VA_ARGS__)
+	printk("[%s]" str COLOR_RESET, driver.short_name.text, ##__VA_ARGS__)
 
 #include "kernel/list.h"
 struct Device;

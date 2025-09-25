@@ -31,9 +31,11 @@ void init_smbios(void) {
 	}
 	EntryPoint = (struct SMBIOSEntryPoint *)mem;
 
-	struct SMBIOSHeader *header = (struct SMBIOSHeader *)EntryPoint->TableAddress;
-	mem							= (unsigned char *)EntryPoint->TableAddress;
-	while ((unsigned int)mem < EntryPoint->TableAddress + EntryPoint->TableLength) {
+	struct SMBIOSHeader *header =
+		(struct SMBIOSHeader *)EntryPoint->TableAddress;
+	mem = (unsigned char *)EntryPoint->TableAddress;
+	while ((unsigned int)mem <
+		   EntryPoint->TableAddress + EntryPoint->TableLength) {
 		smbios_tables[header->Type] = (unsigned int)mem;
 		switch (header->Type) {
 		case 0:
@@ -47,15 +49,16 @@ void init_smbios(void) {
 			break;
 		case 4:
 			processor = (struct Processor_info *)mem;
-			printk(COLOR_AQUA "\nCPU Max Speed: %dMHz\n", processor->MaxSpeed);
-			printk(COLOR_AQUA "\nCPU Speed: %dMHz\n", processor->CurrentSpeed);
+			printk(COLOR_CYAN "\nCPU Max Speed: %dMHz\n", processor->MaxSpeed);
+			printk(COLOR_CYAN "\nCPU Speed: %dMHz\n", processor->CurrentSpeed);
 			break;
 
 		default:
 			break;
 		}
 		mem += header->Length;
-		while (mem - (unsigned char *)header < EntryPoint->TableLength - 1 && (mem[0] || mem[1]))
+		while (mem - (unsigned char *)header < EntryPoint->TableLength - 1 &&
+			   (mem[0] || mem[1]))
 			mem++;
 		mem += 2;
 		header = (struct SMBIOSHeader *)mem;

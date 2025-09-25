@@ -1,6 +1,7 @@
 #ifndef _SERIAL_H
 #define _SERIAL_H
 
+#include <kernel/console.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
@@ -44,6 +45,8 @@ typedef struct {
 	Device	*device;
 	uint16_t base_port;
 	uint8_t	 irq;
+
+	ConsoleBackend console_backend;
 } Serial;
 
 void register_serial();

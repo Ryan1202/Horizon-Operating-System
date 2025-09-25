@@ -1,4 +1,5 @@
 #include "objects/object.h"
+#include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -45,11 +46,11 @@ DriverResult framebuffer_dm_unload(DeviceManager *manager) {
 }
 
 DriverResult register_framebuffer_device(
-	DeviceDriver *device_driver, Device *device,
-	FrameBufferDevice *framebuffer_device, ObjectAttr *attr) {
-	device->dm_ext = framebuffer_device;
+	DeviceDriver *device_driver, Device *device, FrameBufferDevice *fb_device,
+	ObjectAttr *attr) {
+	device->dm_ext = fb_device;
 	if (device->dm_ext == NULL) { return DRIVER_RESULT_OUT_OF_MEMORY; }
-	framebuffer_device->device = device;
+	fb_device->device = device;
 
 	string_t name;
 	string_new_with_number(
@@ -58,13 +59,17 @@ DriverResult register_framebuffer_device(
 	DRV_RESULT_DELIVER_CALL(
 		register_device, device_driver, &name, device->bus, device, attr);
 
-	list_init(&framebuffer_device->fb_list_lh);
+	list_init(&fb_device->fb_list_lh);
 	list_add_tail(&device->dm_list, &framebuffer_dm.device_lh);
+
+	ConsoleBackend *backend = &fb_device->console_backend.backend;
+	backend->init			= fb_console_backend_init;
+	backend->put_string		= fb_console_backend_put_string;
 
 	return DRIVER_RESULT_OK;
 }
 
-DriverResult unregister_framebuffer_devce(
+DriverResult unregister_framebuffer_device(
 	DeviceDriver *device_driver, Device *device,
 	FrameBufferDevice *framebuffer_device) {
 	list_del(&framebuffer_device->fb_list_lh);
@@ -72,25 +77,26 @@ DriverResult unregister_framebuffer_devce(
 }
 
 DriverResult framebuffer_device_start(DeviceManager *manager, Device *device) {
-	FrameBufferDevice *framebuffer_device = (FrameBufferDevice *)device->dm_ext;
+	FrameBufferDevice *fb_device = (FrameBufferDevice *)device->dm_ext;
 
 	if (framebuffer_dm_ext.main_display_device == NULL) {
 		framebuffer_dm_ext.main_display_device = device;
 	}
-	if (framebuffer_device->framebuffer_address == NULL) {
+	if (fb_device->framebuffer_address == NULL) {
 		return DRIVER_RESULT_OTHER_ERROR;
 	}
-	if (framebuffer_device->mode_info.bits_per_pixel == 8) {
-		framebuffer_device->framebuffer_ops = &fb_ops_8;
-	} else if (framebuffer_device->mode_info.bits_per_pixel == 16) {
-		framebuffer_device->framebuffer_ops = &fb_ops_16;
-	} else if (framebuffer_device->mode_info.bits_per_pixel == 24) {
-		framebuffer_device->framebuffer_ops = &fb_ops_24;
-	} else if (framebuffer_device->mode_info.bits_per_pixel == 32) {
-		framebuffer_device->framebuffer_ops = &fb_ops_32;
+	if (fb_device->mode_info.bits_per_pixel == 8) {
+		fb_device->framebuffer_ops = &fb_ops_8;
+	} else if (fb_device->mode_info.bits_per_pixel == 16) {
+		fb_device->framebuffer_ops = &fb_ops_16;
+	} else if (fb_device->mode_info.bits_per_pixel == 24) {
+		fb_device->framebuffer_ops = &fb_ops_24;
+	} else if (fb_device->mode_info.bits_per_pixel == 32) {
+		fb_device->framebuffer_ops = &fb_ops_32;
 	} else {
 		return DRIVER_RESULT_UNSUPPORT_FEATURE;
 	}
+	console_register_backend(&fb_device->console_backend.backend, fb_device);
 
 	return DRIVER_RESULT_OK;
 }

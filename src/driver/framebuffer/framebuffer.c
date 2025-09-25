@@ -162,21 +162,21 @@ void print_word(
 	int		delta = (mode_info->width - 8) * bpp;
 	for (i = 0; i < 16; i++) {
 		d = ascii[i];
-		if (d & 0x80) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x80) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x40) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x40) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x20) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x20) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x10) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x10) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x08) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x08) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x04) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x04) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x02) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x02) ops->write_pixel_raw(vram, color);
 		vram += bpp;
-		if (d & 0x01) { ops->write_pixel_raw(vram, color); }
+		if (d & 0x01) ops->write_pixel_raw(vram, color);
 		vram += bpp;
 		vram += delta;
 	}

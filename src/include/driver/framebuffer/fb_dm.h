@@ -6,7 +6,9 @@
 #include "kernel/list.h"
 #include "objects/object.h"
 #include "stdint.h"
+#include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb.h>
+#include <kernel/console.h>
 
 typedef struct FrameBufferModeInfo {
 	uint16_t width;
@@ -23,6 +25,8 @@ typedef struct FrameBufferDevice {
 	uint8_t			   *framebuffer_address;
 
 	FramebufferOps *framebuffer_ops;
+
+	FrameBufferConsoleBackend console_backend;
 } FrameBufferDevice;
 
 typedef struct FrameBufferDeviceManager {

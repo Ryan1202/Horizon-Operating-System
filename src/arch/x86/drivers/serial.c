@@ -3,6 +3,7 @@
 #include "driver/serial/serial_dm.h"
 #include "string.h"
 #include <kernel/bus_driver.h>
+#include <kernel/console.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
@@ -22,6 +23,8 @@ void serial_set_recv_mode(
 	SerialDevice *serial_device, SerialReceiveMode recv_mode);
 void serial_set_recv_mode(
 	SerialDevice *serial_device, SerialReceiveMode recv_mode);
+void serial_console_backend_put_string(
+	void *context, const char *string, int length);
 
 DeviceDriverOps serial_device_driver_ops = {
 	.device_driver_init	  = NULL,
@@ -63,6 +66,20 @@ const int serial_irqs[] = {
 
 string_t name = STRING_INIT("Serial");
 
+void serial_console_backend_put_string(
+	void *context, const char *string, int length) {
+	Serial *serial = context;
+	if (serial->device->state != DEVICE_STATE_ACTIVE) return;
+
+	for (int i = 0; i < length; i++) {
+		// 等待直到可以发送数据
+		while (!(
+			io_in_byte(serial->base_port + SERIAL_UART_REG_LINE_STATUS) & 0x20))
+			;
+		io_out_byte(serial->base_port + SERIAL_UART_REG_DATA, string[i]);
+	}
+}
+
 void serial_irq_handler(Device *device) {
 	SerialDevice *serial_device = device->dm_ext;
 	Serial		 *serial		= device->private_data;
@@ -76,10 +93,15 @@ void serial_irq_handler(Device *device) {
 		while (io_in_byte(base_port + SERIAL_UART_REG_LINE_STATUS) & 0x01) {
 			uint8_t data = io_in_byte(base_port + SERIAL_UART_REG_DATA);
 			// 处理接收到的数据（例如存入缓冲区）
+			if (data == 127) data = '\b';
+			if (data == '\r') data = '\n';
 			if (serial_device->receive != NULL) {
-				serial_device->receive(data);
+				if (data == '\b') {
+					serial_device->receive('\b');
+					serial_device->receive(' ');
+					serial_device->receive('\b');
+				} else serial_device->receive(data);
 			}
-			io_out_byte(base_port + SERIAL_UART_REG_DATA, data); // 回显
 		}
 	}
 	if (status & 0x02) {
@@ -192,6 +214,9 @@ DriverResult serial_init(Device *device) {
 	device->irq	   = irq;
 	register_device_irq(irq);
 
+	serial->console_backend.init	   = NULL;
+	serial->console_backend.put_string = serial_console_backend_put_string;
+
 	return DRIVER_RESULT_OK;
 }
 
@@ -202,6 +227,9 @@ DriverResult serial_start(Device *device) {
 	// 启用接收中断
 	io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, 0x01);
 	interrupt_enable_irq(serial->irq);
+
+	console_register_backend(&serial->console_backend, serial);
+
 	return DRIVER_RESULT_OK;
 }
 

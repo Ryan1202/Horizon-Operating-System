@@ -119,7 +119,7 @@ qemu_dbg:
 qemu:
 	$(QEMU) \
 	-no-reboot \
-	-monitor stdio \
+	-serial stdio \
 	-m 1024 \
 	-drive file=$(HD_IMG),if=ide,format=raw \
 	-usb \
