@@ -28,7 +28,6 @@
 #include <driver/usb/usb_dm.h>
 #include <drivers/vesa_display.h>
 #include <fs/fs.h>
-#include <fs/vfs.h>
 #include <kernel/app.h>
 #include <kernel/bus_driver.h>
 #include <kernel/console.h>

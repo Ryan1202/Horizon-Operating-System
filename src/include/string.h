@@ -8,7 +8,6 @@
 #ifndef _LIB_STRING_H_
 #define _LIB_STRING_H_
 
-#include "stddef.h"
 #include "stdint.h"
 
 #define STRING_MAX_LEN 256

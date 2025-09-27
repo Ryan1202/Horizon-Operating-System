@@ -3,7 +3,6 @@
 
 #include "objects/handle.h"
 #include "string.h"
-#include <fs/vfs.h>
 #include <kernel/list.h>
 #include <objects/object.h>
 #include <result.h>

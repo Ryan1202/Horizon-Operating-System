@@ -17,7 +17,6 @@
 #include <kernel/memory.h>
 #include <objects/object.h>
 #include <objects/transfer.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 

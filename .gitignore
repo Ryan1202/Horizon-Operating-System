@@ -52,6 +52,7 @@ Module.symvers
 Mkfile.old
 dkms.conf
 compile_commands.json
+build/
 
 # Cache
 __pycache__/

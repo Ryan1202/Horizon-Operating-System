@@ -17,7 +17,6 @@
 #include <objects/object.h>
 #include <objects/transfer.h>
 #include <result.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
