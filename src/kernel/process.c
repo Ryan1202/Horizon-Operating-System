@@ -107,30 +107,30 @@ void create_user_vaddr_mmap(struct task_s *user_prog) {
  * @param entry 程序的入口
  * @param prog 进程
  */
-void process_excute(void *entry, struct program_struct *prog) {
-	struct task_s		*thread		= kmalloc(sizeof(struct task_s));
-	void				*stack_page = kernel_alloc_pages(1);
-	struct prog_segment *p;
-	init_thread(thread, stack_page, prog->name.text, THREAD_DEFAULT_PRIO);
-	create_user_vaddr_mmap(thread);
-	thread_create(thread, start_process, entry);
-	thread->pgdir = create_page_dir();
-	init_thread_memory_manage(thread);
-	list_for_each_owner (p, &prog->seg_head, list) {
-		MemoryResult result = process_load_segment(
-			thread, prog->inode, p->offset, p->filesz, p->memsz, p->vaddr);
-		if (result != MEMORY_RESULT_OK) {
-			printk("Load segment failed\n");
-			return;
-		}
-	}
+// void process_excute(void *entry, struct program_struct *prog) {
+// 	struct task_s		*thread		= kmalloc(sizeof(struct task_s));
+// 	void				*stack_page = kernel_alloc_pages(1);
+// 	struct prog_segment *p;
+// 	init_thread(thread, stack_page, prog->name.text, THREAD_DEFAULT_PRIO);
+// 	create_user_vaddr_mmap(thread);
+// 	thread_create(thread, start_process, entry);
+// 	thread->pgdir = create_page_dir();
+// 	init_thread_memory_manage(thread);
+// 	list_for_each_owner (p, &prog->seg_head, list) {
+// 		MemoryResult result = process_load_segment(
+// 			thread, prog->inode, p->offset, p->filesz, p->memsz, p->vaddr);
+// 		if (result != MEMORY_RESULT_OK) {
+// 			printk("Load segment failed\n");
+// 			return;
+// 		}
+// 	}
 
-	// 将该任务加入任务队列
-	int flags = spin_lock_irqsave(&thread_ready_lock);
-	list_add_tail(&thread->general_tag, &thread_ready);
-	list_add_tail(&thread->all_list_tag, &thread_all);
-	io_store_eflags(flags);
-}
+// 	// 将该任务加入任务队列
+// 	int flags = spin_lock_irqsave(&thread_ready_lock);
+// 	list_add_tail(&thread->general_tag, &thread_ready);
+// 	list_add_tail(&thread->all_list_tag, &thread_all);
+// 	io_store_eflags(flags);
+// }
 
 /**
  * @brief 为进程加载段
@@ -143,21 +143,21 @@ void process_excute(void *entry, struct program_struct *prog) {
  * @param vaddr 段的虚拟地址
  * @return int 成功为0，失败为-1
  */
-MemoryResult process_load_segment(
-	struct task_s *thread, struct index_node *inode, unsigned long offset,
-	unsigned long filesz, unsigned long memsz, unsigned long vaddr) {
-	unsigned long size0	   = PAGE_SIZE - (vaddr & 0xfff);
-	unsigned long page_num = 1;
-	if (memsz > size0) { page_num += DIV_ROUND_UP(memsz - size0, PAGE_SIZE); }
+// MemoryResult process_load_segment(
+// 	struct task_s *thread, struct index_node *inode, unsigned long offset,
+// 	unsigned long filesz, unsigned long memsz, unsigned long vaddr) {
+// 	unsigned long size0	   = PAGE_SIZE - (vaddr & 0xfff);
+// 	unsigned long page_num = 1;
+// 	if (memsz > size0) { page_num += DIV_ROUND_UP(memsz - size0, PAGE_SIZE); }
 
-	uint32_t *addr = kernel_alloc_pages(page_num);
-	MEMORY_RESULT_DELIVER_CALL(
-		thread_use_page, thread, vaddr, vir2phy((uint32_t)addr), page_num);
+// 	uint32_t *addr = kernel_alloc_pages(page_num);
+// 	MEMORY_RESULT_DELIVER_CALL(
+// 		thread_use_page, thread, vaddr, vir2phy((uint32_t)addr), page_num);
 
-	inode->f_ops.seek(inode, offset, 0);
-	inode->f_ops.read(inode, (uint8_t *)(addr + (vaddr & 0xfff)), filesz);
-	if (memsz > filesz) {
-		memset((void *)(addr + (vaddr & 0xfff) + filesz), 0, memsz - filesz);
-	}
-	return MEMORY_RESULT_OK;
-}
+// seek(inode, offset, 0);
+// read(inode, (uint8_t *)(addr + (vaddr & 0xfff)), filesz);
+// 	if (memsz > filesz) {
+// 		memset((void *)(addr + (vaddr & 0xfff) + filesz), 0, memsz - filesz);
+// 	}
+// 	return MEMORY_RESULT_OK;
+// }

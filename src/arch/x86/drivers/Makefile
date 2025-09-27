@@ -1,6 +1,6 @@
-SRC += 8042.c
+#SRC += 8042.c
 SRC += 8259a.c
-SRC += acpi.c
+#SRC += acpi.c
 SRC += apic.c
 SRC += cpufreq.c
 SRC += disk.c

@@ -1,7 +1,11 @@
+#include "rtl8139.h"
 #include <bits.h>
 #include <driver/interrupt_dm.h>
+#include <driver/network/buffer.h>
 #include <driver/network/ethernet/ethernet.h>
 #include <driver/network/mii.h>
+#include <driver/network/net_queue.h>
+#include <driver/network/network.h>
 #include <driver/network/network_dm.h>
 #include <driver/timer_dm.h>
 #include <drivers/bus/pci/pci.h>
@@ -15,20 +19,14 @@
 #include <kernel/initcall.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
+#include <kernel/softirq.h>
 #include <kernel/spinlock.h>
+#include <kernel/thread.h>
 #include <objects/object.h>
+#include <objects/transfer.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
-
-#include "driver/network/buffer.h"
-#include "driver/network/net_queue.h"
-#include "driver/network/network.h"
-#include "kernel/softirq.h"
-#include "kernel/thread.h"
-#include "network/eth.h"
-#include "objects/transfer.h"
-#include "rtl8139.h"
 
 DriverResult   rtl8139_init(Device *device);
 DriverResult   rtl8139_start(Device *device);
