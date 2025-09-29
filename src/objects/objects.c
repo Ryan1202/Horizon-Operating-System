@@ -142,11 +142,11 @@ ObjectResult add_object(Object *parent, Object *child) {
 	return OBJECT_OK;
 }
 
-Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
+Object *create_object(Object *parent, string_t *name, ObjectAttr attr) {
 	Object *object = kmalloc(sizeof(Object));
 	if (object == NULL) { return NULL; }
 
-	object->name		 = name;
+	object->name		 = *name;
 	object->attr		 = kmalloc_from_template(attr);
 	object->attr->object = object;
 	object->parent		 = parent;
@@ -161,8 +161,21 @@ Object *create_object(Object *parent, string_t name, ObjectAttr attr) {
 	return object;
 }
 
+ObjectResult delete_object(Object *object) {
+	if (object == NULL || object == &root_object) {
+		return OBJECT_ERROR_INVALID_OPERATION;
+	}
+	if (object->attr->type == OBJECT_TYPE_DIRECTORY) {
+		return OBJECT_ERROR_DELETE_DIRECTORY;
+	}
+	list_del(&object->list);
+	kfree(object->attr);
+	kfree(object);
+	return OBJECT_OK;
+}
+
 Object *create_object_directory(
-	Object *parent, string_t name, ObjectAttr attr) {
+	Object *parent, string_t *name, ObjectAttr attr) {
 	Object *object = create_object(parent, name, attr);
 	if (object == NULL) { return NULL; }
 	object->attr->type = OBJECT_TYPE_DIRECTORY;

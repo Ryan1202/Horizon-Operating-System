@@ -12,6 +12,7 @@
 typedef enum ObjectResult {
 	OBJECT_OK,
 	OBJECT_ERROR_MEMORY,
+	OBJECT_ERROR_DELETE_DIRECTORY,
 	OBJECT_ERROR_INVALID_OPERATION,
 	OBJECT_ERROR_CANNOT_FIND,
 	OBJECT_ERROR_ILLEGAL_ARGUMENT,
@@ -156,10 +157,12 @@ ObjectResult add_object(Object *parent, Object *child);
 // 通过路径打开对象，对于符号链接会自动解析
 ObjectResult open_oringinal_object_by_path(char *path, Object **out_object);
 ObjectResult open_object_by_path(char *path, Object **object);
-Object		*create_object(Object *parent, string_t name, ObjectAttr attr);
-Object *create_object_directory(Object *parent, string_t name, ObjectAttr attr);
-void	object_close(Object *object);
-void	show_object_tree();
+Object		*create_object(Object *parent, string_t *name, ObjectAttr attr);
+ObjectResult delete_object(Object *object);
+Object		*create_object_directory(
+		 Object *parent, string_t *name, ObjectAttr attr);
+void object_close(Object *object);
+void show_object_tree();
 
 #define append_object(parent, child) \
 	dyn_array_append((parent)->value.directory.children, Object *, (child));
