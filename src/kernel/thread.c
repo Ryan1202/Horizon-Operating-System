@@ -6,15 +6,15 @@
  * @date 2021-02
  *
  */
-#include "kernel/driver_interface.h"
-#include "kernel/spinlock.h"
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <kernel/console.h>
+#include <kernel/driver_interface.h>
 #include <kernel/func.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
 #include <kernel/process.h>
+#include <kernel/spinlock.h>
 #include <kernel/sync.h>
 #include <kernel/thread.h>
 #include <math.h>
@@ -24,7 +24,7 @@
 
 uint32_t preempt_count = 0; // 预防抢占计数
 
-struct task_s *current_task, *dead_task = NULL;
+struct task_s *current_task, *dead_task = NULL, *prev;
 struct task_s *main_thread;
 
 list_t	   thread_ready;
@@ -118,7 +118,7 @@ void init_thread(
 
 	pthread->priority	   = priority;
 	pthread->kstack		   = (uint32_t *)((uint32_t)stack_page + PAGE_SIZE);
-	pthread->ticks		   = timer_get_schedule_tick(priority);
+	// pthread->ticks		   = timer_get_schedule_tick(priority);
 	pthread->elapsed_ticks = 0;
 	pthread->pgdir		   = NULL;
 	pthread->stack_magic   = 0x10000000;
@@ -172,7 +172,6 @@ struct task_s *thread_start(
 
 void thread_exit(void) {
 	struct task_s *cur = get_current_thread();
-	cur->status		   = TASK_DIED;
 
 	if (cur->parent != NULL) {
 		struct task_s *parent = cur->parent;
@@ -193,7 +192,12 @@ void thread_exit(void) {
 	spin_unlock_irqrestore(&thread_all_lock, flags);
 
 	flags = spin_lock_irqsave(&thread_ready_lock);
-	if (list_in_list(&cur->general_tag)) list_del(&cur->general_tag);
+	if (list_in_list(&cur->general_tag)) {
+		printk("d");
+		// list_del(&cur->general_tag);
+	}
+
+	cur->status = TASK_DIED;
 
 	// 切换线程
 	struct task_s *next;
@@ -216,6 +220,7 @@ void thread_exit(void) {
 	// 激活页表并跳转
 	process_activate(next);
 	current_task = next;
+	prev		 = cur;
 	switch_to((int *)cur, (int *)next);
 }
 
@@ -268,19 +273,8 @@ void thread_unblock(struct task_s *pthread) {
 		return;
 	}
 
-	if (pthread->status != TASK_READY) {
-		pthread->status = TASK_READY;
-		spin_unlock(&pthread->status_lock);
-
-		spin_lock(&thread_ready_lock);
-		if (list_in_list(&pthread->general_tag)) {
-			list_del(&pthread->general_tag);
-		}
-		list_add_after(&pthread->general_tag, &thread_ready);
-		spin_unlock_irqrestore(&thread_ready_lock, flags);
-	} else {
-		spin_unlock_irqrestore(&pthread->status_lock, flags);
-	}
+	if (pthread->status != TASK_READY) pthread->status = TASK_READY;
+	spin_unlock_irqrestore(&pthread->status_lock, flags);
 }
 
 /**
@@ -328,7 +322,8 @@ void schedule(void) {
 		return;
 	}
 
-	old_status = save_and_disable_interrupt();
+	old_status = spin_try_lock_irqsave(&thread_ready_lock);
+	if (old_status == 0) return;
 
 	// 1. 判断当前线程是否需要加入到thread_ready
 	if (cur->status == TASK_RUNNING) {
@@ -353,10 +348,20 @@ void schedule(void) {
 	if (!list_empty(&thread_ready)) {
 		next = list_first_owner(&thread_ready, struct task_s, general_tag);
 		list_del(&next->general_tag);
-	} else next = task_idle;
+		if (next == cur) {
+			printk("?");
+			printk("?");
+		}
+	} else {
+		next = task_idle;
+		if (list_in_list(&task_idle->general_tag))
+			list_del(&task_idle->general_tag);
+	}
 	// 4. 改变状态并加入到thread_ready
 	if (next->status == TASK_READY) next->status = TASK_RUNNING;
+	spin_unlock(&thread_ready_lock);
 
+	prev = cur;
 	// 5. 切换线程
 	// 激活页表并跳转
 	process_activate(next);
