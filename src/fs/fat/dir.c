@@ -190,11 +190,6 @@ FsResult fat32_dir_lookup(
 			MRET(location).first_cluster = short_dir->first_cluster_high << 16 |
 										   short_dir->first_cluster_low;
 			MRET(short_dir) = *short_dir;
-			// MRET(entry) = generate_dir_entry(
-			// 	fat_info, parent_entry, short_dir, name,
-			// 	short_dir->attr & ATTR_DIRECTORY, iter.last_cluster,
-			// 	iter.last_entry_index, iter.longname_cluster,
-			// 	iter.longname_entry_index);
 			return FS_OK;
 		}
 	}
@@ -233,11 +228,6 @@ FsResult fat_dir_lookup(
 			MRET(location).first_cluster = short_dir->first_cluster_high << 16 |
 										   short_dir->first_cluster_low;
 			MRET(short_dir) = *short_dir;
-			// MRET(entry) = generate_dir_entry(
-			// 	fat_info, parent_entry, short_dir, name,
-			// 	short_dir->attr & ATTR_DIRECTORY, iter.last_cluster,
-			// 	iter.last_entry_index, iter.longname_cluster,
-			// 	iter.longname_entry_index);
 			return FS_OK;
 		}
 	}

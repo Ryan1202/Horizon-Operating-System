@@ -1,7 +1,8 @@
 #ifndef APIC_H
 #define APIC_H
 
-#include "kernel/driver.h"
+#include <driver/timer/timer_dm.h>
+#include <kernel/driver.h>
 
 #define APIC_ID	  0x20
 #define APIC_Ver  0x30
@@ -90,8 +91,10 @@
 
 #define LAPIC_TIMER_IRQ 0
 
-extern struct Device apic_timer_device;
+extern struct PhysicalDevice *apic_device;
+extern struct TimerDevice	 *apic_timer_device;
+extern bool					  use_apic;
 
-void register_apic(void);
+DriverResult register_apic(void);
 
 #endif

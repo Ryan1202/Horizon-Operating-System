@@ -1,6 +1,7 @@
 #ifndef _SERIAL_H
 #define _SERIAL_H
 
+#include "kernel/driver_interface.h"
 #include <kernel/console.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -42,9 +43,10 @@
 #define SERIAL_TEST_MAGIC_2 0xAA
 
 typedef struct {
-	Device	*device;
-	uint16_t base_port;
-	uint8_t	 irq;
+	LogicalDevice *device;
+	uint16_t	   base_port;
+	uint8_t		   irq_num;
+	DeviceIrq	  *irq;
 
 	ConsoleBackend console_backend;
 } Serial;

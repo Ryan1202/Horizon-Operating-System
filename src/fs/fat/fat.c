@@ -177,7 +177,7 @@ FsResult fat_mount(FileSystemInfo *fs_info, Object *root_object) {
 	root_object->fs_info->file_ops	   = fat_file_ops;
 	root_object->fs_info->dir_ops	   = fat_dir_ops;
 	fat_info->storage_device =
-		fs_info->partition->storage_object->value.device->dm_ext;
+		fs_info->partition->storage_object->value.device.logical->dm_ext;
 
 	return FS_OK;
 }

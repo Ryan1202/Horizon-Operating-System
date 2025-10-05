@@ -53,9 +53,9 @@ typedef enum AtaDeviceType {
 #define ATA_REG_LBA4	  0x04
 #define ATA_REG_LBA5	  0x05
 
-#define ATA_REG_CONTROL	   0x02
-#define ATA_REG_ALTSTATUS  0x02
-#define ATA_REG_DEVADDRESS 0x03
+#define ATA_REG_CONTROL	   0x00
+#define ATA_REG_ALTSTATUS  0x00
+#define ATA_REG_DEVADDRESS 0x01
 
 #define ATA_PRIMARY	  0x00
 #define ATA_SECONDARY 0x01

@@ -1,10 +1,11 @@
 #ifndef _SOUND_DM_H
 #define _SOUND_DM_H
 
-#include "kernel/device.h"
-#include "kernel/device_driver.h"
-#include "kernel/device_manager.h"
-#include "kernel/driver.h"
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/device_manager.h>
+#include <kernel/driver.h>
+#include <objects/object.h>
 #include <stdint.h>
 
 #define SOUND_DEVICE_MODE_PLAY	  0
@@ -13,7 +14,7 @@
 struct SoundDevice;
 typedef struct SoundDeviceOps {
 	DriverResult (*set_volume)(struct SoundDevice *device, int volume);
-} SoundDeviceOps;
+} SoundOps;
 
 typedef struct SoundDeviceCapabilities {
 	uint32_t record			 : 1;
@@ -28,11 +29,9 @@ typedef enum SoundDeviceType {
 } SoundDeviceType;
 
 typedef struct SoundDevice {
-	Device				   *device;
+	LogicalDevice		   *device;
 	SoundDeviceCapabilities capabilities;
-	SoundDeviceOps		   *ops;
-
-	void *private_data;
+	SoundOps			   *ops;
 
 	SoundDeviceType type;
 
@@ -42,14 +41,17 @@ typedef struct SoundDevice {
 } SoundDevice;
 
 typedef struct SoundDeviceManager {
+	int new_device_num;
 	int device_count;
 } SoundDeviceManager;
 
 extern DeviceManager sound_dm;
 
-DriverResult register_sound_device(
-	DeviceDriver *driver, Device *device, SoundDevice *sound_device,
-	ObjectAttr *attr);
+DriverResult create_sound_device(
+	SoundDevice **sound_device, SoundDeviceType type,
+	SoundDeviceCapabilities caps, SoundOps *sound_ops, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver);
+DriverResult delete_sound_device(SoundDevice *sound_device);
 
 SoundDevice *sound_get_device(Object *object);
 

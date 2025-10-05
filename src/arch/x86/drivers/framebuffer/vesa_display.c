@@ -12,52 +12,35 @@
 extern Driver		   core_driver;
 struct VesaDisplayInfo vesa_display_info;
 
-DriverResult vesa_display_device_init(Device *device);
-DriverResult vesa_display_device_start(Device *device);
+DriverResult vesa_display_device_init(void *device);
+DriverResult vesa_display_device_start(void *device);
 
-DeviceDriverOps vesa_display_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps vesa_display_device_ops = {
 	.init	 = vesa_display_device_init,
 	.start	 = vesa_display_device_start,
 	.stop	 = NULL,
 	.destroy = NULL,
-	.status	 = NULL,
 };
 
-DeviceDriver vesa_display_device_driver = {
-	.name	  = STRING_INIT("VESA Display Device Driver"),
-	.type	  = DEVICE_TYPE_FRAMEBUFFER,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.state	  = DRIVER_STATE_UNREGISTERED,
-	.ops	  = &vesa_display_driver_ops,
-};
-Device vesa_display_device = {
-	.name			   = STRING_INIT("Vesa Display"),
-	.bus			   = &platform_bus,
-	.device_driver	   = &vesa_display_device_driver,
-	.ops			   = &vesa_display_device_ops,
-	.private_data_size = 0,
-};
-FrameBufferDevice vesa_display_fb_device = {
-	.device = &vesa_display_device,
-};
+DeviceDriver vesa_display_device_driver;
 
-void register_vesa_display(void) {
+DriverResult register_vesa_display(void) {
+	FrameBufferDevice *fb_device;
 	register_device_driver(&core_driver, &vesa_display_device_driver);
-	ObjectAttr attr = device_object_attr;
-	register_framebuffer_device(
-		&vesa_display_device_driver, &vesa_display_device,
-		&vesa_display_fb_device, &attr);
+
+	DriverResult result = create_framebuffer_device(
+		&fb_device, &vesa_display_device_ops, platform_device,
+		&vesa_display_device_driver);
+	if (result != DRIVER_OK) { return result; }
+
+	return DRIVER_OK;
 }
 
 #define SEG_ADDR2LINEAR_ADDR(addr)                              \
 	((unsigned int *)(((unsigned int)(addr) >> 12) & 0xffff0) + \
 	 ((unsigned int)(addr) & 0xffff))
 
-DriverResult vesa_display_device_init(Device *device) {
+DriverResult vesa_display_device_init(void *device) {
 	vesa_display_info.vbe_mode_info->OemStringPtr =
 		SEG_ADDR2LINEAR_ADDR(vesa_display_info.vbe_mode_info->OemStringPtr);
 	vesa_display_info.vbe_mode_info->VideoModePtr =
@@ -68,17 +51,17 @@ DriverResult vesa_display_device_init(Device *device) {
 		SEG_ADDR2LINEAR_ADDR(vesa_display_info.vbe_mode_info->OemProduceRevPtr);
 	vesa_display_info.vbe_mode_info->OemProductNamePtr = SEG_ADDR2LINEAR_ADDR(
 		vesa_display_info.vbe_mode_info->OemProductNamePtr);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult vesa_display_device_start(Device *device) {
+DriverResult vesa_display_device_start(void *device) {
 	vesa_display_info.vram				 = (uint8_t *)VRAM_VIR_ADDR;
-	FrameBufferDevice *fb_device		 = device->dm_ext;
+	FrameBufferDevice *fb_device		 = ((LogicalDevice *)device)->dm_ext;
 	fb_device->mode_info.width			 = vesa_display_info.width;
 	fb_device->mode_info.height			 = vesa_display_info.height;
 	fb_device->mode_info.bits_per_pixel	 = vesa_display_info.BitsPerPixel;
 	fb_device->mode_info.bytes_per_pixel = vesa_display_info.BitsPerPixel / 8;
 	fb_device->framebuffer_address		 = vesa_display_info.vram;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }

@@ -2,6 +2,7 @@
 #include "driver/network/buffer.h"
 #include "driver/network/conn.h"
 #include "driver/network/protocols/protocols.h"
+#include "kernel/device.h"
 #include "kernel/list.h"
 #include <bits.h>
 #include <driver/network/net_queue.h>
@@ -24,7 +25,7 @@ bool net_queue_is_blocked(NetworkQueue *queue, int blocker) {
 TransferResult network_transfer(
 	struct Object *object, struct ObjectHandle *obj_handle,
 	TransferDirection direction, uint8_t *buf, size_t size) {
-	Device		  *device	  = object->value.device;
+	LogicalDevice *device	  = object->value.device.logical;
 	NetworkDevice *net_device = device->dm_ext;
 	if (net_device->ops->send == NULL) { return TRANSFER_ERROR_NOT_SUPPORTED; }
 	if (net_queue_is_blocked(&net_device->tx_queue, NQ_BLOCKER_DRIVER)) {
@@ -35,7 +36,7 @@ TransferResult network_transfer(
 
 DriverResult network_softirq_register(NetRxHandler *handler) {
 	list_add_tail(&handler->list, &net_rx_lh);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void network_softirq_handler(void) {

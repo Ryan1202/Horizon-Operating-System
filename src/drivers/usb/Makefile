@@ -1,1 +1,2 @@
 SRC += hid/
+SRC += core/

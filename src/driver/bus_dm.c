@@ -1,41 +1,23 @@
-#include "objects/object.h"
 #include <driver/bus_dm.h>
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
-
-DriverResult bus_controller_start(DeviceManager *manager, Device *device);
+#include <kernel/memory.h>
 
 DeviceManagerOps bus_controller_dm_ops = {
 	.dm_load   = NULL,
 	.dm_unload = NULL,
+
+	.init_device_hook	 = NULL,
+	.start_device_hook	 = NULL,
+	.stop_device_hook	 = NULL,
+	.destroy_device_hook = NULL,
 };
 
-typedef struct BusControllerDeviceManager {
-} BusControllerDeviceManager;
-
-BusControllerDeviceManager bus_controller_dm_ext;
-
-struct DeviceManager bus_controller_device_manager = {
-	.type = DEVICE_TYPE_BUS_CONTROLLER,
-
-	.ops = &bus_controller_dm_ops,
-
-	.private_data = &bus_controller_dm_ext,
+DeviceManager bus_controller_dm = {
+	.type		  = DEVICE_TYPE_BUS_CONTROLLER,
+	.ops		  = &bus_controller_dm_ops,
+	.private_data = NULL,
 };
-
-DriverResult register_bus_controller_device(
-	DeviceDriver *device_driver, BusDriver *bus_driver, Device *device,
-	BusControllerDevice *bus_controller_device, ObjectAttr *attr) {
-
-	device->device_driver			  = device_driver;
-	bus_controller_device->device	  = device;
-	bus_controller_device->bus_driver = bus_driver;
-
-	DRV_RESULT_DELIVER_CALL(
-		register_device, device_driver, &bus_controller_device->short_name,
-		device->bus, device, attr);
-	return DRIVER_RESULT_OK;
-}

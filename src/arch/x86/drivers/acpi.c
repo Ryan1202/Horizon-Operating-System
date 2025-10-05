@@ -5,7 +5,7 @@
  * @version 0.1
  * @date 2021-06
  */
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <drivers/acpi.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>

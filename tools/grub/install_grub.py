@@ -141,6 +141,7 @@ if __name__ == "__main__":
             if args.grub_mkimage != None:
                 grub_mkimage_path = args.grub_mkimage
     else:
+        grub_dir_path = args.grub_dir
         if args.grub_mkimage != None:
             grub_mkimage_path = args.grub_mkimage
 

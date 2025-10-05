@@ -1,15 +1,15 @@
 #ifndef _NET_CONN_H
 #define _NET_CONN_H
 
-#include "buffer.h"
-#include "driver/network/ethernet/ethernet.h"
-#include "driver/network/network_dm.h"
-#include "driver/network/protocols/ipv4/ipv4.h"
-#include "kernel/list.h"
-#include "kernel/spinlock.h"
-#include "kernel/thread.h"
-#include "objects/handle.h"
-#include "objects/object.h"
+#include <driver/network/buffer.h>
+#include <driver/network/ethernet/ethernet.h>
+#include <driver/network/network_dm.h>
+#include <driver/network/protocols/ipv4/ipv4.h>
+#include <kernel/list.h>
+#include <kernel/spinlock.h>
+#include <kernel/thread.h>
+#include <objects/handle.h>
+#include <objects/object.h>
 #include <stdint.h>
 
 #define NET_CONN_MAX_PROTOCOLS 8

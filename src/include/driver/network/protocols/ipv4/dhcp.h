@@ -1,11 +1,11 @@
 #ifndef _DHCP_H
 #define _DHCP_H
 
-#include "driver/network/conn.h"
-#include "driver/network/network_dm.h"
-#include "driver/timer_dm.h"
-#include "math.h"
-#include "stdint.h"
+#include <driver/network/conn.h>
+#include <driver/network/network_dm.h>
+#include <driver/timer/timer_dm.h>
+#include <math.h>
+#include <stdint.h>
 
 #define DHCP_OP_BOOTREQUEST 1
 #define DHCP_OP_BOOTREPLY	2

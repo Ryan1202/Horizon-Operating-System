@@ -23,36 +23,77 @@ DeviceManager	   sound_dm = {
 };
 
 DriverResult sound_dm_load(DeviceManager *manager) {
-	manager->private_data = kmalloc(sizeof(SoundDeviceManager));
-	return DRIVER_RESULT_OK;
+	manager->private_data		= kmalloc(sizeof(SoundDeviceManager));
+	sound_dm_ext.new_device_num = 0;
+	sound_dm_ext.device_count	= 0;
+	return DRIVER_OK;
 }
 
 DriverResult sound_dm_unload(DeviceManager *manager) {
 	kfree(manager->private_data);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult register_sound_device(
-	DeviceDriver *driver, Device *device, SoundDevice *sound_device,
-	ObjectAttr *attr) {
-	device->dm_ext			   = sound_device;
-	sound_device->device	   = device;
-	sound_device->private_data = device->private_data;
+DriverResult create_sound_device(
+	SoundDevice **sound_device, SoundDeviceType type,
+	SoundDeviceCapabilities caps, SoundOps *sound_ops, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver) {
+	DriverResult   result;
+	LogicalDevice *logical_device = NULL;
 
-	list_add_tail(&device->dm_list, &sound_dm.device_lh);
+	result = create_logical_device(
+		&logical_device, physical_device, device_driver, ops,
+		DEVICE_TYPE_SOUND);
+	if (result != DRIVER_OK) return result;
 
+	*sound_device = kmalloc(sizeof(SoundDevice));
+	if (*sound_device == NULL) {
+		delete_logical_device(logical_device);
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
+	SoundDevice *snd;
+	logical_device->dm_ext = *sound_device;
+	snd					   = *sound_device;
+	snd->device			   = logical_device;
+	snd->type			   = type;
+	snd->ops			   = sound_ops;
+	snd->capabilities	   = caps;
+
+	char	 _name[] = "Sound";
 	string_t name;
-	string_new_with_number(&name, "Sound", 5, sound_dm_ext.device_count++);
-	DRIVER_RESULT_PASS(register_device(
-		device->device_driver, &name, device->bus, device, attr));
+	string_new_with_number(
+		&name, _name, sizeof(_name) - 1, sound_dm_ext.new_device_num);
+	sound_dm_ext.new_device_num++;
+	sound_dm_ext.device_count++;
 
-	return DRIVER_RESULT_OK;
+	Object *obj = create_object(&device_object, &name, device_object_attr);
+	if (obj == NULL) {
+		kfree(snd);
+		delete_logical_device(logical_device);
+		return DRIVER_ERROR_OBJECT;
+	}
+	obj->value.device.kind	  = DEVICE_KIND_LOGICAL;
+	obj->value.device.logical = logical_device;
+	logical_device->object	  = obj;
+
+	return DRIVER_OK;
+}
+
+DriverResult delete_sound_device(SoundDevice *sound_device) {
+	sound_dm_ext.device_count--;
+	LogicalDevice *logical_device = sound_device->device;
+
+	list_del(&logical_device->dm_list);
+	delete_logical_device(logical_device);
+	int result = kfree(sound_device);
+	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;
+	return DRIVER_OK;
 }
 
 SoundDevice *sound_get_device(Object *object) {
-	if (object->attr->type != OBJECT_TYPE_DEVICE) return NULL;
-	Device *device = object->value.device;
-	if (device->device_driver->type != DEVICE_TYPE_SOUND) return NULL;
+	// if (object->attr->type != OBJECT_TYPE_DEVICE) return NULL;
+	LogicalDevice *device = object->value.device.logical;
+	// if (device->type != DEVICE_TYPE_SOUND) return NULL;
 	return device->dm_ext;
 }
 

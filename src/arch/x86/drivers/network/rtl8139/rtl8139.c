@@ -1,13 +1,13 @@
 #include "rtl8139.h"
 #include <bits.h>
-#include <driver/interrupt_dm.h>
+#include <driver/interrupt/interrupt_dm.h>
 #include <driver/network/buffer.h>
 #include <driver/network/ethernet/ethernet.h>
 #include <driver/network/mii.h>
 #include <driver/network/net_queue.h>
 #include <driver/network/network.h>
 #include <driver/network/network_dm.h>
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <drivers/bus/pci/pci.h>
 #include <drivers/network/rtl8139.h>
 #include <kernel/barrier.h>
@@ -28,70 +28,44 @@
 #include <string.h>
 #include <types.h>
 
-DriverResult   rtl8139_init(Device *device);
-DriverResult   rtl8139_start(Device *device);
-DriverResult   rtl8139_pci_probe(PciDevice *pci_device);
+DriverResult rtl8139_init(void *device);
+DriverResult rtl8139_start(void *device);
+DriverResult rtl8139_pci_probe(
+	PciDevice *pci_device, PhysicalDevice *physical_device);
 TransferResult rtl8139_send(NetworkDevice *device, void *buf, int length);
 
-DeviceDriverOps rtl8139_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 PciDriverOps rtl8139_pci_driver_ops = {
 	.probe = rtl8139_pci_probe,
 };
-DeviceOps rtl8139_device_ops = {
+DeviceOps rtl8139_physical_device_ops = {
+	.init	 = NULL,
+	.start	 = NULL,
+	.destroy = NULL,
+	.stop	 = NULL,
+};
+DeviceOps rtl8139_logical_device_ops = {
 	.init	 = rtl8139_init,
 	.start	 = rtl8139_start,
 	.destroy = NULL,
-	.status	 = NULL,
 	.stop	 = NULL,
 };
-NetworkDeviceOps rtl8139_net_device_ops = {
+NetworkOps rtl8139_net_device_ops = {
 	.send = rtl8139_send,
 };
 
-DriverDependency rtl8139_dependencies[] = {
-	{
-		.in_type		   = DRIVER_DEPENDENCY_TYPE_BUS,
-		.dependency_in_bus = {BUS_TYPE_PCI, 0},
-		.out_bus		   = NULL,
-	 },
+Driver		 rtl8139_driver;
+DeviceDriver rtl8139_device_driver;
+PciDriver	 rtl8139_pci_driver = {
+	   .driver		  = &rtl8139_driver,
+	   .device_driver = &rtl8139_device_driver,
+	   .find_type	  = FIND_BY_VENDORID_DEVICEID,
+	   .vendor_device = {RTL8139_VENDOR_ID, RTL8139_DEVICE_ID},
+	   .ops			  = &rtl8139_pci_driver_ops,
 };
-Driver rtl8139_driver = {
-	.short_name		  = STRING_INIT("HorizonRtl8139Driver"),
-	.dependency_count = sizeof(rtl8139_dependencies) / sizeof(DriverDependency),
-	.dependencies	  = rtl8139_dependencies,
-};
-DeviceDriver rtl8139_device_driver = {
-	.name	  = STRING_INIT("RTL8139"),
-	.type	  = DEVICE_TYPE_ETHERNET,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.ops	  = &rtl8139_device_driver_ops,
-};
-PciDriver rtl8139_pci_driver = {
-	.driver		   = &rtl8139_driver,
-	.device_driver = &rtl8139_device_driver,
-	.find_type	   = FIND_BY_VENDORID_DEVICEID,
-	.vendor_device = {RTL8139_VENDOR_ID, RTL8139_DEVICE_ID},
-	.ops		   = &rtl8139_pci_driver_ops,
-};
-const Device rtl8139_device_template = {
-	.name			   = STRING_INIT("RTL8139"),
-	.device_driver	   = &rtl8139_device_driver,
-	.ops			   = &rtl8139_device_ops,
-	.private_data_size = sizeof(Rtl8139Device),
-};
-const NetworkDevice rtl8139_network_device_template = {
-	.head_size = 0,
-	.tail_size = 0,
-	.type	   = NETWORK_TYPE_ETHERNET,
-	.ops	   = &rtl8139_net_device_ops,
-	.mtu	   = ETH_MTU,
-};
+NetworkDeviceCapabilities rtl8139_caps = {};
 
-void rtl8139_handler(Device *device) {
-	Rtl8139Device *rtl_device = device->private_data;
+void rtl8139_handler(void *_device) {
+	Rtl8139Device *rtl_device = _device;
 
 	spin_lock(&rtl_device->lock);
 	int status = io_in_word(rtl_device->io_base + REG_ISR);
@@ -124,11 +98,11 @@ void rtl8139_handler(Device *device) {
 		_status |= IMR_FOVW;
 	}
 	if (status & IMR_PUN_LINKCHG) {
-		print_device_info(device, "Link Changed");
+		print_warning("RTL8139", "Link Changed");
 		_status |= IMR_PUN_LINKCHG;
 	}
 	if (status & IMR_LEN_CHG) {
-		print_device_info(device, "Length Changed");
+		print_warning("RTL8139", "Length Changed");
 		_status |= IMR_LEN_CHG;
 	}
 	if (status & IMR_TIMEOUT) {
@@ -233,7 +207,8 @@ TransferResult rtl8139_send(NetworkDevice *device, void *buf, int length) {
 	return TRANSFER_OK;
 }
 
-DriverResult rtl8139_init(Device *device) {
+DriverResult rtl8139_init(void *_device) {
+	LogicalDevice *device	  = _device;
 	Rtl8139Device *rtl_device = device->private_data;
 	rtl_device->io_base		  = rtl_device->pci_device->common.bar[0].base_addr;
 	rtl_device->io_len		  = rtl_device->pci_device->common.bar[0].length;
@@ -246,7 +221,10 @@ DriverResult rtl8139_init(Device *device) {
 	timer_init(&rtl_device->timer);
 	SPINLOCK_INIT(rtl_device->lock);
 
-	return DRIVER_RESULT_OK;
+	NetworkDevice *net = device->dm_ext;
+	net->mtu		   = ETH_MTU;
+
+	return DRIVER_OK;
 }
 
 void rtl8139_reset(Rtl8139Device *device) {
@@ -259,7 +237,8 @@ void rtl8139_reset(Rtl8139Device *device) {
 	}
 }
 
-DriverResult rtl8139_start(Device *device) {
+DriverResult rtl8139_start(void *_device) {
+	LogicalDevice *device	  = _device;
 	Rtl8139Device *rtl_device = device->private_data;
 	pci_enable_bus_mastering(rtl_device->pci_device);
 
@@ -285,8 +264,8 @@ DriverResult rtl8139_start(Device *device) {
 	}
 	NetworkDevice *net_device = device->dm_ext;
 	eth_set_mac_address(net_device->ethernet, mac_addr);
-	print_device_info(
-		device, "MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", mac_addr[0],
+	print_info(
+		"RTL8139", "MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", mac_addr[0],
 		mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
 	net_init_mii(&rtl_device->mii);
@@ -327,22 +306,21 @@ DriverResult rtl8139_start(Device *device) {
 		IMR_ROK | IMR_RER | IMR_TOK | IMR_TER | IMR_RXOVW | IMR_PUN_LINKCHG |
 			IMR_FOVW | IMR_LEN_CHG | IMR_TIMEOUT | IMR_SERR);
 
-	device->irq			 = kmalloc(sizeof(DeviceIrq));
-	device->irq->device	 = device;
-	device->irq->irq	 = rtl_device->pci_device->irqline;
-	device->irq->handler = rtl8139_handler;
+	register_device_irq(
+		&rtl_device->irq, device->physical_device, rtl_device,
+		rtl_device->pci_device->irqline, rtl8139_handler, IRQ_MODE_SHARED);
 
 	rtl_device->net_rx.handler = rtl8139_net_rx_handler;
 	rtl_device->net_rx.data	   = rtl_device;
 	network_softirq_register(&rtl_device->net_rx);
 
-	register_device_irq(device->irq);
-	interrupt_enable_irq(rtl_device->pci_device->irqline);
+	enable_device_irq(rtl_device->irq);
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult rtl8139_pci_probe(PciDevice *pci_device) {
+DriverResult rtl8139_pci_probe(
+	PciDevice *pci_device, PhysicalDevice *physical_device) {
 	uint32_t	   io_base = pci_device->common.bar[0].base_addr;
 	uint32_t	   data	   = io_in_dword(io_base + RTL8139_TCR);
 	Rtl8139Chipset chipset = RTL_UNKNOWN;
@@ -354,21 +332,28 @@ DriverResult rtl8139_pci_probe(PciDevice *pci_device) {
 			break;
 		}
 	}
-	if (chipset == RTL_UNKNOWN) { return DRIVER_RESULT_UNSUPPORT_DEVICE; }
+	if (chipset == RTL_UNKNOWN) { return DRIVER_ERROR_UNSUPPORT_DEVICE; }
 
-	Device		  *device = kmalloc_from_template(rtl8139_device_template);
-	NetworkDevice *network_device =
-		kmalloc_from_template(rtl8139_network_device_template);
-	ObjectAttr attr = device_object_attr;
-	device->bus		= pci_device->bus;
-	register_network_device(
-		&rtl8139_device_driver, device, network_device, &attr);
-
-	Rtl8139Device *rtl_device = device->private_data;
+	Rtl8139Device *rtl_device = kmalloc(sizeof(Rtl8139Device));
 	rtl_device->pci_device	  = pci_device;
 	rtl_device->chipset		  = chipset;
 
-	return DRIVER_RESULT_OK;
+	DriverResult   result;
+	NetworkDevice *network_device;
+	result = create_network_device(
+		&network_device, NETWORK_TYPE_ETHERNET, rtl8139_caps,
+		&rtl8139_net_device_ops, &rtl8139_logical_device_ops, physical_device,
+		&rtl8139_device_driver);
+	if (result != DRIVER_OK) {
+		kfree(rtl_device);
+		return result;
+	}
+	register_physical_device(physical_device, &rtl8139_physical_device_ops);
+
+	rtl_device->net_device				 = network_device;
+	network_device->device->private_data = rtl_device;
+
+	return DRIVER_OK;
 }
 
 static __init void rtl8139_initcall(void) {

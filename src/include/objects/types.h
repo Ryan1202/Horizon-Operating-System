@@ -4,6 +4,6 @@
 #include "object.h"
 
 ObjectResult init_builtin_types();
-Object		*create_object_type(string_t name);
+Object		*create_object_type(string_t *name);
 
 #endif

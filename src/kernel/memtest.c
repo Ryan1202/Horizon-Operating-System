@@ -1,4 +1,4 @@
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
@@ -34,8 +34,8 @@ uint32_t rdtsc() {
 }
 
 uint32_t get_counter() {
-	Device		*device = timer_dm_ext.scheduler_timer;
-	TimerDevice *td		= device->dm_ext;
+	LogicalDevice *device = timer_dm_ext.scheduler_timer;
+	TimerDevice	  *td	  = device->dm_ext;
 	return td->counter;
 }
 // 初始化性能统计

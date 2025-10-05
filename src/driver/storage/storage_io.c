@@ -45,7 +45,7 @@ DriverResult storage_generate_request(
 		// 创建新的请求
 		request = kmalloc(sizeof(StorageRequest));
 		if (request == NULL && first_request != NULL) {
-			return DRIVER_RESULT_OUT_OF_MEMORY;
+			return DRIVER_ERROR_OUT_OF_MEMORY;
 		}
 
 		// 设置新请求的参数
@@ -69,7 +69,7 @@ DriverResult storage_generate_request(
 		if (first_request == NULL) { first_request = request; }
 	}
 	MRET(last_request) = request;
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 TransferResult storage_transfer_async(
@@ -78,7 +78,7 @@ TransferResult storage_transfer_async(
 	while (object->attr->type == OBJECT_TYPE_SYM_LINK) {
 		object = object->value.sym_link;
 	}
-	Device *device = object->value.device;
+	LogicalDevice *device = object->value.device.logical;
 	storage_generate_request(
 		device->dm_ext, (direction == TRANSFER_IN) ? 0 : 1, buf, position,
 		count, (StorageRequest **)handle);
@@ -92,7 +92,7 @@ TransferResult storage_transfer(
 	while (object->attr->type == OBJECT_TYPE_SYM_LINK) {
 		object = object->value.sym_link;
 	}
-	Device *device = object->value.device;
+	LogicalDevice *device = object->value.device.logical;
 
 	StorageRequest *request;
 	StorageDevice  *storage_device = device->dm_ext;
@@ -103,7 +103,7 @@ TransferResult storage_transfer(
 	DriverResult result = storage_generate_request(
 		storage_device, (direction == TRANSFER_IN) ? 0 : 1, buf, position,
 		count, &request);
-	if (result != DRIVER_RESULT_OK) {
+	if (result != DRIVER_OK) {
 		wait_queue_del(&storage_device->wq);
 		return TRANSFER_ERROR_FAILED;
 	}
@@ -123,9 +123,9 @@ TransferResult storage_is_transfer_done(
 	if (object->attr->type != OBJECT_TYPE_DEVICE) {
 		return TRANSFER_ERROR_INVALID_PARAMETER;
 	}
-	Device *device = object->value.device;
+	LogicalDevice *device = object->value.device.logical;
 
-	if (device->device_driver->type != DEVICE_TYPE_STORAGE) {
+	if (device->type != DEVICE_TYPE_STORAGE) {
 		return TRANSFER_ERROR_INVALID_PARAMETER;
 	}
 	StorageDevice *storage_device = device->dm_ext;

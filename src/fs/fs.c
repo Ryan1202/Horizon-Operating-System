@@ -1,11 +1,11 @@
-#include "objects/transfer.h"
-#include "stdint.h"
 #include <const.h>
 #include <fs/fs.h>
 #include <kernel/console.h>
 #include <kernel/memory.h>
 #include <objects/object.h>
 #include <objects/ops.h>
+#include <objects/transfer.h>
+#include <stdint.h>
 
 LIST_HEAD(fs_list_head);
 
@@ -45,7 +45,7 @@ TransferResult fs_obj_write(
 }
 
 FsResult fs_obj_create_file(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	Object *parent, FileSystemInfo *info, string_t *name, Object **object,
 	ObjectAttr *attr) {
 	*object		= create_object(parent, name, *attr);
 	Object *out = *object;
@@ -62,7 +62,7 @@ FsResult fs_obj_create_file(
 }
 
 FsResult fs_obj_create_dir(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	Object *parent, FileSystemInfo *info, string_t *name, Object **object,
 	ObjectAttr *attr) {
 	*object		= create_object_directory(parent, name, *attr);
 	Object *out = *object;

@@ -1,7 +1,6 @@
-#include "drivers/serial.h"
-#include "driver/interrupt_dm.h"
-#include "driver/serial/serial_dm.h"
-#include "string.h"
+#include <driver/interrupt/interrupt_dm.h>
+#include <driver/serial/serial_dm.h>
+#include <drivers/serial.h>
 #include <kernel/bus_driver.h>
 #include <kernel/console.h>
 #include <kernel/device.h>
@@ -11,11 +10,12 @@
 #include <kernel/memory.h>
 #include <kernel/platform.h>
 #include <stdint.h>
+#include <string.h>
 
 extern Driver core_driver;
 
-DriverResult serial_init(Device *device);
-DriverResult serial_start(Device *device);
+DriverResult serial_init(void *device);
+DriverResult serial_start(void *device);
 DriverResult serial_self_test(SerialDevice *serial_device);
 void		 serial_set_baud_rate(
 			SerialDevice *serial_device, SerialBaudRate baud_rate);
@@ -26,30 +26,19 @@ void serial_set_recv_mode(
 void serial_console_backend_put_string(
 	void *context, const char *string, int length);
 
-DeviceDriverOps serial_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps serial_device_ops = {
 	.init	 = serial_init,
 	.start	 = serial_start,
 	.stop	 = NULL,
 	.destroy = NULL,
-	.status	 = NULL,
 };
-SerialDeviceOps serial_serial_device_ops = {
+SerialOps serial_serial_ops = {
 	.self_test	   = serial_self_test,
 	.set_baud_rate = serial_set_baud_rate,
 	.set_recv_mode = serial_set_recv_mode,
 };
 
-DeviceDriver serial_device_driver = {
-	.name	  = STRING_INIT("Serial"),
-	.type	  = DEVICE_TYPE_SERIAL,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.ops	  = &serial_device_driver_ops,
-	.state	  = DRIVER_STATE_UNREGISTERED,
-};
+DeviceDriver serial_device_driver;
 
 const uint16_t serial_ports[] = {
 	SERIAL_COM1_BASE,
@@ -80,11 +69,12 @@ void serial_console_backend_put_string(
 	}
 }
 
-void serial_irq_handler(Device *device) {
-	SerialDevice *serial_device = device->dm_ext;
-	Serial		 *serial		= device->private_data;
-	uint16_t	  base_port		= serial->base_port;
-	uint8_t		  status =
+void serial_irq_handler(void *arg) {
+	LogicalDevice *device		 = arg;
+	SerialDevice  *serial_device = device->dm_ext;
+	Serial		  *serial		 = device->private_data;
+	uint16_t	   base_port	 = serial->base_port;
+	uint8_t		   status =
 		io_in_byte(base_port + SERIAL_UART_REG_INTERRUPT_IDENTIFICATION);
 
 	// 判断中断类型
@@ -140,12 +130,12 @@ DriverResult serial_self_test(SerialDevice *serial_device) {
 	// 测试发送和接收
 	io_out_byte(base_port + SERIAL_UART_REG_DATA, 0x5A);
 	if (io_in_byte(base_port + SERIAL_UART_REG_DATA) != 0x5A)
-		return DRIVER_RESULT_OTHER_ERROR;
+		return DRIVER_ERROR_OTHER;
 
 	io_out_byte(base_port + SERIAL_UART_REG_MODEM_CONTROL, 0x0F);
 	io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, val);
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void serial_set_baud_rate(
@@ -194,9 +184,10 @@ void serial_set_recv_mode(
 	}
 }
 
-DriverResult serial_init(Device *device) {
-	Serial	*serial	   = device->private_data;
-	uint16_t base_port = serial->base_port;
+DriverResult serial_init(void *_device) {
+	LogicalDevice *device	 = _device;
+	Serial		  *serial	 = device->private_data;
+	uint16_t	   base_port = serial->base_port;
 
 	// 禁用中断
 	io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, 0x00);
@@ -207,55 +198,50 @@ DriverResult serial_init(Device *device) {
 	// 设置 RTS 和 DSR
 	io_out_byte(base_port + SERIAL_UART_REG_MODEM_CONTROL, 0x0B);
 
-	DeviceIrq *irq = kmalloc(sizeof(DeviceIrq));
-	irq->device	   = device;
-	irq->irq	   = serial->irq;
-	irq->handler   = serial_irq_handler;
-	device->irq	   = irq;
-	register_device_irq(irq);
+	register_device_irq(
+		&serial->irq, device->physical_device, serial->device, serial->irq_num,
+		serial_irq_handler, IRQ_MODE_SHARED);
 
 	serial->console_backend.init	   = NULL;
 	serial->console_backend.put_string = serial_console_backend_put_string;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult serial_start(Device *device) {
-	Serial	*serial	   = device->private_data;
-	uint16_t base_port = serial->base_port;
+DriverResult serial_start(void *_device) {
+	LogicalDevice *device	 = _device;
+	Serial		  *serial	 = device->private_data;
+	uint16_t	   base_port = serial->base_port;
 
 	// 启用接收中断
 	io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, 0x01);
-	interrupt_enable_irq(serial->irq);
+	enable_device_irq(serial->irq);
 
 	console_register_backend(&serial->console_backend, serial);
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void register_serial() {
-	serial_device_driver.ops = &serial_device_driver_ops;
 	register_device_driver(&core_driver, &serial_device_driver);
 
+	DriverResult   result;
+	SerialDevice  *serial_device;
+	LogicalDevice *logical_device;
 	for (int i = 0; i < sizeof(serial_ports) / sizeof(serial_ports[0]); i++) {
 		if (serial_probe(serial_ports[i])) {
-			SerialDevice *serial_device = kmalloc(sizeof(SerialDevice));
-			Device		 *device		= kmalloc(sizeof(Device));
-			serial_device->device		= device;
-			serial_device->ops			= &serial_serial_device_ops;
-			device->name				= name;
-			device->state				= DEVICE_STATE_UNREGISTERED;
-			device->private_data_size	= sizeof(Serial);
-			device->ops					= &serial_device_ops;
-			device->max_child_device	= 0;
+			result = create_serial_device(
+				&serial_device, &serial_serial_ops, &serial_device_ops,
+				platform_device, &serial_device_driver);
+			if (result != DRIVER_OK) continue;
 
-			register_serial_device(
-				&serial_device_driver, device, &platform_bus, serial_device);
-
-			Serial *serial	  = device->private_data;
+			logical_device	  = serial_device->device;
+			Serial *serial	  = kmalloc(sizeof(Serial));
 			serial->base_port = serial_ports[i];
-			serial->irq		  = serial_irqs[i];
-			serial->device	  = device;
+			serial->irq_num	  = serial_irqs[i];
+			serial->device	  = serial_device->device;
+
+			logical_device->private_data = serial;
 		}
 	}
 }

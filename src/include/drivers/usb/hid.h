@@ -1,7 +1,7 @@
 #ifndef _USB_HID_H
 #define _USB_HID_H
 
-#include <driver/usb/usb_driver.h>
+#include <drivers/bus/usb/usb_driver.h>
 #include <kernel/driver.h>
 
 extern Driver usb_hid_driver;

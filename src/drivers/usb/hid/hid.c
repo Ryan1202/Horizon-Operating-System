@@ -1,12 +1,11 @@
-#include "drivers/usb/hid.h"
-#include "driver/usb/usb.h"
-#include "driver/usb/usb_driver.h"
-#include "string.h"
+#include <drivers/bus/usb/usb_driver.h>
+#include <drivers/usb/hid.h>
 #include <drivers/usb/keyboard.h>
 #include <drivers/usb/mouse.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
 #include <kernel/initcall.h>
+#include <string.h>
 
 DriverResult usb_hid_probe(UsbDevice *device, UsbInterface *interface);
 
@@ -19,10 +18,7 @@ DriverDependency usb_hid_dependencies[] = {
 };
 
 Driver usb_hid_driver = {
-	.short_name		  = STRING_INIT("HID"),
-	.dependency_count = sizeof(usb_hid_dependencies) / sizeof(DriverDependency),
-	.dependencies	  = usb_hid_dependencies,
-	.init			  = NULL,
+	.short_name = STRING_INIT("HID"),
 };
 UsbDriver usb_hid_usb_driver = {
 	.driver			= &usb_hid_driver,
@@ -35,7 +31,7 @@ DriverResult usb_hid_probe(UsbDevice *usb_device, UsbInterface *interface) {
 	switch (interface->desc->bInterfaceSubClass) {
 	case USB_HID_SUBCLASS_NO:
 		// printk("HID Interface Found\n");
-		return DRIVER_RESULT_UNSUPPORT_DEVICE;
+		return DRIVER_ERROR_UNSUPPORT_DEVICE;
 	case USB_HID_SUBCLASS_BOOT:
 		// printk("HID Boot Interface Found\n");
 		break;
@@ -64,7 +60,7 @@ DriverResult usb_hid_probe(UsbDevice *usb_device, UsbInterface *interface) {
 			interface->desc->bInterfaceProtocol);
 		break;
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 static __init void usb_hid_driver_entry(void) {

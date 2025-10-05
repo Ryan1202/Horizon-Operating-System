@@ -1,15 +1,17 @@
 #ifndef _STORAGE_DM_H
 #define _STORAGE_DM_H
 
-#include "kernel/device_manager.h"
-#include "kernel/driver.h"
-#include "kernel/list.h"
-#include "kernel/periodic_task.h"
-#include "kernel/spinlock.h"
-#include "kernel/wait_queue.h"
-#include "objects/object.h"
-#include "string.h"
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/device_manager.h>
+#include <kernel/driver.h>
+#include <kernel/list.h>
+#include <kernel/periodic_task.h>
+#include <kernel/spinlock.h>
+#include <kernel/wait_queue.h>
+#include <objects/object.h>
 #include <stdint.h>
+#include <string.h>
 
 typedef enum StorageDeviceType {
 	STORAGE_DEVICE_TYPE_UNKNOWN,
@@ -30,7 +32,7 @@ typedef struct StorageDeviceOps {
 
 struct Object;
 typedef struct StorageDevice {
-	Device			 *device;
+	LogicalDevice	 *device;
 	StorageDeviceType type;
 	StorageDeviceOps *ops;
 
@@ -63,11 +65,12 @@ typedef struct StorageDeviceDriver {
 
 extern DeviceManager storage_dm;
 
-DriverResult register_storage_device(
-	struct DeviceDriver *device_driver, Device *device,
-	StorageDevice *storage_device, ObjectAttr *attr);
+DriverResult create_storage_device(
+	StorageDevice **storage_device, StorageDeviceOps *storage_ops,
+	DeviceOps *ops, PhysicalDevice *physical_device,
+	DeviceDriver *device_driver);
 DriverResult unregister_storage_device(
-	struct DeviceDriver *device_driver, Device *device,
+	struct DeviceDriver *device_driver, PhysicalDevice *device,
 	StorageDevice *storage_device);
 
 #endif

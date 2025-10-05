@@ -1,6 +1,7 @@
 #ifndef _VESA_DISPLAY_H
 #define _VESA_DISPLAY_H
 
+#include "kernel/driver.h"
 struct VbeModeInfoBlock {
 	unsigned char  VbeSignature[4];
 	unsigned short VbeVersion;
@@ -38,7 +39,8 @@ struct VesaDisplayInfo {
 	struct VbeControlInfoBlock *vbe_conrtol_info;
 };
 
-extern struct Device vesa_display_device;
-void				 register_vesa_display(void);
+extern struct LogicalDevice vesa_display_device;
+
+DriverResult register_vesa_display(void);
 
 #endif

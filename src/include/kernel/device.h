@@ -1,23 +1,21 @@
 #ifndef _DEVICE_H
 #define _DEVICE_H
 
-#include "kernel/driver.h"
-#include "kernel/driver_interface.h"
-#include "kernel/list.h"
-#include "objects/object.h"
-#include "objects/permission.h"
-#include "stdint.h"
-#include "string.h"
-#include "types.h"
+#include <kernel/driver.h>
+#include <kernel/driver_interface.h>
+#include <kernel/list.h>
+#include <objects/permission.h>
+#include <string.h>
+#include <types.h>
 
 #define device_print_error(device, str, ...) \
 	print_error(device->name.text, str, ##__VA_ARGS__)
 // 调用后自动传递错误
-#define DEV_OPS_CALL(dm, func, ...)                               \
-	{                                                             \
-		if ((dm)->ops->func != NULL) {                            \
-			DRV_RESULT_DELIVER_CALL((dm)->ops->func, __VA_ARGS__) \
-		}                                                         \
+#define DEV_OPS_CALL(dm, func)                      \
+	{                                               \
+		if ((dm)->ops->func != NULL) {              \
+			DRIVER_RESULT_PASS((dm)->ops->func(dm)) \
+		}                                           \
 	}
 
 typedef enum {
@@ -31,63 +29,71 @@ typedef enum {
 	DEVICE_TYPE_BUS_CONTROLLER,
 	DEVICE_TYPE_ETHERNET,
 	DEVICE_TYPE_TIME, // 时间设备（如：Unix时间戳/UTC时间）
-	DEVICE_TYPE_USB,
 	DEVICE_TYPE_SERIAL,
 	DEVICE_TYPE_MAX,
 } DeviceType;
 
-struct Device;
-
 typedef struct DeviceOps {
-	DriverResult (*init)(struct Device *dev);	 // 初始化设备
-	DriverResult (*start)(struct Device *dev);	 // 启动设备
-	DriverResult (*stop)(struct Device *dev);	 // 停止设备
-	DriverResult (*destroy)(struct Device *dev); // 销毁设备
-	DriverResult (*status)(struct Device *dev);	 // 查询设备状态
+	DriverResult (*init)(void *device);	   // 初始化设备
+	DriverResult (*start)(void *device);   // 启动设备
+	DriverResult (*stop)(void *device);	   // 停止设备
+	DriverResult (*destroy)(void *device); // 销毁设备
 } DeviceOps;
 
 typedef enum {
-	DEVICE_STATE_UNREGISTERED, // 设备未注册
-	DEVICE_STATE_REGISTERED,   // 设备已注册
-	DEVICE_STATE_READY,		   // 设备准备就绪
-	DEVICE_STATE_ACTIVE,	   // 设备正在运行
-	DEVICE_STATE_ERROR,		   // 设备错误
+	DEVICE_STATE_UNINIT, // 设备未初始化
+	DEVICE_STATE_READY,	 // 设备准备就绪
+	DEVICE_STATE_ACTIVE, // 设备正在运行
+	DEVICE_STATE_ERROR,	 // 设备错误
 } DeviceState;
 
-typedef struct ChildDevice {
-	bool		   is_using;
-	uint32_t	   id;
-	struct Device *parent;
-	void		  *private_data;
-} ChildDevice;
+typedef enum DeviceKind {
+	DEVICE_KIND_PHYSICAL,
+	DEVICE_KIND_LOGICAL,
+} DeviceKind;
+
+typedef struct LogicalDevice {
+	DeviceKind	kind;
+	DeviceState state;
+	list_t		new_device_list;
+
+	list_t logical_device_list;
+	list_t dm_list;
+	list_t device_list;
+
+	DeviceType type;
+	DeviceOps *ops;
+
+	struct PhysicalDevice *physical_device;
+	struct Object		  *object;
+	void				  *dm_ext; // 设备管理器所需的扩展信息
+
+	void *private_data;
+} LogicalDevice;
 
 struct Bus;
 struct Object;
 struct DeviceDriver;
-typedef struct Device {
-	list_t				 bus_list;
-	list_t				 device_list;
-	list_t				 dm_list;
-	list_t				 new_device_list;
-	string_t			 name;
-	DeviceState			 state;
-	struct DeviceDriver *device_driver;
+typedef struct PhysicalDevice {
+	DeviceKind	kind;
+	DeviceState state;
+	list_t		new_device_list;
+
+	list_t bus_list;
+	list_t logical_device_lh;
+	list_t irq_lh;
+
+	int num;
 
 	struct Bus *bus;
 
 	struct Object *object;
 
-	DeviceIrq *irq;
 	DeviceOps *ops;
 
-	uint32_t	 max_child_device;
-	ChildDevice *child_devices;
-	void	   **child_private_data;
-
-	void	*private_data;
-	uint32_t private_data_size;
-	void	*dm_ext; // 设备管理器所需的扩展信息
-} Device;
+	void *private_data;
+	void *bus_ext;
+} PhysicalDevice;
 
 static const Permission device_sys_permission = {
 	.subject_id = SUBJECT_ID_SYSTEM,
@@ -108,7 +114,7 @@ static const Permission device_admin_permission = {
 
 static const ObjectAttr device_object_attr = {
 	.type				 = OBJECT_TYPE_DEVICE,
-	.size				 = sizeof(Device),
+	.size				 = sizeof(PhysicalDevice),
 	.is_mounted			 = false,
 	.owner_id			 = SUBJECT_ID_SYSTEM,
 	.all_user_permission = device_all_user_permission,
@@ -117,15 +123,34 @@ static const ObjectAttr device_object_attr = {
 	.admin_permission	 = device_admin_permission,
 };
 
-DriverResult register_device(
-	struct DeviceDriver *device_driver, string_t *name, struct Bus *bus,
-	Device *device, ObjectAttr *attr);
-DriverResult unregister_device(
-	struct DeviceDriver *device_driver, Device *device);
-DriverResult unregister_child_device(ChildDevice *child_device);
-DriverResult register_child_device(Device *device, int private_data_size);
-DriverResult init_device(Device *device);
-DriverResult start_device(Device *device);
-DriverResult init_and_start(Device *device);
+DriverResult create_physical_device(
+	PhysicalDevice **physical_device, struct Bus *bus, ObjectAttr *attr);
+void register_physical_device(PhysicalDevice *physical_device, DeviceOps *ops);
+DriverResult delete_physical_device(PhysicalDevice *physical_device);
+DriverResult create_logical_device(
+	LogicalDevice **logical_device, PhysicalDevice *physical_device,
+	struct DeviceDriver *device_driver, DeviceOps *ops, DeviceType type);
+DriverResult delete_logical_device(LogicalDevice *logical_device);
+DriverResult init_physical_device(PhysicalDevice *device);
+DriverResult start_physical_device(PhysicalDevice *device);
+DriverResult init_logical_device(LogicalDevice *device);
+DriverResult start_logical_device(LogicalDevice *device);
+
+#define init_and_start_physical_device(device)                           \
+	({                                                                   \
+		DriverResult result = init_physical_device(device);              \
+		if (result == DRIVER_OK) result = start_physical_device(device); \
+		result;                                                          \
+	})
+
+#define init_and_start_logical_device(device)                           \
+	({                                                                  \
+		DriverResult result = init_logical_device(device);              \
+		if (result == DRIVER_OK) result = start_logical_device(device); \
+		result;                                                         \
+	})
+
+extern list_t new_physical_device_lh;
+extern list_t new_logical_device_lh;
 
 #endif

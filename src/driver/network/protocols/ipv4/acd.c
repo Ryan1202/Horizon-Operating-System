@@ -5,15 +5,14 @@
  * References:
  * - RFC5227: IPv4 Address Conflict Detection
  */
-#include "driver/network/ethernet/ethernet.h"
-#include "driver/network/neighbour.h"
-#include "driver/network/network_dm.h"
-#include "driver/network/protocols/ipv4/ipv4.h"
-#include "driver/network/protocols/protocols.h"
-#include "driver/timer_dm.h"
+#include <driver/network/ethernet/ethernet.h>
+#include <driver/network/neighbour.h>
+#include <driver/network/network_dm.h>
 #include <driver/network/protocols/ipv4/acd.h>
 #include <driver/network/protocols/ipv4/arp.h>
-#include <stdint.h>
+#include <driver/network/protocols/ipv4/ipv4.h>
+#include <driver/network/protocols/protocols.h>
+#include <driver/timer/timer_dm.h>
 
 void acd_timer_callback(void *arg) {
 	NetworkDevice  *device	   = arg;

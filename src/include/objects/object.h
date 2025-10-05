@@ -1,13 +1,13 @@
 #ifndef _OBJECT_H
 #define _OBJECT_H
 
-#include "dyn_array.h"
-#include "kernel/list.h"
-#include "objects/permission.h"
-#include "objects/transfer.h"
-#include "stdint.h"
-#include "string.h"
+#include <dyn_array.h>
+#include <kernel/device.h>
+#include <kernel/list.h>
+#include <objects/attr.h>
+#include <objects/transfer.h>
 #include <stdint.h>
+#include <string.h>
 
 typedef enum ObjectResult {
 	OBJECT_OK,
@@ -33,36 +33,6 @@ typedef enum ObjectResult {
 #define OBJECT_DIR_SIZE_MEDIUM 16
 #define OBJECT_DIR_SIZE_LARGE  32
 
-typedef enum ObjectType {
-	OBJECT_TYPE_TYPE,		 // 表示该对象用于表示一种对象类型
-	OBJECT_TYPE_DIRECTORY,	 // 表示该对象是一个目录
-	OBJECT_TYPE_DRIVER,		 // 表示该对象是一个驱动程序
-	OBJECT_TYPE_DEVICE,		 // 表示该对象是一个设备
-	OBJECT_TYPE_FILE,		 // 表示该对象是一个文件
-	OBJECT_TYPE_VALUE,		 // 表示该对象是一个值
-	OBJECT_TYPE_SYM_LINK,	 // 表示该对象是一个符号链接
-	OBJECT_TYPE_PARTITION,	 // 表示该对象是一个分区
-	OBJECT_TYPE_VOLUME,		 // 表示该对象是一个卷
-	OBJECT_TYPE_BUILTIN_MAX, // 表示对象系统内建类型数量的最大值
-} ObjectType;
-
-typedef struct ObjectAttr {
-	ObjectType type;
-	size_t	   size;
-
-	bool	   is_mounted;
-	size_t	   owner_id;
-	Permission all_user_permission;
-	Permission owner_permission;
-	Permission system_permission;
-	Permission admin_permission;
-
-	list_t permission_lh;
-
-	struct Object *object;
-	void		  *fs_location;
-} ObjectAttr;
-
 struct Partition;
 typedef struct Object {
 	list_t list;
@@ -87,7 +57,13 @@ typedef struct Object {
 			void  *fs_iterator;
 		} directory;
 		struct Driver *driver;
-		struct Device *device;
+		struct {
+			DeviceKind kind;
+			union {
+				struct PhysicalDevice *physical;
+				struct LogicalDevice  *logical;
+			};
+		} device;
 		struct {
 			void  *data;
 			size_t size;

@@ -1,6 +1,7 @@
 #ifndef _SB16_H
 #define _SB16_H
 
+#include "kernel/driver_interface.h"
 #include "kernel/spinlock.h"
 #include "stdint.h"
 
@@ -53,6 +54,8 @@ typedef struct Sb16Info {
 	uint8_t	   minor_ver;
 	uint8_t	   dma_channel;
 	spinlock_t lock;
+
+	DeviceIrq *irq;
 
 	struct Sb16StreamInfo {
 		uint8_t data_type;

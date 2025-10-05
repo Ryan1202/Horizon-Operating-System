@@ -5,11 +5,8 @@
 
 static int type_number = OBJECT_TYPE_BUILTIN_MAX;
 
-#define DEFINE_OBJECT_TYPE(type_name)          \
-	{                                          \
-		.name		= STRING_INIT(#type_name), \
-		.value.type = OBJECT_TYPE_##type_name, \
-	}
+#define DEFINE_OBJECT_TYPE(type_name) \
+	{ .name = STRING_INIT(#type_name), .value.type = OBJECT_TYPE_##type_name, }
 
 Object object_builtin_types[OBJECT_TYPE_BUILTIN_MAX] = {
 	DEFINE_OBJECT_TYPE(TYPE),	  DEFINE_OBJECT_TYPE(DIRECTORY),
@@ -37,7 +34,7 @@ ObjectResult init_builtin_types() {
 	return OBJECT_OK;
 }
 
-Object *create_object_type(string_t name) {
+Object *create_object_type(string_t *name) {
 	Object *object =
 		create_object(&object_type_directory, name, base_obj_sys_attr);
 	if (object == NULL) { return NULL; }

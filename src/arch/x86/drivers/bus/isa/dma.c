@@ -5,17 +5,18 @@
  * @version 0.1
  * @date 2021-7
  */
-#include "kernel/driver.h"
-#include "math.h"
 #include <drivers/bus/isa/dma.h>
 #include <kernel/device.h>
 #include <kernel/dma.h>
+#include <kernel/driver.h>
 #include <kernel/func.h>
 #include <kernel/memory.h>
 #include <kernel/spinlock.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
+
 
 DmaOps isa_dma_ops = {
 	.dma_alloc = dma_alloc_region,
@@ -24,7 +25,7 @@ DmaOps isa_dma_ops = {
 
 #define DMA_MEM_BASE_ADDR 0x800000
 
-Device *dma_channels[8]; // 使用DMA通道的设备
+LogicalDevice *dma_channels[8]; // 使用DMA通道的设备
 
 struct mmap dma_mem_mmap;
 spinlock_t	dma_spin_lock;
@@ -61,7 +62,7 @@ DriverResult dma_free_region(Dma *dma, void *ptr, uint32_t size) {
 	for (int i = 0; i < cnt; i++) {
 		mmap_set(&dma_mem_mmap, idx + i, 0);
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 uint32_t get_dma_count(int channel) {
@@ -90,7 +91,7 @@ uint32_t dma_pointer(int channel, uint32_t size) {
 	else return size - result;
 }
 
-int dma_channel_use(Device *device, int *possible_ch, int len) {
+int dma_channel_use(LogicalDevice *device, int *possible_ch, int len) {
 	for (int i = 0; i < len; i++) {
 		if (dma_channels[possible_ch[i]] == NULL) {
 			dma_channels[possible_ch[i]] = device;
@@ -100,7 +101,7 @@ int dma_channel_use(Device *device, int *possible_ch, int len) {
 	return -1;
 }
 
-void dma_channel_unuse(Device *device, uint8_t channel) {
+void dma_channel_unuse(LogicalDevice *device, uint8_t channel) {
 	if (channel < 8) {
 		if (dma_channels[channel] == device) dma_channels[channel] = NULL;
 	}

@@ -1,46 +1,35 @@
-#include "driver/usb/descriptors.h"
-#include "driver/usb/usb_dm.h"
-#include "kernel/dynamic_device_manager.h"
-#include "kernel/list.h"
 #include <driver/input/input_dm.h>
-#include <driver/usb/usb.h>
+#include <drivers/bus/usb/usb.h>
+#include <drivers/usb/core/descriptors.h>
+#include <drivers/usb/core/usb.h>
 #include <drivers/usb/hid.h>
 #include <drivers/usb/keyboard.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
+#include <kernel/dynamic_device_manager.h>
 #include <kernel/initcall.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <stdint.h>
 #include <string.h>
 
 DeviceDriver usb_hid_keyboard_device_driver;
 
-DriverResult usb_hid_keyboard_init(Device *device);
-DriverResult usb_hid_keyboard_start(Device *device);
+DriverResult usb_hid_keyboard_init(void *_device);
+DriverResult usb_hid_keyboard_start(void *_device);
 
-DeviceDriverOps usb_hid_keyboard_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps usb_hid_keyboard_device_ops = {
 	.init	 = usb_hid_keyboard_init,
 	.start	 = usb_hid_keyboard_start,
 	.destroy = NULL,
-	.status	 = NULL,
 	.stop	 = NULL,
 };
 
-DeviceDriver usb_hid_keyboard_device_driver = {
-	.name			   = STRING_INIT("USB HID Keyboard Driver"),
-	.priority		   = DRIVER_PRIORITY_GENERAL,
-	.type			   = DEVICE_TYPE_USB,
-	.private_data_size = 0,
-	.ops			   = &usb_hid_keyboard_device_driver_ops,
-};
-InputDevice usb_hid_keyboard_input_device = {
-	.type = INPUT_TYPE_KEYBOARD,
+DeviceDriver usb_hid_keyboard_device_driver;
+InputDevice	 usb_hid_keyboard_input_device = {
+	 .type = INPUT_TYPE_KEYBOARD,
 };
 
 void usb_hid_keyboard_handler(UsbRequestBlock *urb) {
@@ -113,7 +102,8 @@ void usb_hid_keyboard_handler(UsbRequestBlock *urb) {
 	}
 }
 
-DriverResult usb_hid_keyboard_init(Device *device) {
+DriverResult usb_hid_keyboard_init(void *_device) {
+	LogicalDevice				  *device	 = _device;
 	UsbHidKeyboard				  *keyboard	 = device->private_data;
 	struct UsbInterfaceDescriptor *interface = keyboard->interface->desc;
 
@@ -134,46 +124,39 @@ DriverResult usb_hid_keyboard_init(Device *device) {
 			break;
 		}
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult usb_hid_keyboard_start(Device *device) {
+DriverResult usb_hid_keyboard_start(void *_device) {
+	LogicalDevice  *device	 = _device;
 	UsbHidKeyboard *keyboard = device->private_data;
 	UsbEndpoint	   *ep		 = keyboard->urb->ep;
 	ep->data_toggle			 = 1;
 	keyboard->usb_device->hcd->ops->add_interrupt_transfer(
 		keyboard->usb_device->hcd, keyboard->usb_device, ep, keyboard->urb);
-	// UsbControlRequest req = USB_BUILD_REQUEST(
-	// 	USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_INTERFACE,
-	// 	0x0b, 0x00, 0x00, keyboard->interface->desc->bInterfaceNumber, 0);
-	// uint8_t data = 0;
-	// keyboard->usb_device->hcd->ops->ctrl_transfer_out(
-	// 	keyboard->usb_device->hcd, keyboard->usb_device, &data, 0, &req);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult usb_hid_keyboard_probe(
 	UsbDevice *usb_device, UsbInterface *interface) {
-	Device *device			  = kmalloc(sizeof(Device));
-	device->private_data_size = sizeof(UsbHidKeyboard);
-	string_new(&device->name, "USB HID Keyboard", 14);
-	device->device_driver = &usb_hid_keyboard_device_driver;
-	device->ops			  = &usb_hid_keyboard_device_ops;
-	device->state		  = DEVICE_STATE_UNREGISTERED;
+	PhysicalDevice *physical_device = usb_device->device;
+
 	interface->usb_driver = &usb_hid_usb_driver;
 
-	register_input_device(
-		&usb_hid_keyboard_device_driver, device, usb_device->device->bus,
-		&usb_hid_keyboard_input_device);
+	InputDevice *input_device;
+	DRIVER_RESULT_PASS(create_input_device(
+		&input_device, INPUT_TYPE_KEYBOARD, &usb_hid_keyboard_device_ops,
+		physical_device, &usb_hid_keyboard_device_driver));
 
-	UsbHidKeyboard *keyboard = device->private_data;
-	keyboard->device		 = device;
-	keyboard->usb_device	 = usb_device;
-	keyboard->interface		 = interface;
+	UsbHidKeyboard *keyboard		   = kmalloc(sizeof(UsbHidKeyboard));
+	keyboard->device				   = input_device;
+	keyboard->usb_device			   = usb_device;
+	keyboard->interface				   = interface;
+	input_device->device->private_data = keyboard;
 
-	list_add_tail(&device->new_device_list, &new_device_lh);
+	usb_device->state = USB_STATE_ACTIVE;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 static __init void usb_hid_keyboard_initcall() {

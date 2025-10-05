@@ -13,7 +13,7 @@
 void probe_volume(Partition *partition) {
 	Object		  *object = partition->storage_object;
 	StorageDevice *storage_device =
-		partition->storage_object->value.device->dm_ext;
+		partition->storage_object->value.device.logical->dm_ext;
 	string_t prefix		  = storage_device->name;
 	partition->superblock = kmalloc(2 * SECTOR_SIZE);
 
@@ -34,7 +34,7 @@ void probe_volume(Partition *partition) {
 					partition->index);
 				ObjectAttr attr = device_object_attr;
 				Object	  *root_object =
-					create_object_directory(&volumes_object, name, attr);
+					create_object_directory(&volumes_object, &name, attr);
 				partition->object->fs_info = fs_info;
 
 				object_mount(partition->object, root_object);

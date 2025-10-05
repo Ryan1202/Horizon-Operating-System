@@ -187,14 +187,14 @@ PUBLIC FatDirEntry *generate_dir_entry(
 
 	if (is_directory) {
 		FsResult result = fs_obj_create_dir(
-			parent_entry->object, fat_info->fs_info, entry->name, &object,
+			parent_entry->object, fat_info->fs_info, &entry->name, &object,
 			_attr);
 		if (result != FS_OK) { return NULL; }
 		object->value.directory.data = entry;
 		entry_cache_init(fat_info, entry, fat_info->bytes_per_cluster);
 	} else {
 		FsResult result = fs_obj_create_file(
-			parent_entry->object, fat_info->fs_info, entry->name, &object,
+			parent_entry->object, fat_info->fs_info, &entry->name, &object,
 			_attr);
 		if (result != FS_OK) { return NULL; }
 		object->value.file.data	  = entry;
@@ -216,7 +216,7 @@ PUBLIC FsResult fat_create_entry(
 
 	Time		 time;
 	DriverResult result = get_current_time(TIME_TYPE_LOCAL, &time);
-	if (result != DRIVER_RESULT_OK) { return FS_ERROR_OTHER; }
+	if (result != DRIVER_OK) { return FS_ERROR_OTHER; }
 	TimeFull full_time = time.time;
 	uint16_t cur_time =
 		FAT_TIME(full_time.hour, full_time.minute, full_time.second);

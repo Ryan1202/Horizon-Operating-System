@@ -104,10 +104,10 @@ void register_fs(FileSystem *fs);
 void unregister_fs(FileSystem *fs);
 
 FsResult fs_obj_create_file(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	Object *parent, FileSystemInfo *info, string_t *name, Object **object,
 	ObjectAttr *attr);
 FsResult fs_obj_create_dir(
-	Object *parent, FileSystemInfo *info, string_t name, Object **object,
+	Object *parent, FileSystemInfo *info, string_t *name, Object **object,
 	ObjectAttr *attr);
 
 #endif

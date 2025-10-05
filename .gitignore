@@ -66,7 +66,6 @@ __pycache__/
 /disk/
 tools/bin/
 tools/imagetool/target/
-core
 fixdep
 *.img
 *.log

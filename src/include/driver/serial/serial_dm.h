@@ -28,24 +28,26 @@ typedef struct SerialDeviceOps {
 		struct SerialDevice *serial, SerialBaudRate baud_rate);
 	void (*set_recv_mode)(
 		struct SerialDevice *serial, SerialReceiveMode recv_mode);
-} SerialDeviceOps;
+} SerialOps;
 
 typedef struct SerialDevice {
-	Device			*device;
-	SerialDeviceOps *ops;
+	LogicalDevice *device;
+	SerialOps	  *ops;
 
 	void (*receive)(uint8_t data);
 } SerialDevice;
 
 typedef struct SerialDeviceManager {
+	int new_device_num;
 	int device_count;
 } SerialDeviceManager;
 
 extern DeviceManager serial_dm;
 
-DriverResult register_serial_device(
-	DeviceDriver *device_driver, Device *device, Bus *bus,
-	SerialDevice *serial_device);
+DriverResult create_serial_device(
+	SerialDevice **serial_device, SerialOps *serial_ops, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver);
+DriverResult delete_serial_device(SerialDevice *serial_device);
 DriverResult serial_device_open(
 	Object *serial_object, SerialBaudRate baud_rate,
 	void (*receive)(uint8_t data));

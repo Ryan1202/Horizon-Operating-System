@@ -1,4 +1,3 @@
-#include "kernel/console.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -10,109 +9,137 @@
 #include <result.h>
 #include <string.h>
 
-/**
- * @brief 注册设备
- *
- * @param device_driver
- * @param name 无空格的设备名，如未提供则不会被添加到对象树中
- * @param bus
- * @param device
- * @return DriverResult
- */
-DriverResult register_device(
-	DeviceDriver *device_driver, string_t *name, Bus *bus, Device *device,
-	ObjectAttr *attr) {
-	if (device->ops == NULL) {
-		printk(COLOR_RED "Error: Device %s has no ops!\n", device->name.text);
-		return DRIVER_RESULT_NO_OPS;
-	}
+DriverResult create_physical_device(
+	PhysicalDevice **physical_device, Bus *bus, ObjectAttr *attr) {
+	BusDriver *bus_driver = bus->bus_driver;
 
-	device->state = DEVICE_STATE_REGISTERED;
+	*physical_device = kmalloc(sizeof(PhysicalDevice));
+	if (*physical_device == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
+	PhysicalDevice *phy = *physical_device;
 
-	device->child_devices =
-		kmalloc(device->max_child_device * sizeof(ChildDevice));
-	device->child_private_data =
-		kmalloc(device->max_child_device * sizeof(void *));
-	for (int i = 0; i < device->max_child_device; i++) {
-		device->child_devices[i].id		  = i;
-		device->child_devices[i].is_using = false;
-		device->child_devices[i].parent	  = device;
-	}
+	phy->kind  = DEVICE_KIND_PHYSICAL;
+	phy->bus   = bus;
+	phy->ops   = NULL;
+	phy->state = DEVICE_STATE_UNINIT;
+	list_add_tail(&phy->bus_list, &bus->device_lh);
+	list_init(&phy->logical_device_lh);
 
-	if (device->private_data_size != 0) {
-		device->private_data = kmalloc(device->private_data_size);
-	}
-	list_add_tail(&device->device_list, &device_driver->device_lh);
+	phy->private_data = NULL;
+	phy->bus_ext	  = NULL;
 
-	bus_register_device(device, bus, attr);
+	char _name[6] = {0}; // device_count为uint16_t类型，最大65535，5位数
+	itoa(_name, bus_driver->new_device_num++, 10);
+	bus_driver->device_count++;
 
-	if (name != NULL && name->text != NULL && name->length != 0) {
-		attr->type			   = OBJECT_TYPE_SYM_LINK;
-		Object *object		   = create_object(&device_object, *name, *attr);
-		object->value.sym_link = device->object;
-	}
+	string_t name;
+	string_new(&name, _name, sizeof(_name));
+	attr->type					   = OBJECT_TYPE_DEVICE;
+	phy->object					   = create_object(bus->object, &name, *attr);
+	phy->object->value.device.kind = DEVICE_KIND_PHYSICAL;
+	phy->object->value.device.physical = phy;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult unregister_device(DeviceDriver *device_driver, Device *device) {
-	device->state = DEVICE_STATE_REGISTERED;
-	bus_unregister_device(device);
-	list_del(&device->device_list);
-	return DRIVER_RESULT_OK;
+void register_physical_device(PhysicalDevice *physical_device, DeviceOps *ops) {
+	physical_device->ops = ops;
 }
 
-DriverResult register_child_device(Device *device, int private_data_size) {
-	ChildDevice *new = NULL;
-	for (int i = 0; i < device->max_child_device; i++) {
-		new = &device->child_devices[i];
-		if (!new->is_using) { break; }
+DriverResult delete_physical_device(PhysicalDevice *physical_device) {
+	BusDriver	*bus_driver = physical_device->bus->bus_driver;
+	DriverResult ret		= DRIVER_OK;
+
+	if (!list_empty(&physical_device->logical_device_lh)) {
+		return DRIVER_ERROR_BUSY;
 	}
-	if (new == NULL) { return DRIVER_RESULT_NO_VALID_CHILD_DEVICE; }
-
-	new->is_using						= true;
-	new->private_data					= kmalloc(private_data_size);
-	device->child_private_data[new->id] = new->private_data;
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult unregister_child_device(ChildDevice *child_device) {
-	Device *device		   = child_device->parent;
-	child_device->is_using = false;
-	kfree(child_device->private_data);
-	device->child_private_data[child_device->id] = NULL;
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult init_device(Device *device) {
-	DeviceManager *manager = device_managers[device->device_driver->type];
-	if (device->ops->init != NULL) {
-		DriverResult result = device->ops->init(device);
-		if (result != DRIVER_RESULT_OK) {
-			if (result != DRIVER_RESULT_NOT_EXIST) {
-				DRV_PRINT_RESULT(result, device->ops->init, device);
-				return result;
-			} else {
-				return DRIVER_RESULT_OK;
-			}
-		}
+	if (physical_device->object) {
+		ObjectResult result = delete_object(physical_device->object);
+		if (result != OBJECT_OK) ret = DRIVER_ERROR_OBJECT;
 	}
-	DEVM_OPS_CALL(manager, init_device_hook, manager, device);
+
+	list_del(&physical_device->bus_list);
+	int result = kfree(physical_device);
+	if (result < 0) ret = DRIVER_ERROR_MEMORY_FREE;
+
+	bus_driver->device_count--;
+	return ret;
+}
+
+DriverResult create_logical_device(
+	LogicalDevice **logical_device, PhysicalDevice *physical_device,
+	DeviceDriver *device_driver, DeviceOps *ops, DeviceType type) {
+	*logical_device = kmalloc(sizeof(LogicalDevice));
+	if (logical_device == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
+	LogicalDevice *logi = *logical_device;
+
+	logi->kind			  = DEVICE_KIND_LOGICAL;
+	logi->state			  = DEVICE_STATE_UNINIT;
+	logi->ops			  = ops;
+	logi->type			  = type;
+	logi->physical_device = physical_device;
+	list_add_tail(
+		&logi->logical_device_list, &physical_device->logical_device_lh);
+
+	if (device_managers[type] != NULL) {
+		DeviceManager *manager = device_managers[type];
+		list_add_tail(&logi->dm_list, &manager->device_lh);
+	}
+
+	return DRIVER_OK;
+}
+
+DriverResult delete_logical_device(LogicalDevice *logical_device) {
+	DeviceOps	*ops   = logical_device->ops;
+	DeviceState	 state = logical_device->state;
+	DriverResult ret   = DRIVER_OK;
+
+	if (ops->stop && state == DEVICE_STATE_ACTIVE)
+		DRIVER_RESULT_PASS(ops->stop(logical_device));
+	if (ops->destroy && state != DEVICE_STATE_UNINIT)
+		DRIVER_RESULT_PASS(ops->destroy(logical_device));
+
+	if (logical_device->object != NULL) {
+		ObjectResult result = delete_object(logical_device->object);
+		if (result != OBJECT_OK) ret = DRIVER_ERROR_OBJECT;
+	}
+
+	int result = 0;
+	if (!list_empty(&logical_device->dm_list))
+		list_del(&logical_device->dm_list);
+
+	list_del(&logical_device->logical_device_list);
+	result = kfree(logical_device);
+	if (result < 0) ret = DRIVER_ERROR_MEMORY_FREE;
+
+	return ret;
+}
+
+DriverResult init_physical_device(PhysicalDevice *device) {
+	DEV_OPS_CALL(device, init);
 	device->state = DEVICE_STATE_READY;
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult start_device(Device *device) {
-	DeviceManager *manager = device_managers[device->device_driver->type];
-	DEV_OPS_CALL(device, start, device);
-	DEVM_OPS_CALL(manager, start_device_hook, manager, device);
-	device->device_driver->subdriver.state = SUBDRIVER_STATE_READY;
-	device->state						   = DEVICE_STATE_ACTIVE;
-	return DRIVER_RESULT_OK;
+DriverResult start_physical_device(PhysicalDevice *device) {
+	DEV_OPS_CALL(device, start);
+	device->state = DEVICE_STATE_ACTIVE;
+	return DRIVER_OK;
 }
 
-DriverResult init_and_start(Device *device) {
-	DRV_RESULT_DELIVER_CALL(init_device, device);
-	DRV_RESULT_DELIVER_CALL(start_device, device);
-	return DRIVER_RESULT_OK;
+DriverResult init_logical_device(LogicalDevice *device) {
+	DeviceManager *manager = device_managers[device->type];
+	DEV_OPS_CALL(device, init);
+	if (manager->ops->init_device_hook != NULL)
+		manager->ops->init_device_hook(manager, device);
+	device->state = DEVICE_STATE_READY;
+	return DRIVER_OK;
+}
+
+DriverResult start_logical_device(LogicalDevice *device) {
+	DeviceManager *manager = device_managers[device->type];
+	DEV_OPS_CALL(device, start);
+	if (manager->ops->start_device_hook != NULL)
+		manager->ops->start_device_hook(manager, device);
+	device->state = DEVICE_STATE_ACTIVE;
+	return DRIVER_OK;
 }

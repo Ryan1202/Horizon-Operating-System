@@ -7,22 +7,20 @@
  * RFC 2131: Dynamic Host Configuration Protocol
  * RFC 1533: DHCP Options and BOOTP Vendor Extensions
  */
-#include "bits.h"
-#include "driver/network/buffer.h"
-#include "driver/network/ethernet/ethernet.h"
-#include "driver/network/neighbour.h"
-#include "driver/network/protocols/ipv4/acd.h"
-#include "driver/timer_dm.h"
-#include "kernel/driver_interface.h"
-#include "kernel/thread.h"
-#include "objects/transfer.h"
+#include <bits.h>
+#include <driver/network/buffer.h>
 #include <driver/network/conn.h>
+#include <driver/network/ethernet/ethernet.h>
+#include <driver/network/neighbour.h>
 #include <driver/network/network_dm.h>
 #include <driver/network/protocols/ipv4/dhcp.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/udp.h>
+#include <driver/timer/timer_dm.h>
+#include <kernel/driver_interface.h>
 #include <kernel/memory.h>
+#include <objects/transfer.h>
 #include <random.h>
 #include <stdint.h>
 #include <string.h>

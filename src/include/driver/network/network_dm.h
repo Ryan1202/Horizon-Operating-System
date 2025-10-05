@@ -1,13 +1,14 @@
 #ifndef _NETWORK_DM_H
 #define _NETWORK_DM_H
 
-#include "kernel/device.h"
-#include "kernel/device_driver.h"
-#include "kernel/device_manager.h"
-#include "kernel/driver.h"
-#include "net_queue.h"
-#include "objects/transfer.h"
-#include "protocols/protocols.h"
+#include <driver/network/net_queue.h>
+#include <driver/network/protocols/protocols.h>
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/device_manager.h>
+#include <kernel/driver.h>
+#include <objects/object.h>
+#include <objects/transfer.h>
 #include <stdint.h>
 
 #define NETWORK_SEND(device, conn) \
@@ -17,7 +18,7 @@
 struct NetworkDevice;
 typedef struct NetworkDeviceOps {
 	TransferResult (*send)(struct NetworkDevice *device, void *buf, int length);
-} NetworkDeviceOps;
+} NetworkOps;
 
 typedef struct NetworkDeviceCapabilities {
 } NetworkDeviceCapabilities;
@@ -34,20 +35,16 @@ typedef enum NetworkDeviceState {
 } NetworkDeviceState;
 
 typedef struct NetworkDevice {
-	Device					 *device;
+	LogicalDevice			 *device;
+	NetworkDeviceType		  type;
 	NetworkDeviceCapabilities capabilities;
-	NetworkDeviceOps		 *ops;
+	NetworkOps				 *ops;
 
-	uint16_t head_size;
-	uint16_t tail_size;
-	int		 mtu;
+	int mtu;
 
 	NetworkDeviceState state;
 	NetworkQueue	   tx_queue;
 
-	void *private_data;
-
-	NetworkDeviceType type;
 	union {
 		struct EthernetDevice *ethernet;
 	};
@@ -63,14 +60,17 @@ typedef struct NetworkDevice {
 } NetworkDevice;
 
 typedef struct NetworkDeviceManager {
+	int new_device_num;
 	int device_count;
 } NetworkDeviceManager;
 
 extern DeviceManager network_dm;
 
-DriverResult register_network_device(
-	DeviceDriver *driver, Device *device, NetworkDevice *network_device,
-	ObjectAttr *attr);
+DriverResult create_network_device(
+	NetworkDevice **network_device, NetworkDeviceType type,
+	NetworkDeviceCapabilities caps, NetworkOps *net_ops, DeviceOps *ops,
+	PhysicalDevice *device, DeviceDriver *device_driver);
+DriverResult delete_network_device(NetworkDevice *network_device);
 
 NetworkDevice *network_get_device(Object *object);
 

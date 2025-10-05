@@ -33,7 +33,7 @@ DriverResult dma_split_mem(
 			} else {
 				// 创建新的请求
 				seg = kmalloc(sizeof(DmaSegment));
-				if (seg == NULL) { return DRIVER_RESULT_OUT_OF_MEMORY; }
+				if (seg == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 
 				// 设置新请求的参数
 				seg->vaddr = seg_start_vaddr;
@@ -50,7 +50,7 @@ DriverResult dma_split_mem(
 	}
 	if (seg_size > 0) {
 		seg = kmalloc(sizeof(DmaSegment));
-		if (seg == NULL) { return DRIVER_RESULT_OUT_OF_MEMORY; }
+		if (seg == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 
 		// 设置新请求的参数
 		seg->vaddr = seg_start_vaddr;
@@ -58,5 +58,5 @@ DriverResult dma_split_mem(
 		seg->size  = seg_size;
 		list_add_tail(&seg->list, lh);
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }

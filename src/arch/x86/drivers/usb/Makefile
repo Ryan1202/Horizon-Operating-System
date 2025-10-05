@@ -1,1 +1,1 @@
-SRC	+=	hci/
+SRC	+=	hcd/

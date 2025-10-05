@@ -1,14 +1,14 @@
 #ifndef _RTL8139_H
 #define _RTL8139_H
 
-#include "driver/network/mii.h"
-#include "driver/network/network.h"
-#include "driver/network/network_dm.h"
-#include "driver/timer_dm.h"
-#include "drivers/bus/pci/pci.h"
-#include "kernel/softirq.h"
-#include "kernel/spinlock.h"
+#include "kernel/driver_interface.h"
 #include <bits.h>
+#include <driver/network/mii.h>
+#include <driver/network/network.h>
+#include <driver/network/network_dm.h>
+#include <driver/timer/timer_dm.h>
+#include <drivers/bus/pci/pci.h>
+#include <kernel/spinlock.h>
 #include <stdint.h>
 
 #define RTL8139_VENDOR_ID 0x10ec
@@ -138,6 +138,7 @@ typedef struct Rtl8139Device {
 	Mii			   mii;
 	spinlock_t	   lock;
 	NetRxHandler   net_rx;
+	DeviceIrq	  *irq;
 
 	void	*rx_buffer;
 	size_t	 rx_buffer_phy;

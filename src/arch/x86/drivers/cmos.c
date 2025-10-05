@@ -1,60 +1,61 @@
-#include "kernel/driver.h"
 #include <driver/time_dm.h>
 #include <drivers/cmos.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
+#include <kernel/driver.h>
+#include <kernel/platform.h>
 
 extern Driver core_driver;
 
 DriverResult rtc_get_time(TimeDevice *time_device, TimeType type, Time *time);
 
-DeviceDriverOps rtc_device_driver_ops = {
-
+DeviceOps cmos_device_ops = {
+	.init	 = NULL,
+	.start	 = NULL,
+	.stop	 = NULL,
+	.destroy = NULL,
 };
 DeviceOps rtc_device_ops = {
 	.init	 = NULL,
 	.start	 = NULL,
 	.stop	 = NULL,
 	.destroy = NULL,
-	.status	 = NULL,
 };
-TimeDeviceOps rtc_time_device_ops = {
+TimeOps rtc_time_device_ops = {
 	.get_time = rtc_get_time,
 	.set_time = NULL,
 };
 
-DeviceDriver rtc_device_driver = {
-	.name			   = STRING_INIT("RTC"),
-	.type			   = DEVICE_TYPE_TIME,
-	.priority		   = DRIVER_PRIORITY_BASIC,
-	.ops			   = &rtc_device_driver_ops,
-	.private_data_size = 0,
-};
-Device rtc_device = {
-	.name			   = STRING_INIT("RTC"),
-	.device_driver	   = &rtc_device_driver,
-	.ops			   = &rtc_device_ops,
-	.private_data_size = 0,
-};
-TimeDevice rtc_time_device = {
-	.device = &rtc_device,
-	.type	= TIME_TYPE_LOCAL,
-	.ops	= &rtc_time_device_ops};
+DeviceDriver	cmos_device_driver;
+PhysicalDevice *cmos_device;
+TimeDevice	   *rtc_time_device;
 
-void register_cmos(void) {
-	register_device_driver(&core_driver, &rtc_device_driver);
-	register_time_device(&rtc_device_driver, &rtc_device, &rtc_time_device);
+DriverResult register_cmos(void) {
+	register_device_driver(&core_driver, &cmos_device_driver);
+
+	ObjectAttr attr = driver_object_attr;
+	DRIVER_RESULT_PASS(
+		create_physical_device(&cmos_device, platform_bus, &attr));
+	register_physical_device(cmos_device, &cmos_device_ops);
+
+	DRIVER_RESULT_PASS(create_time_device(
+		&rtc_time_device, &rtc_time_device_ops, &rtc_device_ops, cmos_device,
+		&cmos_device_driver));
+
+	rtc_time_device->type = TIME_TYPE_LOCAL;
+
+	return DRIVER_OK;
 }
 
-int rtc_guess_year(int year) {
+static inline int rtc_guess_year(int year) {
 	return 2000 + year;
 }
 
-bool rtc_is_updating(void) {
+static inline bool rtc_is_updating(void) {
 	return (CMOS_READ(CMOS_STATUS_A) & 0x80);
 }
 
-bool rtc_is_bcd(void) {
+static inline bool rtc_is_bcd(void) {
 	return !(CMOS_READ(CMOS_STATUS_B) & 0x04);
 }
 
@@ -84,9 +85,9 @@ DriverResult rtc_get_time(TimeDevice *time_device, TimeType type, Time *time) {
 	time->time.minute = minute;
 	time->time.second = second;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult rtc_set_time(Device *device, TimeType type, Time *time) {
-	return DRIVER_RESULT_OK;
+DriverResult rtc_set_time(TimeDevice *device, TimeType type, Time *time) {
+	return DRIVER_OK;
 }

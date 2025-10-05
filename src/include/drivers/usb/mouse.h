@@ -1,9 +1,10 @@
 #ifndef _USB_HID_MOUSE_H
 #define _USB_HID_MOUSE_H
 
-#include "driver/usb/usb.h"
-#include "driver/usb/usb_dm.h"
-#include <driver/usb/urb.h>
+#include <driver/input/input_dm.h>
+#include <drivers/bus/usb/usb.h>
+#include <drivers/usb/core/urb.h>
+#include <drivers/usb/core/usb.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <stdint.h>
@@ -15,7 +16,7 @@ typedef struct {
 } __attribute__((packed)) UsbHidMouseReport;
 
 typedef struct {
-	Device			*device;
+	InputDevice		*device;
 	UsbDevice		*usb_device;
 	UsbInterface	*interface;
 	UsbRequestBlock *urb;

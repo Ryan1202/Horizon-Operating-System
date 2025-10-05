@@ -1,6 +1,7 @@
 #ifndef _INPUT_DM_H
 #define _INPUT_DM_H
 
+#include "kernel/spinlock.h"
 #include <kernel/bus_driver.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -21,7 +22,7 @@ typedef enum {
 } InputDeviceType;
 
 typedef struct InputDevice {
-	Device		   *device;
+	LogicalDevice  *device;
 	InputDeviceType type;
 } InputDevice;
 
@@ -42,7 +43,9 @@ typedef struct PointerEvent {
 } PointerEvent;
 
 typedef struct InputDeviceManager {
-	int device_count[INPUT_TYPE_MAX];
+	int		   new_device_num[INPUT_TYPE_MAX];
+	int		   device_count[INPUT_TYPE_MAX];
+	spinlock_t lock[INPUT_TYPE_MAX];
 
 	int		  key_event_w, key_event_r;
 	KeyEvent *key_events;
@@ -51,9 +54,10 @@ typedef struct InputDeviceManager {
 	PointerEvent *pointer_events;
 } InputDeviceManager;
 
-DriverResult register_input_device(
-	DeviceDriver *device_driver, Device *device, Bus *bus,
-	InputDevice *input_device);
+DriverResult create_input_device(
+	InputDevice **input_device, InputDeviceType type, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver);
+DriverResult delete_input_device(InputDevice *input_device);
 
 extern DeviceManager input_dm;
 

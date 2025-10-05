@@ -1,9 +1,12 @@
 #ifndef _PLATFORM_H
 
-extern struct Bus platform_bus;
+#include <kernel/driver.h>
 
-void platform_early_init();
-void platform_init();
-void platform_start_devices();
+extern struct Bus			 *platform_bus;
+extern struct PhysicalDevice *platform_device;
+
+void		 platform_early_init();
+DriverResult platform_init();
+void		 platform_start_devices();
 
 #endif

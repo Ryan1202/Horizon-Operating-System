@@ -1,12 +1,12 @@
 #ifndef _ATA_IDE_CONTROLL_H
 #define _ATA_IDE_CONTROLL_H
 
-#include "bits.h"
-#include "driver/timer_dm.h"
-#include "drivers/bus/pci/pci.h"
-#include "kernel/driver_interface.h"
-#include "kernel/spinlock.h"
-#include "stdint.h"
+#include "kernel/device.h"
+#include <bits.h>
+#include <driver/timer/timer_dm.h>
+#include <drivers/bus/pci/pci.h>
+#include <kernel/driver_interface.h>
+#include <stdint.h>
 
 #define IDE_CONTROLLER_CLASSCODE 0x01
 #define IDE_CONTROLLER_SUBCLASS	 0x01
@@ -34,6 +34,8 @@ typedef struct IdeChannelInfo {
 		IDE_COMPATITY_MODE,
 		IDE_NATIVE_MODE,
 	} mode;
+	PhysicalDevice *physical_device;
+
 	DeviceIrq *irq;
 	uint16_t   io_base;
 	uint16_t   control_base;
@@ -54,6 +56,8 @@ typedef struct IdeControllerInfo {
 
 	PciDevice *pci_device;
 	uint32_t   bus_master_base;
+
+	IdeChannel channels[2];
 } IdeControllerInfo;
 
 extern struct DeviceDriver			 ide_controller_device_driver;

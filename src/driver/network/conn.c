@@ -17,7 +17,7 @@ NetworkConnection *net_create_conn(Object *object) {
 	if (conn == NULL) { return NULL; }
 	conn->object	 = object;
 	conn->handle	 = object_handle_create(object);
-	conn->net_device = object->value.device->dm_ext;
+	conn->net_device = object->value.device.logical->dm_ext;
 	conn->state		 = CONN_STATE_INIT;
 
 	conn->thread = get_current_thread();
@@ -34,13 +34,6 @@ NetworkConnection *net_create_conn(Object *object) {
 }
 
 void net_destroy_conn(NetworkConnection *conn) {
-	// NetProtocol *protocol = conn->protocols;
-	// while (protocol != NULL) {
-	// 	NetProtocol *next = protocol->next;
-	// 	protocol->ops.destroy(conn, protocol->context);
-	// 	kfree(protocol);
-	// 	protocol = next;
-	// }
 	object_handle_delete(conn->handle);
 	kfree(conn);
 }

@@ -22,6 +22,7 @@ typedef struct NetBuffer {
 } NetBuffer;
 
 NetBuffer *net_buffer_create(uint16_t size);
+void	   net_buffer_delete(NetBuffer *buffer);
 void	   net_buffer_init(
 		  NetBuffer *buffer, uint16_t size, uint16_t head, uint16_t tail);
 

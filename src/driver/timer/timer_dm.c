@@ -1,4 +1,4 @@
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/device_manager.h>
@@ -13,7 +13,7 @@ const int default_frequencies[] = {100, 250, 1000};
 
 DriverResult timer_dm_load(DeviceManager *manager);
 DriverResult timer_dm_unload(DeviceManager *manager);
-DriverResult timer_device_init(DeviceManager *manager, Device *device);
+DriverResult timer_device_init(DeviceManager *manager, LogicalDevice *device);
 
 DeviceManagerOps timer_dm_ops = {
 	.dm_load   = timer_dm_load,
@@ -36,20 +36,19 @@ struct DeviceManager timer_dm = {
 };
 
 DriverResult timer_dm_load(DeviceManager *manager) {
-	TimerDeviceManager *timer_manager = manager->private_data;
-	timer_manager->scheduler_timer	  = NULL;
+	timer_dm_ext.scheduler_timer = NULL;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult timer_dm_unload(DeviceManager *manager) {
 	TimerDeviceManager *timer_manager = manager->private_data;
 	timer_manager->scheduler_timer	  = NULL;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult timer_device_init(DeviceManager *manager, Device *device) {
+DriverResult timer_device_init(DeviceManager *manager, LogicalDevice *device) {
 	TimerDevice *timer_device = (TimerDevice *)device->dm_ext;
 
 	const int count =
@@ -65,7 +64,7 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 			freq	  = default_frequencies[i];
 		}
 	}
-	DRV_RESULT_DELIVER_CALL(timer_set_frequency, device, freq);
+	DRIVER_RESULT_PASS(timer_set_frequency(device, freq));
 
 	TimerDeviceManager *timer_manager = manager->private_data;
 	if (timer_manager->scheduler_timer == NULL) {
@@ -77,7 +76,7 @@ DriverResult timer_device_init(DeviceManager *manager, Device *device) {
 			timer_manager->scheduler_timer = device;
 		}
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 int timer_get_schedule_tick(int priority) {
@@ -88,7 +87,7 @@ int timer_get_schedule_tick(int priority) {
 	return ticks;
 }
 
-DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
+DriverResult timer_set_frequency(LogicalDevice *device, uint32_t frequency) {
 	TimerDevice *timer_device = (TimerDevice *)device->dm_ext;
 
 	TimerResult result =
@@ -96,11 +95,11 @@ DriverResult timer_set_frequency(Device *device, uint32_t frequency) {
 
 	timer_device->current_frequency = frequency;
 	timer_device->counter			= 0;
-	if (result != TIMER_RESULT_OK) { return DRIVER_RESULT_OTHER_ERROR; }
-	return DRIVER_RESULT_OK;
+	if (result != TIMER_RESULT_OK) { return DRIVER_ERROR_OTHER; }
+	return DRIVER_OK;
 }
 
-void timer_irq_handler(Device *device) {
+void timer_irq_handler(LogicalDevice *device) {
 	TimerDevice *timer_device = (TimerDevice *)device->dm_ext;
 	timer_device->counter++;
 
@@ -129,20 +128,33 @@ void timer_irq_handler(Device *device) {
 	}
 }
 
-DriverResult register_timer_device(
-	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device) {
+DriverResult create_timer_device(
+	TimerDevice **timer_device, TimerOps *timer_ops, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver) {
+	DriverResult   result;
+	LogicalDevice *logical_device = NULL;
 
-	device->dm_ext		 = timer_device;
-	timer_device->device = device;
+	result = create_logical_device(
+		&logical_device, physical_device, device_driver, ops,
+		DEVICE_TYPE_TIMER);
+	if (result != DRIVER_OK) return result;
 
-	list_init(&timer_device->timer_callback_lh);
-	list_add_tail(&device->dm_list, &timer_dm.device_lh);
+	*timer_device = kmalloc(sizeof(TimerDevice));
+	if (*timer_device == NULL) {
+		delete_logical_device(logical_device);
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
+	TimerDevice *timer	   = *timer_device;
+	logical_device->dm_ext = timer;
+	timer->device		   = logical_device;
+	timer->timer_ops	   = timer_ops;
 
-	return DRIVER_RESULT_OK;
+	list_init(&timer->timer_callback_lh);
+
+	return DRIVER_OK;
 }
 
-DriverResult unregister_timer_device(
-	DeviceDriver *device_driver, Device *device, TimerDevice *timer_device) {
+DriverResult delete_timer_device(TimerDevice *timer_device) {
 	Timer *timer, *next;
 	list_for_each_owner_safe (
 		timer, next, &timer_device->timer_callback_lh, list) {
@@ -151,7 +163,9 @@ DriverResult unregister_timer_device(
 		list_del(&timer->list);
 	}
 
-	DRV_RESULT_DELIVER_CALL(unregister_device, device_driver, device);
-	list_del(&device->device_list);
-	return DRIVER_RESULT_OK;
+	DRIVER_RESULT_PASS(delete_logical_device(timer_device->device));
+	int result = kfree(timer_device);
+	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;
+
+	return DRIVER_OK;
 }

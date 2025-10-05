@@ -1,92 +1,109 @@
-#include "drivers/bus/usb.h"
 #include "kernel/device.h"
-#include "kernel/device_driver.h"
-#include "kernel/driver.h"
-#include "kernel/list.h"
-#include "objects/object.h"
+#include "kernel/spinlock.h"
 #include <driver/bus_dm.h>
+#include <drivers/bus/usb/usb.h>
+#include <drivers/bus/usb/usb_driver.h>
+#include <drivers/usb/core/urb.h>
 #include <kernel/bus_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
 #include <kernel/initcall.h>
+#include <kernel/list.h>
 #include <kernel/platform.h>
+#include <kernel/softirq.h>
 
-LIST_HEAD(hci_lh);
+#define LH_INIT(type) [type] = LIST_HEAD_INIT(usb_driver_lh[type])
 
-BusDriverOps usb_bus_driver_ops = {
-	.register_bus_hook	 = NULL,
-	.unregister_bus_hook = NULL,
-	.init				 = NULL,
+DriverResult usb_probe(BusDriver *bus_driver, Bus *bus);
+
+list_t usb_driver_lh[USB_INTERFACE_TYPE_MAX] = {
+	LH_INIT(USB_INTERFACE_TYPE_HID),
+	LH_INIT(USB_INTERFACE_TYPE_MASS_STORAGE),
+	LH_INIT(USB_INTERFACE_TYPE_HUB),
+	LH_INIT(USB_INTERFACE_TYPE_CDC_DATA),
+	LH_INIT(USB_INTERFACE_TYPE_SMART_CARD),
+	LH_INIT(USB_INTERFACE_TYPE_CONTENT_SECURITY),
+	LH_INIT(USB_INTERFACE_TYPE_VIDEO),
+	LH_INIT(USB_INTERFACE_TYPE_PERSONAL_HEALTHCARE),
+	LH_INIT(USB_INTERFACE_TYPE_AUDIO_VIDEO),
+	LH_INIT(USB_INTERFACE_TYPE_BILLBOARD),
+	LH_INIT(USB_INTERFACE_TYPE_TYPE_C_BRIDGE),
+	LH_INIT(USB_INTERFACE_TYPE_BULK_DISPLAY_PROTOCOL),
+	LH_INIT(USB_INTERFACE_TYPE_MTCP),
+	LH_INIT(USB_INTERFACE_TYPE_I3C),
+	LH_INIT(USB_INTERFACE_TYPE_DIAGNOSTIC),
+	LH_INIT(USB_INTERFACE_TYPE_WIRELESS_CONTROLLER),
+	LH_INIT(USB_INTERFACE_TYPE_MISCELLANEOUS),
+	LH_INIT(USB_INTERFACE_TYPE_APPLICATION_SPECIFIC),
+	LH_INIT(USB_INTERFACE_TYPE_VENDOR_SPECIFIC),
 };
-DeviceDriverOps usb_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
+
 BusOps usb_bus_ops = {
-	.register_device_hook	= NULL,
-	.unregister_device_hook = NULL,
-	.scan_bus				= NULL,
-	.probe_device			= NULL,
-};
-DeviceOps usb_device_ops = {
-	.init	 = NULL,
-	.start	 = NULL,
-	.stop	 = NULL,
-	.destroy = NULL,
-	.status	 = NULL,
+	.scan_bus	  = NULL,
+	.probe_device = usb_probe,
 };
 
-DriverDependency usb_dependencies[] = {
-	{
-		.in_type		   = DRIVER_DEPENDENCY_TYPE_BUS,
-		.dependency_in_bus = {BUS_TYPE_PCI, 0},
-		.out_bus		   = NULL,
-	 },
-};
 Driver usb_driver = {
-	.short_name		  = STRING_INIT("UsbDriver"),
-	.dependency_count = sizeof(usb_dependencies) / sizeof(DriverDependency),
-	.dependencies	  = usb_dependencies,
-	.init			  = NULL,
+	.short_name = STRING_INIT("UsbDriver"),
 };
 BusDriver usb_bus_driver = {
-	.name			   = STRING_INIT("USB"),
-	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
-	.bus_type		   = BUS_TYPE_USB,
-	.state			   = DRIVER_STATE_UNREGISTERED,
-	.private_data_size = 0,
-	.ops			   = &usb_bus_driver_ops,
+	.name = STRING_INIT("USB"),
 };
-DeviceDriver usb_device_driver = {
-	.name			   = STRING_INIT("USB Device Driver"),
-	.type			   = DEVICE_TYPE_BUS_CONTROLLER,
-	.state			   = DRIVER_STATE_UNREGISTERED,
-	.private_data_size = 0,
-	.ops			   = &usb_device_driver_ops,
-};
-Device usb_device = {
-	.name			   = STRING_INIT("System USB Controller"),
-	.state			   = DEVICE_STATE_UNREGISTERED,
-	.bus			   = &platform_bus,
-	.private_data_size = 0,
-	.ops			   = &usb_device_ops,
-};
-BusControllerDevice usb_bus_controller_device = {
-	.short_name			= STRING_INIT("USB Bus Controller"),
-	.device				= &usb_device,
-	.bus_driver			= &usb_bus_driver,
-	.bus_controller_ops = NULL,
-};
+
+DriverResult usb_probe(BusDriver *bus_driver, Bus *bus) {
+	UsbDriver	   *usb_driver;
+	PhysicalDevice *device;
+	UsbInterface   *interface;
+	list_for_each_owner (device, &bus->device_lh, bus_list) {
+		UsbDevice *usb_device = device->bus_ext;
+		if (usb_device->state == USB_STATE_INITED) {
+			list_for_each_owner (interface, &usb_device->interface_lh, list) {
+				if (interface->usb_driver != NULL) { continue; }
+				uint8_t interface_type =
+					usb_interface_map[interface->desc->bInterfaceClass];
+				list_for_each_owner (
+					usb_driver, &usb_driver_lh[interface_type], list) {
+					if (usb_driver->probe != NULL) {
+						usb_driver->probe(usb_device, interface);
+					}
+				}
+			}
+		}
+	}
+
+	return DRIVER_OK;
+}
+
+DriverResult register_usb_driver(UsbDriver *usb_driver) {
+	list_add_tail(
+		&usb_driver->list, &usb_driver_lh[usb_driver->interface_type]);
+	return DRIVER_OK;
+}
+
+DriverResult unregister_usb_driver(UsbDriver *usb_driver) {
+	list_del(&usb_driver->list);
+	return DRIVER_OK;
+}
 
 static __init void usb_bus_driver_entry(void) {
-	ObjectAttr attr = device_object_attr;
-	register_driver(&usb_driver);
-	register_bus_driver(&usb_driver, &usb_bus_driver, &attr);
+	DriverResult result;
 
-	HciInit *hci_init;
-	list_for_each_owner (hci_init, &hci_lh, list) {
-		if (hci_init->init) hci_init->init(&usb_driver);
-	}
+	result = register_driver(&usb_driver);
+	if (result != DRIVER_OK) goto failed_register_driver;
+
+	ObjectAttr attr = driver_object_attr;
+	result =
+		register_bus_driver(&usb_driver, BUS_TYPE_USB, &usb_bus_driver, &attr);
+	if (result != DRIVER_OK) goto failed_register_bus_driver;
+
+	softirq_register_handler(SOFTIRQ_USB, usb_softirq_handler);
+
+	return;
+failed_register_bus_driver:
+	unregister_driver(&usb_driver);
+
+failed_register_driver:
+	return;
 }
 
 driver_initcall(usb_bus_driver_entry);

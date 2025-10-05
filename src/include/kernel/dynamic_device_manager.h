@@ -14,7 +14,7 @@ typedef struct DynamicDeviceEvents {
 typedef struct DynamicDevice {
 	list_t list;
 
-	Device *device;
+	PhysicalDevice *device;
 } DynamicDevice;
 
 typedef struct DynamicDeviceManager {

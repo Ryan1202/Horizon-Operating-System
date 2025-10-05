@@ -1,6 +1,7 @@
 #ifndef _ISA_DMA_H
 #define _ISA_DMA_H
 
+#include "kernel/device.h"
 #include "stdint.h"
 
 #define DMA0 0x00
@@ -76,9 +77,8 @@ void		 dma_init();
 void		*dma_alloc_region(Dma *dma, uint32_t size);
 DriverResult dma_free_region(Dma *dma, void *ptr, uint32_t size);
 
-struct Device;
-int	 dma_channel_use(struct Device *device, int *possible_ch, int len);
-void dma_channel_unuse(struct Device *device, uint8_t channel);
+int	 dma_channel_use(struct LogicalDevice *device, int *possible_ch, int len);
+void dma_channel_unuse(struct LogicalDevice *device, uint8_t channel);
 
 int	 dma_lock();
 void dma_unlock(int flags);

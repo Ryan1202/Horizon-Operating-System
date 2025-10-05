@@ -1,8 +1,8 @@
 #ifndef _TCP_H
 #define _TCP_H
 
-#include "driver/network/conn.h"
-#include <driver/timer_dm.h>
+#include <driver/network/conn.h>
+#include <driver/timer/timer_dm.h>
 #include <stdint.h>
 
 #define TCP_FLAG_FIN 0x01

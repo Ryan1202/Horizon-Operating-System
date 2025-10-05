@@ -1,8 +1,9 @@
 #ifndef _TIME_DM_H
 #define _TIME_DM_H
 
-#include "kernel/device_driver.h"
-#include "kernel/device_manager.h"
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/device_manager.h>
 
 typedef enum TimeType {
 	TIME_TYPE_UNIX_TIMESTAMP, // Unix时间戳
@@ -26,17 +27,17 @@ typedef union Time {
 } Time;
 
 struct TimeDevice;
-typedef struct TimeDeviceOps {
+typedef struct TimeOps {
 	DriverResult (*get_time)(
 		struct TimeDevice *device, TimeType type, Time *time);
 	DriverResult (*set_time)(
 		struct TimeDevice *device, TimeType type, Time *time);
-} TimeDeviceOps;
+} TimeOps;
 
 typedef struct TimeDevice {
-	Device		  *device;
+	LogicalDevice *device;
 	TimeType	   type;
-	TimeDeviceOps *ops;
+	TimeOps		  *ops;
 } TimeDevice;
 
 typedef struct TimeDeviceManager {
@@ -45,8 +46,10 @@ typedef struct TimeDeviceManager {
 
 extern DeviceManager time_dm;
 
-DriverResult register_time_device(
-	DeviceDriver *driver, Device *device, TimeDevice *time_device);
+DriverResult create_time_device(
+	TimeDevice **time_device, TimeOps *time_ops, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver);
+DriverResult delete_time_device(TimeDevice *time_device);
 
 DriverResult get_current_time(TimeType type, Time *time);
 

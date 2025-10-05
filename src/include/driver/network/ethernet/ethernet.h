@@ -1,10 +1,10 @@
 #ifndef _NETWORK_ETHERNET_H
 #define _NETWORK_ETHERNET_H
 
-#include "driver/network/buffer.h"
-#include "driver/network/network_dm.h"
-#include "driver/network/protocols/protocols.h"
-#include "driver/timer_dm.h"
+#include <driver/network/buffer.h>
+#include <driver/network/network_dm.h>
+#include <driver/network/protocols/protocols.h>
+#include <driver/timer/timer_dm.h>
 #include <stdint.h>
 
 #define ETH_MAX_FRAME_SIZE	1792

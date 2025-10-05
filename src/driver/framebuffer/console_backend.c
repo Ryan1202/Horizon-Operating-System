@@ -1,12 +1,11 @@
-#include "driver/framebuffer/console_backend.h"
-#include "kernel/driver_interface.h"
-#include "kernel/periodic_task.h"
-#include "kernel/spinlock.h"
+#include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb.h>
 #include <driver/framebuffer/fb_dm.h>
 #include <kernel/console.h>
 #include <kernel/font.h>
 #include <kernel/memory.h>
+#include <kernel/periodic_task.h>
+#include <kernel/spinlock.h>
 #include <kernel/thread.h>
 #include <math.h>
 #include <stdint.h>
@@ -273,6 +272,6 @@ void fb_console_backend_put_string(
 			}
 		}
 	}
-	if (list_empty(&thread_all)) { fb_console_backend_update(backend); }
 	spin_unlock(&backend->lock);
+	if (list_empty(&thread_all)) { fb_console_backend_update(backend); }
 }

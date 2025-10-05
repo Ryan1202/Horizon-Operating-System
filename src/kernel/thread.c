@@ -118,7 +118,7 @@ void init_thread(
 
 	pthread->priority	   = priority;
 	pthread->kstack		   = (uint32_t *)((uint32_t)stack_page + PAGE_SIZE);
-	// pthread->ticks		   = timer_get_schedule_tick(priority);
+	pthread->ticks		   = timer_get_schedule_tick(priority);
 	pthread->elapsed_ticks = 0;
 	pthread->pgdir		   = NULL;
 	pthread->stack_magic   = 0x10000000;
@@ -192,10 +192,7 @@ void thread_exit(void) {
 	spin_unlock_irqrestore(&thread_all_lock, flags);
 
 	flags = spin_lock_irqsave(&thread_ready_lock);
-	if (list_in_list(&cur->general_tag)) {
-		printk("d");
-		// list_del(&cur->general_tag);
-	}
+	if (list_in_list(&cur->general_tag)) { list_del(&cur->general_tag); }
 
 	cur->status = TASK_DIED;
 
@@ -255,7 +252,6 @@ void thread_wait() {
 	struct task_s *cur_thread = get_current_thread();
 
 	while (cur_thread->status == TASK_INTERRUPTIBLE) {
-		// while (list_in_list(&cur_thread->wait_queue_tag)) {
 		schedule();
 	}
 }
@@ -347,11 +343,11 @@ void schedule(void) {
 	struct task_s *next;
 	if (!list_empty(&thread_ready)) {
 		next = list_first_owner(&thread_ready, struct task_s, general_tag);
-		list_del(&next->general_tag);
 		if (next == cur) {
-			printk("?");
-			printk("?");
+			printk("[Thread Error] Same Task!\n");
+			__asm__("nop" ::);
 		}
+		list_del(&next->general_tag);
 	} else {
 		next = task_idle;
 		if (list_in_list(&task_idle->general_tag))
@@ -360,6 +356,7 @@ void schedule(void) {
 	// 4. 改变状态并加入到thread_ready
 	if (next->status == TASK_READY) next->status = TASK_RUNNING;
 	spin_unlock(&thread_ready_lock);
+	// printk("%s,%d\n", next->name, timer_get_counter());
 
 	prev = cur;
 	// 5. 切换线程

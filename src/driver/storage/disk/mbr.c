@@ -29,7 +29,7 @@ void parse_mbr_partition_table(StorageDevice *storage_device) {
 			string_new_with_number(&name, "Partition", 9, partition_count);
 			ObjectAttr attr = device_object_attr;
 			attr.type		= OBJECT_TYPE_PARTITION;
-			Object *object	= create_object(storage_device->object, name, attr);
+			Object *object = create_object(storage_device->object, &name, attr);
 
 			Partition *partition	  = kmalloc(sizeof(Partition));
 			partition->storage_object = storage_device->device->object;

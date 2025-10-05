@@ -59,7 +59,7 @@ DriverResult ata_bmdma_map_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {
 		// 申请一个小的临时缓冲区处理未对齐的部分
 		int	  size	  = 32 - (addr & 0x1f);
 		void *tmp_buf = kmalloc(size);
-		if (tmp_buf == NULL) { return DRIVER_RESULT_OUT_OF_MEMORY; }
+		if (tmp_buf == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 		memcpy(tmp_buf, ptr, size);
 
 		DmaSegment *seg = kmalloc(sizeof(DmaSegment));
@@ -71,7 +71,7 @@ DriverResult ata_bmdma_map_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {
 	}
 
 	dma_split_mem(&ata_dma->segment_lh, ptr, size, ata_dma->max_segment_size);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void ata_bmdma_unmap_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {

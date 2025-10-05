@@ -1,20 +1,13 @@
 #ifndef _BUS_DRIVER_H
 #define _BUS_DRIVER_H
 
-#include "kernel/device_driver.h"
-#include "kernel/driver.h"
-#include "kernel/driver_manager.h"
-#include "kernel/list.h"
-#include "objects/object.h"
-#include "string.h"
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/driver.h>
+#include <kernel/list.h>
+#include <objects/object.h>
 #include <stdint.h>
-
-#define BUS_OPS_CALL(bus, func, ...)                               \
-	{                                                              \
-		if ((bus)->ops->func != NULL) {                            \
-			DRV_RESULT_DELIVER_CALL((bus)->ops->func, __VA_ARGS__) \
-		}                                                          \
-	}
+#include <string.h>
 
 struct BusDriver;
 
@@ -35,63 +28,50 @@ typedef struct BusDriverOps {
 } BusDriverOps;
 
 typedef struct BusOps {
-	DriverResult (*register_device_hook)(struct Device *device);
-	DriverResult (*unregister_device_hook)(struct Device *device);
-
 	DriverResult (*scan_bus)(struct BusDriver *bus_driver, struct Bus *bus);
 	DriverResult (*probe_device)(struct BusDriver *bus_driver, struct Bus *bus);
 } BusOps;
 
 typedef struct BusDriver {
-	// 继承SubDriver特征
-	SubDriver subdriver;
-
-	list_t		dm_list;
 	list_t		bus_lh;
 	string_t	name;
-	DriverType	driver_type;
 	BusType		bus_type;
 	DriverState state;
 
 	Object *object;
 
-	uint32_t bus_count;
-	uint32_t device_count;
+	uint16_t new_bus_num;
+	uint16_t bus_count;
 
-	BusDriverOps *ops;
-
-	void	*private_data;
-	uint32_t private_data_size;
+	uint16_t new_device_num;
+	uint16_t device_count;
 } BusDriver;
 
 typedef struct Bus {
-	list_t		device_lh;
-	list_t		bus_list;
-	BusDriver  *bus_driver;
-	Device	   *controller_device;
+	list_t	   device_lh;
+	list_t	   bus_list;
+	list_t	   bus_check_list;
+	list_t	   new_bus_list;
+	BusDriver *bus_driver;
+
 	struct Bus *primary_bus;
 
 	string_t name;
 	Object	*object;
 
-	uint32_t last_device_num;
 	uint32_t bus_num;
 	uint32_t subordinate_bus_num;
 
 	BusOps *ops;
 } Bus;
 
-extern struct BusDriver	   *bus_drivers[BUS_TYPE_MAX];
-extern struct DriverManager bus_driver_manager;
+extern struct BusDriver *bus_drivers[BUS_TYPE_MAX];
 
+DriverResult init_bus_manager();
 DriverResult register_bus_driver(
-	Driver *driver, BusDriver *bus_driver, ObjectAttr *attr);
-DriverResult unregister_bus_driver(Driver *driver, BusType type);
-DriverResult register_bus(
-	BusDriver *bus_driver, Device *bus_controller_device, Bus *bus,
-	ObjectAttr *attr);
-DriverResult unregister_bus(Bus *bus);
-DriverResult bus_register_device(Device *device, Bus *bus, ObjectAttr *attr);
-DriverResult bus_unregister_device(Device *device);
+	Driver *driver, BusType type, BusDriver *bus_driver, ObjectAttr *attr);
+DriverResult unregister_bus_driver(BusDriver *bus_driver);
+DriverResult create_bus(Bus **bus, BusDriver *bus_driver, BusOps *ops);
+DriverResult delete_bus(Bus *bus);
 
 #endif

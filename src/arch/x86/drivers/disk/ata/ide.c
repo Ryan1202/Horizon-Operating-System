@@ -1,12 +1,13 @@
 #include <bits.h>
-#include <driver/interrupt_dm.h>
+#include <driver/interrupt/interrupt_dm.h>
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
 #include <kernel/platform.h>
@@ -23,9 +24,8 @@
 #include "include/dma.h"
 #include "include/ide.h"
 #include "include/ide_controller.h"
-#include "kernel/list.h"
 
-DriverResult ide_device_init(Device *device);
+DriverResult ide_device_init(void *device);
 
 DriverResult ide_device_read_sectors(
 	StorageDevice *storage_device, StorageRequest *request);
@@ -38,49 +38,28 @@ StorageDeviceOps ide_storage_device_ops = {
 	.submit_write_request = ide_device_write_sectors,
 	.is_busy			  = ide_device_is_busy,
 };
-DeviceDriverOps ide_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps ide_device_ops = {
 	.init	 = ide_device_init,
 	.start	 = NULL,
 	.stop	 = NULL,
 	.destroy = NULL,
-	.status	 = NULL,
 };
 
-DeviceDriver ide_device_driver = {
-	.name	  = STRING_INIT("IDE Driver"),
-	.type	  = DEVICE_TYPE_STORAGE,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.state	  = DRIVER_STATE_UNREGISTERED,
-	.ops	  = &ide_device_driver_ops,
-};
-
-Device ide_device_template = {
-	.name			   = STRING_INIT("IDE Harddisk"),
-	.state			   = DEVICE_STATE_UNREGISTERED,
-	.device_driver	   = &ide_device_driver,
-	.ops			   = &ide_device_ops,
-	.private_data_size = sizeof(IdeDevice),
-};
-StorageDevice storage_device_template = {
-	.block_size			   = SECTOR_SIZE,
-	.max_block_per_request = 256,
-	.max_segment		   = IDE_MAX_PRDT_COUNT,
-	.type				   = STORAGE_DEVICE_TYPE_HARDDISK,
-	.ops				   = &ide_storage_device_ops,
-};
+DeviceDriver ide_device_driver;
 
 void ide_handle_interrupt(IdeChannel *channel) {
-	int status = io_in_byte(channel->io_base + ATA_REG_ALTSTATUS);
-	if (BIN_IS_EN(status, ATA_STATUS_ERR)) {
+	int status = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
+	if (!(status & IDE_BMSTATUS_INT)) return;
+	io_out_byte(channel->bmide + IDE_REG_BM_STATUS, IDE_BMSTATUS_INT);
+
+	status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+	if (status & ATA_STATUS_ERR) {
 		print_error("IDE", "IDE device error!");
 		ide_print_error(channel);
 	}
 
 	IdeDevice *ide_device = channel->ide_devices[channel->selected_device];
+	if (ide_device == NULL) { return; }
 
 	int				flags		= spin_lock_irqsave(&ide_device->request_lock);
 	StorageRequest *request		= ide_device->current_request;
@@ -101,20 +80,15 @@ void ide_handle_interrupt(IdeChannel *channel) {
 	storage_finish_request(request);
 }
 
-void ide_channel0_handler(Device *device) {
-	IdeChannel *ide_channel = device->child_private_data[0];
-
-	ide_handle_interrupt(ide_channel);
-}
-void ide_channel1_handler(Device *device) {
-	IdeChannel *ide_channel = device->child_private_data[1];
+void ide_irq_handler(void *channel) {
+	IdeChannel *ide_channel = channel;
 
 	ide_handle_interrupt(ide_channel);
 }
 
 void ide_sync(IdeChannel *channel) {
 	// 保证先前的命令执行，而不是在缓存中
-	io_in_byte(channel->io_base + ATA_REG_ALTSTATUS);
+	io_in_byte(channel->control_base + ATA_REG_ALTSTATUS);
 }
 
 void ide_pause(IdeChannel *channel) {
@@ -125,12 +99,11 @@ void ide_pause(IdeChannel *channel) {
 void ide_device_probe(IdeChannel *channel) {
 	int			  i, status, err = 0;
 	AtaDeviceType type = ATA_DEVICE_TYPE_ATA;
-	ObjectAttr	  attr = device_object_attr;
 
 	timer_init(&channel->timer);
 	channel->device_count = 0;
 
-	Device *device[2] = {NULL, NULL};
+	StorageDevice *device[2] = {NULL, NULL};
 	for (i = 0; i < 2; i++) {
 		// 1.选择设备
 		ide_select_device(channel, i);
@@ -179,16 +152,18 @@ void ide_device_probe(IdeChannel *channel) {
 			sizeof(AtaIdentifyInfo) / 2);
 
 		// 6.注册设备
-		device[i]	   = kmalloc_from_template(ide_device_template);
-		device[i]->bus = &platform_bus; // TODO: BUS
-		StorageDevice *storage_device =
-			kmalloc_from_template(storage_device_template);
+		create_storage_device(
+			&device[i], &ide_storage_device_ops, &ide_device_ops,
+			channel->physical_device, &ide_device_driver);
 
-		register_storage_device(
-			&ide_device_driver, device[i], storage_device, &attr);
+		IdeDevice *ide_device			 = kmalloc(sizeof(IdeDevice));
+		device[i]->device->private_data	 = ide_device;
+		device[i]->block_size			 = SECTOR_SIZE;
+		device[i]->max_block_per_request = 256;
+		device[i]->max_segment			 = IDE_MAX_PRDT_COUNT;
+		device[i]->type					 = STORAGE_DEVICE_TYPE_HARDDISK;
 
-		IdeDevice *ide_device		= device[i]->private_data;
-		ide_device->device			= device[i];
+		ide_device->device			= device[i]->device;
 		ide_device->channel			= channel;
 		ide_device->type			= type;
 		ide_device->info			= identify;
@@ -201,9 +176,9 @@ void ide_device_probe(IdeChannel *channel) {
 		channel->device_count++;
 	}
 	if (channel->device_count) {
-		uint8_t data = io_in_byte(channel->io_base + ATA_REG_CONTROL);
+		uint8_t data = io_in_byte(channel->control_base + ATA_REG_CONTROL);
 		io_out_byte(
-			channel->io_base + ATA_REG_CONTROL,
+			channel->control_base + ATA_REG_CONTROL,
 			BIN_DIS(data, ATA_CONTROL_NIEN));
 
 		channel->dma = kmalloc(sizeof(AtaDma));
@@ -214,15 +189,18 @@ void ide_device_probe(IdeChannel *channel) {
 		channel->dma->max_segment_size = 65536;
 		list_init(&channel->dma->segment_lh);
 
-		interrupt_enable_irq(channel->irq->irq);
+		enable_device_irq(channel->irq);
 
 		for (i = 0; i < 2; i++) {
-			if (device[i] != NULL) { init_and_start(device[i]); }
+			if (device[i] != NULL) {
+				init_and_start_logical_device(device[i]->device);
+			}
 		}
 	}
 }
 
-DriverResult ide_device_init(Device *device) {
+DriverResult ide_device_init(void *_device) {
+	LogicalDevice	*device		= _device;
 	IdeDevice		*ide_device = device->private_data;
 	AtaIdentifyInfo *identify	= ide_device->info;
 
@@ -239,10 +217,10 @@ DriverResult ide_device_init(Device *device) {
 		ide_device->cmdset[ATA_CMDSET_READ]		 = ATA_CMD_READ_PIO;
 		ide_device->cmdset[ATA_CMDSET_WRITE]	 = ATA_CMD_WRITE_PIO;
 	} else {
-		return DRIVER_RESULT_UNSUPPORT_FEATURE;
+		return DRIVER_ERROR_UNSUPPORT_FEATURE;
 	}
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void ide_set_sector_lba28(IdeChannel *channel, uint32_t lba0, uint8_t count) {
@@ -344,7 +322,7 @@ DriverResult ide_device_read_sectors(
 			BIN_EN(data, IDE_BMCMD_START_STOP_BM));
 	}
 	spin_unlock_irqrestore(&ide_device->request_lock, flags);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 /**
@@ -402,12 +380,12 @@ DriverResult ide_device_write_sectors(
 			BIN_EN(data, IDE_BMCMD_START_STOP_BM));
 	}
 	spin_unlock_irqrestore(&ide_device->request_lock, flags);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 bool ide_device_is_busy(StorageDevice *storage_device) {
-	Device	  *device	  = storage_device->device;
-	IdeDevice *ide_device = device->private_data;
+	LogicalDevice *device	  = storage_device->device;
+	IdeDevice	  *ide_device = device->private_data;
 
 	int	 flags	= spin_lock_irqsave(&ide_device->request_lock);
 	bool result = ide_device->current_request != NULL;

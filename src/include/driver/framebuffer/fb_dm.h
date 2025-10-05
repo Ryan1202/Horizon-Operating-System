@@ -1,14 +1,13 @@
 #ifndef _FRAMEBUFFER_DM_H
 #define _FRAMEBUFFER_DM_H
 
-#include "kernel/device.h"
-#include "kernel/device_driver.h"
-#include "kernel/list.h"
-#include "objects/object.h"
-#include "stdint.h"
 #include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb.h>
 #include <kernel/console.h>
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/list.h>
+#include <stdint.h>
 
 typedef struct FrameBufferModeInfo {
 	uint16_t width;
@@ -20,7 +19,7 @@ typedef struct FrameBufferModeInfo {
 typedef struct FrameBufferDevice {
 	list_t fb_list_lh;
 
-	Device			   *device;
+	LogicalDevice	   *device;
 	FrameBufferModeInfo mode_info;
 	uint8_t			   *framebuffer_address;
 
@@ -30,17 +29,18 @@ typedef struct FrameBufferDevice {
 } FrameBufferDevice;
 
 typedef struct FrameBufferDeviceManager {
-	Device *main_display_device;
-	uint8_t fb_device_count;
+	LogicalDevice *main_display_device;
+	uint8_t		   new_fb_device_num;
+	uint8_t		   fb_device_count;
 } FrameBufferDeviceManager;
 
 extern struct DeviceManager framebuffer_dm;
 
-DriverResult register_framebuffer_device(
-	DeviceDriver *device_driver, Device *device, FrameBufferDevice *fb_device,
-	ObjectAttr *attr);
-DriverResult unregister_framebuffer_devce(
-	DeviceDriver *device_driver, Device *device, FrameBufferDevice *fb_device);
+DriverResult create_framebuffer_device(
+	FrameBufferDevice **fb_device, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver);
+DriverResult delete_framebuffer_device(FrameBufferDevice *framebuffer_device);
+DriverResult framebuffer_start_all();
 DriverResult framebuffer_get_device(
 	int in_index, FrameBufferDevice **out_device);
 #endif

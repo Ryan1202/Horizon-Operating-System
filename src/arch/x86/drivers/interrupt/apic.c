@@ -2,11 +2,12 @@
  * @file apic.c
  * @author Ryan Wang (ryan1202@foxmail.com)
  * @brief APIC驱动(参考xv6)
- * @version 0.1 Alpha
- * @date 2021-06
+ * @version 0.1
+ * @date 2025-09
  */
 #include <bits.h>
-#include <driver/timer_dm.h>
+#include <driver/interrupt/interrupt_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <drivers/cmos.h>
@@ -15,47 +16,34 @@
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/device.h>
+#include <kernel/device_driver.h>
+#include <kernel/driver.h>
 #include <kernel/driver_interface.h>
 #include <kernel/feature.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/page.h>
+#include <kernel/platform.h>
 #include <kernel/thread.h>
 #include <math.h>
+#include <objects/object.h>
 #include <stdint.h>
 #include <string.h>
 
-void apic_timer_handler(void);
-
-char use_apic;
-
-volatile struct ioapic {
-	uint32_t reg;
-	uint32_t pad[3];
-	uint32_t data;
-};
-
-// --------new---------
-#include <driver/interrupt_dm.h>
-#include <kernel/device_driver.h>
-#include <kernel/driver.h>
-#include <kernel/driver_interface.h>
-#include <kernel/platform.h>
-
-DriverResult apic_init(Device *device);
-DriverResult apic_start(Device *device);
-DriverResult apic_stop(Device *device);
+DriverResult apic_init(void *device);
+DriverResult apic_start(void *device);
+DriverResult apic_stop(void *device);
 DriverResult apic_driver_init(struct DeviceDriver *driver);
 int			 apic_redirect_irq(InterruptDevice *device, int irq);
 DriverResult apic_enable_irq(InterruptDevice *device, int irq);
 DriverResult apic_disable_irq(InterruptDevice *device, int irq);
-DriverResult apic_timer_init(Device *device);
-DriverResult apic_timer_start(Device *device);
-DriverResult apic_timer_stop(Device *device);
+DriverResult apic_timer_init(void *device);
+DriverResult apic_timer_start(void *device);
+DriverResult apic_timer_stop(void *device);
 void		 apic_eoi(InterruptDevice *device, int irq);
 TimerResult	 apic_timer_set_frequency(
 	 TimerDevice *timer_device, uint32_t frequency);
-void apic_timer_irq_handler(Device *device);
+void apic_timer_irq_handler(void *device);
 
 extern Driver core_driver;
 
@@ -72,8 +60,17 @@ typedef struct ApicInfo {
 	uint8_t		   max_lvt_entry;
 	uint32_t	  *lapic_mmio;
 	struct ioapic *ioapic;
+	DeviceIrq	  *device_irq;
 } ApicInfo;
 ApicInfo apic_info;
+
+volatile struct ioapic {
+	uint32_t reg;
+	uint32_t pad[3];
+	uint32_t data;
+};
+
+bool use_apic;
 
 uint32_t lapic_write(int index, int value) {
 	apic_info.lapic_mmio[index / 4] = value;
@@ -84,16 +81,23 @@ uint32_t lapic_read(int index) {
 	return apic_info.lapic_mmio[index / 4];
 }
 
-DeviceDriverOps apic_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps apic_device_ops = {
 	.init	 = apic_init,
 	.start	 = apic_start,
 	.stop	 = apic_stop,
 	.destroy = NULL,
-	.status	 = NULL,
+};
+DeviceOps apic_interrupt_device_ops = {
+	.init	 = NULL,
+	.start	 = NULL,
+	.stop	 = NULL,
+	.destroy = NULL,
+};
+DeviceOps apic_timer_device_ops = {
+	.init	 = apic_timer_init,
+	.start	 = apic_timer_start,
+	.stop	 = apic_timer_stop,
+	.destroy = NULL,
 };
 InterruptDeviceOps apic_interrupt_ops = {
 	.enable_irq	  = apic_enable_irq,
@@ -101,67 +105,14 @@ InterruptDeviceOps apic_interrupt_ops = {
 	.eoi		  = apic_eoi,
 	.redirect_irq = apic_redirect_irq,
 };
-
-DeviceDriverOps apic_timer_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
-DeviceOps apic_timer_device_ops = {
-	.init	 = apic_timer_init,
-	.start	 = apic_timer_start,
-	.stop	 = apic_timer_stop,
-	.destroy = NULL,
-	.status	 = NULL,
-};
 TimerOps apic_timer_ops = {
 	.set_frequency = apic_timer_set_frequency,
 };
 
-DeviceDriver apic_device_driver = {
-	.name	  = STRING_INIT("APIC"),
-	.type	  = DEVICE_TYPE_INTERRUPT_CONTROLLER,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.state	  = DRIVER_STATE_UNREGISTERED,
-	.ops	  = &apic_device_driver_ops,
-};
-Device apic_device = {
-	.name			   = STRING_INIT("APIC"),
-	.device_driver	   = &apic_device_driver,
-	.ops			   = &apic_device_ops,
-	.private_data_size = 0,
-};
-InterruptDevice apic_interrupt_device = {
-	.interrupt_ops = &apic_interrupt_ops,
-	.priority	   = 1,
-};
-
-DeviceDriver apic_timer_device_driver = {
-	.name	  = STRING_INIT("APIC Timer"),
-	.type	  = DEVICE_TYPE_TIMER,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.state	  = DRIVER_STATE_UNREGISTERED,
-	.ops	  = &apic_timer_device_driver_ops,
-};
-DeviceIrq apic_timer_irq = {
-	.device	 = &apic_timer_device,
-	.irq	 = 2,
-	.handler = apic_timer_irq_handler,
-};
-Device apic_timer_device = {
-	.name			   = STRING_INIT("APIC Timer"),
-	.device_driver	   = &apic_timer_device_driver,
-	.ops			   = &apic_timer_device_ops,
-	.irq			   = &apic_timer_irq,
-	.private_data_size = 0,
-};
-TimerDevice apic_timer_timer_device = {
-	.current_frequency = 0,
-	.min_frequency	   = 0,
-	.max_frequency	   = 0,
-	.source_frequency  = 0,
-	.priority		   = 2,
-	.timer_ops		   = &apic_timer_ops,
-};
+DeviceDriver	 apic_device_driver;
+PhysicalDevice	*apic_device;
+InterruptDevice *apic_interrupt_device;
+TimerDevice		*apic_timer_device;
 
 uint32_t io_apic_read(uint32_t reg) {
 	apic_info.ioapic->reg = reg;
@@ -173,13 +124,23 @@ void io_apic_write(uint32_t reg, uint32_t data) {
 	apic_info.ioapic->data = data;
 }
 
-void register_apic(void) {
+DriverResult register_apic(void) {
 	register_device_driver(&core_driver, &apic_device_driver);
-	register_device_driver(&core_driver, &apic_timer_device_driver);
-	register_interrupt_device(
-		&apic_device_driver, &apic_device, &apic_interrupt_device);
-	register_timer_device(
-		&apic_device_driver, &apic_timer_device, &apic_timer_timer_device);
+
+	apic_driver_init(&apic_device_driver);
+	if (!use_apic) return DRIVER_ERROR_NOT_EXIST;
+
+	ObjectAttr attr = device_object_attr;
+	DRIVER_RESULT_PASS(
+		create_physical_device(&apic_device, platform_bus, &attr));
+	register_physical_device(apic_device, &apic_device_ops);
+
+	DRIVER_RESULT_PASS(create_interrupt_device(
+		&apic_interrupt_device, &apic_interrupt_device_ops, apic_device,
+		&apic_device_driver, &apic_interrupt_ops, 1));
+	return create_timer_device(
+		&apic_timer_device, &apic_timer_ops, &apic_timer_device_ops,
+		apic_device, &apic_device_driver);
 }
 
 void x2apic_init(struct DeviceDriver *driver) {
@@ -193,10 +154,10 @@ void x2apic_init(struct DeviceDriver *driver) {
 
 	uint32_t tmp;
 	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &core_driver, apic_info.apic_base, 0x3ff, &tmp);
+		driver_remap_memory(&core_driver, apic_info.apic_base, 0x3ff, &tmp));
 	apic_info.lapic_mmio = (uint32_t *)tmp;
 	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &core_driver, 0xfec00000, 0xfff00, &tmp);
+		driver_remap_memory(&core_driver, 0xfec00000, 0xfff00, &tmp));
 	apic_info.ioapic = (struct ioapic *)tmp;
 
 	read_msr(X2APIC_ID_MSR, &apic_info.apic_id, &apic_info.apic_id_high);
@@ -208,12 +169,11 @@ void xapic_init(struct DeviceDriver *driver) {
 	apic_info.apic_type = APIC_TYPE_XAPIC;
 	apic_info.apic_base = 0xfee00000;
 
-	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &core_driver, apic_info.apic_base, 0x3ff,
-		(uint32_t *)&apic_info.lapic_mmio);
-	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory, &core_driver, 0xfec00000, 0xfff00,
-		(uint32_t *)&apic_info.ioapic);
+	DRV_RESULT_PRINT_CALL(driver_remap_memory(
+		&core_driver, apic_info.apic_base, 0x3ff,
+		(uint32_t *)&apic_info.lapic_mmio));
+	DRV_RESULT_PRINT_CALL(driver_remap_memory(
+		&core_driver, 0xfec00000, 0xfff00, (uint32_t *)&apic_info.ioapic));
 
 	apic_info.apic_id		= lapic_read(APIC_ID) >> 24;
 	apic_info.version		= (lapic_read(APIC_Ver) & 0xff);
@@ -225,6 +185,7 @@ DriverResult apic_driver_init(struct DeviceDriver *driver) {
 	 * 所有文档都说要先屏蔽8259a的中断，直到我无数次触发#DF才知道为什么...
 	 * 防止apic完成初始化前触发中断无法正确处理导致异常
 	 */
+	use_apic = true;
 	if (cpu_check_feature(CPUID_FEAT_X2APIC)) {
 		mask_8259a();
 		x2apic_init(driver);
@@ -232,9 +193,10 @@ DriverResult apic_driver_init(struct DeviceDriver *driver) {
 		mask_8259a();
 		xapic_init(driver);
 	} else {
-		return DRIVER_RESULT_NOT_EXIST;
+		use_apic = false;
+		return DRIVER_ERROR_NOT_EXIST;
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void enable_apic_with_msr(void) {
@@ -277,8 +239,8 @@ void disable_apic(void) {
 	}
 }
 
-DriverResult apic_init(Device *device) {
-	apic_driver_init(&apic_device_driver);
+DriverResult apic_init(void *device) {
+	DRIVER_RESULT_PASS(apic_driver_init(&apic_device_driver));
 
 	lapic_write(APIC_LVT_LINT0, BIT(16));
 	lapic_write(APIC_LVT_LINT1, BIT(16));
@@ -301,19 +263,19 @@ DriverResult apic_init(Device *device) {
 
 	if (i == timeout) {
 		print_error_with_position("APIC init timeout\n");
-		return DRIVER_RESULT_TIMEOUT;
+		return DRIVER_ERROR_TIMEOUT;
 	}
 
 	lapic_write(APIC_TPR, 0);
 
 	for (int i = 0; i < apic_info.max_lvt_entry; i++) {
-		apic_disable_irq(device->dm_ext, 0x20 + i);
+		apic_disable_irq(apic_interrupt_device, 0x20 + i);
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult apic_timer_calibrate(Device *device) {
-	const int ms = 10;
+DriverResult apic_timer_calibrate(LogicalDevice *device) {
+	const int ms = 100;
 	Timer	  timer;
 	timer_init(&timer);
 
@@ -322,51 +284,57 @@ DriverResult apic_timer_calibrate(Device *device) {
 
 	lapic_write(APIC_TIMER_ICT, 0xffffffff);
 
-	enable_interrupt();
 	delay_ms(&timer, ms);
-	disable_interrupt();
 
 	lapic_write(APIC_LVT_TIMER, BIN_EN(data, BIT(16)));
 
-	uint32_t apic_timer_count = lapic_read(APIC_TIMER_CCT);
-	uint32_t freq			  = (0xffffffff - apic_timer_count) / ms * 1000;
-	apic_timer_timer_device.source_frequency = freq;
-	apic_timer_timer_device.min_frequency	 = DIV_ROUND_UP(freq, 0xffffffff);
-	apic_timer_timer_device.max_frequency	 = freq;
-	return DRIVER_RESULT_OK;
+	uint32_t apic_timer_count			 = lapic_read(APIC_TIMER_CCT);
+	uint32_t delta						 = (0xffffffff - apic_timer_count);
+	uint32_t freq						 = delta * (1000 / ms);
+	apic_timer_device->source_frequency	 = freq;
+	apic_timer_device->min_frequency	 = DIV_ROUND_UP(freq, 0xffffffff);
+	apic_timer_device->max_frequency	 = freq;
+	apic_timer_device->current_frequency = 0;
+	apic_timer_device->priority			 = 2;
+	return DRIVER_OK;
 }
 
-DriverResult apic_timer_init(Device *device) {
+DriverResult apic_timer_init(void *device) {
 	lapic_write(APIC_TIMER_DCR, APIC_TIMER_DCR_DIVIDE_BY_1);
 	lapic_write(
 		APIC_LVT_TIMER,
 		APIC_LVT_TIMER_MODE_PERIODIC | (0x20 + LAPIC_TIMER_IRQ));
+
 	apic_timer_calibrate(device);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult apic_start(Device *device) {
+DriverResult apic_start(void *device) {
 	enable_apic();
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult apic_timer_start(Device *device) {
-	register_device_irq(apic_timer_device.irq);
-	interrupt_enable_irq(apic_timer_device.irq->irq);
+DriverResult apic_timer_start(void *device) {
+	register_device_irq(
+		&apic_info.device_irq, apic_device, device, LAPIC_TIMER_IRQ,
+		apic_timer_irq_handler, IRQ_MODE_EXCLUSIVE);
+	enable_device_irq(apic_info.device_irq);
 	uint32_t data = lapic_read(APIC_LVT_TIMER);
 	lapic_write(APIC_LVT_TIMER, BIN_DIS(data, BIT(16)));
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult apic_stop(Device *device) {
+DriverResult apic_stop(void *device) {
 	disable_apic();
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult apic_timer_stop(Device *device) {
+DriverResult apic_timer_stop(void *device) {
 	uint32_t data = lapic_read(APIC_LVT_TIMER);
 	lapic_write(APIC_LVT_TIMER, BIN_EN(data, BIT(16)));
-	return DRIVER_RESULT_OK;
+	unregister_device_irq(apic_info.device_irq);
+	apic_info.device_irq = NULL;
+	return DRIVER_OK;
 }
 
 int apic_redirect_irq(InterruptDevice *device, int irq) {
@@ -381,13 +349,13 @@ int apic_redirect_irq(InterruptDevice *device, int irq) {
 DriverResult apic_enable_irq(InterruptDevice *device, int irq) {
 	io_apic_write(IOAPIC_TBL + irq * 2, BIN_DIS(0x20 + irq, BIT(16)));
 	io_apic_write(IOAPIC_TBL + irq * 2 + 1, 0);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult apic_disable_irq(InterruptDevice *device, int irq) {
 	io_apic_write(IOAPIC_TBL + irq * 2, BIN_EN(0x20 + irq, BIT(16)));
 	io_apic_write(IOAPIC_TBL + irq * 2 + 1, 0);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void apic_eoi(InterruptDevice *device, int irq) {
@@ -396,11 +364,12 @@ void apic_eoi(InterruptDevice *device, int irq) {
 
 TimerResult apic_timer_set_frequency(
 	TimerDevice *timer_device, uint32_t frequency) {
-	uint32_t divisor = apic_timer_timer_device.source_frequency / frequency;
+	uint32_t divisor =
+		DIV_ROUND_UP(apic_timer_device->source_frequency, frequency);
 	lapic_write(APIC_TIMER_ICT, divisor);
 	return TIMER_RESULT_OK;
 }
 
-void apic_timer_irq_handler(Device *device) {
+void apic_timer_irq_handler(void *device) {
 	timer_irq_handler(device);
 }

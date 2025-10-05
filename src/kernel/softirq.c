@@ -24,12 +24,12 @@ void do_softirq(void) {
 }
 
 DriverResult softirq_register_handler(SoftirqType type, void (*handler)(void)) {
-	if (type == SOFTIRQ_MAX) { return DRIVER_RESULT_INVALID_TYPE; }
+	if (type == SOFTIRQ_MAX) { return DRIVER_ERROR_INVALID_TYPE; }
 	if (softirq_handlers[type].handler != NULL) {
-		return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+		return DRIVER_ERROR_CONFLICT;
 	}
 
 	softirq_handlers[type].handler = handler;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }

@@ -1,9 +1,13 @@
 #ifndef _DRIVER_INTERFACE_H
 #define _DRIVER_INTERFACE_H
 
+#include <kernel/list.h>
+#include <multiple_return.h>
+#include <stdint.h>
+
 #ifdef ARCH_X86
 
-#include "kernel/func.h"
+#include <kernel/func.h>
 
 #define io_in_byte(port)		 io_in8(port)
 #define io_in_word(port)		 io_in16(port)
@@ -43,22 +47,28 @@
 	printk(COLOR_RED "[" source "]" str COLOR_RESET, ##__VA_ARGS__)
 #define print_warning(source, str, ...) \
 	printk(COLOR_BYELLOW "[%s]" str COLOR_RESET, source, ##__VA_ARGS__)
-#define print_device_info(device, str, ...) \
-	printk("[%s]" str COLOR_RESET, device->name.text, ##__VA_ARGS__)
-#define print_driver_info(driver, str, ...) \
-	printk("[%s]" str COLOR_RESET, driver.short_name.text, ##__VA_ARGS__)
+#define print_info(source, str, ...) \
+	printk(COLOR_RESET "[%s]" str, source, ##__VA_ARGS__)
 
-#include "kernel/list.h"
-struct Device;
-typedef void (*DeviceIrqHandler)(struct Device *device);
+struct PhysicalDevice;
+typedef void (*DeviceIrqHandler)(void *device);
+
+typedef enum {
+	IRQ_MODE_SHARED,
+	IRQ_MODE_EXCLUSIVE,
+} IrqMode;
+
 typedef struct DeviceIrq {
-	list_t			 list;
-	int				 irq;
-	struct Device	*device;
-	DeviceIrqHandler handler;
+	list_t	list;
+	list_t	irq_list;
+	int		irq;
+	IrqMode mode;
+
+	void				  *arg;
+	DeviceIrqHandler	   handler;
+	struct PhysicalDevice *physical_device;
 } DeviceIrq;
 
-#include "stdint.h"
 typedef struct DriverRemappedMemory {
 	list_t	 list;
 	uint32_t vir_start;
@@ -67,8 +77,13 @@ typedef struct DriverRemappedMemory {
 } DriverRemappedMemory;
 
 struct Driver;
-enum DriverResult register_device_irq(DeviceIrq *dev_irq);
+enum DriverResult register_device_irq(
+	DEF_MRET(DeviceIrq *, device_irq), struct PhysicalDevice *physical_device,
+	void *arg, int irq, DeviceIrqHandler irq_handler, IrqMode mode);
 enum DriverResult unregister_device_irq(DeviceIrq *dev_irq);
+enum DriverResult enable_device_irq(DeviceIrq *dev_irq);
+enum DriverResult disable_device_irq(DeviceIrq *dev_irq);
+
 void			  device_irq_handler(int irq);
 enum DriverResult driver_remap_memory(
 	struct Driver *in_driver, uint32_t in_physical_address, uint32_t in_size,

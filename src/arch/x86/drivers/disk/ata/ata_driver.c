@@ -11,7 +11,6 @@
 #include <string.h>
 
 #include "include/ata_driver.h"
-#include "include/ide.h"
 #include "include/ide_controller.h"
 
 DriverDependency ata_dependencies[] = {
@@ -23,15 +22,12 @@ DriverDependency ata_dependencies[] = {
 };
 
 Driver ata_driver = {
-	.short_name		  = STRING_INIT("AtaDriver"),
-	.dependency_count = sizeof(ata_dependencies) / sizeof(DriverDependency),
-	.dependencies	  = ata_dependencies,
+	.short_name = STRING_INIT("AtaDriver"),
 };
 
 static __init void ata_driver_initcall(void) {
 	register_driver(&ata_driver);
 	register_device_driver(&ata_driver, &ide_controller_device_driver);
-	register_device_driver(&ata_driver, &ide_device_driver);
 	pci_register_driver(&ata_driver, &ide_pci_driver);
 }
 

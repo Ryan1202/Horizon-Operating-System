@@ -1,6 +1,7 @@
 #ifndef _PCI_H
 #define _PCI_H
 
+#include "kernel/device.h"
 #include "kernel/driver_interface.h"
 #include "stdint.h"
 
@@ -95,8 +96,8 @@ typedef struct PciDeviceBar {
 } PciDeviceBar;
 
 typedef struct PciDevice {
-	Bus	   *bus;
-	Device *device;
+	Bus			   *bus;
+	PhysicalDevice *device;
 
 	struct PciDriver *pci_driver;
 
@@ -183,8 +184,8 @@ typedef struct PciDevice {
 } PciDevice;
 
 typedef struct PciDriverOps {
-
-	DriverResult (*probe)(struct PciDevice *pci_device);
+	DriverResult (*probe)(
+		struct PciDevice *pci_device, PhysicalDevice *physical_device);
 } PciDriverOps;
 
 typedef struct PciDriver {

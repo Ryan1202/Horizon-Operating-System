@@ -1,6 +1,9 @@
 #ifndef _CMOS_H
 #define _CMOS_H
 
+#include <driver/time_dm.h>
+#include <kernel/device.h>
+#include <kernel/driver.h>
 #include <kernel/func.h>
 
 #define CMOS_REGS 0x70
@@ -29,8 +32,9 @@
 #define BCD2BIN(bcd) ((bcd >> 4) * 10 + (bcd & 0x0f))
 #define BIN2BCD(bin) (((bin / 10) << 4) + (bin % 10))
 
-extern struct Device rtc_device;
+extern PhysicalDevice *cmos_device;
+extern TimeDevice	  *rtc_time_device;
 
-void register_cmos(void);
+DriverResult register_cmos(void);
 
 #endif

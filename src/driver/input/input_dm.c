@@ -1,4 +1,5 @@
 #include "kernel/driver.h"
+#include "kernel/spinlock.h"
 #include "string.h"
 #include <driver/input/input_dm.h>
 #include <kernel/bus_driver.h>
@@ -7,10 +8,12 @@
 #include <kernel/device_manager.h>
 #include <kernel/memory.h>
 #include <objects/object.h>
+#include <stdint.h>
 
 string_t input_object = STRING_INIT("Input");
 
 DriverResult input_dm_load(DeviceManager *manager);
+DriverResult input_dm_unload(DeviceManager *manager);
 
 DeviceManagerOps input_dm_ops = {
 	.dm_load   = input_dm_load,
@@ -24,9 +27,11 @@ DeviceManager	   input_dm = {
 };
 
 DriverResult input_dm_load(DeviceManager *manager) {
-	ObjectAttr attr = base_obj_sys_attr;
-	create_object_directory(&device_object, input_object, attr);
-	memset(input_dm_ext.device_count, 0, sizeof(input_dm_ext.device_count));
+	for (int i = 0; i < INPUT_TYPE_MAX; i++) {
+		input_dm_ext.new_device_num[i] = 0;
+		input_dm_ext.device_count[i]   = 0;
+		spinlock_init(&input_dm_ext.lock[i]);
+	}
 
 	input_dm_ext.key_events =
 		kmalloc(sizeof(KeyEvent) * INPUT_EVENT_QUEUE_SIZE);
@@ -36,28 +41,86 @@ DriverResult input_dm_load(DeviceManager *manager) {
 		kmalloc(sizeof(PointerEvent) * INPUT_EVENT_QUEUE_SIZE);
 	input_dm_ext.pointer_event_w = 0;
 	input_dm_ext.pointer_event_r = 0;
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult register_input_device(
-	DeviceDriver *device_driver, Device *device, Bus *bus,
-	InputDevice *input_device) {
-	device->dm_ext		 = input_device;
-	input_device->device = device;
+DriverResult input_dm_unload(DeviceManager *manager) {
+	kfree(input_dm_ext.key_events);
+	kfree(input_dm_ext.pointer_events);
+	return DRIVER_OK;
+}
 
-	int		 id = input_dm_ext.device_count[input_device->type]++;
-	string_t name;
-	if (input_device->type == INPUT_TYPE_KEYBOARD) {
-		string_new_with_number(&name, "Keyboard", 8, id);
-	} else if (input_device->type == INPUT_TYPE_MOUSE) {
-		string_new_with_number(&name, "Mouse", 5, id);
-	} else {
-		string_new_with_number(&name, "Input", 5, id);
+DriverResult create_input_device(
+	InputDevice **input_device, InputDeviceType type, DeviceOps *ops,
+	PhysicalDevice *physical_device, DeviceDriver *device_driver) {
+	DriverResult   result;
+	LogicalDevice *logical_device = NULL;
+
+	result = create_logical_device(
+		&logical_device, physical_device, device_driver, ops,
+		DEVICE_TYPE_INPUT);
+	if (result != DRIVER_OK) return result;
+
+	*input_device = kmalloc(sizeof(InputDevice));
+	if (*input_device == NULL) {
+		delete_logical_device(logical_device);
+		return DRIVER_ERROR_OUT_OF_MEMORY;
 	}
-	ObjectAttr attr = device_object_attr;
-	register_device(device_driver, &name, bus, device, &attr);
+	InputDevice *in		   = *input_device;
+	logical_device->dm_ext = in;
+	in->device			   = logical_device;
+	in->type			   = type;
 
-	return DRIVER_RESULT_OK;
+	char	 name1[] = "Keyboard";
+	char	 name2[] = "Mouse";
+	char	 name3[] = "Input";
+	char	*_name;
+	uint8_t	 len;
+	string_t name;
+	uint8_t	 num;
+	if (type == INPUT_TYPE_KEYBOARD) {
+		_name = name1;
+		len	  = sizeof(name1) - 1;
+	} else if (type == INPUT_TYPE_MOUSE) {
+		_name = name2;
+		len	  = sizeof(name2) - 1;
+	} else {
+		_name = name3;
+		len	  = sizeof(name3) - 1;
+	}
+	spin_lock(&input_dm_ext.lock[type]);
+	num = input_dm_ext.new_device_num[type]++;
+	input_dm_ext.device_count[type]++;
+	spin_unlock(&input_dm_ext.lock[type]);
+	string_new_with_number(&name, _name, len, num);
+
+	Object *obj = create_object(&device_object, &name, device_object_attr);
+	if (obj == NULL) {
+		kfree(in);
+		delete_logical_device(logical_device);
+		return DRIVER_ERROR_OBJECT;
+	}
+	obj->value.device.kind	  = DEVICE_KIND_LOGICAL;
+	obj->value.device.logical = logical_device;
+	logical_device->object	  = obj;
+
+	if (result != DRIVER_OK) return result;
+	return DRIVER_OK;
+}
+
+DriverResult delete_input_device(InputDevice *input_device) {
+	InputDeviceType type = input_device->type;
+	spin_lock(&input_dm_ext.lock[type]);
+	if (input_dm_ext.device_count[type] > 0) input_dm_ext.device_count[type]--;
+	spin_unlock(&input_dm_ext.lock[type]);
+
+	LogicalDevice *logical_device = input_device->device;
+
+	list_del(&logical_device->dm_list);
+	delete_logical_device(logical_device);
+	int result = kfree(input_device);
+	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;
+	return DRIVER_OK;
 }
 
 KeyEvent *new_key_event() {

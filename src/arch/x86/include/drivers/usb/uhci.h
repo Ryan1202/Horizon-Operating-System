@@ -1,14 +1,15 @@
 #ifndef _UHCI_H
 #define _UHCI_H
 
-#include "driver/usb/urb.h"
-#include "kernel/list.h"
 #include <bits.h>
-#include <driver/timer_dm.h>
-#include <driver/usb/hcd.h>
-#include <driver/usb/usb.h>
-#include <driver/usb/usb_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <drivers/bus/pci/pci.h>
+#include <drivers/bus/usb/hcd.h>
+#include <drivers/bus/usb/usb.h>
+#include <drivers/usb/core/urb.h>
+#include <drivers/usb/core/usb.h>
+#include <kernel/driver_interface.h>
+#include <kernel/list.h>
 #include <stdint.h>
 
 #define FRAMELIST_SIZE 1024
@@ -160,6 +161,8 @@ typedef struct {
 
 	UhciSkel *skel;
 	UsbHcd	 *hcd;
+
+	DeviceIrq *irq;
 } Uhci;
 
 typedef enum UhciSkelType {

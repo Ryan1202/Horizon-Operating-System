@@ -5,8 +5,6 @@
  * @version 0.1
  * @date 2020-07
  */
-#include "kernel/list.h"
-#include "objects/object.h"
 #include <driver/bus_dm.h>
 #include <drivers/bus/pci/pci.h>
 #include <kernel/bus_driver.h>
@@ -19,9 +17,10 @@
 #include <kernel/driver_interface.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/platform.h>
-#include <math.h>
+#include <objects/attr.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
@@ -30,36 +29,20 @@ LIST_HEAD(pci_driver_lh);
 
 PciDevice pci_devices[PCI_MAX_DEVICE];
 
-DriverResult pci_driver_init(Driver *driver);
-DriverResult pci_device_init(Device *device);
+DriverResult pci_device_init(void *device);
 DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus);
 DriverResult pci_init_bus(BusDriver *bus_driver);
 DriverResult pci_probe(BusDriver *bus_driver, Bus *bus);
 
-DeviceDriverOps pci_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps pci_device_ops = {
 	.init	 = pci_device_init,
 	.start	 = NULL,
 	.stop	 = NULL,
 	.destroy = NULL,
-	.status	 = NULL,
-};
-BusDriverOps pci_bus_driver_ops = {
-	.register_bus_hook	 = NULL,
-	.unregister_bus_hook = NULL,
-	.init				 = pci_init_bus,
 };
 BusOps pci_bus_ops = {
-	.register_device_hook	= NULL,
-	.unregister_device_hook = NULL,
-	.scan_bus				= pci_scan_bus,
-	.probe_device			= pci_probe,
-};
-BusControllerDeviceOps pci_controller_ops = {
-	.probe = NULL,
+	.scan_bus	  = pci_scan_bus,
+	.probe_device = pci_probe,
 };
 
 DriverDependency pci_dependencies[] = {
@@ -70,38 +53,11 @@ DriverDependency pci_dependencies[] = {
 	 },
 };
 Driver pci_driver = {
-	.short_name		  = STRING_INIT("PciDriver"),
-	.dependency_count = sizeof(pci_dependencies) / sizeof(DriverDependency),
-	.dependencies	  = pci_dependencies,
-	.init			  = pci_driver_init,
+	.short_name = STRING_INIT("PciDriver"),
 };
-DeviceDriver pci_device_driver = {
-	.name			   = STRING_INIT("PCI Device Driver"),
-	.type			   = DEVICE_TYPE_BUS_CONTROLLER,
-	.state			   = DRIVER_STATE_UNREGISTERED,
-	.private_data_size = 0,
-	.ops			   = &pci_driver_ops,
-};
-Device pci_device = {
-	.name			   = STRING_INIT("PCI Controller"),
-	.state			   = DEVICE_STATE_UNREGISTERED,
-	.bus			   = &platform_bus,
-	.private_data_size = 0,
-	.ops			   = &pci_device_ops,
-};
-BusDriver pci_bus_driver = {
-	.name			   = STRING_INIT("PCI"),
-	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
-	.bus_type		   = BUS_TYPE_PCI,
-	.state			   = DRIVER_STATE_UNREGISTERED,
-	.private_data_size = 0,
-	.ops			   = &pci_bus_driver_ops,
-};
-BusControllerDevice pci_bus_controller_device = {
-	.short_name			= STRING_INIT("PCI"),
-	.device				= &pci_device,
-	.bus_driver			= &pci_bus_driver,
-	.bus_controller_ops = &pci_controller_ops,
+DeviceDriver pci_device_driver;
+BusDriver	 pci_bus_driver = {
+	   .name = STRING_INIT("PCI"),
 };
 
 DEF_PCI_RW(8)
@@ -209,21 +165,21 @@ uint32_t pci_device_get_io_addr(PciDevice *pci_device) {
 DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 	int		   i, j;
 	PciDevice *pci_device;
-	print_driver_info(
-		pci_driver, "device id\tvendor id\theader "
-					"type\tclasscode\tsubclass\tprogif\trevision id\n");
+	print_info(
+		"PCI", "device id\tvendor id\theader "
+			   "type\tclasscode\tsubclass\tprogif\trevision id\n");
 	for (i = 0; i < PCI_MAX_DEV; i++) {
 		for (j = 0; j < PCI_MAX_FUNC; j++) {
 			DriverResult result =
 				pci_scan_device(bus, bus->bus_num, i, j, &pci_device);
-			if (result == DRIVER_RESULT_NOT_EXIST) {
+			if (result == DRIVER_ERROR_NOT_EXIST) {
 				continue;
-			} else if (result == DRIVER_RESULT_NULL_POINTER) {
+			} else if (result == DRIVER_ERROR_NULL_POINTER) {
 				print_error_with_position(
 					"pci_probe_bus: pci device(%d:%d:%d) alloc failed!\n",
 					bus->bus_num, i, j);
 				continue;
-			} else if (result == DRIVER_RESULT_UNSUPPORT_DEVICE) {
+			} else if (result == DRIVER_ERROR_UNSUPPORT_DEVICE) {
 				print_error_with_position(
 					"pci_probe_bus: pci device(%d:%d:%d) unsupport! Header "
 					"Type:%d\n",
@@ -233,8 +189,8 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 
 			bus_driver->device_count++;
 			pci_device->status = PCI_DEVICE_STATUS_UNUSED;
-			print_driver_info(
-				pci_driver,
+			print_info(
+				"PCI",
 				"%#06x\t\t%#06x\t\t%#04x\t\t%#04x\t\t%#04x\t\t%#04x\t%#04x\n",
 				pci_device->device_id, pci_device->vendor_id,
 				pci_device->header_type, pci_device->classcode,
@@ -246,40 +202,14 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 			}
 
 			if (pci_device->header_type == 1) { // 为PCI-to-PCI桥
-				bus_driver->bus_count =
-					MAX(bus_driver->bus_count,
-						pci_device->pci2pci_bridge.subordinate_bus_number);
+				Bus *new_bus;
 
-				Bus *new_bus		 = kmalloc(sizeof(Bus));
-				new_bus->ops		 = &pci_bus_ops;
-				new_bus->primary_bus = bus;
-				new_bus->bus_num =
-					pci_device->pci2pci_bridge.secondary_bus_number;
-				new_bus->subordinate_bus_num =
-					pci_device->pci2pci_bridge.subordinate_bus_number;
-
-				ObjectAttr attr = device_object_attr;
-				register_bus(
-					bus_driver, bus->controller_device, new_bus, &attr);
+				DRV_RESULT_PRINT_CALL(
+					create_bus(&new_bus, &pci_bus_driver, &pci_bus_ops));
 			}
 		}
 	}
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult pci_init_bus(BusDriver *bus_driver) {
-	pci_bus_driver.bus_count = 1; // 默认只有一个主总线
-
-	Bus *bus				 = kmalloc(sizeof(Bus));
-	bus->ops				 = &pci_bus_ops;
-	bus->bus_num			 = 0;
-	bus->subordinate_bus_num = 0;
-	bus->primary_bus		 = NULL;
-	ObjectAttr attr			 = device_object_attr;
-	register_bus(&pci_bus_driver, &pci_device, bus, &attr);
-	// printk("device id\tvendor id\theader "
-	// 	   "type\tclasscode\tsubclass\tprogif\trevision id\n");
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 PciDevice *pci_alloc_device(void) {
@@ -336,7 +266,7 @@ DriverResult pci_scan_device(
 	uint32_t value	  = pci_read32(bus_num, device_num, function_num, 0);
 	uint16_t vendorID = value & 0xffff;
 	uint16_t deviceID = value >> 16;
-	if (vendorID == 0xffff) { return DRIVER_RESULT_NOT_EXIST; }
+	if (vendorID == 0xffff) { return DRIVER_ERROR_NOT_EXIST; }
 
 	value				  = pci_read32(bus_num, device_num, function_num, 0x0c);
 	uint8_t bist		  = value >> 24;
@@ -350,7 +280,7 @@ DriverResult pci_scan_device(
 	uint8_t	 revisionID = value & 0xff;
 
 	PciDevice *pci_device = pci_alloc_device();
-	if (pci_device == NULL) { return DRIVER_RESULT_NULL_POINTER; }
+	if (pci_device == NULL) { return DRIVER_ERROR_NULL_POINTER; }
 	*out_pci_device	   = pci_device;
 	pci_device->device = NULL;
 	fill_pci_device_info(
@@ -486,7 +416,7 @@ DriverResult pci_scan_device(
 	} else {
 		print_error_with_position(
 			"unsupport PCI Header Type: %d\n", header_type);
-		return DRIVER_RESULT_UNSUPPORT_DEVICE;
+		return DRIVER_ERROR_UNSUPPORT_DEVICE;
 	}
 	pci_device->irqline = value & 0xff;
 	pci_device->irqpin	= value >> 8;
@@ -521,7 +451,7 @@ DriverResult pci_scan_device(
 		}
 	}
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 bool pci_match_driver(PciDriver *pci_driver, PciDriver *new_pci_driver) {
@@ -580,7 +510,7 @@ DriverResult pci_register_driver(Driver *driver, PciDriver *new_pci_driver) {
 	list_for_each_owner (old_pci_driver, &pci_driver_lh, pci_driver_list) {
 		if (new_pci_driver->find_type == old_pci_driver->find_type) {
 			if (pci_match_driver(old_pci_driver, new_pci_driver)) {
-				return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+				return DRIVER_ERROR_CONFLICT;
 			}
 			break;
 		} else if (
@@ -602,54 +532,86 @@ DriverResult pci_register_driver(Driver *driver, PciDriver *new_pci_driver) {
 					old_pci_driver->class_subclass.classcode &&
 				new_pci_driver->class_subclass.subclass ==
 					old_pci_driver->class_subclass.subclass) {
-				return DRIVER_RESULT_DEVICE_DRIVER_CONFLICT;
+				return DRIVER_ERROR_CONFLICT;
 			}
 		}
 	}
 
 	list_add_tail(&new_pci_driver->pci_driver_list, &pci_driver_lh);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
-DriverResult pci_device_init(Device *device) {
+DriverResult pci_device_init(void *device) {
 	int i;
 	for (i = 0; i < PCI_MAX_DEVICE; i++) {
 		pci_devices[i].status = PCI_DEVICE_STATUS_INVALID;
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult pci_probe(BusDriver *bus_driver, Bus *bus) {
-	PciDriver *pci_driver;
+	ObjectAttr		attr = device_object_attr;
+	PciDriver	   *pci_driver, *select;
+	PhysicalDevice *device;
+	DriverResult	result;
 	for (int i = 0; i < PCI_MAX_DEVICE; i++) {
 		if (pci_devices[i].status == PCI_DEVICE_STATUS_UNUSED) {
+			if (pci_devices[i].device == NULL) {
+				result = create_physical_device(&device, bus, &attr);
+				if (result != DRIVER_OK) continue;
+				pci_devices[i].device = device;
+				device->bus_ext		  = &pci_devices[i];
+			}
+
+			select = NULL;
 			list_for_each_owner (pci_driver, &pci_driver_lh, pci_driver_list) {
 				if (pci_match_device(pci_driver, &pci_devices[i])) {
-					pci_devices[i].status	  = PCI_DEVICE_STATUS_USING;
-					pci_devices[i].pci_driver = pci_driver;
-					pci_devices[i].bus		  = bus;
-					pci_driver->pci_device	  = &pci_devices[i];
-					pci_driver->ops->probe(&pci_devices[i]);
+					select = pci_driver;
 				}
+			}
+			if (select != NULL) {
+				pci_devices[i].status	  = PCI_DEVICE_STATUS_USING;
+				pci_devices[i].pci_driver = select;
+				pci_devices[i].bus		  = bus;
+				select->pci_device		  = &pci_devices[i];
+
+				select->ops->probe(&pci_devices[i], device);
 			}
 		}
 	}
-	return DRIVER_RESULT_OK;
-}
-
-DriverResult pci_driver_init(Driver *driver) {
-	ObjectAttr attr = device_object_attr;
-	DRIVER_RESULT_PASS(register_bus_controller_device(
-		&pci_device_driver, &pci_bus_driver, &pci_device,
-		&pci_bus_controller_device, &attr));
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 static __init void pci_initcall(void) {
-	register_driver(&pci_driver);
-	register_device_driver(&pci_driver, &pci_device_driver);
+	DriverResult result;
+
+	result = register_driver(&pci_driver);
+	if (result != DRIVER_OK) goto failed_register_driver;
+
+	result = register_device_driver(&pci_driver, &pci_device_driver);
+	if (result != DRIVER_OK) goto failed_register_device_driver;
+
 	ObjectAttr attr = driver_object_attr;
-	register_bus_driver(&pci_driver, &pci_bus_driver, &attr);
+	result =
+		register_bus_driver(&pci_driver, BUS_TYPE_PCI, &pci_bus_driver, &attr);
+	if (result != DRIVER_OK) goto failed_register_bus_driver;
+
+	Bus *bus;
+	result = create_bus(&bus, &pci_bus_driver, &pci_bus_ops);
+	if (result != DRIVER_OK) goto failed_create_bus;
+
+	return;
+failed_create_bus:
+	unregister_bus_driver(&pci_bus_driver);
+
+failed_register_bus_driver:
+	unregister_device_driver(&pci_device_driver);
+
+failed_register_device_driver:
+	unregister_driver(&pci_driver);
+
+failed_register_driver:
+	return;
 }
 
 driver_initcall(pci_initcall);

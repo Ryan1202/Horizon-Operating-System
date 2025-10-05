@@ -74,6 +74,5 @@ void set_segment_descriptor(
 	struct segment_descriptor *sd, unsigned int limit, int base, int ar);
 void set_gate_descriptor(
 	struct gate_descriptor *gd, int offset, int selector, int ar);
-void irq_enable(int irq);
 
 #endif

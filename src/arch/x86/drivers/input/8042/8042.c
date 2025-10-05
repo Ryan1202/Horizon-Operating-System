@@ -12,28 +12,8 @@
 #include <kernel/initcall.h>
 #include <stdint.h>
 
-// static status_t i8042_enter(driver_t *drv_obj);
-// static status_t i8042_exit(driver_t *drv_obj);
-
 #define DRV_NAME "General PS/2 Driver"
 #define DEV_NAME "ps2controller"
-
-// typedef struct {
-// 	bool is_dual_channel;
-// 	bool is_p1_avail, is_p2_avail;
-
-// 	uint8_t p1_dev_type, p2_dev_type;
-// } device_extension_t;
-
-// driver_func_t i8042_driver = {
-// 	.driver_enter  = i8042_enter,
-// 	.driver_exit   = i8042_exit,
-// 	.driver_open   = NULL,
-// 	.driver_close  = NULL,
-// 	.driver_read   = NULL,
-// 	.driver_write  = NULL,
-// 	.driver_devctl = NULL,
-// };
 
 int i8042_get_status(uint8_t type) {
 	int data = io_in8(I8042_PORT_STAT);

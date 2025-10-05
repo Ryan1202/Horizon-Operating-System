@@ -16,6 +16,12 @@ NetBuffer *net_buffer_create(uint16_t size) {
 	return buffer;
 }
 
+void net_buffer_delete(NetBuffer *buffer) {
+	if (buffer == NULL) return;
+	if (buffer->ptr) kfree(buffer->ptr);
+	kfree(buffer);
+}
+
 void net_buffer_init(
 	NetBuffer *buffer, uint16_t size, uint16_t head, uint16_t tail) {
 	buffer->size = size;

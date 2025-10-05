@@ -1,8 +1,8 @@
-#include "kernel/driver_interface.h"
 #include "kernel/func.h"
-#include "kernel/list.h"
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <kernel/driver.h>
+#include <kernel/driver_interface.h>
+#include <kernel/list.h>
 #include <kernel/thread.h>
 #include <math.h>
 #include <stdint.h>
@@ -12,21 +12,21 @@ extern TimerDeviceManager timer_dm_ext;
 DriverResult timer_init(Timer *timer) {
 	timer->timer_device = timer_dm_ext.scheduler_timer->dm_ext;
 	timer->timeout		= 0;
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult timer_set_timeout(Timer *timer, uint32_t count) {
-	if (timer->timer_device == NULL) return DRIVER_RESULT_NOT_EXIST;
+	if (timer->timer_device == NULL) return DRIVER_ERROR_NOT_EXIST;
 	uint32_t counter = timer->timer_device->counter;
 	timer->timeout	 = counter + count;
 	timer->will_wrap = (timer->timeout > counter) ? false : true;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult timer_callback_enable(Timer *timer) {
 	if (timer == NULL || timer->timer_device == NULL)
-		return DRIVER_RESULT_NOT_EXIST;
+		return DRIVER_ERROR_NOT_EXIST;
 	// 在插入时排序
 	if (!list_empty(&timer->timer_device->timer_callback_lh)) {
 		Timer *last_timer = list_last_owner(
@@ -38,17 +38,17 @@ DriverResult timer_callback_enable(Timer *timer) {
 	} else {
 		list_add_tail(&timer->list, &timer->timer_device->timer_callback_lh);
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult timer_callback_cancel(Timer *timer) {
 	if (timer == NULL || timer->timer_device == NULL)
-		return DRIVER_RESULT_NOT_EXIST;
+		return DRIVER_ERROR_NOT_EXIST;
 
 	if (list_in_list(&timer->list)) list_del(&timer->list);
-	else return DRIVER_RESULT_OTHER_ERROR;
+	else return DRIVER_ERROR_OTHER;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 uint32_t timer_count_ms(Timer *timer, uint32_t ms) {
@@ -67,7 +67,7 @@ void delay_ms(Timer *timer, uint32_t ms) {
 	uint32_t status = load_interrupt_status();
 	enable_interrupt();
 	while (!timer_is_timeout(timer))
-		;
+		io_hlt();
 	store_interrupt_status(status);
 }
 

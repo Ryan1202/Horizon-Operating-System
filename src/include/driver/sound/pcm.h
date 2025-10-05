@@ -1,12 +1,13 @@
 #ifndef _PCM_H
 #define _PCM_H
 
-#include "kernel/device.h"
-#include "kernel/dma.h"
-#include "kernel/driver.h"
-#include "kernel/spinlock.h"
-#include "kernel/wait_queue.h"
+#include <kernel/device.h>
+#include <kernel/dma.h>
+#include <kernel/driver.h>
+#include <kernel/spinlock.h>
+#include <kernel/wait_queue.h>
 #include <multiple_return.h>
+#include <objects/object.h>
 #include <stdint.h>
 
 #define PCM_STATUS_FREE			0

@@ -1,10 +1,9 @@
 #include "sb16.h"
-#include "driver/interrupt_dm.h"
-#include "objects/object.h"
 #include <bits.h>
+#include <driver/interrupt/interrupt_dm.h>
 #include <driver/sound/pcm.h>
 #include <driver/sound/sound_dm.h>
-#include <driver/timer_dm.h>
+#include <driver/timer/timer_dm.h>
 #include <drivers/bus/isa/dma.h>
 #include <drivers/bus/isa/isa.h>
 #include <drivers/bus/pci/pci.h>
@@ -18,10 +17,14 @@
 #include <kernel/initcall.h>
 #include <kernel/memory.h>
 #include <kernel/spinlock.h>
+#include <objects/object.h>
 #include <stdint.h>
 #include <string.h>
 
-DriverResult sb16_init(struct Device *dev);
+DriverResult sb16_init(void *_device);
+DriverResult sb16_start(void *_device);
+DriverResult sb16_stop(void *_device);
+DriverResult sb16_destroy(void *_device);
 DriverResult sb16_probe(IsaDeviceDriver *isa_device_driver);
 
 DriverResult sb16_pcm_set_default_params(PcmStream *stream);
@@ -40,21 +43,22 @@ DriverResult sb16_record_prepare(
 DriverResult sb16_record_trigger(PcmStream *stream, PcmTrigger trigger);
 size_t		 sb16_record_position(PcmStream *stream);
 
-DeviceDriverOps sb16_device_driver_ops = {
-	.device_driver_init	  = NULL,
-	.device_driver_uninit = NULL,
-};
 DeviceOps sb16_device_ops = {
-	.init	 = sb16_init,
+	.init	 = NULL,
 	.start	 = NULL,
 	.destroy = NULL,
-	.status	 = NULL,
 	.stop	 = NULL,
+};
+DeviceOps sb16_logical_device_ops = {
+	.init	 = sb16_init,
+	.start	 = sb16_start,
+	.destroy = sb16_destroy,
+	.stop	 = sb16_stop,
 };
 IsaOps sb16_isa_ops = {
 	.probe = sb16_probe,
 };
-SoundDeviceOps sb16_sound_device_ops = {
+SoundOps sb16_sound_device_ops = {
 	.set_volume = NULL,
 };
 PcmOps sb16_pcm_ops = {
@@ -82,41 +86,13 @@ PcmStreamOps sb16_pcm_record_ops = {
 	.set_channel		= sb16_pcm_set_channel,
 };
 
-DriverDependency sb_dependencies[] = {
-	{
-		.in_type		   = DRIVER_DEPENDENCY_TYPE_BUS,
-		.dependency_in_bus = {BUS_TYPE_ISA, 0},
-		.out_bus		   = NULL,
-	 },
-};
-
-Driver sb_driver = {
-	.short_name		  = STRING_INIT("HorizonSoundBlasterDriver"),
-	.dependency_count = sizeof(sb_dependencies) / sizeof(DriverDependency),
-	.dependencies	  = sb_dependencies,
-};
-DeviceDriver sb16_device_driver = {
-	.name	  = STRING_INIT("SoundBlaster16"),
-	.type	  = DEVICE_TYPE_SOUND,
-	.priority = DRIVER_PRIORITY_BASIC,
-	.ops	  = &sb16_device_driver_ops,
-};
-const Device sb16_device_template = {
-	.name			   = STRING_INIT("sb16"),
-	.device_driver	   = &sb16_device_driver,
-	.ops			   = &sb16_device_ops,
-	.private_data_size = 0,
-};
+Driver						  sb_driver;
+DeviceDriver				  sb16_device_driver;
 const SoundDeviceCapabilities sb16_capabilities = {
 	.record			 = 1,
 	.play			 = 1,
 	.set_volume		 = 1,
 	.set_sample_rate = 1,
-};
-const SoundDevice sb16_sound_device_template = {
-	.capabilities = sb16_capabilities,
-	.ops		  = &sb16_sound_device_ops,
-	.type		  = SOUND_TYPE_PCM,
 };
 
 static const int sb16_possible_ports[] = {0x220, 0x240, 0x260, 0x280};
@@ -126,9 +102,9 @@ uint32_t data_len[DMA_MAX];
 
 DriverResult sb16_write(Sb16Ports *ports, uint8_t value);
 
-void sb16_irq_handler(Device *device) {
-	SoundDevice *sound_device	= device->dm_ext;
-	Sb16Info	*info			= sound_device->private_data;
+void sb16_irq_handler(void *arg) {
+	SoundDevice *sound_device	= arg;
+	Sb16Info	*info			= sound_device->device->private_data;
 	PcmDevice	*pcm			= sound_device->pcm;
 	PcmStream	*current_stream = pcm->current_stream;
 
@@ -150,30 +126,30 @@ DriverResult sb16_reset(Sb16Ports *ports) {
 	delay_ms(&timer, 1);
 	for (int i = 0; i < 100000; i++) {
 		if (io_in8(ports->read_status) & 0x80) {
-			if (io_in8(ports->read) == 0xaa) { return DRIVER_RESULT_OK; }
+			if (io_in8(ports->read) == 0xaa) { return DRIVER_OK; }
 		}
 	}
-	return DRIVER_RESULT_NOT_EXIST;
+	return DRIVER_ERROR_NOT_EXIST;
 }
 
 DriverResult sb16_write(Sb16Ports *ports, uint8_t value) {
 	for (int i = 0; i < 100000; i++) {
 		if ((io_in8(ports->write) & 0x80) == 0) {
 			io_out8(ports->write, value);
-			return DRIVER_RESULT_OK;
+			return DRIVER_OK;
 		}
 	}
-	return DRIVER_RESULT_TIMEOUT;
+	return DRIVER_ERROR_TIMEOUT;
 }
 
 DriverResult sb16_read(Sb16Ports *ports, uint8_t *value) {
 	for (int i = 0; i < 100000; i++) {
 		if (io_in8(ports->iack16) & 0x80) {
 			*value = io_in8(ports->read);
-			return DRIVER_RESULT_OK;
+			return DRIVER_OK;
 		}
 	}
-	return DRIVER_RESULT_TIMEOUT;
+	return DRIVER_ERROR_TIMEOUT;
 }
 
 DriverResult sb16_get_version(
@@ -183,7 +159,7 @@ DriverResult sb16_get_version(
 	DRIVER_RESULT_PASS(sb16_read(ports, major_version));
 	DRIVER_RESULT_PASS(sb16_read(ports, minor_version));
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_check(int port, Sb16Info **info) {
@@ -199,33 +175,43 @@ DriverResult sb16_check(int port, Sb16Info **info) {
 	uint8_t major, minor;
 	DRIVER_RESULT_PASS(sb16_reset(&ports));
 	DRIVER_RESULT_PASS(sb16_get_version(&ports, &major, &minor));
-	print_driver_info(
-		sb_driver, "SB16 DSP found. version:%d.%d\n", major, minor);
+	print_info("SB16", "DSP found. version:%d.%d\n", major, minor);
 
 	*info			   = kmalloc(sizeof(Sb16Info));
 	(*info)->ports	   = ports;
 	(*info)->major_ver = major;
 	(*info)->minor_ver = minor;
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_probe(IsaDeviceDriver *isa_device_driver) {
+	DriverResult	result = DRIVER_ERROR_NOT_EXIST;
+	ObjectAttr		attr   = device_object_attr;
+	PhysicalDevice *phy;
+	SoundDevice	   *snd;
+
 	for (int i = 0; i < sizeof(sb16_possible_ports) / sizeof(int); i++) {
 		Sb16Info *info = NULL;
-		if (sb16_check(sb16_possible_ports[i], &info) == DRIVER_RESULT_OK) {
-			Device *sb16_device = kmalloc_from_template(sb16_device_template);
-			SoundDevice *sb16_sound_device =
-				kmalloc_from_template(sb16_sound_device_template);
-			ObjectAttr attr			  = device_object_attr;
-			sb16_device->bus		  = isa_device_driver->bus;
-			sb16_device->private_data = info;
-			DRIVER_RESULT_PASS(register_sound_device(
-				&sb16_device_driver, sb16_device, sb16_sound_device, &attr));
+		if (sb16_check(sb16_possible_ports[i], &info) == DRIVER_OK) {
+			result =
+				create_physical_device(&phy, isa_device_driver->bus, &attr);
+			if (result != DRIVER_OK) continue;
 
-			PcmDevice *pcm = sound_register_pcm(
-				sb16_sound_device, &sb16_pcm_ops, 128 * 1024);
-			if (pcm == NULL) return DRIVER_RESULT_OUT_OF_MEMORY;
+			result = create_sound_device(
+				&snd, SOUND_TYPE_PCM, sb16_capabilities, &sb16_sound_device_ops,
+				&sb16_logical_device_ops, phy, &sb16_device_driver);
+			if (result != DRIVER_OK) {
+				delete_physical_device(phy);
+				continue;
+			}
+			PcmDevice *pcm = sound_register_pcm(snd, &sb16_pcm_ops, 128 * 1024);
+			if (pcm == NULL) {
+				delete_sound_device(snd);
+				delete_physical_device(phy);
+				result = DRIVER_ERROR_OUT_OF_MEMORY;
+				continue;
+			}
 
 			DRIVER_RESULT_PASS(pcm_register_stream(
 				pcm, &pcm->play_stream, &sb16_pcm_play_ops,
@@ -234,35 +220,61 @@ DriverResult sb16_probe(IsaDeviceDriver *isa_device_driver) {
 				pcm, &pcm->record_stream, &sb16_pcm_record_ops,
 				&info->stream_info[1]));
 			DRIVER_RESULT_PASS(pcm_register_dma(pcm, NULL, NULL, &isa_dma_ops));
+
+			register_physical_device(phy, &sb16_device_ops);
 		}
 	}
-	return DRIVER_RESULT_OK;
+	return result;
 }
 
-DriverResult sb16_init(struct Device *dev) {
-	Sb16Info  *info = (Sb16Info *)dev->private_data;
-	DeviceIrq *irq	= kmalloc(sizeof(DeviceIrq));
+DriverResult sb16_init(void *_device) {
+	LogicalDevice *device = _device;
+	Sb16Info	  *info	  = (Sb16Info *)device->private_data;
+
 	// io_out8(info->ports.mixer, 0x80 /* 设置IRQ */);
 	// io_out8(info->ports.mixer_data, 0x02 /* IRQ5 */);
-	irq->irq		= 5;
-	irq->device		= dev;
-	irq->handler	= sb16_irq_handler;
 
-	dev->irq = irq;
-	register_device_irq(dev->irq);
-	interrupt_enable_irq(irq->irq);
+	register_device_irq(
+		&info->irq, device->physical_device, device->dm_ext, 5,
+		sb16_irq_handler, IRQ_MODE_SHARED);
 
 	spinlock_init(&info->lock);
 
 	memset(data_len, 0, sizeof(data_len));
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
+}
+
+DriverResult sb16_start(void *_device) {
+	LogicalDevice *device = _device;
+	Sb16Info	  *info	  = (Sb16Info *)device->private_data;
+	enable_device_irq(info->irq);
+	return DRIVER_OK;
+}
+
+DriverResult sb16_stop(void *_device) {
+	LogicalDevice *device = _device;
+	Sb16Info	  *info	  = (Sb16Info *)device->private_data;
+	disable_device_irq(info->irq);
+	return DRIVER_OK;
+}
+
+DriverResult sb16_destroy(void *_device) {
+	LogicalDevice *device = _device;
+	Sb16Info	  *info	  = (Sb16Info *)device->private_data;
+	if (info->irq != NULL) {
+		unregister_device_irq(info->irq);
+		info->irq = NULL;
+	}
+	int result = kfree(info);
+	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_set_sample_rate(Sb16Info *info, uint16_t sample_rate) {
 	sb16_write(&info->ports, CMD_SET_OUTPUT_SAMPLE_RATE);
 	sb16_write(&info->ports, (uint8_t)(sample_rate >> 8));
 	sb16_write(&info->ports, (uint8_t)sample_rate);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_set_time_constant(Sb16Info *info, uint16_t sample_rate) {
@@ -270,7 +282,7 @@ DriverResult sb16_set_time_constant(Sb16Info *info, uint16_t sample_rate) {
 	sb16_write(&info->ports, CMD_SET_TIME_CONSTANT);
 	sb16_write(&info->ports, (uint8_t)(time_constant >> 8));
 	sb16_write(&info->ports, (uint8_t)time_constant);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 void sb16_setup_dma(
@@ -292,7 +304,7 @@ DriverResult sb16_set_volume(Sb16Info *info, int volume) {
 	sb16_write(&info->ports, (uint8_t)(volume >> 8));
 	sb16_write(&info->ports, (uint8_t)volume);
 	spin_unlock_irqrestore(&info->lock, flags);
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_pcm_set_default_params(PcmStream *stream) {
@@ -307,7 +319,7 @@ DriverResult sb16_pcm_set_default_params(PcmStream *stream) {
 	stream->frame_per_period = stream->period_bytes / stream->frame_bytes;
 	stream->start_threshold	 = 4 * 1024;
 	stream->stop_threshold	 = 1 * 1024;
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_pcm_set_data_type(PcmStream *stream, PcmDataType type) {
@@ -317,13 +329,13 @@ DriverResult sb16_pcm_set_data_type(PcmStream *stream, PcmDataType type) {
 	} else if (type == PCM_S16LE) {
 		info->data_type |= BIT(SIGNED_BIT);
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_pcm_set_mode(PcmStream *stream, PcmMode mode) {
 	if (mode == PCM_MODE_INTERLEAVED) stream->hw_mode = mode;
-	else return DRIVER_RESULT_UNSUPPORT_FEATURE;
-	return DRIVER_RESULT_OK;
+	else return DRIVER_ERROR_UNSUPPORT_FEATURE;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_pcm_set_channel(PcmStream *stream, uint8_t channel) {
@@ -333,11 +345,12 @@ DriverResult sb16_pcm_set_channel(PcmStream *stream, uint8_t channel) {
 	} else if (channel == 2) {
 		info->data_type |= BIT(STEREO_BIT);
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_pcm_set_sample_rate(PcmDevice *pcm, uint32_t sample_rate) {
-	return sb16_set_sample_rate(pcm->sound_device->private_data, sample_rate);
+	return sb16_set_sample_rate(
+		pcm->sound_device->device->private_data, sample_rate);
 }
 
 DriverResult sb16_play_open(SoundDevice *sound_device, PcmStream *stream) {
@@ -346,7 +359,7 @@ DriverResult sb16_play_open(SoundDevice *sound_device, PcmStream *stream) {
 		sound_device->device, (int *)sb16_possible_dmas,
 		sizeof(sb16_possible_dmas) / sizeof(int));
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_play_prepare(PcmStream *stream, void *addr, size_t size) {
@@ -369,7 +382,7 @@ DriverResult sb16_play_prepare(PcmStream *stream, void *addr, size_t size) {
 	sb16_write(&info->ports, CMD_STOP_PLAY16);
 	spin_unlock_irqrestore(&info->lock, flags);
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_play_trigger(PcmStream *stream, PcmTrigger trigger) {
@@ -384,9 +397,9 @@ DriverResult sb16_play_trigger(PcmStream *stream, PcmTrigger trigger) {
 		sb16_write(&info->ports, CMD_STOP_PLAY16);
 		break;
 	case PCM_TRIGGER_NONE:
-		return DRIVER_RESULT_OTHER_ERROR;
+		return DRIVER_ERROR_OTHER;
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 size_t sb16_play_position(PcmStream *stream) {
@@ -400,7 +413,7 @@ DriverResult sb16_record_open(SoundDevice *sound_device, PcmStream *stream) {
 		sound_device->device, (int *)sb16_possible_dmas,
 		sizeof(sb16_possible_dmas) / sizeof(int));
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_record_prepare(PcmStream *stream, void *addr, size_t size) {
@@ -423,7 +436,7 @@ DriverResult sb16_record_prepare(PcmStream *stream, void *addr, size_t size) {
 	sb16_write(&info->ports, CMD_STOP_PLAY16);
 	spin_unlock_irqrestore(&info->lock, flags);
 
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 DriverResult sb16_record_trigger(PcmStream *stream, PcmTrigger trigger) {
@@ -438,9 +451,9 @@ DriverResult sb16_record_trigger(PcmStream *stream, PcmTrigger trigger) {
 		sb16_write(&info->ports, CMD_STOP_PLAY16);
 		break;
 	case PCM_TRIGGER_NONE:
-		return DRIVER_RESULT_OTHER_ERROR;
+		return DRIVER_ERROR_OTHER;
 	}
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
 
 static void __init sb16_driver_entry(void) {

@@ -12,7 +12,7 @@
 
 #define STRING_MAX_LEN 256
 #define STRING_INIT(str) \
-	{.text = str "\0", .length = sizeof(str), .max_length = sizeof(str)}
+	{ .text = str "\0", .length = sizeof(str), .max_length = sizeof(str) }
 
 typedef struct _string {
 	unsigned int length;

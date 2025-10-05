@@ -1,7 +1,7 @@
-#include "driver/serial/serial_dm.h"
-#include "stdint.h"
 #include <bios_emu/bios_emu.h>
-#include <driver/interrupt_dm.h>
+#include <driver/framebuffer/fb_dm.h>
+#include <driver/interrupt/interrupt_dm.h>
+#include <driver/serial/serial_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <drivers/bus/isa/dma.h>
@@ -21,6 +21,7 @@
 #include <kernel/list.h>
 #include <objects/object.h>
 #include <random.h>
+#include <stdint.h>
 #include <string.h>
 
 BusDriverOps platform_ops = {
@@ -28,24 +29,24 @@ BusDriverOps platform_ops = {
 	.unregister_bus_hook = NULL,
 };
 BusOps platform_bus_ops = {
-	.register_device_hook	= NULL,
-	.unregister_device_hook = NULL,
+	.scan_bus	  = NULL,
+	.probe_device = NULL,
+};
+DeviceOps platform_device_ops = {
+	.init	 = NULL,
+	.start	 = NULL,
+	.stop	 = NULL,
+	.destroy = NULL,
 };
 
 Driver	  platform_driver;
 BusDriver platform_bus_driver = {
-	.driver_type	   = DRIVER_TYPE_BUS_DRIVER,
-	.bus_type		   = BUS_TYPE_PLATFORM,
-	.name			   = STRING_INIT("Platform"),
-	.state			   = DRIVER_STATE_UNREGISTERED,
-	.private_data_size = 0,
-	.ops			   = &platform_ops,
+	.name = STRING_INIT("Platform"),
 };
-Bus platform_bus = {
-	.controller_device = NULL,
-	.bus_driver		   = &platform_bus_driver,
-	.ops			   = &platform_bus_ops,
-};
+Bus *platform_bus;
+
+DeviceDriver	platform_device_driver;
+PhysicalDevice *platform_device;
 
 // 完成一些平台必要的准备工作
 void platform_early_init() {
@@ -53,30 +54,39 @@ void platform_early_init() {
 	init_descriptor();
 }
 
-void platform_init() {
+DriverResult platform_init() {
+	DriverResult result;
+
 	// 因为platform_bus是虚拟的，所以不需要注册device
 	ObjectAttr attr = driver_object_attr;
-	list_init(&platform_driver.sub_driver_lh);
-	register_bus_driver(&platform_driver, &platform_bus_driver, &attr);
-	platform_bus.object = platform_bus_driver.object;
-	list_init(&platform_bus_driver.bus_lh);
-	list_add_tail(&platform_bus.bus_list, &platform_bus_driver.bus_lh);
-	list_init(&platform_bus.device_lh);
+	register_driver(&platform_driver);
+	register_bus_driver(
+		&platform_driver, BUS_TYPE_PLATFORM, &platform_bus_driver, &attr);
+	register_device_driver(&platform_driver, &platform_device_driver);
+
+	result = create_bus(&platform_bus, &platform_bus_driver, &platform_bus_ops);
+	if (result != DRIVER_OK) { return result; }
+
+	result = create_physical_device(&platform_device, platform_bus, &attr);
+	if (result != DRIVER_OK) { return result; }
+	register_physical_device(platform_device, &platform_device_ops);
 
 	read_features();
 
 	bios_emu_init();
 
 	register_serial();
-	register_vesa_display();
-	register_pic();
-	register_apic();
-	register_pit();
-	register_cmos();
+	result = register_vesa_display();
+	result = register_apic();
+	result = register_pic();
+	result = register_pit();
+	result = register_cmos();
 
 	dma_init();
 
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
+
+	return DRIVER_OK;
 }
 
 void serial_receive(uint8_t data) {
@@ -84,18 +94,28 @@ void serial_receive(uint8_t data) {
 }
 
 void platform_start_devices() {
+	init_and_start_physical_device(i8254_device);
+	init_and_start_physical_device(cmos_device);
+
 	Object *serial_object;
-	init_and_start(&vesa_display_device);
+	framebuffer_start_all();
 	init_console();
 	interrupt_dm_start(); // 启动由interrupt_dm选择的中断控制器
 
-	open_object_by_path("\\Device\\Serial0", &serial_object);
-	serial_device_open(serial_object, SERIAL_BAUD_115200, serial_receive);
+	ObjectResult result;
+	result = open_object_by_path("\\Device\\Serial0", &serial_object);
+	if (result == OBJECT_OK) {
+		serial_device_open(serial_object, SERIAL_BAUD_115200, serial_receive);
+	}
 
 	print_features();
-	DRV_RESULT_PRINT_CALL(init_and_start, &pit_device);
-	DRV_RESULT_PRINT_CALL(init_and_start, &apic_timer_device);
-	DRV_RESULT_PRINT_CALL(init_and_start, &rtc_device);
+	DRV_RESULT_PRINT_CALL(
+		init_and_start_logical_device(pit_timer_device->device));
+	if (use_apic)
+		DRV_RESULT_PRINT_CALL(
+			init_and_start_logical_device(apic_timer_device->device));
+	DRV_RESULT_PRINT_CALL(
+		init_and_start_logical_device(rtc_time_device->device));
 
-	platform_bus_driver.subdriver.state = SUBDRIVER_STATE_READY;
+	// platform_bus_driver.subdriver.state = SUBDRIVER_STATE_READY;
 }

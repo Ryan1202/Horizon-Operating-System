@@ -8,22 +8,22 @@
  * RFC6298: Computing TCP's Retransmission Timer
  *
  */
-#include "bits.h"
-#include "driver/network/buffer.h"
-#include "driver/network/network_dm.h"
-#include "driver/network/protocols/protocols.h"
-#include "driver/timer_dm.h"
-#include "kernel/console.h"
-#include "kernel/memory.h"
-#include "kernel/spinlock.h"
-#include "kernel/thread.h"
-#include "math.h"
+#include <bits.h>
+#include <driver/network/buffer.h>
 #include <driver/network/conn.h>
+#include <driver/network/network_dm.h>
 #include <driver/network/protocols/ipv4/icmp.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
+#include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/tcp.h>
+#include <driver/timer/timer_dm.h>
 #include <hash.h>
+#include <kernel/console.h>
 #include <kernel/list.h>
+#include <kernel/memory.h>
+#include <kernel/spinlock.h>
+#include <kernel/thread.h>
+#include <math.h>
 #include <random.h>
 #include <stdint.h>
 #include <string.h>

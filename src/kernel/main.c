@@ -4,28 +4,20 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "driver/input/input_dm.h"
-#include "driver/network/network_dm.h"
+#include "driver/timer/timer_dm.h"
+#include "objects/transfer.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
 #include <bits.h>
-#include <driver/framebuffer/fb_dm.h>
-#include <driver/interrupt_dm.h>
 #include <driver/network/conn.h>
 #include <driver/network/ethernet/ethernet.h>
 #include <driver/network/protocols/ipv4/dhcp.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/protocols.h>
 #include <driver/network/protocols/udp.h>
-#include <driver/serial/serial_dm.h>
 #include <driver/sound/pcm.h>
 #include <driver/sound/sound_dm.h>
-#include <driver/storage/disk/volume.h>
-#include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
-#include <driver/time_dm.h>
-#include <driver/timer_dm.h>
-#include <driver/usb/usb_dm.h>
 #include <drivers/vesa_display.h>
 #include <fs/fs.h>
 #include <kernel/app.h>
@@ -35,7 +27,6 @@
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
-#include <kernel/driver_manager.h>
 #include <kernel/dynamic_device_manager.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
@@ -114,27 +105,14 @@ void network_timer_init(void);
 int main() {
 	platform_early_init();
 
-	init_memory();
-
 	uint8_t *zero = 0;
 
+	init_memory();
 	init_object_tree();
-
-	register_driver_manager(&device_driver_manager);
-	register_driver_manager(&bus_driver_manager);
-	register_device_manager(&interrupt_dm);
-	register_device_manager(&timer_dm);
-	register_device_manager(&time_dm);
-	register_device_manager(&framebuffer_dm);
-	register_device_manager(&sound_dm);
-	register_device_manager(&storage_dm);
-	register_device_manager(&network_dm);
-	register_device_manager(&usb_dm);
-	register_device_manager(&input_dm);
-	register_device_manager(&serial_dm);
+	init_device_managers();
+	init_bus_manager();
 
 	register_driver(&core_driver);
-	driver_init(&core_driver);
 
 	platform_init();
 	platform_start_devices();
@@ -157,7 +135,7 @@ int main() {
 	Object		*net;
 	ObjectResult result = open_object_by_path("\\Device\\Network0", &net);
 	if (result == OBJECT_OK) {
-		dhcp_start(net->value.device->dm_ext);
+		dhcp_start(net->value.device.logical->dm_ext);
 		// uint8_t dst_mac[]  = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 		// uint8_t dst_ip[]   = {10, 0, 2, 2};
 		// uint8_t udp_data[] = "Hello, World!";
@@ -181,10 +159,10 @@ int main() {
 	}
 
 	// bios_emu_env.regs.ax		= 0x4f02;
-	// bios_emu_env.regs.bx		= 0x4192;			   // 1920x1080x32bit模式
-	// BiosEmuExceptions exception = emu_interrupt(0x10); // 调用BIOS 0x10中断
-	// FrameBufferDevice		 *fb_device;
-	// framebuffer_get_device(0, &fb_device);
+	// bios_emu_env.regs.bx		= 0x4192;			   //
+	// 1920x1080x32bit模式 BiosEmuExceptions exception =
+	// emu_interrupt(0x10); // 调用BIOS 0x10中断 FrameBufferDevice
+	// *fb_device; framebuffer_get_device(0, &fb_device);
 	// fb_device->mode_info.width  = 1920;
 	// fb_device->mode_info.height = 1080;
 	// init_console(); // 重置控制台配置

@@ -26,14 +26,15 @@ MiiMediaType mii_check_media_type(uint32_t negotiation) {
  *
  */
 DriverResult net_init_mii(Mii *mii) {
-	bool linked = mii_is_linked(mii);
+	bool  linked	  = mii_is_linked(mii);
+	char *device_name = mii->net_dev->device->object->name.text;
 
 	if (!linked) {
-		print_device_info(mii->net_dev->device, "MII: No link detected");
+		print_info("MII", "device %s No link detected\n", device_name);
 		mii->net_dev->state = NET_STATE_NO_CARRIER;
-		return DRIVER_RESULT_OK;
+		return DRIVER_OK;
 	}
-	print_device_info(mii->net_dev->device, "MII: Link detected\n");
+	print_info("MII", "device %s Link detecteds\n", device_name);
 	mii->net_dev->state = NET_STATE_RUNNING;
 
 	uint32_t	 anar	 = mii->mdio_read(mii, MII_REG_ANAR);	// 本地能力
@@ -41,7 +42,7 @@ DriverResult net_init_mii(Mii *mii) {
 	uint32_t	 support = anar & anlpar; // 计算双方都支持的特性
 	MiiMediaType media_type = mii_check_media_type(support);
 
-	print_device_info(mii->net_dev->device, "MII: Media type: ");
+	print_info("MII", "device %s Media type: ", device_name);
 	int speed  = (media_type >> 1) & 0b111;
 	int duplex = media_type & 1;
 	if (speed == 0) printk("10Mbps ");
@@ -51,5 +52,5 @@ DriverResult net_init_mii(Mii *mii) {
 	printk("\n");
 
 	mii->full_duplex = duplex;
-	return DRIVER_RESULT_OK;
+	return DRIVER_OK;
 }
