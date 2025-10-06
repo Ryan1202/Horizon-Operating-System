@@ -11,7 +11,6 @@
 
 DriverResult create_physical_device(
 	PhysicalDevice **physical_device, Bus *bus, ObjectAttr *attr) {
-	BusDriver *bus_driver = bus->bus_driver;
 
 	*physical_device = kmalloc(sizeof(PhysicalDevice));
 	if (*physical_device == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
@@ -21,15 +20,15 @@ DriverResult create_physical_device(
 	phy->bus   = bus;
 	phy->ops   = NULL;
 	phy->state = DEVICE_STATE_UNINIT;
-	list_add_tail(&phy->bus_list, &bus->device_lh);
+	list_add_tail(&phy->device_list, &bus->device_lh);
 	list_init(&phy->logical_device_lh);
 
 	phy->private_data = NULL;
 	phy->bus_ext	  = NULL;
 
 	char _name[6] = {0}; // device_count为uint16_t类型，最大65535，5位数
-	itoa(_name, bus_driver->new_device_num++, 10);
-	bus_driver->device_count++;
+	itoa(_name, bus->new_device_num++, 10);
+	bus->device_count++;
 
 	string_t name;
 	string_new(&name, _name, sizeof(_name));
@@ -46,8 +45,8 @@ void register_physical_device(PhysicalDevice *physical_device, DeviceOps *ops) {
 }
 
 DriverResult delete_physical_device(PhysicalDevice *physical_device) {
-	BusDriver	*bus_driver = physical_device->bus->bus_driver;
-	DriverResult ret		= DRIVER_OK;
+	Bus			*bus = physical_device->bus;
+	DriverResult ret = DRIVER_OK;
 
 	if (!list_empty(&physical_device->logical_device_lh)) {
 		return DRIVER_ERROR_BUSY;
@@ -57,11 +56,11 @@ DriverResult delete_physical_device(PhysicalDevice *physical_device) {
 		if (result != OBJECT_OK) ret = DRIVER_ERROR_OBJECT;
 	}
 
-	list_del(&physical_device->bus_list);
+	list_del(&physical_device->device_list);
 	int result = kfree(physical_device);
 	if (result < 0) ret = DRIVER_ERROR_MEMORY_FREE;
 
-	bus_driver->device_count--;
+	bus->device_count--;
 	return ret;
 }
 
@@ -82,7 +81,7 @@ DriverResult create_logical_device(
 
 	if (device_managers[type] != NULL) {
 		DeviceManager *manager = device_managers[type];
-		list_add_tail(&logi->dm_list, &manager->device_lh);
+		list_add_tail(&logi->dm_device_list, &manager->device_lh);
 	}
 
 	return DRIVER_OK;
@@ -104,8 +103,8 @@ DriverResult delete_logical_device(LogicalDevice *logical_device) {
 	}
 
 	int result = 0;
-	if (!list_empty(&logical_device->dm_list))
-		list_del(&logical_device->dm_list);
+	if (!list_empty(&logical_device->dm_device_list))
+		list_del(&logical_device->dm_device_list);
 
 	list_del(&logical_device->logical_device_list);
 	result = kfree(logical_device);

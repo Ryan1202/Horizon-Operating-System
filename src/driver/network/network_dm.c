@@ -25,7 +25,7 @@ DeviceManagerOps network_dm_ops = {
 
 NetworkDeviceManager network_dm_ext;
 DeviceManager		 network_dm = {
-		   .type		 = DEVICE_TYPE_ETHERNET,
+		   .type		 = DEVICE_TYPE_INTERNET,
 		   .ops			 = &network_dm_ops,
 		   .private_data = &network_dm_ext,
 };
@@ -51,7 +51,7 @@ DriverResult create_network_device(
 
 	result = create_logical_device(
 		&logical_device, physical_device, device_driver, ops,
-		DEVICE_TYPE_ETHERNET);
+		DEVICE_TYPE_INTERNET);
 	if (result != DRIVER_OK) return result;
 
 	*network_device = kmalloc(sizeof(NetworkDevice));

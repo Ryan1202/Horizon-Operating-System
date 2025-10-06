@@ -61,7 +61,7 @@ DriverResult time_device_start(LogicalDevice *device) {
 DriverResult delete_time_device(TimeDevice *time_device) {
 	int result = 0;
 
-	list_del(&time_device->device->dm_list);
+	list_del(&time_device->device->dm_device_list);
 	DRIVER_RESULT_PASS(delete_logical_device(time_device->device));
 	result = kfree(time_device);
 	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;

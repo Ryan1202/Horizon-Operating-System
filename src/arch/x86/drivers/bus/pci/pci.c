@@ -187,7 +187,6 @@ DriverResult pci_scan_bus(BusDriver *bus_driver, Bus *bus) {
 				continue;
 			}
 
-			bus_driver->device_count++;
 			pci_device->status = PCI_DEVICE_STATUS_UNUSED;
 			print_info(
 				"PCI",

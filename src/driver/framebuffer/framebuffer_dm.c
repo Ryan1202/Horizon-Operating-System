@@ -135,7 +135,7 @@ DriverResult framebuffer_device_start(
 
 DriverResult framebuffer_start_all() {
 	LogicalDevice *device;
-	list_for_each_owner (device, &framebuffer_dm.device_lh, dm_list) {
+	list_for_each_owner (device, &framebuffer_dm.device_lh, dm_device_list) {
 		framebuffer_device_start(&framebuffer_dm, device);
 	}
 	return DRIVER_OK;
@@ -149,7 +149,7 @@ DriverResult framebuffer_get_device(
 		return DRIVER_OK;
 	}
 	int i = 0;
-	list_for_each_owner (device, &framebuffer_dm.device_lh, dm_list) {
+	list_for_each_owner (device, &framebuffer_dm.device_lh, dm_device_list) {
 		if (device == framebuffer_dm_ext.main_display_device) { continue; }
 		if (i == in_index) {
 			*out_device = device->dm_ext;

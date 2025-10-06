@@ -83,7 +83,7 @@ DriverResult delete_sound_device(SoundDevice *sound_device) {
 	sound_dm_ext.device_count--;
 	LogicalDevice *logical_device = sound_device->device;
 
-	list_del(&logical_device->dm_list);
+	list_del(&logical_device->dm_device_list);
 	delete_logical_device(logical_device);
 	int result = kfree(sound_device);
 	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;

@@ -90,8 +90,8 @@ void		 print_driver_result(
 			DriverResult result, char *file, int line, char *func_with_args);
 
 extern list_t		 new_bus_lh;
-extern list_t		 bus_lh;
-extern list_t		 device_lh;
+extern list_t		 bus_check_lh;
+extern list_t		 new_device_lh;
 extern spinlock_t	 device_list_lock;
 extern struct Object driver_object;
 

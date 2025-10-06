@@ -116,7 +116,7 @@ DriverResult delete_input_device(InputDevice *input_device) {
 
 	LogicalDevice *logical_device = input_device->device;
 
-	list_del(&logical_device->dm_list);
+	list_del(&logical_device->dm_device_list);
 	delete_logical_device(logical_device);
 	int result = kfree(input_device);
 	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;

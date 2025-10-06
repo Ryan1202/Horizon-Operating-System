@@ -24,10 +24,6 @@
 #include <stdint.h>
 #include <string.h>
 
-BusDriverOps platform_ops = {
-	.register_bus_hook	 = NULL,
-	.unregister_bus_hook = NULL,
-};
 BusOps platform_bus_ops = {
 	.scan_bus	  = NULL,
 	.probe_device = NULL,

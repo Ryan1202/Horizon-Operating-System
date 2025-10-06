@@ -117,7 +117,7 @@ DriverResult delete_storage_device(StorageDevice *storage_device) {
 	// TODO: delete_object_directory
 	// TODO: periodic_task_remove
 
-	list_del(&storage_device->device->dm_list);
+	list_del(&storage_device->device->dm_device_list);
 	delete_logical_device(storage_device->device);
 	int result;
 	if (storage_device->device->state == DEVICE_STATE_ACTIVE) {

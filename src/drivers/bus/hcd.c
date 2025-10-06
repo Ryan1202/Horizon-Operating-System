@@ -62,7 +62,7 @@ DriverResult usb_create_hcd(
 	}
 
 	list_add_tail(&hcd->list, &hcd_list);
-	list_add_tail(&hcd->bus->bus_check_list, &bus_lh);
+	list_add_tail(&hcd->bus->bus_check_list, &bus_check_lh);
 	list_init(&hcd->usb_device_lh);
 
 	return DRIVER_OK;

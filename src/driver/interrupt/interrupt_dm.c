@@ -116,7 +116,7 @@ DriverResult delete_interrupt_device(InterruptDevice *interrupt_device) {
 	InterruptDevice *new_interrupt_device = NULL;
 	if (manager->current_device == interrupt_device) {
 		// 寻找替代的设备
-		list_for_each_owner (cur, &interrupt_dm.device_lh, dm_list) {
+		list_for_each_owner (cur, &interrupt_dm.device_lh, dm_device_list) {
 			if (cur != device) {
 				if (new_interrupt_device == NULL) {
 					new_interrupt_device = cur->dm_ext;
@@ -145,7 +145,7 @@ DriverResult delete_interrupt_device(InterruptDevice *interrupt_device) {
 	new_device->state		= DEVICE_STATE_ACTIVE;
 	manager->current_device = new_interrupt_device;
 
-	list_del(&device->dm_list);
+	list_del(&device->dm_device_list);
 	DRIVER_RESULT_PASS(delete_logical_device(device));
 	int result = kfree(interrupt_device);
 	if (result < 0) return DRIVER_ERROR_MEMORY_FREE;

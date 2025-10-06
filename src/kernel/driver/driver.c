@@ -25,8 +25,8 @@
 #include <result.h>
 
 LIST_HEAD(new_bus_lh);
-LIST_HEAD(bus_lh);
-LIST_HEAD(device_lh);
+LIST_HEAD(bus_check_lh);
+LIST_HEAD(new_device_lh);
 SPINLOCK(device_list_lock);
 
 Driver core_driver = {
@@ -77,20 +77,20 @@ void device_detect(void *arg) {
 	Bus			   *bus, *next;
 	PhysicalDevice *phy, *phy_next;
 	LogicalDevice  *logi;
-	list_for_each_owner_safe (bus, next, &bus_lh, bus_check_list) {
+	list_for_each_owner_safe (bus, next, &bus_check_lh, bus_check_list) {
 		if (bus->ops->probe_device != NULL)
 			bus->ops->probe_device(bus->bus_driver, bus);
-		list_for_each_owner_safe (phy, phy_next, &bus->device_lh, bus_list) {
+		list_for_each_owner_safe (phy, phy_next, &bus->device_lh, device_list) {
 			if (phy->state != DEVICE_STATE_UNINIT) continue;
 			spin_lock(&device_list_lock);
-			list_add_tail(&phy->new_device_list, &device_lh);
+			list_add_tail(&phy->new_device_list, &new_device_lh);
 			spin_unlock(&device_list_lock);
 		}
 	}
-	while (!list_empty(&device_lh)) {
+	while (!list_empty(&new_device_lh)) {
 		spin_lock(&device_list_lock);
 		phy = list_first_owner_or_null(
-			&device_lh, PhysicalDevice, new_device_list);
+			&new_device_lh, PhysicalDevice, new_device_list);
 		spin_unlock(&device_list_lock);
 		if (phy == NULL) {
 			schedule();
@@ -119,25 +119,25 @@ void start_devices(void *arg) {
 	Bus			   *bus, *next;
 	PhysicalDevice *phy, *phy_next;
 	LogicalDevice  *logi;
-	while (!(list_empty(&new_bus_lh) && list_empty(&device_lh))) {
+	while (!(list_empty(&new_bus_lh) && list_empty(&new_device_lh))) {
 		list_for_each_owner_safe (bus, next, &new_bus_lh, new_bus_list) {
 			if (bus->ops->scan_bus != NULL)
 				bus->ops->scan_bus(bus->bus_driver, bus);
 			if (bus->ops->probe_device != NULL)
 				bus->ops->probe_device(bus->bus_driver, bus);
 			list_for_each_owner_safe (
-				phy, phy_next, &bus->device_lh, bus_list) {
+				phy, phy_next, &bus->device_lh, device_list) {
 				if (phy->state != DEVICE_STATE_UNINIT) continue;
 				spin_lock(&device_list_lock);
-				list_add_tail(&phy->new_device_list, &device_lh);
+				list_add_tail(&phy->new_device_list, &new_device_lh);
 				spin_unlock(&device_list_lock);
 			}
 			list_del(&bus->new_bus_list);
 		}
-		while (!list_empty(&device_lh)) {
+		while (!list_empty(&new_device_lh)) {
 			spin_lock(&device_list_lock);
 			phy = list_first_owner_or_null(
-				&device_lh, PhysicalDevice, new_device_list);
+				&new_device_lh, PhysicalDevice, new_device_list);
 			spin_unlock(&device_list_lock);
 			if (phy == NULL) {
 				schedule();
@@ -173,7 +173,7 @@ PeriodicTask driver_periodic_task = {
 DriverResult driver_start_all(void) {
 	thread_start(
 		"Start Devices", THREAD_DEFAULT_PRIO, start_devices, NULL, NULL);
-	while (!(list_empty(&new_bus_lh) && list_empty(&device_lh))) {
+	while (!(list_empty(&new_bus_lh) && list_empty(&new_device_lh))) {
 		schedule();
 	}
 

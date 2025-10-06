@@ -19,14 +19,6 @@ typedef enum BusType {
 	BUS_TYPE_MAX,
 } BusType;
 
-struct Bus;
-typedef struct BusDriverOps {
-	DriverResult (*register_bus_hook)(struct Bus *bus);
-	DriverResult (*unregister_bus_hook)(struct Bus *bus);
-
-	DriverResult (*init)(struct BusDriver *bus_driver);
-} BusDriverOps;
-
 typedef struct BusOps {
 	DriverResult (*scan_bus)(struct BusDriver *bus_driver, struct Bus *bus);
 	DriverResult (*probe_device)(struct BusDriver *bus_driver, struct Bus *bus);
@@ -42,9 +34,6 @@ typedef struct BusDriver {
 
 	uint16_t new_bus_num;
 	uint16_t bus_count;
-
-	uint16_t new_device_num;
-	uint16_t device_count;
 } BusDriver;
 
 typedef struct Bus {
@@ -56,11 +45,13 @@ typedef struct Bus {
 
 	struct Bus *primary_bus;
 
-	string_t name;
-	Object	*object;
+	Object *object;
 
 	uint32_t bus_num;
 	uint32_t subordinate_bus_num;
+
+	int new_device_num;
+	int device_count;
 
 	BusOps *ops;
 } Bus;

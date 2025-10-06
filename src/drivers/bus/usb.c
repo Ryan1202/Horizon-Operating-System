@@ -54,7 +54,7 @@ DriverResult usb_probe(BusDriver *bus_driver, Bus *bus) {
 	UsbDriver	   *usb_driver;
 	PhysicalDevice *device;
 	UsbInterface   *interface;
-	list_for_each_owner (device, &bus->device_lh, bus_list) {
+	list_for_each_owner (device, &bus->device_lh, device_list) {
 		UsbDevice *usb_device = device->bus_ext;
 		if (usb_device->state == USB_STATE_INITED) {
 			list_for_each_owner (interface, &usb_device->interface_lh, list) {

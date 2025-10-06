@@ -19,17 +19,17 @@
 	}
 
 typedef enum {
-	DEVICE_TYPE_UNKNOWN = 0,
-	DEVICE_TYPE_INTERRUPT_CONTROLLER,
-	DEVICE_TYPE_TIMER, // 定时器设备
-	DEVICE_TYPE_FRAMEBUFFER,
-	DEVICE_TYPE_STORAGE,
-	DEVICE_TYPE_INPUT,
-	DEVICE_TYPE_SOUND,
-	DEVICE_TYPE_BUS_CONTROLLER,
-	DEVICE_TYPE_ETHERNET,
-	DEVICE_TYPE_TIME, // 时间设备（如：Unix时间戳/UTC时间）
-	DEVICE_TYPE_SERIAL,
+	DEVICE_TYPE_UNKNOWN = 0,		  // 未知设备类型
+	DEVICE_TYPE_INTERRUPT_CONTROLLER, // 中断控制器
+	DEVICE_TYPE_TIMER,				  // 定时器设备
+	DEVICE_TYPE_FRAMEBUFFER,		  // 通过显示缓冲区直接控制的屏幕
+	DEVICE_TYPE_STORAGE,			  // 存储设备（如硬盘）
+	DEVICE_TYPE_INPUT,				  // 输入设备（如键盘鼠标）
+	DEVICE_TYPE_SOUND,				  // 声音设备（声卡）
+	DEVICE_TYPE_BUS_CONTROLLER, // 总线控制器（如usb控制器XHCI/EHCI/OHCI/UHCI）
+	DEVICE_TYPE_INTERNET,		// 网络设备（网卡）
+	DEVICE_TYPE_TIME,			// 时间设备（如：Unix时间戳/UTC时间）
+	DEVICE_TYPE_SERIAL,			// 串口设备
 	DEVICE_TYPE_MAX,
 } DeviceType;
 
@@ -58,8 +58,8 @@ typedef struct LogicalDevice {
 	list_t		new_device_list;
 
 	list_t logical_device_list;
-	list_t dm_list;
-	list_t device_list;
+	list_t dm_device_list;
+	list_t device_driver_device_list;
 
 	DeviceType type;
 	DeviceOps *ops;
@@ -79,7 +79,7 @@ typedef struct PhysicalDevice {
 	DeviceState state;
 	list_t		new_device_list;
 
-	list_t bus_list;
+	list_t device_list;
 	list_t logical_device_lh;
 	list_t irq_lh;
 

@@ -24,7 +24,7 @@ DeviceManager *device_managers[DEVICE_TYPE_MAX] = {
 	[DEVICE_TYPE_STORAGE]			   = &storage_dm,
 	[DEVICE_TYPE_INPUT]				   = &input_dm,
 	[DEVICE_TYPE_SOUND]				   = &sound_dm,
-	[DEVICE_TYPE_ETHERNET]			   = &network_dm,
+	[DEVICE_TYPE_INTERNET]			   = &network_dm,
 	[DEVICE_TYPE_SERIAL]			   = &serial_dm,
 	[DEVICE_TYPE_BUS_CONTROLLER]	   = &bus_controller_dm,
 };
