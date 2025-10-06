@@ -27,7 +27,6 @@
 #include <kernel/device_manager.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
-#include <kernel/dynamic_device_manager.h>
 #include <kernel/func.h>
 #include <kernel/initcall.h>
 #include <kernel/list.h>
@@ -127,10 +126,6 @@ int main() {
 
 	do_initcalls();
 	driver_start_all();
-
-	thread_start(
-		"Dynamic Device Manager", THREAD_DEFAULT_PRIO, dynamic_device_manager,
-		NULL, NULL);
 
 	Object		*net;
 	ObjectResult result = open_object_by_path("\\Device\\Network0", &net);

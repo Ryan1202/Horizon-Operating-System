@@ -7,7 +7,6 @@
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
-#include <kernel/dynamic_device_manager.h>
 #include <kernel/initcall.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
