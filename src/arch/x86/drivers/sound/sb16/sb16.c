@@ -229,7 +229,8 @@ DriverResult sb16_probe(IsaDeviceDriver *isa_device_driver) {
 
 DriverResult sb16_init(void *_device) {
 	LogicalDevice *device = _device;
-	Sb16Info	  *info	  = (Sb16Info *)device->private_data;
+	Sb16Info	  *info	  = kmalloc(sizeof(Sb16Info));
+	device->private_data  = info;
 
 	// io_out8(info->ports.mixer, 0x80 /* 设置IRQ */);
 	// io_out8(info->ports.mixer_data, 0x02 /* IRQ5 */);
