@@ -269,7 +269,11 @@ void thread_unblock(struct task_s *pthread) {
 		return;
 	}
 
-	if (pthread->status != TASK_READY) pthread->status = TASK_READY;
+	if (pthread != current_task) {
+		if (pthread->status != TASK_READY) { pthread->status = TASK_READY; }
+	} else {
+		pthread->status = TASK_RUNNING;
+	}
 	spin_unlock_irqrestore(&pthread->status_lock, flags);
 }
 
@@ -356,7 +360,6 @@ void schedule(void) {
 	// 4. 改变状态并加入到thread_ready
 	if (next->status == TASK_READY) next->status = TASK_RUNNING;
 	spin_unlock(&thread_ready_lock);
-	// printk("%s,%d\n", next->name, timer_get_counter());
 
 	prev = cur;
 	// 5. 切换线程
