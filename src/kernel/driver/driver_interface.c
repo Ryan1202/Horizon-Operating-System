@@ -61,13 +61,19 @@ DriverResult unregister_device_irq(DeviceIrq *dev_irq) {
 }
 
 DriverResult enable_device_irq(DeviceIrq *dev_irq) {
-	list_add_tail(&dev_irq->list, &device_irq_lists[dev_irq->irq]);
-	return interrupt_enable_irq(dev_irq->irq);
+	bool empty = list_empty(&device_irq_lists[dev_irq->irq]);
+	if (!list_in_list(&dev_irq->list))
+		list_add_tail(&dev_irq->list, &device_irq_lists[dev_irq->irq]);
+	if (empty) { return interrupt_enable_irq(dev_irq->irq); }
+	return DRIVER_OK;
 }
 
 DriverResult disable_device_irq(DeviceIrq *dev_irq) {
-	list_del(&dev_irq->list);
-	return interrupt_disable_irq(dev_irq->irq);
+	if (list_in_list(&dev_irq->list)) list_del(&dev_irq->list);
+	if (list_empty(&device_irq_lists[dev_irq->irq])) {
+		return interrupt_disable_irq(dev_irq->irq);
+	}
+	return DRIVER_OK;
 }
 
 void device_irq_handler(int irq) {
