@@ -1,3 +1,4 @@
+#include "driver/input/key_events.h"
 #include <driver/input/input_dm.h>
 #include <drivers/bus/usb/usb.h>
 #include <drivers/usb/core/descriptors.h>
@@ -34,24 +35,23 @@ void usb_hid_mouse_handler(UsbRequestBlock *urb) {
 	UsbHidMouse		  *mouse	  = urb->context;
 	UsbDevice		  *usb_device = mouse->usb_device;
 	if (urb->status == USB_STATUS_ACK) {
-		printk(
-			"Mouse Report: Buttons: 0x%02x, X: %d, Y: %d\n", report->buttons,
-			report->x, report->y);
 		if (report->x != 0 || report->y != 0) {
-			PointerEvent *event = new_pointer_event();
-			if (event) {
-				event->type = POINTER_TYPE_MOVE;
-				event->dx	= report->x;
-				event->dy	= report->y;
-			}
+			new_pointer_event(report->x, report->y, POINTER_TYPE_MOVE);
 		}
-		if ((report->buttons & 7) != (mouse->last_buttons & 7)) {
-			KeyEvent *event = new_key_event();
-			if (event) {
-				event->keycode = report->buttons + INPUT_KEY_EVENT_MOUSE_BASE;
-				event->pressed = 1;
-				event->page	   = 0;
-			}
+		if ((report->buttons ^ mouse->last_buttons) & 0x01) { // 左键变化
+			new_key_event(
+				INPUT_KEY_EVENT_MOUSE_BASE + KEY_MOUSE_LEFT,
+				report->buttons & 0x01, INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
+		}
+		if ((report->buttons ^ mouse->last_buttons) & 0x02) { // 右键变化
+			new_key_event(
+				INPUT_KEY_EVENT_MOUSE_BASE + KEY_MOUSE_RIGHT,
+				(report->buttons >> 1) & 0x01, INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
+		}
+		if ((report->buttons ^ mouse->last_buttons) & 0x04) { // 中键变化
+			new_key_event(
+				INPUT_KEY_EVENT_MOUSE_BASE + KEY_MOUSE_MIDDLE,
+				(report->buttons >> 2) & 0x01, INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
 		}
 		urb->ep->data_toggle ^= 1;
 		usb_device->hcd->ops->interrupt_transfer(usb_device->hcd, urb->ep);
@@ -71,10 +71,6 @@ DriverResult usb_hid_mouse_init(void *_device) {
 		if ((ep->desc->bmAttributes & 0x03) == USB_EP_INTERRUPT &&
 			(ep->desc->bEndpointAddress >> 7) == USB_EP_IN) {
 			// 找到中断输入端点
-			printk(
-				"Mouse Interrupt IN Endpoint Found: 0x%02x\n",
-				ep->desc->bEndpointAddress);
-
 			int size	  = ep->desc->wMaxPacketSize & 0x7ff;
 			mouse->buffer = kmalloc(size);
 			mouse->urb	  = usb_create_urb(

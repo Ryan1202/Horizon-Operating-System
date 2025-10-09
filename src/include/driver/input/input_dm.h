@@ -14,6 +14,10 @@
 #define INPUT_KEY_EVENT_MODIFIER_BASE 8
 #define INPUT_KEY_EVENT_KEYBOARD_BASE 16
 
+#define INPUT_KEY_PAGE_KEYBOARD_KEYPAD 0x07
+#define INPUT_KEY_PAGE_CONSUMER		   0x0c
+#define INPUT_KEY_PAGE_GENERAL_DESKTOP 0x01
+
 typedef enum {
 	INPUT_TYPE_UNKNOWN,
 	INPUT_TYPE_KEYBOARD,
@@ -27,15 +31,15 @@ typedef struct InputDevice {
 } InputDevice;
 
 typedef struct KeyEvent {
-	uint8_t keycode;
-	uint8_t pressed; // 1: pressed, 0: released
-	uint8_t page;
+	uint16_t keycode;
+	uint8_t	 pressed; // 1: pressed, 0: released
+	uint8_t	 page;
 } KeyEvent;
 
 typedef struct PointerEvent {
 	int16_t dx;
 	int16_t dy;
-	enum {
+	enum PointerEventType {
 		POINTER_TYPE_MOVE,
 		POINTER_TYPE_SCROLL,
 		POINTER_TYPE_PRESSURE,
@@ -48,9 +52,11 @@ typedef struct InputDeviceManager {
 	spinlock_t lock[INPUT_TYPE_MAX];
 
 	int		  key_event_w, key_event_r;
+	bool	  key_event_full;
 	KeyEvent *key_events;
 
 	int			  pointer_event_w, pointer_event_r;
+	bool		  pointer_event_full;
 	PointerEvent *pointer_events;
 } InputDeviceManager;
 
@@ -61,7 +67,7 @@ DriverResult delete_input_device(InputDevice *input_device);
 
 extern DeviceManager input_dm;
 
-KeyEvent	 *new_key_event();
-PointerEvent *new_pointer_event();
+void new_key_event(uint16_t keycode, uint8_t pressed, uint8_t page);
+void new_pointer_event(int16_t dx, int16_t dy, enum PointerEventType type);
 
 #endif

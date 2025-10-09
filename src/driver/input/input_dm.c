@@ -1,3 +1,4 @@
+#include "kernel/console.h"
 #include "kernel/driver.h"
 #include "kernel/spinlock.h"
 #include "string.h"
@@ -35,12 +36,14 @@ DriverResult input_dm_load(DeviceManager *manager) {
 
 	input_dm_ext.key_events =
 		kmalloc(sizeof(KeyEvent) * INPUT_EVENT_QUEUE_SIZE);
-	input_dm_ext.key_event_w = 0;
-	input_dm_ext.key_event_r = 0;
+	input_dm_ext.key_event_w	= 0;
+	input_dm_ext.key_event_r	= 0;
+	input_dm_ext.key_event_full = false;
 	input_dm_ext.pointer_events =
 		kmalloc(sizeof(PointerEvent) * INPUT_EVENT_QUEUE_SIZE);
-	input_dm_ext.pointer_event_w = 0;
-	input_dm_ext.pointer_event_r = 0;
+	input_dm_ext.pointer_event_w	= 0;
+	input_dm_ext.pointer_event_r	= 0;
+	input_dm_ext.pointer_event_full = false;
 	return DRIVER_OK;
 }
 
@@ -123,27 +126,44 @@ DriverResult delete_input_device(InputDevice *input_device) {
 	return DRIVER_OK;
 }
 
-KeyEvent *new_key_event() {
-	if (input_dm_ext.key_event_w == input_dm_ext.key_event_r) {
+void new_key_event(uint16_t keycode, uint8_t pressed, uint8_t page) {
+	if (input_dm_ext.key_event_full) {
 		// 队列满，丢弃最旧的事件
 		input_dm_ext.key_event_r =
 			(input_dm_ext.key_event_r + 1) % INPUT_EVENT_QUEUE_SIZE;
+		// 分配新的事件后仍然是满的，所以不更新full标志
 	}
 	KeyEvent *event = &input_dm_ext.key_events[input_dm_ext.key_event_w];
+	event->keycode	= keycode;
+	event->pressed	= pressed;
+	event->page		= page;
 	input_dm_ext.key_event_w =
 		(input_dm_ext.key_event_w + 1) % INPUT_EVENT_QUEUE_SIZE;
-	return event;
+
+	// 如果更新前w在前r在后，更新后相等说明队列满
+	if (input_dm_ext.key_event_w == input_dm_ext.key_event_r) {
+		input_dm_ext.key_event_full = true;
+	}
+	return;
 }
 
-PointerEvent *new_pointer_event() {
-	if (input_dm_ext.pointer_event_w == input_dm_ext.pointer_event_r) {
+void new_pointer_event(int16_t dx, int16_t dy, enum PointerEventType type) {
+	if (input_dm_ext.pointer_event_full) {
 		// 队列满，丢弃最旧的事件
 		input_dm_ext.pointer_event_r =
 			(input_dm_ext.pointer_event_r + 1) % INPUT_EVENT_QUEUE_SIZE;
+		// 分配新的事件后仍然是满的，所以不更新full标志
 	}
 	PointerEvent *event =
 		&input_dm_ext.pointer_events[input_dm_ext.pointer_event_w];
+	event->dx	= dx;
+	event->dy	= dy;
+	event->type = type;
 	input_dm_ext.pointer_event_w =
 		(input_dm_ext.pointer_event_w + 1) % INPUT_EVENT_QUEUE_SIZE;
-	return event;
+
+	if (input_dm_ext.pointer_event_w == input_dm_ext.pointer_event_r) {
+		input_dm_ext.pointer_event_full = true;
+	}
+	return;
 }

@@ -36,26 +36,15 @@ void usb_hid_keyboard_handler(UsbRequestBlock *urb) {
 	UsbHidKeyboard		 *keyboard	 = urb->context;
 	UsbDevice			 *usb_device = keyboard->usb_device;
 	if (urb->status == USB_STATUS_ACK) {
-		printk(
-			"Keyboard Report: Keycode: M:0x%02x 0x%02x 0x%02x 0x%02x 0x%02x "
-			"0x%02x "
-			"0x%02x\n",
-			report->modifier_keys, report->keycodes[0], report->keycodes[1],
-			report->keycodes[2], report->keycodes[3], report->keycodes[4],
-			report->keycodes[5]);
 		if (report->modifier_keys != keyboard->last_keys[0]) {
 			for (int i = 0; i < 8; i++) {
 				uint8_t mask = 1 << i;
 				if ((report->modifier_keys & mask) |
 					(keyboard->last_keys[0] & mask)) {
-					KeyEvent *event = new_key_event();
-					event->page		= 0;
-					event->keycode	= INPUT_KEY_EVENT_MODIFIER_BASE + i;
-					if (keyboard->last_keys[0] & mask) {
-						event->pressed = 0;
-					} else {
-						event->pressed = 1;
-					}
+					new_key_event(
+						INPUT_KEY_EVENT_MODIFIER_BASE + i,
+						keyboard->last_keys[0] & mask ? 0 : 1,
+						INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
 				}
 			}
 		}
@@ -77,18 +66,15 @@ void usb_hid_keyboard_handler(UsbRequestBlock *urb) {
 					if (found1 && found2) break;
 				}
 				if (!found1) {
-					KeyEvent *event = new_key_event();
-					event->page		= 0;
-					event->keycode =
-						INPUT_KEY_EVENT_KEYBOARD_BASE + report->keycodes[i];
-					event->pressed = 1;
+					new_key_event(
+						INPUT_KEY_EVENT_KEYBOARD_BASE + report->keycodes[i], 1,
+						INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
 				}
 				if (!found2) {
-					KeyEvent *event = new_key_event();
-					event->page		= 0;
-					event->keycode	= INPUT_KEY_EVENT_KEYBOARD_BASE +
-									 keyboard->last_keys[i + 1];
-					event->pressed = 0;
+					new_key_event(
+						INPUT_KEY_EVENT_KEYBOARD_BASE +
+							keyboard->last_keys[i + 1],
+						0, INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
 				}
 			}
 		}
@@ -112,10 +98,6 @@ DriverResult usb_hid_keyboard_init(void *_device) {
 		if ((ep->desc->bmAttributes & 0x03) == USB_EP_INTERRUPT &&
 			(ep->desc->bEndpointAddress >> 7) == USB_EP_IN) {
 			// 找到中断输入端点
-			printk(
-				"Keyboard Interrupt IN Endpoint Found: 0x%02x\n",
-				ep->desc->bEndpointAddress);
-
 			int size		 = ep->desc->wMaxPacketSize & 0x7ff;
 			keyboard->buffer = kmalloc(size);
 			keyboard->urb	 = usb_create_urb(
