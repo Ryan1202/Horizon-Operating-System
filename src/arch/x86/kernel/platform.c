@@ -107,9 +107,9 @@ void platform_start_devices() {
 	print_features();
 	DRV_RESULT_PRINT_CALL(
 		init_and_start_logical_device(pit_timer_device->device));
-	if (use_apic)
-		DRV_RESULT_PRINT_CALL(
-			init_and_start_logical_device(apic_timer_device->device));
+	// if (use_apic)
+	// 	DRV_RESULT_PRINT_CALL(
+	// 		init_and_start_logical_device(apic_timer_device->device));
 	DRV_RESULT_PRINT_CALL(
 		init_and_start_logical_device(rtc_time_device->device));
 

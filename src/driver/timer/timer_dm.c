@@ -1,3 +1,4 @@
+#include "kernel/console.h"
 #include <driver/timer/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -120,6 +121,7 @@ void timer_irq_handler(LogicalDevice *device) {
 			cur_thread->elapsed_ticks++;
 
 			if (cur_thread->ticks == 0) {
+				// printk("need resched\n");
 				cur_thread->flags.need_resched = 1;
 			} else {
 				cur_thread->ticks--;

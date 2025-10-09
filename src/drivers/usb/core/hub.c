@@ -1,4 +1,5 @@
 #include "kernel/console.h"
+#include "kernel/thread.h"
 #include <bits.h>
 #include <driver/timer/timer_dm.h>
 #include <drivers/bus/usb/hcd.h>
@@ -46,9 +47,8 @@ void usb_init_hub(UsbHcd *hcd, UsbHub *hub, UsbDevice *usb_device) {
 			if (status2 == USB_SETUP_CRC_TIMEOUT_ERR) continue;
 		}
 	}
-	printk("%d ", timer_get_counter());
+
 	delay_ms(&timer, 200);
-	printk("%d ", timer_get_counter());
 
 	for (i = 0; i < hub->desc->bNbrPorts; i++) {
 		status = port_status[i];
