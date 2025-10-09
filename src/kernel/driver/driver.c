@@ -149,7 +149,17 @@ void start_devices(void *arg) {
 				spin_unlock(&device_list_lock);
 				continue;
 			}
-			if (phy->state == DEVICE_STATE_UNINIT) init_physical_device(phy);
+			if (phy->state == DEVICE_STATE_UNINIT) {
+				DriverResult result = init_physical_device(phy);
+				if (result == DRIVER_ERROR_WAITING) {
+					// 设备初始化需要等待，跳过
+					spin_lock(&device_list_lock);
+					list_del(&phy->new_device_list);
+					list_add_tail(&phy->new_device_list, &new_device_lh);
+					spin_unlock(&device_list_lock);
+					continue;
+				}
+			}
 			if (phy->state == DEVICE_STATE_READY) start_physical_device(phy);
 			list_for_each_owner (
 				logi, &phy->logical_device_lh, logical_device_list) {

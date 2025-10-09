@@ -39,6 +39,8 @@
 #include <stdint.h>
 #include <string.h>
 
+extern bool usb_legacy_support_disabled;
+
 #define UHCI_CLASSID	0x0c
 #define UHCI_SUBCLASSID 0x03
 #define UHCI_PROGIF		0x00
@@ -334,8 +336,8 @@ void uhci_probe_thread(void *arg) {
 	desc->bDescriptorType		  = USB_DESC_TYPE_HUB;
 	desc->bNbrPorts				  = uhci->port_cnt;
 	desc->wHubCharacteristics = HOST2LE_WORD(0x0009); // 无电源开关，单独供电
-	desc->bPwrOn2PwrGood   = 0;
-	desc->bHubContrCurrent = 0;
+	desc->bPwrOn2PwrGood	  = 0;
+	desc->bHubContrCurrent	  = 0;
 	memset(&desc->DeviceRemovable, 0xff, 8); // 都是可移除的
 	memset(&desc->PortPwrCtrlMask, 0xff, 8); // 都是电源控制的
 
@@ -359,6 +361,8 @@ DriverResult uhci_start(void *_device) {
 
 	pci_device_write16(uhci->device, UHCI_PCI_REG_LEGSUP, 0x2000);
 	pci_enable_bus_mastering(uhci->device);
+
+	usb_legacy_support_disabled = true;
 
 	io_out_word(uhci->io_base + UHCI_FRNUM, 0);
 	io_out_dword(uhci->io_base + UHCI_FRBASEADD, (uint32_t)uhci->fl.frames_phy);
@@ -407,6 +411,8 @@ DriverResult uhci_pci_probe(
 		kfree(uhci);
 		return result;
 	}
+
+	usb_legacy_support_disabled = false; // 发现USB控制器，让8042驱动等待
 
 	LogicalDevice *logical_device = uhci->hcd->device;
 	logical_device->private_data  = uhci;

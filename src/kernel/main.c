@@ -169,24 +169,6 @@ int main() {
 
 	// thread_start("play", 100, thread_play, NULL, NULL);
 
-	// const string_t name = STRING_INIT("A folder");
-	// obj_rmdir(object, name);
-
-	// void		*handle = NULL;
-	// Object		*object;
-	// ObjectResult result =
-	// 	open_object_by_ascii_path("\\Device\\Storage0\\Partition0",
-	// &object);
-	// if (result != OBJECT_OK) {
-	// 	}
-
-	// bool is_done;
-	// do {
-	// 	TRANSFER_IN_IS_DONE(object)(object, &handle, &is_done);
-	// } while (!is_done);
-
-	// show_object_tree();
-
 	console_start();
 
 	thread_exit();

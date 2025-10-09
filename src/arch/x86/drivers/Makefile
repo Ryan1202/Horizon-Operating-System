@@ -12,4 +12,4 @@ SRC += disk/
 SRC += interrupt/
 SRC += timer/
 SRC += framebuffer/
-#SRC += 8042/
+SRC += input/

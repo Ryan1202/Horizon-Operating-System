@@ -1,6 +1,8 @@
 #ifndef _8042_H
 #define _8042_H
 
+#include <kernel/device.h>
+#include <kernel/device_driver.h>
 #include <stdint.h>
 
 #define I8042_PORT_DATA 0x60
@@ -22,6 +24,12 @@
 #define I8042_CMD_SEND_TO_P2   0xd4
 #define I8042_CMD_RESET_DEV	   0xff
 
+#define I8042_KBD_CMD_SET_LEDS			   0xed
+#define I8042_KBD_CMD_GET_SET_SCANCODE_SET 0xf0
+#define I8042_KBD_CMD_IDENTIFY			   0xf2
+#define I8042_KBD_CMD_ENABLE_SCANNING	   0xf4
+#define I8042_KBD_CMD_DISABLE_SCANNING	   0xf5
+
 // 配置
 #define I8042_CFG_INT1	   0x01
 #define I8042_CFG_INT2	   0x02
@@ -38,10 +46,31 @@
 #define I8042_STAT_TIMEOUT_ERR 0x40
 #define I8042_STAT_PARITY_ERR  0x80
 
-int	 i8042_get_status(uint8_t type);  // 获取控制器状态
-void i8042_wait_ctr_send_ready(void); // 等待输入缓存区为空
-void i8042_send_cmd(int command);	  // 发送控制字节
-int	 i8042_read_data(void);			  // 读取数据
-void i8042_write_data(int data);	  // 写数据
+typedef struct {
+	uint8_t is_dual_channel;
+	uint8_t is_p1_avail;
+	uint8_t is_p2_avail;
+	uint8_t p1_dev_type;
+	uint8_t p2_dev_type;
+
+	DeviceIrq *irq[2];
+} I8042Device;
+
+extern DeviceDriver	   i8042_device_driver;
+extern PhysicalDevice *i8042_device;
+
+static const int ps2_irqs[2] = {1, 12};
+
+int		i8042_get_status(uint8_t type);	 // 获取控制器状态
+void	i8042_wait_ctr_send_ready(void); // 等待输入缓存区为空
+void	i8042_send_cmd(uint8_t command); // 发送控制字节
+uint8_t i8042_read_data(void);			 // 读取数据
+void	i8042_write_data(uint8_t data);	 // 写数据
+void	i8042_disable_interrupt(int port);
+void	i8042_enable_interrupt(int port);
+void	i8042_clear_buffer(void); // 清空缓冲区
+
+void ps2_keyboard_register(PhysicalDevice *physical_device, int port);
+void ps2_mouse_register(PhysicalDevice *physical_device, int port);
 
 #endif
