@@ -266,9 +266,7 @@ void fb_console_backend_put_string(
 			backend->x = 0;
 			if (backend->y >= backend->height) {
 				// 超过最大行数，滚屏
-				spin_unlock(&backend->lock);
 				fb_console_backend_scroll(backend, 1);
-				spin_lock(&backend->lock);
 			}
 		}
 	}
