@@ -72,3 +72,4 @@ fixdep
 *.dat
 *.idx
 dump.pcap
+target/

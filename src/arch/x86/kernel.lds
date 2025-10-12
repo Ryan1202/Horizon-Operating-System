@@ -16,6 +16,10 @@ SECTIONS {
     */
     . = 0x00100000;
 
+    .multiboot2_header ALIGN(8) : {
+        KEEP(*(.multiboot2_header))
+    } : text
+    
     /* code segment */
     .text : {
         . = ALIGN(4);   /* 4 bytes align */

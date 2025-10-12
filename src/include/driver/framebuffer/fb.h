@@ -10,11 +10,6 @@ typedef struct FramebufferOps {
 
 struct FrameBufferDevice;
 struct FrameBufferModeInfo;
-void inline write_pixel(
-	struct FrameBufferDevice *fb_device, int x, int y, uint32_t color);
-void inline write_pixel_rgb(
-	struct FrameBufferDevice *fb_device, int x, int y, uint8_t r, uint8_t g,
-	uint8_t b);
 void draw_rect(
 	struct FrameBufferDevice *fb_device, int x, int y, int width, int height,
 	int color);

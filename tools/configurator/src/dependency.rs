@@ -1,0 +1,128 @@
+use std::path::PathBuf;
+
+use std::process::Command;
+
+use crate::config::{CompilerConfig, Config};
+use std::fs::OpenOptions;
+use std::io::Write;
+
+pub fn do_cc_dependency<'a>(compiler: &'a CompilerConfig, file: &PathBuf, out_dir: &PathBuf) {
+    let file_name = file.file_name().unwrap().to_str().unwrap();
+    let out_cmd_file = out_dir.join(format!("{}.o.cmd", file_name));
+    let out_file = out_dir.join(format!("{}.o", file_name));
+    let mut command = Command::new(compiler.executable.as_os_str());
+    command.args(&compiler.flags);
+    command.args(["-M", "-MF"]);
+    command.arg(&out_cmd_file);
+    command.arg("-MT");
+    command.arg(&out_file);
+    command.arg(file);
+
+    let status = command.status().expect("无法执行编译器以生成依赖文件");
+    if !status.success() {
+        eprintln!("错误: 编译器生成依赖文件失败，状态码: {}", status);
+        std::process::exit(1);
+    }
+
+    let mut cmd_file = OpenOptions::new()
+        .append(true)
+        .open(&out_cmd_file)
+        .expect(&format!("无法打开{}", out_cmd_file.display()));
+
+    writeln!(cmd_file, "\t@echo CC $@").unwrap();
+    writeln!(
+        cmd_file,
+        "\t@{} {} -c $< -o $@",
+        compiler.executable.display(),
+        compiler.flags.join(" ")
+    )
+    .unwrap();
+}
+
+pub fn do_asm_dependency<'a>(assembler: &'a CompilerConfig, file: &PathBuf, out_dir: &PathBuf) {
+    let file_name = file.file_name().unwrap().to_str().unwrap();
+    let out_cmd_file = out_dir.join(format!("{}.o.cmd", file_name));
+    let out_file = out_dir.join(format!("{}.o", file_name));
+
+    let mut cmd_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&out_cmd_file)
+        .expect(&format!("无法打开{}", out_cmd_file.display()));
+
+    // 禁用所有默认的后缀规则，防止 make 使用内置规则编译
+    writeln!(cmd_file, ".SUFFIXES:\n").unwrap();
+
+    writeln!(cmd_file, "{}: {}", out_file.display(), file.display()).unwrap();
+
+    writeln!(cmd_file, "\t@echo AS $@").unwrap();
+    writeln!(
+        cmd_file,
+        "\t@{} {} $< -o $@",
+        assembler.executable.display(),
+        assembler.flags.join(" ")
+    )
+    .unwrap();
+}
+
+pub fn do_dir_dependency<'a>(
+    config: &Config,
+    out_dir: &PathBuf,
+    files: Vec<PathBuf>,
+    dirs: &Vec<PathBuf>,
+) {
+    let out_cmd_file = out_dir.join("built-in.o.cmd");
+
+    let mut cmd_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&out_cmd_file)
+        .expect("无法打开目录依赖文件以追加目录");
+
+    writeln!(cmd_file, "# 由 {} 自动生成", env!("CARGO_PKG_NAME")).unwrap();
+
+    // 禁用所有默认的后缀规则，防止 make 使用内置规则编译
+    writeln!(cmd_file, ".SUFFIXES:\n").unwrap();
+
+    write!(cmd_file, "{}: ", out_dir.join("built-in.o").display()).unwrap();
+    for file in &files {
+        write!(
+            cmd_file,
+            " {}.o",
+            out_dir.join(file.file_name().unwrap()).display()
+        )
+        .unwrap();
+    }
+    for dir in dirs {
+        write!(cmd_file, " {}", dir.join("built-in.o").display()).unwrap();
+    }
+
+    write!(cmd_file, "\n").unwrap();
+    writeln!(cmd_file, "\t@echo LD $@").unwrap();
+    writeln!(
+        cmd_file,
+        "\t@{} {} -r $^ -o $@",
+        config.tools.linker.executable.display(),
+        config.tools.linker.flags.join(" ")
+    )
+    .unwrap();
+    for file in &files {
+        writeln!(
+            cmd_file,
+            "-include {}.o.cmd",
+            out_dir.join(file.file_name().unwrap()).display()
+        )
+        .unwrap();
+    }
+
+    for dir in dirs {
+        writeln!(
+            cmd_file,
+            "-include {}",
+            dir.join("built-in.o.cmd").display()
+        )
+        .unwrap();
+    }
+}

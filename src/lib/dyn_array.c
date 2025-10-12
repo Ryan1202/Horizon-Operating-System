@@ -85,8 +85,8 @@ void *dyn_array_next_ptr(
 	DynArray *dyn_array, struct DynArrayBlock **block, int *block_index,
 	int *block_offset) {
 
-	struct DynArrayBlock *current_block = *block;
-	int					  offset		= *block_offset;
+	// struct DynArrayBlock *current_block = *block;
+	int offset = *block_offset;
 
 	if (offset + 1 < dyn_array->block_size) {
 		(*block_offset)++;

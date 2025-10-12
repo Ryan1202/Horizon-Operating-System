@@ -1,2 +1,1 @@
-SRC += usb.c
-SRC += hcd.c
+SRC += usb/

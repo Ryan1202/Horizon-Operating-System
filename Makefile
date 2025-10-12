@@ -40,6 +40,8 @@ FS_DIR		=	$(KERNEL_DIR)/fs
 LIB_DIR		=	$(KERNEL_SRC)/lib
 DISK_DIR	=	disk
 
+KERNEL_OUTPUT_DIR = $(KERNEL_SRC)/build
+
 LOADER_OFF	=	2
 LOADER_CNTS	=	8
 
@@ -48,9 +50,10 @@ KERNEL_CNTS	=	600
 
 BOOT_BIN	=	$(BOOT_DIR)/boot.bin
 LOADER_BIN	=	$(BOOT_DIR)/loader.bin
-KERNEL_ELF	=	$(KERNEL_SRC)/kernel.elf
+KERNEL_ELF	=	$(KERNEL_OUTPUT_DIR)/kernel.elf
 
 IMAGETOOL	=	$(TOOL_SRC)/bin/imagetool
+CONFIGURATOR	=	$(TOOL_SRC)/bin/configurator
 
 INSTALL_GRUB_SCRIPT =	$(TOOL_SRC)/grub/install_grub.py
 
@@ -71,9 +74,10 @@ hd: tool
 app:
 	$(MAKE) -s -C $(APP_SRC)
 
-kernel:
+kernel: tool
 	$(MAKE) -s -C $(BOOT_DIR)
-	$(MAKE) -s -C $(KERNEL_SRC)
+	$(CONFIGURATOR) --work-dir . --out-dir $(KERNEL_OUTPUT_DIR)
+	$(MAKE) -s -C $(KERNEL_OUTPUT_DIR)
 	$(IMAGETOOL) $(HD_IMG) copy $(KERNEL_ELF) /p0/kernel.elf
 	
 tool:
