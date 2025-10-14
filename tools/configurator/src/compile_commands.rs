@@ -18,7 +18,7 @@ pub struct CompileCommands<'a> {
 }
 
 impl<'a> CompileCommand<'a> {
-    pub fn new_c(config: &'a CompilerConfig, directory: &'a str, output: &PathBuf, file: &PathBuf) -> Self {
+    pub fn new_c(config: &CompilerConfig, directory: &'a str, output: &PathBuf, file: &PathBuf) -> Self {
         let mut arguments = Vec::new();
         arguments.push(config.executable.to_string_lossy().to_string());
         arguments.extend(config.flags.iter().map(|s| s.to_string()));
@@ -49,7 +49,7 @@ impl<'a> CompileCommand<'a> {
         }
     }
 
-    pub fn new_asm(config: &'a CompilerConfig, directory: &'a str, output: &PathBuf, file: &PathBuf) -> Self {
+    pub fn new_asm(config: &CompilerConfig, directory: &'a str, output: &PathBuf, file: &PathBuf) -> Self {
         let mut arguments = Vec::new();
         arguments.push(config.executable.to_string_lossy().to_string());
         arguments.extend(config.flags.iter().map(|s| s.to_string()));

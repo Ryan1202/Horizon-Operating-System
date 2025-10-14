@@ -100,14 +100,21 @@ pub fn do_dir_dependency<'a>(
     }
 
     write!(cmd_file, "\n").unwrap();
-    writeln!(cmd_file, "\t@echo LD $@").unwrap();
-    writeln!(
-        cmd_file,
-        "\t@{} {} -r $^ -o $@",
-        config.tools.linker.executable.display(),
-        config.tools.linker.flags.join(" ")
-    )
-    .unwrap();
+    if files.is_empty() && dirs.is_empty() {
+        // 没有输入文件时，不调用链接器以避免 "no input files" 错误，改为创建一个空占位文件
+        writeln!(cmd_file, "\t@echo TOUCH $@").unwrap();
+        writeln!(cmd_file, "\t@mkdir -p $(dir $@) 2>/dev/null || true").unwrap();
+        writeln!(cmd_file, "\t@touch $@").unwrap();
+    } else {
+        writeln!(cmd_file, "\t@echo LD $@").unwrap();
+        writeln!(
+            cmd_file,
+            "\t@{} {} -r $^ -o $@",
+            config.tools.linker.executable.display(),
+            config.tools.linker.flags.join(" ")
+        )
+        .unwrap();
+    }
     for file in &files {
         writeln!(
             cmd_file,

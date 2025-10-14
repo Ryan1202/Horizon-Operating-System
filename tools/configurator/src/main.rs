@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{borrow::Cow, fs, path::PathBuf};
 use clap::Parser;
 
 mod parse;
@@ -82,7 +82,7 @@ fn main() {
     }
     let config_file = fs::read_to_string(config_file.as_path()).expect("无法读取配置文件");
     let config: Value = toml::from_str(&config_file).expect("无法解析配置文件");
-    let mut config = Config::from(args.work_dir.clone(), config).expect("无法加载配置");
+    let config = Config::from(args.work_dir.clone(), config).expect("无法加载配置");
 
     let out_dir = args.out_dir.canonicalize().unwrap();
     let work_dir = args.work_dir.canonicalize().unwrap();
@@ -90,7 +90,8 @@ fn main() {
 
     let directory = work_dir.to_string_lossy().to_string();
 
-    let compile_commands = parse_config(&mut config, work_dir, out_dir, &directory, args.force_update);
+    let config = Cow::Owned(config);
+    let compile_commands = parse_config(config, work_dir, out_dir, &directory, args.force_update);
 
     if args.compile_commands {
         let out_file = args.work_dir.join("compile_commands.json");

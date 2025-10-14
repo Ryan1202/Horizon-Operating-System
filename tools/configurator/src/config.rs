@@ -6,23 +6,22 @@ use std::{
 
 use toml::Value;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompilerConfig {
     pub executable: PathBuf,
     pub flags: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tools {
     pub cc: CompilerConfig,
     pub assembler: CompilerConfig,
     pub linker: CompilerConfig,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub arch: String,
-    dir: PathBuf,
     pub tools: Tools,
 }
 
@@ -184,7 +183,6 @@ impl Config {
 
         Ok(Config {
             arch: arch,
-            dir: work_dir,
             tools,
         })
     }

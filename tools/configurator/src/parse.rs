@@ -3,14 +3,89 @@ use crate::{
     config::Config,
     dependency,
 };
-use serde::de;
 use std::{
+    borrow::Cow,
     fs::{self, File},
-    io::Read,
-    path::PathBuf,
-    process::Command,
+    io::{self, Read},
+    path::PathBuf
 };
 use toml::Value;
+
+struct DirectoryContext<'a> {
+    config: Cow<'a, Config>,
+    work_dir: PathBuf,
+    out_dir: PathBuf,
+    force_update: bool,
+    toml: Option<Value>,
+}
+
+impl<'a> DirectoryContext<'a> {
+    fn new(config: Cow<'a, Config>, work_dir: PathBuf, out_dir: PathBuf, force_update: bool) -> Self {
+        DirectoryContext {
+            config,
+            work_dir,
+            out_dir,
+            force_update,
+            toml: None,
+        }
+    }
+
+    fn check_dir_update(&mut self) -> io::Result<()> {
+        let config_file_path = self.work_dir.join("config.toml");
+        let target_file_path = self.out_dir.join("built-in.o.cmd");
+
+        let source_meta = match File::open(config_file_path) {
+            Ok(mut file) => {
+                self.toml = Some({
+                    let mut buf = String::new();
+                    file.read_to_string(&mut buf)?;
+                    toml::from_str(&buf).map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("无法解析 config.toml: {}", e),
+                        )
+                    })?
+                });
+                file.metadata()?
+            }
+            Err(e) => return Err(e),
+        };
+        let target_meta = match fs::metadata(&target_file_path) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                self.force_update = true;
+                return Ok(());
+            }
+        };
+        if source_meta.modified()? > target_meta.modified()? {
+            self.force_update = true;
+        }
+        Ok(())
+    }
+
+    fn enter_subdir(&'_ self, subdir: &str) -> DirectoryContext<'_> {
+        let new_work_dir = self.work_dir.join(subdir);
+        let new_out_dir = self.out_dir.join(subdir);
+
+        if !new_out_dir.exists() || !new_out_dir.is_dir() {
+            if let Err(e) = fs::create_dir_all(&new_out_dir) {
+                eprintln!(
+                    "错误: 无法创建子目录输出目录 {}: {}",
+                    new_out_dir.display(),
+                    e
+                );
+                std::process::exit(9);
+            }
+        }
+        DirectoryContext {
+            config: Cow::Borrowed(&self.config),
+            work_dir: new_work_dir,
+            out_dir: new_out_dir,
+            force_update: self.force_update,
+            toml: None,
+        }
+    }
+}
 
 fn parse_string_array(config_toml: &Value, key: &str) -> Option<Vec<String>> {
     config_toml.get(key).and_then(|v| {
@@ -91,136 +166,90 @@ pub fn parse_arch_config(
     (dirs, lds)
 }
 
-pub fn parse_config<'a>(
-    config: &'a mut Config,
+pub fn parse_config<'a, 'b>(
+    config: Cow<'a, Config>,
     work_dir: PathBuf,
     out_dir: PathBuf,
-    directory: &'a str,
+    directory: &'b str,
     force_update: bool,
-) -> CompileCommands<'a> {
+) -> CompileCommands<'b> {
     let mut compile_commands = CompileCommands::new();
-    let config_file_path = work_dir.join("config.toml");
-    let content = fs::read_to_string(&config_file_path).expect("src: 无法读取 config.toml");
-    let config_toml: Value = toml::from_str(&content).expect("src: 无法解析 config.toml");
-
-    let (mut dirs, lds) = parse_arch_config(config, &work_dir, &config_toml);
-    dirs.extend(parse_string_array(&config_toml, "dir").unwrap_or(Vec::new()));
+    let mut ctx = DirectoryContext::new(config, work_dir, out_dir, force_update);
     let mut real_dirs = Vec::new();
 
-    let output = config_toml.get("output").and_then(|v| v.as_str()).unwrap();
-    parse_includes(&work_dir, config, &config_toml);
-    parse_macros(config, &config_toml);
+    ctx.check_dir_update().expect("检查目录更新失败！");
+    if ctx.force_update {
+        real_dirs.push(ctx.out_dir.clone());
+    }
+
+    let dirs = {
+        let config_toml = ctx.toml.as_ref().expect("未获取到config.toml！");
+        let (dirs, lds, output) = {
+            let config = ctx.config.to_mut();
+            let (mut dirs, lds) =
+                parse_arch_config(config, &ctx.work_dir, &config_toml);
+            dirs.extend(parse_string_array(&config_toml, "dir").unwrap_or(Vec::new()));
+
+            let output = config_toml.get("output").and_then(|v| v.as_str()).unwrap();
+            parse_includes(&ctx.work_dir, config, &config_toml);
+            parse_macros(config, &config_toml);
+
+            (dirs, lds, output)
+        };
+
+        let file_path = ctx.out_dir.join("Makefile");
+        if !file_path.exists() {
+            let mut makefile = File::create(&file_path).expect("无法创建 Makefile");
+            use std::io::Write;
+            writeln!(makefile, ".SUFFIXES:\n").unwrap();
+            writeln!(makefile, ".PHONY: {}\n", output).unwrap();
+            writeln!(
+                makefile,
+                "{}: {}",
+                output,
+                ctx.out_dir.join("built-in.o").display()
+            )
+            .unwrap();
+            writeln!(makefile, "\t@echo LD $@").unwrap();
+            writeln!(
+                makefile,
+                "\t@{} {} -T {} -o $@ $^",
+                ctx.config.tools.linker.executable.display(),
+                ctx.config.tools.linker.flags.join(" "),
+                ctx.work_dir.join(lds).display()
+            )
+            .unwrap();
+
+            writeln!(makefile, "-include built-in.o.cmd").unwrap();
+            writeln!(makefile, "\nclean:\n\trm -r ./**/*.o").unwrap();
+        }
+        dirs
+    };
 
     for dir in &dirs {
-        let cur_work_dir = work_dir.join(&dir);
-        let cur_out_dir = out_dir.join(&dir);
+        let mut new_ctx = ctx.enter_subdir(dir);
 
-        if !cur_out_dir.exists() || !cur_out_dir.is_dir() {
-            if let Err(e) = fs::create_dir_all(&cur_out_dir) {
-                eprintln!(
-                    "错误: 无法创建子目录输出目录 {}: {}",
-                    cur_out_dir.display(),
-                    e
-                );
-                std::process::exit(9);
-            }
+        new_ctx.check_dir_update().expect("检查目录更新失败！");
+
+        if new_ctx.force_update {
+            real_dirs.push(new_ctx.out_dir.clone());
         }
 
-        let mut force_update = force_update;
-        let source = cur_work_dir.join("config.toml");
-        let target = cur_out_dir.join("built-in.o.cmd");
-        if !source.exists() {
-            eprintln!(
-                "错误: 目录 {} 中缺少 config.toml 文件",
-                cur_work_dir.display()
-            );
-            std::process::exit(7);
-        }
-        if target.exists() {
-            let source_meta = fs::metadata(&source).expect("无法获取源文件元数据");
-            let target_meta = fs::metadata(&target).expect("无法获取目标文件元数据");
-            if source_meta.modified().unwrap() > target_meta.modified().unwrap() {
-                force_update = true;
-            }
-        } else {
-            force_update = true;
-        }
-
-        compile_commands.extend(parse_dir_config(
-            &cur_work_dir,
-            &cur_out_dir,
-            directory,
-            config,
-            force_update,
-        ));
-
-        if force_update {
-            // 配置文件有更新，清除子目录的中间文件强制make重新生成
-            let pattern = format!("{}/**/*.o", cur_out_dir.display());
-            Command::new("rm")
-                .arg("-f")
-                .arg(pattern)
-                .status()
-                .expect("无法清除中间文件");
-
-            real_dirs.push(cur_out_dir);
-        }
+        compile_commands.extend(parse_dir_config(new_ctx, directory));
     }
 
     let files = Vec::new();
-    dependency::do_dir_dependency(config, &out_dir, files, &real_dirs);
-
-    let file_path = out_dir.join("Makefile");
-    if !file_path.exists() {
-        let mut makefile = File::create(&file_path).expect("无法创建 Makefile");
-        use std::io::Write;
-        writeln!(makefile, ".SUFFIXES:\n").unwrap();
-        writeln!(makefile, ".PHONY: {}\n", output).unwrap();
-        writeln!(
-            makefile,
-            "{}: {}",
-            output,
-            out_dir.join("built-in.o").display()
-        )
-        .unwrap();
-        writeln!(makefile, "\t@echo LD $@").unwrap();
-        writeln!(
-            makefile,
-            "\t@{} {} -T {} -o $@ $^",
-            config.tools.linker.executable.display(),
-            config.tools.linker.flags.join(" "),
-            work_dir.join(lds).display()
-        )
-        .unwrap();
-
-        writeln!(makefile, "-include built-in.o.cmd").unwrap();
-        writeln!(makefile, "\nclean:\n\trm -r ./**/*.o").unwrap();
-    }
+    dependency::do_dir_dependency(&ctx.config, &ctx.out_dir, files, &real_dirs);
 
     compile_commands
 }
 
-pub fn parse_dir_config<'a>(
-    work_dir: &PathBuf,
-    out_dir: &PathBuf,
-    directory: &'a str,
-    config: &'a Config,
-    force_update: bool,
-) -> CompileCommands<'a> {
-    let config_file_path = work_dir.join("config.toml");
-    let mut config_file = File::open(&config_file_path).expect(&format!(
-        "错误: 目录 {} 中缺少 config.toml 文件",
-        work_dir.display()
-    ));
-    let mut content = String::new();
-    config_file
-        .read_to_string(&mut content)
-        .expect(&format!("无法读取 {}", &config_file_path.display()));
-    let config_toml: Value =
-        toml::from_str(&content).expect(&format!("无法解析 {}", &config_file_path.display()));
+// 因为ctx所有权传递给了这个函数，在函数结束时会被释放，所以CompileCommands需要和ctx使用不同的生命周期标记
+fn parse_dir_config<'a, 'b>(ctx: DirectoryContext<'a>, directory: &'b str) -> CompileCommands<'b> {
     let mut compile_commands = CompileCommands::new();
 
-    let dirs = parse_string_array(&config_toml, "dir").unwrap_or(Vec::new());
+    let config_toml = ctx.toml.as_ref().expect("未获取到config.toml！");
+    let dirs = parse_string_array(config_toml, "dir").unwrap_or(Vec::new());
     let mut real_dirs = Vec::new();
     let mut files = Vec::new();
 
@@ -234,7 +263,7 @@ pub fn parse_dir_config<'a>(
     });
     if let Some(asm_files) = asm_files {
         for asm_file in asm_files {
-            let asm_file_path = work_dir.join(asm_file);
+            let asm_file_path = ctx.work_dir.join(asm_file);
             if !asm_file_path.exists() || !asm_file_path.is_file() {
                 eprintln!(
                     "错误: ASM 源文件不存在或不是文件: {}",
@@ -243,15 +272,19 @@ pub fn parse_dir_config<'a>(
                 std::process::exit(7);
             }
             compile_commands.add_command(CompileCommand::new_asm(
-                &config.tools.assembler,
+                &ctx.config.tools.assembler,
                 directory,
-                &out_dir,
+                &ctx.out_dir,
                 &asm_file_path,
             ));
 
             files.push(asm_file_path.clone());
-            if force_update {
-                dependency::do_asm_dependency(&config.tools.assembler, &asm_file_path, &out_dir);
+            if ctx.force_update {
+                dependency::do_asm_dependency(
+                    &ctx.config.tools.assembler,
+                    &asm_file_path,
+                    &ctx.out_dir,
+                );
             }
         }
     }
@@ -266,85 +299,40 @@ pub fn parse_dir_config<'a>(
     });
     if let Some(c_files) = c_files {
         for c_file in c_files {
-            let c_file_path = work_dir.join(c_file);
+            let c_file_path = ctx.work_dir.join(c_file);
             if !c_file_path.exists() || !c_file_path.is_file() {
                 eprintln!("错误: C 源文件不存在或不是文件: {}", c_file_path.display());
                 std::process::exit(7);
             }
             compile_commands.add_command(CompileCommand::new_c(
-                &config.tools.cc,
+                &ctx.config.tools.cc,
                 directory,
-                &out_dir,
+                &ctx.out_dir,
                 &c_file_path,
             ));
 
             files.push(c_file_path.clone());
-            if force_update {
-                dependency::do_cc_dependency(&config.tools.cc, &c_file_path, &out_dir);
+            if ctx.force_update {
+                dependency::do_cc_dependency(&ctx.config.tools.cc, &c_file_path, &ctx.out_dir);
             }
         }
     }
 
     for dir in &dirs {
-        let sub_dir = work_dir.join(&dir);
-        if !sub_dir.exists() || !sub_dir.is_dir() {
-            eprintln!("错误: 子目录不存在或不是目录: {}", sub_dir.display());
-            std::process::exit(8);
-        }
-        let sub_out_dir = out_dir.join(&dir);
-        if !sub_out_dir.exists() {
-            if let Err(e) = fs::create_dir_all(&sub_out_dir) {
-                eprintln!(
-                    "错误: 无法创建子目录输出目录 {}: {}",
-                    sub_out_dir.display(),
-                    e
-                );
-                std::process::exit(9);
-            }
-        } else if !sub_out_dir.is_dir() {
-            eprintln!(
-                "错误: 子目录输出目录路径存在但不是目录: {}",
-                sub_out_dir.display()
-            );
-            std::process::exit(10);
+        let mut new_ctx = ctx.enter_subdir(dir);
+
+        new_ctx.check_dir_update().expect("检查目录更新失败！");
+
+        if ctx.force_update {
+            real_dirs.push(new_ctx.out_dir.clone());
         }
 
-        let mut force_update = force_update;
-        let source = sub_dir.join("config.toml");
-        let target = sub_out_dir.join("built-in.o.cmd");
-        if !source.exists() {
-            eprintln!("错误: 目录 {} 中缺少 config.toml 文件", sub_dir.display());
-            std::process::exit(7);
-        }
-        if target.exists() {
-            let source_meta = fs::metadata(&source).expect("无法获取源文件元数据");
-            let target_meta = fs::metadata(&target).expect("无法获取目标文件元数据");
-            if source_meta.modified().unwrap() > target_meta.modified().unwrap() {
-                force_update = true;
-            }
-        } else {
-            force_update = true;
-        }
-
-        let sub_compile_commands =
-            parse_dir_config(&sub_dir, &sub_out_dir, directory, config, force_update);
+        let sub_compile_commands = parse_dir_config(new_ctx, directory);
         compile_commands.extend(sub_compile_commands);
-
-        if force_update {
-            // 配置文件有更新，清除子目录的中间文件强制make重新生成
-            let pattern = format!("{}/**/*.o", sub_out_dir.display());
-            Command::new("rm")
-                .arg("-f")
-                .arg(pattern)
-                .status()
-                .expect("无法清除中间文件");
-
-            real_dirs.push(sub_out_dir);
-        }
     }
 
     if !files.is_empty() || !real_dirs.is_empty() {
-        dependency::do_dir_dependency(config, &out_dir, files, &real_dirs);
+        dependency::do_dir_dependency(&ctx.config, &ctx.out_dir, files, &real_dirs);
     }
 
     compile_commands

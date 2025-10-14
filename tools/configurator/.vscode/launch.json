@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["--work-dir", "../../", "--out-dir", "../../build/"],
+            "args": ["--work-dir", "../../", "--out-dir", "../../src/build/"],
             "cwd": "${workspaceFolder}"
         },
         {
