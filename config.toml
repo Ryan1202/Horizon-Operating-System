@@ -11,6 +11,7 @@ cflags = [
     "-nostdlib",
     "-O0",
     "-m32",
+    "-g",
     "-ffreestanding",
     "-fno-pie",
     "-fno-stack-protector",
@@ -21,6 +22,10 @@ cflags = [
 ]
 asflags = ["-g", "-f", "elf32"]
 ldflags = ["-m", "elf_i386", "-nostdlib"]
+rust_target = "src/arch/x86/i686-none.json"
+rustflags = ["-C", "relocation-model=static", "--emit", "obj"]
 
 [debug]
 level = "all"
+cflags = ["-O0", "-g"]
+asflags = ["-g"]

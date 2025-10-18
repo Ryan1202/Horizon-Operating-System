@@ -6,6 +6,8 @@ use std::{
 
 use toml::Value;
 
+use crate::rustc_target::RustConfig;
+
 #[derive(Debug, Clone)]
 pub struct CompilerConfig {
     pub executable: PathBuf,
@@ -17,12 +19,20 @@ pub struct Tools {
     pub cc: CompilerConfig,
     pub assembler: CompilerConfig,
     pub linker: CompilerConfig,
+    pub rustc: RustConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DebugLevel {
+    Release,
+    Debug,
 }
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub arch: String,
     pub tools: Tools,
+    pub debug_level: DebugLevel,
 }
 
 impl Tools {
@@ -33,6 +43,7 @@ impl Tools {
         assembler_flags: Vec<String>,
         linker_executable: PathBuf,
         linker_flags: Vec<String>,
+        rust_config: RustConfig,
     ) -> Self {
         Tools {
             cc: CompilerConfig {
@@ -47,6 +58,7 @@ impl Tools {
                 executable: linker_executable,
                 flags: linker_flags,
             },
+            rustc: rust_config,
         }
     }
 }
@@ -113,6 +125,8 @@ impl Config {
         let mut cflags = Vec::new();
         let mut asflags = Vec::new();
         let mut ldflags = Vec::new();
+        let mut rust_flags = Vec::new();
+        let mut rust_target = String::new();
         for (name, tool_config) in tools_table {
             match name.as_str() {
                 "cc" => {
@@ -162,6 +176,22 @@ impl Config {
                         .map(String::from)
                         .collect();
                 }
+                "rust_flags" => {
+                    // 解析 Rust 编译器标志
+                    rust_flags = tool_config
+                        .as_array()
+                        .ok_or("Invalid 'rust_flags' field")?
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from)
+                        .collect();
+                }
+                "rust_target" => {
+                    rust_target = tool_config
+                        .as_str()
+                        .ok_or("Invalid 'rust_target' field")?
+                        .to_string();
+                }
                 _ => {}
             };
         }
@@ -170,20 +200,63 @@ impl Config {
         let as_path = find_executable(&work_dir, &as_).ok_or(format!("汇编器未找到: {}", as_))?;
         let ld_path = find_executable(&work_dir, &ld).ok_or(format!("链接器未找到: {}", ld))?;
 
-        tools = Tools::new(cc_path, cflags, as_path, asflags, ld_path, ldflags);
+        let rust_config = RustConfig::new(rust_target, rust_flags, &work_dir);
 
-        let debug_level = config
+        let debug_table = config
             .get("debug")
-            .and_then(|x| x.get("level").and_then(Value::as_str));
-        if let Some(debug_level) = debug_level {
+            .and_then(Value::as_table)
+            .ok_or("Missing or invalid 'debug' field")?;
+        let debug_level = debug_table
+            .get("level")
+            .and_then(Value::as_str);
+        let debug_level = if let Some(debug_level) = debug_level {
             match debug_level {
-                _ => {}
+                "release" => DebugLevel::Release,
+                "debug" => DebugLevel::Debug,
+                _ => DebugLevel::Debug,
+            }
+        } else {
+            DebugLevel::Debug
+        };
+        
+        if debug_level != DebugLevel::Release {
+            for (name, value) in debug_table {
+                match name.as_str() {
+                    "cflags" => {
+                        cflags.extend(value
+                        .as_array()
+                        .ok_or("Invalid 'cflags' field")?
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from));
+                    }
+                    "asflags" => {
+                        asflags.extend(value
+                        .as_array()
+                        .ok_or("Invalid 'asflags' field")?
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from));
+                    }
+                    "ldflags" => {
+                        ldflags.extend(value
+                        .as_array()
+                        .ok_or("Invalid 'ldflags' field")?
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(String::from));
+                    }
+                    _ => {}
+                }
             }
         }
+
+        tools = Tools::new(cc_path, cflags, as_path, asflags, ld_path, ldflags, rust_config);
 
         Ok(Config {
             arch: arch,
             tools,
+            debug_level
         })
     }
 }

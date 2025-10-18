@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::config::{CompilerConfig, Config};
+use crate::rustc_target::{RustConfig, RustcTargetType};
 use std::fs::OpenOptions;
 use std::io::Write;
 
@@ -66,10 +67,52 @@ pub fn do_asm_dependency<'a>(assembler: &'a CompilerConfig, file: &PathBuf, out_
     .unwrap();
 }
 
+pub fn do_rust_dependency<'a>(
+    rustc: &'a RustConfig,
+    file: &PathBuf,
+    out_dir: &PathBuf,
+    target_name: &str,
+    is_release: bool,
+) {
+    let out_cmd_file = out_dir.join("rlib.a.cmd");
+    let out_file = out_dir.join("rlib.a");
+
+    let mut cmd_file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&out_cmd_file)
+        .expect(&format!("无法打开{}", out_cmd_file.display()));
+
+    // 禁用所有默认的后缀规则，防止 make 使用内置规则编译
+    writeln!(cmd_file, ".SUFFIXES:\n").unwrap();
+
+    writeln!(cmd_file, "{}: {}", out_file.display(), file.display()).unwrap();
+
+    writeln!(cmd_file, "\t@echo RUSTC $@").unwrap();
+    writeln!(
+        cmd_file,
+        "\t@rustup run {}",
+        match rustc.target_type {
+            RustcTargetType::Builtin => { "cargo rustc" },
+            RustcTargetType::Custom => { "nightly cargo rustc" },
+        },
+    )
+    .unwrap();
+
+    writeln!(cmd_file, "\t@echo COPY $@").unwrap();
+    if is_release {
+        writeln!(cmd_file, "\t@cp ./rustc_target/{}/release/lib*.a $@", target_name).unwrap();
+    } else {
+        writeln!(cmd_file, "\t@cp ./rustc_target/{}/debug/lib*.a $@", target_name).unwrap();
+    }
+}
+
 pub fn do_dir_dependency<'a>(
     config: &Config,
     out_dir: &PathBuf,
     files: Vec<PathBuf>,
+    libs: Vec<PathBuf>,
     dirs: &Vec<PathBuf>,
 ) {
     let out_cmd_file = out_dir.join("built-in.o.cmd");
@@ -90,13 +133,21 @@ pub fn do_dir_dependency<'a>(
     for file in &files {
         write!(
             cmd_file,
-            " {}.o",
+            "\\\n {}.o",
             out_dir.join(file.file_name().unwrap()).display()
         )
         .unwrap();
     }
+    for lib in &libs {
+        write!(
+            cmd_file,
+            "\\\n {}",
+            out_dir.join(lib.file_name().unwrap()).display()
+        )
+        .unwrap();
+    }
     for dir in dirs {
-        write!(cmd_file, " {}", dir.join("built-in.o").display()).unwrap();
+        write!(cmd_file, "\\\n {}", dir.join("built-in.o").display()).unwrap();
     }
 
     write!(cmd_file, "\n").unwrap();
@@ -109,7 +160,7 @@ pub fn do_dir_dependency<'a>(
         writeln!(cmd_file, "\t@echo LD $@").unwrap();
         writeln!(
             cmd_file,
-            "\t@{} {} -r $^ -o $@",
+            "\t@{} {} --whole-archive -r $^ -o $@",
             config.tools.linker.executable.display(),
             config.tools.linker.flags.join(" ")
         )
@@ -123,7 +174,14 @@ pub fn do_dir_dependency<'a>(
         )
         .unwrap();
     }
-
+    for lib in &libs {
+        writeln!(
+            cmd_file,
+            "-include {}.cmd",
+            out_dir.join(lib.file_name().unwrap()).display()
+        )
+        .unwrap();
+    }
     for dir in dirs {
         writeln!(
             cmd_file,

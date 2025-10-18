@@ -28,6 +28,9 @@ uint32_t memory_total_size;
 const int memory_block_size[MEMORY_FREE_LIST_COUNT] = {32,	64,	  128, 256,
 													   512, 1024, 2048};
 
+extern void new_vir(void);
+extern void new_phy(void);
+
 void init_memory(void) {
 	uint16_t ards_nr = *((uint16_t *)ards_nr_addr); // ards 结构数
 	ards			 = (struct ards *)ards_addr;	// ards 地址
@@ -70,6 +73,9 @@ void init_memory(void) {
 		memory_manage->free_blocks[i].size	= 0; // 大小是页的数量
 		memory_manage->free_blocks[i].flags = 0;
 	}
+
+	new_phy();
+	new_vir();
 }
 
 int get_memory_size(void) {

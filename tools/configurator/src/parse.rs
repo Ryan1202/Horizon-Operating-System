@@ -7,7 +7,7 @@ use std::{
     borrow::Cow,
     fs::{self, File},
     io::{self, Read},
-    path::PathBuf
+    path::PathBuf,
 };
 use toml::Value;
 
@@ -20,7 +20,12 @@ struct DirectoryContext<'a> {
 }
 
 impl<'a> DirectoryContext<'a> {
-    fn new(config: Cow<'a, Config>, work_dir: PathBuf, out_dir: PathBuf, force_update: bool) -> Self {
+    fn new(
+        config: Cow<'a, Config>,
+        work_dir: PathBuf,
+        out_dir: PathBuf,
+        force_update: bool,
+    ) -> Self {
         DirectoryContext {
             config,
             work_dir,
@@ -179,15 +184,19 @@ pub fn parse_config<'a, 'b>(
 
     ctx.check_dir_update().expect("检查目录更新失败！");
     if ctx.force_update {
-        real_dirs.push(ctx.out_dir.clone());
+        ctx.config.tools.rustc.set_force_update(true);
+    }
+
+    let cargo_toml = ctx.work_dir.join("Cargo.template.toml");
+    if cargo_toml.exists() && cargo_toml.is_file() {
+        ctx.config.to_mut().tools.rustc.use_cargo_toml(cargo_toml, &ctx.work_dir, &ctx.out_dir);
     }
 
     let dirs = {
         let config_toml = ctx.toml.as_ref().expect("未获取到config.toml！");
         let (dirs, lds, output) = {
             let config = ctx.config.to_mut();
-            let (mut dirs, lds) =
-                parse_arch_config(config, &ctx.work_dir, &config_toml);
+            let (mut dirs, lds) = parse_arch_config(config, &ctx.work_dir, &config_toml);
             dirs.extend(parse_string_array(&config_toml, "dir").unwrap_or(Vec::new()));
 
             let output = config_toml.get("output").and_then(|v| v.as_str()).unwrap();
@@ -198,7 +207,7 @@ pub fn parse_config<'a, 'b>(
         };
 
         let file_path = ctx.out_dir.join("Makefile");
-        if !file_path.exists() {
+        if !file_path.exists() || force_update {
             let mut makefile = File::create(&file_path).expect("无法创建 Makefile");
             use std::io::Write;
             writeln!(makefile, ".SUFFIXES:\n").unwrap();
@@ -213,7 +222,7 @@ pub fn parse_config<'a, 'b>(
             writeln!(makefile, "\t@echo LD $@").unwrap();
             writeln!(
                 makefile,
-                "\t@{} {} -T {} -o $@ $^",
+                "\t@{} {} -T {} --gc-sections -o $@ $^",
                 ctx.config.tools.linker.executable.display(),
                 ctx.config.tools.linker.flags.join(" "),
                 ctx.work_dir.join(lds).display()
@@ -221,7 +230,7 @@ pub fn parse_config<'a, 'b>(
             .unwrap();
 
             writeln!(makefile, "-include built-in.o.cmd").unwrap();
-            writeln!(makefile, "\nclean:\n\trm -r ./**/*.o").unwrap();
+            writeln!(makefile, "\nclean:\n\t@echo RM *.o\n\t@find . -type f \\( -name '*.o' -o -name '*.a' \\) -print -delete").unwrap();
         }
         dirs
     };
@@ -239,13 +248,25 @@ pub fn parse_config<'a, 'b>(
     }
 
     let files = Vec::new();
-    dependency::do_dir_dependency(&ctx.config, &ctx.out_dir, files, &real_dirs);
+    let mut libs = Vec::new();
+    if let Some(file) =
+        ctx.config
+            .tools
+            .rustc
+            .write_configs(&ctx.work_dir, &ctx.out_dir, ctx.config.debug_level)
+    {
+        libs.push(file);
+    }
+
+    if ctx.force_update{
+        dependency::do_dir_dependency(&ctx.config, &ctx.out_dir, files, libs, &real_dirs);
+    }
 
     compile_commands
 }
 
 // 因为ctx所有权传递给了这个函数，在函数结束时会被释放，所以CompileCommands需要和ctx使用不同的生命周期标记
-fn parse_dir_config<'a, 'b>(ctx: DirectoryContext<'a>, directory: &'b str) -> CompileCommands<'b> {
+fn parse_dir_config<'a, 'b>(mut ctx: DirectoryContext<'a>, directory: &'b str) -> CompileCommands<'b> {
     let mut compile_commands = CompileCommands::new();
 
     let config_toml = ctx.toml.as_ref().expect("未获取到config.toml！");
@@ -318,6 +339,37 @@ fn parse_dir_config<'a, 'b>(ctx: DirectoryContext<'a>, directory: &'b str) -> Co
         }
     }
 
+    let cargo_toml = ctx.work_dir.join("Cargo.template.toml");
+    if cargo_toml.exists() && cargo_toml.is_file() {
+        ctx.config.to_mut().tools.rustc.use_cargo_toml(cargo_toml, &ctx.work_dir, &ctx.out_dir);
+    }
+
+    let rust_files = config_toml.get("rust").and_then(|v| {
+        Some(
+            v.as_array()?
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<&str>>(),
+        )
+    });
+    if let Some(ref rust_files) = rust_files {
+        for rust_file in rust_files {
+            let rust_file_path = ctx.work_dir.join(rust_file);
+            if !rust_file_path.exists() || !rust_file_path.is_file() {
+                eprintln!(
+                    "错误: Rust 源文件不存在或不是文件: {}",
+                    rust_file_path.display()
+                );
+                std::process::exit(7);
+            }
+
+            ctx.config.tools.rustc.add_file(&rust_file_path);
+            if ctx.force_update {
+                ctx.config.tools.rustc.set_force_update(true);
+            }
+        }
+    }
+
     for dir in &dirs {
         let mut new_ctx = ctx.enter_subdir(dir);
 
@@ -331,8 +383,18 @@ fn parse_dir_config<'a, 'b>(ctx: DirectoryContext<'a>, directory: &'b str) -> Co
         compile_commands.extend(sub_compile_commands);
     }
 
-    if !files.is_empty() || !real_dirs.is_empty() {
-        dependency::do_dir_dependency(&ctx.config, &ctx.out_dir, files, &real_dirs);
+    let mut libs = Vec::new();
+    if let Some(file) =
+        ctx.config
+            .tools
+            .rustc
+            .write_configs(&ctx.work_dir, &ctx.out_dir, ctx.config.debug_level)
+    {
+        libs.push(file);
+    }
+
+    if ctx.force_update && (!files.is_empty() || !real_dirs.is_empty()) {
+        dependency::do_dir_dependency(&ctx.config, &ctx.out_dir, files, libs, &real_dirs);
     }
 
     compile_commands

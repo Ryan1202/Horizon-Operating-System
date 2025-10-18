@@ -5,6 +5,7 @@ mod parse;
 mod config;
 mod compile_commands;
 mod dependency;
+mod rustc_target;
 use config::Config;
 use toml::{self, Value};
 
@@ -80,6 +81,7 @@ fn main() {
         eprintln!("错误: 配置文件不存在或不是文件: {}", config_file.display());
         std::process::exit(6);
     }
+    let config_metadata = fs::metadata(config_file.as_path()).expect("无法获取metadata");
     let config_file = fs::read_to_string(config_file.as_path()).expect("无法读取配置文件");
     let config: Value = toml::from_str(&config_file).expect("无法解析配置文件");
     let config = Config::from(args.work_dir.clone(), config).expect("无法加载配置");
@@ -90,8 +92,16 @@ fn main() {
 
     let directory = work_dir.to_string_lossy().to_string();
 
+    let mut force_update = args.force_update;
+    let target_metadata = fs::metadata(out_dir.as_path().join("built-in.o.cmd"));
+    if let Ok(target_metadata) = target_metadata {
+        if config_metadata.modified().unwrap() > target_metadata.modified().unwrap() {
+            force_update = true;
+        }
+    }
+
     let config = Cow::Owned(config);
-    let compile_commands = parse_config(config, work_dir, out_dir, &directory, args.force_update);
+    let compile_commands = parse_config(config, work_dir, out_dir, &directory, force_update);
 
     if args.compile_commands {
         let out_file = args.work_dir.join("compile_commands.json");
