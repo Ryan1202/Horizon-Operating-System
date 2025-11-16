@@ -4,12 +4,11 @@
 #include <kernel/thread.h>
 #include <stdint.h>
 
-#define PDT_PHY_ADDR 0x201000 // 页目录表物理地址
-
-#define TBL_PHY_ADDR	 0x202000
-#define VRAM_PT_PHY_ADDR 0x203000
-#define DMA_PT_PHY_ADDR1 0x204000
-#define DMA_PT_PHY_ADDR2 0x205000
+#ifdef ARCH_X86
+#define KERNEL_LINEAR_SIZE 0x38000000 // 896MB内核线性空间大小
+#else
+#error "Unsupported architecture"
+#endif
 
 #define PAGE_SIZE 1024 * 4 // 页大小
 
@@ -51,5 +50,7 @@ void		*thread_alloc_page(struct task_s *thread, int pages);
 void		 thread_free_page(struct task_s *thread, uint32_t vaddr, int pages);
 MemoryResult thread_use_page(
 	struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages);
+
+extern size_t pdt_phy_addr;
 
 #endif

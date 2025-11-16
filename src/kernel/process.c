@@ -52,7 +52,7 @@ void start_process(void *entry) {
  * @param thread 线程
  */
 void page_dir_activate(struct task_s *thread) {
-	uint32_t pagedir_phy_addr = PDT_PHY_ADDR;
+	uint32_t pagedir_phy_addr = pdt_phy_addr;
 
 	if (thread->pgdir != NULL) {
 		pagedir_phy_addr = vir2phy((uint32_t)thread->pgdir);

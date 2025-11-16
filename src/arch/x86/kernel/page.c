@@ -9,65 +9,147 @@
 #include <kernel/console.h>
 #include <kernel/func.h>
 #include <kernel/memory.h>
+#include <kernel/memory/block.h>
 #include <kernel/page.h>
 #include <kernel/thread.h>
-#include <math.h>
+#include <sections.h>
 #include <stdint.h>
 #include <string.h>
 
+#define page_align_up(x)   (((x) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
+#define page_align_down(x) ((x) & ~(PAGE_SIZE - 1))
+
 extern struct VesaDisplayInfo vesa_display_info;
 
-void setup_page(void) {
-	uint32_t *pdt = (uint32_t *)PDT_PHY_ADDR;
-	memset((void *)PDT_PHY_ADDR, 0, PAGE_SIZE); // 清空数据
-	// 0x00000000 - 0x003fffff
-	pdt[0] =
-		(TBL_PHY_ADDR | SIGN_RW | SIGN_SYS |
-		 SIGN_P); // 第0个页(前4MB内存):GDT、BIOS、内核主程序
-	// 0xffc00000 - 0xffffffff
+extern void	 *_kernel_start_phy, *_kernel_start_vir;
+extern void	 *_kernel_end_phy, *_kernel_end_vir;
+extern size_t PREALLOCATED_END_PHY;
+extern void	 *VIR_BASE;
+
+size_t pdt_phy_addr;
+size_t kernel_start_vir;
+
+void __early_init early_memset(void *dst, uint8_t value, size_t size) {
+	uint8_t *_dst = dst;
+	for (int i = 0; i < size; i++)
+		*_dst++ = value;
+}
+
+size_t __early_init page_early_setup(void) {
+	size_t pdt_addr =
+		((((size_t)&_kernel_end_phy) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1));
+	size_t pt_addr_start = pdt_addr + PAGE_SIZE;
+
+	size_t *pdt = (size_t *)pdt_addr;
+	early_memset(pdt, 0, PAGE_SIZE);
+	for (int i = 0; i < PAGE_SIZE / sizeof(size_t) - 1; i++) {
+		pdt[i] = 0;
+	}
+
 	pdt[1023] =
-		(PDT_PHY_ADDR | SIGN_RW | SIGN_SYS |
+		(pdt_addr | SIGN_RW | SIGN_SYS |
 		 SIGN_P); // 第1023个页(最后4MB内存):页表
 
-	// 映射低4MB内存
-	uint32_t  i, j;
-	uint32_t *pt   = (uint32_t *)TBL_PHY_ADDR;
-	uint32_t  addr = (0x00 | SIGN_RW | SIGN_SYS | SIGN_P);
-	// 一个页4KB，一个页表有1024个页表项
-	for (i = 0; i < 1024; i++) {
-		pt[i] = addr;
-		addr += PAGE_SIZE;
-	}
-	pt[0] &= ~SIGN_P; // 0x00000000不可用
+	// 第0个页(前4MB内存):GDT、BIOS
+	size_t *pt = (size_t *)pt_addr_start;
+	pdt[0]	   = ((size_t)pt | SIGN_RW | SIGN_SYS | SIGN_P);
 
-	// 0x00800000 - 0x00bfffff
-	pdt[2] = (DMA_PT_PHY_ADDR2 | SIGN_RW | SIGN_SYS | SIGN_P);
-	pt	   = (uint32_t *)DMA_PT_PHY_ADDR2;
-	addr   = (0x800000 | SIGN_RW | SIGN_SYS | SIGN_P);
-	for (i = 0; i < 1024; i++) {
-		pt[i] = addr;
+	pt[0] = (0 | SIGN_RW | SIGN_SYS) &
+			~SIGN_P; // 0x00000000-0x00000fff设为不存在，暴露NULL指针引发的问题
+	size_t addr = PAGE_SIZE;
+	for (int i = 1; i < PAGE_SIZE / sizeof(size_t); i++) {
+		pt[i] = addr | SIGN_RW | SIGN_SYS | SIGN_P;
 		addr += PAGE_SIZE;
 	}
 
-	// VRAM
-	uint32_t vram_addr = (uint32_t)vesa_display_info.vram;
-	uint32_t size	   = vesa_display_info.width * vesa_display_info.height *
-					(vesa_display_info.BitsPerPixel / 8);
-	for (i = 1; i <= DIV_ROUND_UP(size, PAGE_SIZE * 1024); i++) {
-		pdt[i] =
-			((VRAM_PT_PHY_ADDR + (i - 1) * PAGE_SIZE) | SIGN_RW | SIGN_SYS |
-			 SIGN_P);
-		pt = (uint32_t *)(VRAM_PT_PHY_ADDR + ((i - 1) * PAGE_SIZE));
-		addr =
-			((vram_addr + (i - 1) * PAGE_SIZE * 1024) | SIGN_RW | SIGN_SYS |
-			 SIGN_P);
-		for (j = 0; j < 1024; j++) {
-			pt[j] = addr;
+	// 数学上:
+	// 当 pages <= 1024
+	//    pages                   = size / PAGE_SIZE + pages / PAGE_SIZE + 1
+	// => pages *  PAGE_SIZE      = size + PAGE_SIZE + pages
+	// => pages * (PAGE_SIZE - 1) = size + PAGE_SIZE
+	// => pages                   = (size + PAGE_SIZE) / (PAGE_SIZE - 1)
+
+	int page;
+	int kernel_start_page = (((size_t)&_kernel_start_vir) >> 12) & ~0x3ff;
+	int kernel_end_page	  = (((size_t)&_kernel_end_vir) + PAGE_SIZE - 1) >> 12;
+	addr				  = (size_t)&_kernel_start_phy & ~0x3fffff;
+
+	for (page = kernel_start_page; page < kernel_end_page; page++) {
+		if ((page & (PAGE_SIZE - 1)) == 0) {
+			pt = (size_t *)((size_t)pt + PAGE_SIZE);
+			early_memset(pt, 0, PAGE_SIZE);
+			pdt[page >> 10] = (size_t)pt | SIGN_RW | SIGN_SYS | SIGN_P;
+		}
+		int num = page & ((PAGE_SIZE) / sizeof(size_t) - 1);
+		pt[num] = (addr | SIGN_RW | SIGN_SYS | SIGN_P);
+		addr += PAGE_SIZE;
+	}
+
+	size_t *preallocated_end =
+		(size_t *)((size_t)&PREALLOCATED_END_PHY - (size_t)&VIR_BASE);
+	*preallocated_end = (size_t)pt + PAGE_SIZE;
+	return (size_t)pdt;
+}
+
+void setup_page(void) {
+	// 物理地址->虚拟地址映射关系:
+	// 0x00000000-0x00400000 => 0x00000000-0x00400000
+	// 0x00000000-0x37ffffff => 0xc0000000-0xf7ffffff
+
+	// 启动时只映射内核部分内存和预分配内存
+	size_t end = KERNEL_LINEAR_SIZE;
+
+	size_t *pdt		= (size_t *)0xfffff000;
+	int		pdt_off = ((size_t)&VIR_BASE) >> 22;
+
+	size_t kernel_end = page_align_up((size_t)&_kernel_end_phy);
+	// 预分配内存占用的页数
+	size_t page_delta = (end - kernel_end) >> 12;
+
+	// 由于需要计算要额外分配的页表数，
+	// 所以需要向上对齐到页目录表项，忽略已分配过的最后一个页表
+	size_t end_pdt		  = ((end - 1) + 0x003fffff) >> 22;
+	size_t kernel_end_pdt = (kernel_end + 0x003fffff) >> 22;
+
+	// 管理预分配内存所需的页目录表项数，
+	// 一个页目录表项对应一个页表，一个页表需要额外分配一个页
+	size_t pdt_delta = end_pdt - kernel_end_pdt;
+
+	int page_start = kernel_end >> 12;
+	int page_end   = page_start + page_delta + pdt_delta;
+
+	size_t start_addr = early_allocate_pages(pdt_delta);
+	size_t addr		  = start_addr;
+
+	int		pdt_num;
+	int		pt_num;
+	int		page = page_start;
+	size_t *pt, *pde;
+
+	for (pdt_num = kernel_end_pdt - 1; pdt_num < end_pdt; pdt_num++) {
+		pde = (size_t *)&pdt[pdt_off + pdt_num];
+		pt	= (size_t *)(0xffc00000 + ((pdt_off + pdt_num) << 12));
+		if (!(*pde & 0xfffff000)) {
+			*pde = ((size_t)addr | SIGN_RW | SIGN_SYS | SIGN_P);
 			addr += PAGE_SIZE;
+		}
+		pt_num = (page & 0x3ff);
+		for (int i = pt_num; i < 1024 && page < page_end; i++, page++) {
+			pt[i] = (page << 12 | SIGN_RW | SIGN_SYS | SIGN_P);
 		}
 	}
 
-	write_cr3(pdt);
+	// 将页表所在的页设置为只读，这样只能通过映射到最后4MB的页修改页表
+	// 避免代码bug导致意外修改
+	for (int i = 0; i < 1024; i++) {
+		if (pdt[i] & SIGN_P && pdt[i] & 0xfffff000) {
+			size_t phy_addr = pdt[i] & 0xfffff000;
+			size_t vir_addr = (size_t)&VIR_BASE + phy_addr;
+
+			size_t *pte = pte_ptr(vir_addr);
+			(*pte) &= ~SIGN_RW;
+		}
+	}
 }
 
 /**
@@ -424,6 +506,7 @@ uint32_t free_mem_page(int address) {
 	int addr = address;
 	int idx;
 
+	if (addr < PHY_MEM_BASE_ADDR) { return -1; }
 	idx = (addr - PHY_MEM_BASE_ADDR) / 0x1000;
 	if (phy_page_mmap.bits[idx / 8] & (1 << idx % 8)) {
 		mmap_set(&phy_page_mmap, idx, 0);

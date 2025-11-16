@@ -4,7 +4,8 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "driver/timer/timer_dm.h"
+#include "kernel/ards.h"
+#include "kernel/memory/block.h"
 #include "objects/transfer.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
@@ -38,6 +39,7 @@
 #include <kernel/thread.h>
 #include <objects/handle.h>
 #include <objects/ops.h>
+#include <sections.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -101,12 +103,16 @@ void thread_play(void *arg) {
 
 void network_timer_init(void);
 
-int main() {
+void kernel_early_init(void) {
+	memory_early_init();
 	platform_early_init();
+}
 
+int main() {
 	uint8_t *zero = 0;
 
 	init_memory();
+	while (true) {}
 	init_object_tree();
 	init_device_managers();
 	init_bus_manager();
@@ -119,7 +125,9 @@ int main() {
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0, NULL);
 	io_sti();
-	printk("Memory Size:%dM\n", get_memory_size());
+	printk(
+		"Memory Size: Total %dKiB, Usable %dKiB\n", get_memory_total_size(),
+		get_memory_usable_size());
 	thread_start(
 		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL,
 		NULL);

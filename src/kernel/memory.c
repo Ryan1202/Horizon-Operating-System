@@ -5,81 +5,112 @@
  * @version 0.1
  * @date 2020-07
  */
-#include "kernel/driver_interface.h"
-#include "kernel/list.h"
+#include "sections.h"
 #include <kernel/ards.h>
 #include <kernel/console.h>
+#include <kernel/list.h>
 #include <kernel/memory.h>
+#include <kernel/memory/block.h>
 #include <kernel/page.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
-
-uint32_t ards_addr	  = ARDS_ADDR;
-uint32_t ards_nr_addr = ARDS_NR;
 
 struct ards			 *ards;
 struct mmap			  phy_page_mmap;
 struct mmap			  vir_page_mmap;
 struct memory_manage *memory_manage;
 
-uint32_t memory_total_size;
+uint32_t usable_memory_size;
+uint32_t total_memory_size;
 
 const int memory_block_size[MEMORY_FREE_LIST_COUNT] = {32,	64,	  128, 256,
 													   512, 1024, 2048};
 
-extern void new_vir(void);
-extern void new_phy(void);
+// extern void new_vir(void);
+// extern void new_phy(void);
 
-void init_memory(void) {
-	uint16_t ards_nr = *((uint16_t *)ards_nr_addr); // ards 结构数
-	ards			 = (struct ards *)ards_addr;	// ards 地址
-	int i;
-	for (i = 0; i < ards_nr; i++) {
-		// 寻找可用最大内存
-		if (ards->type == 1) {
-			if (ards->base_low + ards->length_low > memory_total_size) {
-				memory_total_size = ards->base_low + ards->length_low;
-			}
-		}
-		ards++;
-	}
+extern void *_kernel_start_phy;
+extern void *_kernel_end_phy;
+extern void *_kernel_end_vir;
 
-	int page_bytes =
-		(memory_total_size - PHY_MEM_BASE_ADDR - KERN_VIR_MEM_BASE_ADDR) /
-		(PAGE_SIZE * 8);
+extern void *VIR_BASE;
+extern void *KERNEL_PHY_BASE;
 
-	phy_page_mmap.bits = (unsigned char *)PHY_MEM_MMAP;
-	phy_page_mmap.len  = page_bytes;
-
-	vir_page_mmap.bits = (unsigned char *)VIR_MEM_MMAP;
-	vir_page_mmap.len =
-		PHY_MEM_MMAP_SIZE -
-		(PHY_MEM_BASE_ADDR + KERN_VIR_MEM_BASE_ADDR) / (PAGE_SIZE * 8);
-
-	memset(phy_page_mmap.bits, 0, phy_page_mmap.len);
-	memset(vir_page_mmap.bits, 0, vir_page_mmap.len);
-
-	unsigned int memory_manage_pages =
-		DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
-	memory_manage =
-		(struct memory_manage *)kernel_alloc_pages(memory_manage_pages);
-	memset(memory_manage, 0, memory_manage_pages * PAGE_SIZE);
-	memory_manage->last_free_block = 0;
-	for (i = 0; i < MEMORY_FREE_LIST_COUNT; i++) {
-		list_init(&memory_manage->free_blocks_list[i]);
-	}
-	for (i = 0; i < MEMORY_BLOCKS; i++) {
-		memory_manage->free_blocks[i].size	= 0; // 大小是页的数量
-		memory_manage->free_blocks[i].flags = 0;
-	}
-
-	new_phy();
-	new_vir();
+void memory_early_init(void) {
+	page_early_init((size_t)&_kernel_end_phy);
+	setup_page();
 }
 
-int get_memory_size(void) {
-	return memory_total_size / 1024 / 1024;
+void init_memory(void) {
+	uint32_t ards_addr	  = ARDS_ADDR;
+	uint32_t ards_nr_addr = ARDS_NR;
+	uint16_t ards_nr	  = *((uint16_t *)ards_nr_addr); // ards 结构数
+	ards				  = (struct ards *)ards_addr;	 // ards 地址
+	page_init(ards, ards_nr, (size_t)&_kernel_start_phy);
+	mem_caches_init();
+	// int i;
+	// for (i = 0; i < ards_nr; i++) {
+	// 	// 寻找可用最大内存
+	// 	if (ards->type == 1) {
+	// 		if (ards->base_low + ards->length_low > usable_memory_size) {
+	// 			usable_memory_size = ards->base_low + ards->length_low;
+	// 		}
+	// 	}
+	// 	total_memory_size += ards->length_low;
+	// 	ards++;
+	// }
+
+	// int page_bytes =
+	// 	(usable_memory_size - PHY_MEM_BASE_ADDR - KERN_VIR_MEM_BASE_ADDR) /
+	// 	(PAGE_SIZE * 8);
+
+	// phy_page_mmap.bits = (unsigned char *)PHY_MEM_MMAP;
+	// phy_page_mmap.len  = page_bytes;
+
+	// vir_page_mmap.bits = (unsigned char *)VIR_MEM_MMAP;
+	// vir_page_mmap.len =
+	// 	PHY_MEM_MMAP_SIZE -
+	// 	(PHY_MEM_BASE_ADDR + KERN_VIR_MEM_BASE_ADDR) / (PAGE_SIZE * 8);
+
+	// memset(phy_page_mmap.bits, 0, phy_page_mmap.len);
+	// memset(vir_page_mmap.bits, 0, vir_page_mmap.len);
+
+	// unsigned int memory_manage_pages =
+	// 	DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
+	// memory_manage =
+	// 	(struct memory_manage *)kernel_alloc_pages(memory_manage_pages);
+	// memset(memory_manage, 0, memory_manage_pages * PAGE_SIZE);
+	// memory_manage->last_free_block = 0;
+	// for (i = 0; i < MEMORY_FREE_LIST_COUNT; i++) {
+	// 	list_init(&memory_manage->free_blocks_list[i]);
+	// }
+	// for (i = 0; i < MEMORY_BLOCKS; i++) {
+	// 	memory_manage->free_blocks[i].size	= 0; // 大小是页的数量
+	// 	memory_manage->free_blocks[i].flags = 0;
+	// }
+}
+
+void print_ards(void) {
+	uint16_t ards_nr = *((uint16_t *)ARDS_NR);	 // ards 结构数
+	ards			 = (struct ards *)ARDS_ADDR; // ards 地址
+	int i;
+	printk("ARDS number: %d\n", ards_nr);
+	for (i = 0; i < ards_nr; i++) {
+		printk(
+			"ARDS %d: base: 0x%08x %08x, length: 0x%08x %08x, type: 0x%x\n", i,
+			ards->base_high, ards->base_low, ards->length_high,
+			ards->length_low, ards->type);
+		ards++;
+	}
+}
+
+int get_memory_usable_size(void) {
+	return usable_memory_size / 1024;
+}
+
+int get_memory_total_size(void) {
+	return total_memory_size / 1024;
 }
 
 int mmap_search(struct mmap *btmp, unsigned int cnt) {
