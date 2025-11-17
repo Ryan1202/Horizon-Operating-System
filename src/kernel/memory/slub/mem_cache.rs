@@ -1,9 +1,4 @@
-use core::{
-    cell::SyncUnsafeCell,
-    mem::{replace, MaybeUninit},
-    num::NonZeroU16,
-    ptr::{null_mut, NonNull},
-};
+use core::{cell::SyncUnsafeCell, mem::MaybeUninit, num::NonZeroU16, ptr::NonNull};
 
 use crate::{
     kernel::memory::{
@@ -82,29 +77,9 @@ impl MemCaches {
 
 static CACHES: SyncUnsafeCell<MaybeUninit<MemCaches>> = SyncUnsafeCell::new(MaybeUninit::uninit());
 
-/// 每个 CPU 的简单缓存（忽略 NUMA）
-pub struct MemCacheCpu {
-    // 简单的空闲链表头（按 u8 指针存放对象地址），真实实现需考虑对象布局/对齐
-    freelist: *mut u8,
-    partial_list: ListHead<Slub>,
-    pub count: usize,
-    // 使用自旋锁类型以保护 cpu cache
-    spinlock: SpinlockRaw,
-}
-
-impl MemCacheCpu {
-    pub const unsafe fn empty() -> Self {
-        MemCacheCpu {
-            freelist: null_mut(),
-            partial_list: ListHead::empty(),
-            count: 0,
-            spinlock: SpinlockRaw::new_unlocked(),
-        }
-    }
-}
-
 /// 每个节点的缓存（这里我们忽略节点/NUMA，仅保留一个节点结构）
 pub struct MemCacheNode {
+    slub: NonNull<Slub>,
     pub partial_list: Spinlock<ListHead<Slub>>,
 }
 
@@ -113,19 +88,15 @@ unsafe impl Sync for MemCacheNode {}
 impl MemCacheNode {
     const OBJECT_SIZE: NonZeroU16 = mem_cache::object_size::<Slub>();
 
-    fn init(&mut self, slub: &mut Slub) {
-        debug_assert!(!slub.list.is_linked());
-        unsafe {
-            *self = Self {
-                partial_list: Spinlock::new(ListHead::empty()),
-            };
-
-            {
-                let mut partial_list = self.partial_list.lock();
-                partial_list.init();
-                partial_list.add_head(&mut slub.list);
-            }
+    fn init(&mut self, slub: NonNull<Slub>) {
+        debug_assert!(!unsafe { slub.as_ref() }.list.is_linked());
+        *self = Self {
+            slub: slub,
+            partial_list: Spinlock::new(ListHead::empty()),
         };
+
+        let mut partial_list = self.partial_list.lock();
+        partial_list.init();
     }
 
     /// 创建一个Slub存放自身，作为 MemCacheNode 类型的 MemCache 的一个节点
@@ -139,7 +110,7 @@ impl MemCacheNode {
             let _slub = slub.as_mut();
             let mut mem_cache_node: NonNull<Self> = _slub.allocate().unwrap();
 
-            mem_cache_node.as_mut().init(_slub);
+            mem_cache_node.as_mut().init(slub);
 
             mem_cache_node
         }
@@ -159,10 +130,9 @@ impl MemCacheNode {
         let (object_size, object_num, order) = calculate_sizes(object_size::<T>(), true);
 
         unsafe {
-            let mut slub =
-                Slub::new_embedded(ZoneType::MEM32, object_size, object_num, order).unwrap();
+            let slub = Slub::new_embedded(ZoneType::MEM32, object_size, object_num, order).unwrap();
 
-            result.as_mut().init(slub.as_mut());
+            result.as_mut().init(slub);
         }
 
         Some(result)
@@ -198,8 +168,6 @@ pub struct MemCache {
     pub align: usize,
     /// 单一节点（忽略 NUMA）
     pub node: NonNull<MemCacheNode>,
-    /// 每 CPU 缓存指针（为简化，这里仅提供单一 cpu cache）
-    pub cpu: MemCacheCpu,
     /// 全局自旋锁保护全局操作
     pub spinlock: SpinlockRaw,
 }
@@ -215,20 +183,17 @@ impl MemCache {
             .min(MAX_PARTIAL)
             .max(MIN_PARTIAL);
 
-        unsafe {
-            *self = Self {
-                list: ListNode::new(),
-                name,
-                object_size,
-                object_num,
-                order,
-                align: ALIGN,
-                min_partial,
-                node,
-                cpu: MemCacheCpu::empty(),
-                spinlock: SpinlockRaw::new_unlocked(),
-            };
-        }
+        *self = Self {
+            list: ListNode::new(),
+            name,
+            object_size,
+            object_num,
+            order,
+            align: ALIGN,
+            min_partial,
+            node,
+            spinlock: SpinlockRaw::new_unlocked(),
+        };
     }
 
     fn bootstrap(mut mem_cache_node: NonNull<MemCacheNode>) -> NonNull<Self> {
@@ -271,37 +236,13 @@ impl MemCache {
         self.new_boot_from_node::<T>(name, mem_cache_node)
     }
 
-    /// 分配对象（stub）：尝试从 CPU 缓存取出，否则返回 null
-    /// 真实实现应尝试 refill 或从 node/global 获取对象
+    /// 分配对象
     pub unsafe fn alloc(&mut self) -> *mut u8 {
-        // 尝试从 cpu freelist 获取（简化：不做复杂的原子操作，只用自旋锁保护）
-        self.cpu.spinlock.lock();
-        let obj = if !self.cpu.freelist.is_null() {
-            // 把 freelist 当单链表：头部存储下一个指针
-            let next = *(self.cpu.freelist as *mut *mut u8);
-            let ret = self.cpu.freelist;
-            self.cpu.freelist = next;
-            self.cpu.count = self.cpu.count.saturating_sub(1);
-            ret
-        } else {
-            null_mut()
-        };
-        self.cpu.spinlock.unlock();
-        obj
+        unimplemented!()
     }
 
-    /// 释放对象到 CPU 缓存（stub）
+    /// 释放对象
     pub unsafe fn free(&mut self, obj: *mut u8) {
-        if obj.is_null() {
-            return;
-        }
-        self.cpu.spinlock.lock();
-        // 将 obj 的起始地址写为当前 freelist 头（单链表），并更新头
-        let head_ptr = &mut self.cpu.freelist as *mut *mut u8;
-        // 在内核中需要确保写入安全（对象大小足够存放指针）
-        *(obj as *mut *mut u8) = self.cpu.freelist;
-        self.cpu.freelist = obj;
-        self.cpu.count = self.cpu.count.saturating_add(1);
-        self.cpu.spinlock.unlock();
+        unimplemented!()
     }
 }

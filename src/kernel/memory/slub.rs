@@ -89,6 +89,12 @@ impl Slub {
             )
         };
 
+        // 填写 Page 中的 Slub 字段
+        for i in 0..order.to_count() {
+            let page = pages.add(i).as_mut();
+            page.slub = slub.as_ptr();
+        }
+
         FreeNode::init(free_nodes, object_num, object_size);
 
         let inner = Spinlock::new(SlubInner::new(free_nodes.as_ptr()));

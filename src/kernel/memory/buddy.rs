@@ -49,7 +49,7 @@ impl PageOrder {
     }
 
     pub const fn to_size(&self) -> usize {
-        0x1000 << self.0
+        PAGE_SIZE << self.0
     }
 }
 #[repr(C)]

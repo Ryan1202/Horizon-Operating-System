@@ -144,7 +144,7 @@ impl<T> Spinlock<T> {
         }
     }
 
-    pub fn lock(&mut self) -> SpinGuard<T> {
+    pub fn lock(&mut self) -> SpinGuard<'_, T> {
         self.lock.lock();
         SpinGuard {
             lock: &mut self.lock,
@@ -152,7 +152,7 @@ impl<T> Spinlock<T> {
         }
     }
 
-    pub fn lock_irqsave(&mut self) -> SpinIrqGuard<T> {
+    pub fn lock_irqsave(&mut self) -> SpinIrqGuard<'_, T> {
         let status = self.lock.lock_irqsave();
         SpinIrqGuard {
             lock: &mut self.lock,
