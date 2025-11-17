@@ -4,8 +4,10 @@
 #include <kernel/ards.h>
 #include <stdint.h>
 
-void   page_early_init(size_t kernel_end);
+void page_early_init(
+	struct ards *ards, uint16_t ards_nr, size_t kernel_start,
+	size_t kernel_end);
 size_t early_allocate_pages(uint8_t count);
-void   page_init(struct ards *ards, uint16_t ards_nr, size_t kernel_start);
+void   page_init();
 
 #endif

@@ -38,16 +38,17 @@ extern void *VIR_BASE;
 extern void *KERNEL_PHY_BASE;
 
 void memory_early_init(void) {
-	page_early_init((size_t)&_kernel_end_phy);
-	setup_page();
-}
-
-void init_memory(void) {
 	uint32_t ards_addr	  = ARDS_ADDR;
 	uint32_t ards_nr_addr = ARDS_NR;
 	uint16_t ards_nr	  = *((uint16_t *)ards_nr_addr); // ards 结构数
 	ards				  = (struct ards *)ards_addr;	 // ards 地址
-	page_init(ards, ards_nr, (size_t)&_kernel_start_phy);
+	setup_page();
+	page_early_init(
+		ards, ards_nr, (size_t)&_kernel_start_phy, (size_t)&_kernel_end_phy);
+}
+
+void init_memory(void) {
+	page_init();
 
 	mem_caches_init();
 	// int i;

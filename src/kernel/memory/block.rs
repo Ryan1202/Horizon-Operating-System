@@ -27,7 +27,12 @@ extern "C" {
 pub static mut VIR_BASE_ADDR: usize = 0;
 
 #[no_mangle]
-pub unsafe extern "C" fn page_early_init(kernel_end: usize) {
+pub unsafe extern "C" fn page_early_init(
+    blocks: *mut E820Ards,
+    block_count: u16,
+    kernel_start: usize,
+    kernel_end: usize,
+) {
     // 都向后对齐到页
     // 只是为了看着稍微舒服一点
     PREALLOCATED_END_PHY = page_align_up(PREALLOCATED_END_PHY.max(kernel_end));
@@ -37,7 +42,9 @@ pub unsafe extern "C" fn page_early_init(kernel_end: usize) {
     PAGE_MANAGER_VIR = with_exposed_provenance_mut(PREALLOCATED_END_PHY + VIR_BASE_ADDR);
     PAGE_INFO_START = PAGE_MANAGER_VIR.add(1).cast();
 
-    PREALLOCATED_END_PHY += page_align_up(BuddyAllocator::total_footprint());
+    let size = Page::init(blocks, block_count, (kernel_start, kernel_end));
+
+    PREALLOCATED_END_PHY += page_align_up(size_of::<BuddyAllocator>() + size);
 }
 
 pub unsafe fn page_manager() -> Option<&'static mut BuddyAllocator> {
@@ -45,10 +52,9 @@ pub unsafe fn page_manager() -> Option<&'static mut BuddyAllocator> {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn page_init(blocks: *mut E820Ards, block_count: u16, kernel_start: usize) {
+pub unsafe extern "C" fn page_init() {
     let page_manager = page_manager().unwrap();
-    page_manager.early_init(blocks, block_count);
-    page_manager.init(blocks, block_count, kernel_start);
+    page_manager.init();
 }
 
 // 内核启动早期分配的页都是不会释放的，如页表结构等

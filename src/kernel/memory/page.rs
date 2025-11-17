@@ -7,7 +7,6 @@ use crate::{
     kernel::memory::{
         block::{page_manager, E820Ards, PAGE_INFO_START},
         buddy::{BuddyPage, PageOrder},
-        page,
         slub::Slub,
     },
     CACHELINE_SIZE,
@@ -65,6 +64,9 @@ pub struct PageHole {
 }
 
 pub enum Page {
+    End,
+    /// 已被管理，但未初始化
+    Unused,
     HardwareUsed(PageHole),
     SystemReserved(PageHole),
     Free(PageHole),
@@ -83,15 +85,18 @@ impl Page {
             1 => Page::Free(hole),
             _ => Page::HardwareUsed(hole),
         };
+        const PAGE_UNINITED: Page = Page::Unused;
 
-        for j in 0..count {
+        unsafe { pages.write(page_info) };
+        for j in 1..count {
             unsafe {
-                copy_nonoverlapping(&page_info as *const Page, pages.add(j), 1);
+                copy_nonoverlapping(&PAGE_UNINITED as *const Page, pages.add(j), 1);
             }
         }
     }
 
-    pub fn init(&mut self, blocks: *mut E820Ards, block_count: u16, kernel_range: (usize, usize)) {
+    /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
+    pub fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (usize, usize)) -> usize {
         let (kernel_start, kernel_end) = (
             PageNumber::from_addr(kernel_range.0),
             PageNumber::from_addr(kernel_range.1),
@@ -128,18 +133,25 @@ impl Page {
 
             last = block_end + 1;
         }
+
+        // 最后留一个终止标记
+        last = last + 1;
+        let page = Page::from_page_number(last);
+        unsafe { page.write(Page::End) };
+
+        (last.get() + 1) * size_of::<Page>()
     }
 }
 
 impl Page {
-    pub const fn from_page_num(page_num: PageNumber) -> *mut Page {
-        debug_assert!(page_num.0 <= usize::MAX as usize / PAGE_SIZE);
-        unsafe { PAGE_INFO_START.offset(page_num.0 as isize) }
+    pub const fn from_page_number(page_number: PageNumber) -> *mut Page {
+        debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE);
+        unsafe { PAGE_INFO_START.offset(page_number.0 as isize) }
     }
 
     pub const unsafe fn from_addr(addr: usize) -> *mut Page {
         let page_num = PageNumber::from_addr(addr);
-        Page::from_page_num(page_num)
+        Page::from_page_number(page_num)
     }
 
     pub const unsafe fn next_page(&mut self, count: usize) -> *mut Page {
@@ -158,6 +170,8 @@ impl Page {
     }
 }
 
+/// 内存区域类型
+/// Zone只决定了系统能管理的物理内存范围，与Page管理的内存范围无关
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum ZoneType {
@@ -234,7 +248,7 @@ pub const fn page_count(size: usize) -> usize {
 
 pub trait PageAllocator {
     fn allocate_pages(&mut self, zone_type: ZoneType, order: PageOrder) -> Option<NonNull<Page>>;
-    fn free_pages(&mut self, page: NonNull<Page>);
+    fn free_pages(&mut self, page: NonNull<Page>) -> Result<(), ()>;
 }
 
 #[no_mangle]
@@ -249,10 +263,14 @@ pub extern "C" fn allocate_pages(zone_type: ZoneType, order: PageOrder) -> usize
 }
 
 #[no_mangle]
-pub extern "C" fn free_pages(addr: usize) {
+pub extern "C" fn free_pages(addr: usize) -> i8 {
     unsafe {
-        page_manager()
+        match page_manager()
             .unwrap_unchecked()
             .free_pages(NonNull::new(with_exposed_provenance_mut(addr)).unwrap())
+        {
+            Ok(_) => 0,
+            Err(_) => -1,
+        }
     }
 }
