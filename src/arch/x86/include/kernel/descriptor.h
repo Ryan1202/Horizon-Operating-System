@@ -2,6 +2,7 @@
 #define _DESC_H
 
 #include <kernel/thread.h>
+#include <stdint.h>
 
 #define DESC_G	   0x8000
 #define DESC_D	   0x4000
@@ -36,14 +37,14 @@
 #define SElECTOR_TSS	 (5 << 3) | TI_GDT | RPL0
 
 struct segment_descriptor {
-	short limit_low, base_low;
-	char  base_mid, access_right;
-	char  limit_high, base_high;
+	uint16_t limit_low, base_low;
+	uint8_t	 base_mid, access_right;
+	uint8_t	 limit_high, base_high;
 };
 struct gate_descriptor {
-	short offset_low, selector;
-	char  dw_count, access_right;
-	short offset_high;
+	uint16_t offset_low, selector;
+	uint8_t	 dw_count, access_right;
+	uint16_t offset_high;
 };
 
 typedef void (*irq_handler_t)(int irq);
@@ -74,5 +75,6 @@ void set_segment_descriptor(
 	struct segment_descriptor *sd, unsigned int limit, int base, int ar);
 void set_gate_descriptor(
 	struct gate_descriptor *gd, int offset, int selector, int ar);
+uint16_t set_percpu_segment_descriptor(int cpu_id, size_t addr);
 
 #endif

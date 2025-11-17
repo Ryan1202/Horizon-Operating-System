@@ -53,11 +53,11 @@ SECTIONS {
 		PROVIDE(__exitcall_end = .);
 	} : text
 
-    .percpu ALIGN(64) : AT(ADDR(.percpu) - VIR_BASE)
+    .data..percpu ALIGN(64) : AT(ADDR(.data..percpu) - VIR_BASE)
     {
         . = ALIGN(64);
         PROVIDE(__percpu_start = .);
-        *(.percpu)
+        *(.data..percpu)
         . = ALIGN(64);
         PROVIDE(__percpu_end = .);
     } : data

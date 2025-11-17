@@ -5,13 +5,13 @@
  * @version 0.1
  * @date 2020-07
  */
-#include "sections.h"
 #include <kernel/ards.h>
 #include <kernel/console.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/memory/block.h>
 #include <kernel/page.h>
+#include <kernel/percpu.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -48,6 +48,7 @@ void init_memory(void) {
 	uint16_t ards_nr	  = *((uint16_t *)ards_nr_addr); // ards 结构数
 	ards				  = (struct ards *)ards_addr;	 // ards 地址
 	page_init(ards, ards_nr, (size_t)&_kernel_start_phy);
+
 	mem_caches_init();
 	// int i;
 	// for (i = 0; i < ards_nr; i++) {

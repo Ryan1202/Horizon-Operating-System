@@ -48,6 +48,9 @@ PhysicalDevice *platform_device;
 void platform_early_init() {
 	// 初始化段描述符和中断描述符
 	init_descriptor();
+
+	// 读取CPU特性
+	read_features();
 }
 
 DriverResult platform_init() {
@@ -66,8 +69,6 @@ DriverResult platform_init() {
 	result = create_physical_device(&platform_device, platform_bus, &attr);
 	if (result != DRIVER_OK) { return result; }
 	register_physical_device(platform_device, &platform_device_ops);
-
-	read_features();
 
 	bios_emu_init();
 

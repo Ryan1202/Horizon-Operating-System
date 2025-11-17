@@ -18,6 +18,8 @@
 #include <kernel/softirq.h>
 #include <kernel/thread.h>
 #include <kernel/tss.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 irq_handler_t	irq_table[NR_IRQ];
@@ -188,6 +190,13 @@ void init_descriptor(void) {
 		idt + 0x80, (int)syscall_handler, 0x08, DA_386IGate_DPL3);
 
 	load_idtr(IDT_SIZE, IDT_ADDR);
+}
+
+uint16_t set_percpu_segment_descriptor(int cpu_id, size_t addr) {
+	set_segment_descriptor(
+		gdt + 5 + cpu_id, 0xffffffff, addr,
+		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_0);
+	return (5 + cpu_id) * 0x8;
 }
 
 /**
