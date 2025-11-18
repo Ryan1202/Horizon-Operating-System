@@ -3,7 +3,9 @@
 //! 提供一组默认的 kmalloc 缓存配置（kmalloc-8 .. kmalloc-4k），
 //! 每项包含 name、object_size。
 
-pub(super) const MIN_OBJECTS_PER_SLAB: usize = 1;
+use core::ptr::NonNull;
+
+use crate::kernel::memory::slub::mem_cache::MemCache;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CacheConfig {
@@ -14,7 +16,7 @@ pub struct CacheConfig {
 }
 
 /// 默认缓存列表（从 8 到 4096 bytes）
-pub static DEFAULT_CACHES: &'static [CacheConfig] = &[
+pub static DEFAULT_CACHE_CONFIGS: &'static [CacheConfig] = &[
     CacheConfig {
         name: "kmalloc-8",
         object_size: 8,
@@ -56,10 +58,7 @@ pub static DEFAULT_CACHES: &'static [CacheConfig] = &[
         object_size: 4096,
     },
 ];
+const DEFAULT_CACHE_COUNT: usize = DEFAULT_CACHE_CONFIGS.len();
 
-impl CacheConfig {
-    /// 计算每个 slab 中可容纳的对象数量（假定页大小为 4096 字节）
-    pub fn objects_per_slab(&self, page_size: usize) -> usize {
-        todo!()
-    }
-}
+pub static mut DEFAULT_CACHES: [NonNull<MemCache>; DEFAULT_CACHE_COUNT] =
+    [NonNull::dangling(); DEFAULT_CACHE_COUNT];

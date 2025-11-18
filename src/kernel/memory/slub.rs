@@ -13,7 +13,7 @@ use crate::{
         block::{page_manager, VIR_BASE_ADDR},
         buddy::{BuddyPage, PageOrder},
         page::{PageAllocator, ZoneType, PAGE_SIZE},
-        slub::mem_cache::{MemCache, MemCaches},
+        slub::mem_cache::{MemCache, MemCaches, ObjectSize},
         Page,
     },
     lib::rust::{list::ListNode, spinlock::Spinlock},
@@ -220,8 +220,8 @@ const fn reserved_space(embed: bool) -> usize {
     }
 }
 
-fn calculate_order(size: NonZeroU16, embed: bool) -> Result<PageOrder, SlubError> {
-    let mut size = size.get().next_multiple_of(size_of::<usize>() as u16);
+fn calculate_order(size: ObjectSize, embed: bool) -> Result<PageOrder, SlubError> {
+    let mut size = size.0.get().next_multiple_of(size_of::<usize>() as u16);
     size = size.min(MAX_OBJECT_SIZE as u16).max(MIN_OBJECT_SIZE as u16);
 
     let mut order = 0;
@@ -250,13 +250,13 @@ fn calculate_order(size: NonZeroU16, embed: bool) -> Result<PageOrder, SlubError
     }
 }
 
-fn calculate_sizes(size: NonZeroU16, embed: bool) -> (NonZeroU16, NonZeroU16, PageOrder) {
+fn calculate_sizes(size: ObjectSize, embed: bool) -> (NonZeroU16, NonZeroU16, PageOrder) {
     let order = calculate_order(size, embed).unwrap();
 
     let reserved_space = reserved_space(embed);
     let slab_size = (PAGE_SIZE << order.val()) - reserved_space;
 
-    let object_size = size.get().next_multiple_of(size_of::<usize>() as u16) as usize;
+    let object_size = size.0.get().next_multiple_of(size_of::<usize>() as u16) as usize;
     let object_num = (slab_size / object_size) as u16;
 
     (
