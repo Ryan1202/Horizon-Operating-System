@@ -10,7 +10,7 @@ use core::{
 
 use crate::{
     kernel::memory::{
-        block::page_manager,
+        block::{page_manager, VIR_BASE_ADDR},
         buddy::{BuddyPage, PageOrder},
         page::{PageAllocator, ZoneType, PAGE_SIZE},
         slub::mem_cache::{MemCache, MemCaches},
@@ -84,7 +84,7 @@ impl Slub {
             .allocate_pages(zone_type, order)
             .ok_or(SlubError::PageAllocationFailed)?;
 
-        let start_addr = pages.as_ref().start_addr();
+        let start_addr = pages.as_ref().start_addr() + VIR_BASE_ADDR;
         let free_nodes = {
             pages
                 .with_addr(NonZeroUsize::new(start_addr).unwrap())
@@ -106,7 +106,7 @@ impl Slub {
         };
 
         // 填写 Page 中的 Slub
-        for i in 0..order.to_count() {
+        for i in 1..order.to_count() {
             let page = pages.add(i);
 
             let slub_info = Slub {
@@ -228,7 +228,7 @@ fn calculate_order(size: NonZeroU16, embed: bool) -> Result<PageOrder, SlubError
     let reserved_space = reserved_space(embed);
 
     for fraction in [16, 8, 4, 2] {
-        for _order in 0..=MAX_PAGE_ORDER.val() {
+        for _order in 0..MAX_PAGE_ORDER.val() {
             let slab_size = (PAGE_SIZE << _order) - reserved_space;
 
             let remain = slab_size % (size as usize);

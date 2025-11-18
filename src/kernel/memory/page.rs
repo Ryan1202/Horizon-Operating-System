@@ -81,8 +81,9 @@ pub enum Page {
 const _: () = assert!(size_of::<Page>() <= MAX_PAGE_STRUCT_SIZE);
 
 impl Page {
+    /// 填充 [start, end] 范围的Page
     fn fill_range(start: PageNumber, end: PageNumber, e820_type: u32) {
-        let pages: *mut Page = start.get() as *mut Page;
+        let pages: *mut Page = Page::from_page_number(start) as *mut Page;
         let count = end.count_from(start);
         let hole = PageHole { start, end };
         let page_info = match e820_type {
@@ -114,33 +115,35 @@ impl Page {
 
             // 起始地址向后对齐，避免向前越界
             let block_start = PageNumber::from_addr(page_align_up(block.base_addr as usize));
-            let block_end = block_start + page_count(block.length as usize - 1);
+            let block_end = block_start + page_count(block.length as usize);
 
             if last < block_start {
                 // 填充上一个块和当前块之间的空洞为保留
                 Self::fill_range(last, block_start - 1, 2);
             }
 
-            if block_end <= kernel_start || block_start >= kernel_end {
-                Self::fill_range(block_start, block_end, block.block_type);
-            } else {
-                // 内存块和内核有重叠部分
-                if block_start < kernel_start {
-                    // 前半部分可用
-                    Self::fill_range(block_start, kernel_start - 1, block.block_type);
-                }
-                Self::fill_range(kernel_start, kernel_end, 0);
-                if block_end > kernel_end {
-                    // 后半部分可用
-                    Self::fill_range(kernel_end + 1, block_end, block.block_type);
+            if block_start < block_end {
+                // 填充 [block_start, block_end) 范围
+                if block_end <= kernel_start || block_start >= kernel_end {
+                    Self::fill_range(block_start, block_end - 1, block.block_type);
+                } else {
+                    // 内存块和内核有重叠部分
+                    if block_start < kernel_start {
+                        // 前半部分可用
+                        Self::fill_range(block_start, kernel_start - 1, block.block_type);
+                    }
+                    Self::fill_range(kernel_start, kernel_end, 0);
+                    if block_end > kernel_end {
+                        // 后半部分可用
+                        Self::fill_range(kernel_end + 1, block_end - 1, block.block_type);
+                    }
                 }
             }
 
-            last = block_end + 1;
+            last = block_end;
         }
 
         // 最后留一个终止标记
-        last = last + 1;
         let page = Page::from_page_number(last);
         unsafe { page.write(Page::End) };
 
@@ -150,7 +153,7 @@ impl Page {
 
 impl Page {
     pub const fn from_page_number(page_number: PageNumber) -> *mut Page {
-        debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE);
+        debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
         unsafe { PAGE_INFO_START.offset(page_number.0 as isize) }
     }
 
@@ -160,12 +163,12 @@ impl Page {
     }
 
     pub const unsafe fn next_page(&mut self, count: usize) -> *mut Page {
-        debug_assert!(count <= usize::MAX as usize / PAGE_SIZE);
+        debug_assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
         (self as *mut Page).add(count)
     }
 
     pub const unsafe fn prev_page(&mut self, count: usize) -> *mut Page {
-        debug_assert!(count <= usize::MAX as usize / PAGE_SIZE);
+        debug_assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
         (self as *mut Page).sub(count)
     }
 
@@ -180,24 +183,21 @@ impl Page {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum ZoneType {
+    /// (ISA )DMA区，低于16MB
     DMA = 0,
-    #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-    MEM32 = 1,
-    #[cfg(target_pointer_width = "64")]
+    /// 内核线性映射区，低于4GB（64位）或896MB（32位）
+    LinearMem = 1,
+    /// 高端内存区，超过4GB（64位）或896MB（32位）
     HighMem = 2,
 }
 
 impl ZoneType {
-    #[cfg(target_pointer_width = "32")]
-    pub const ZONE_COUNT: usize = 2;
-    #[cfg(target_pointer_width = "64")]
     pub const ZONE_COUNT: usize = 3;
 
     pub const fn index(&self) -> usize {
         match self {
             ZoneType::DMA => 0,
-            ZoneType::MEM32 => 1,
-            #[cfg(target_pointer_width = "64")]
+            ZoneType::LinearMem => 1,
             ZoneType::HighMem => 2,
         }
     }
@@ -205,8 +205,7 @@ impl ZoneType {
     pub const fn from_index(index: usize) -> Self {
         match index {
             0 => ZoneType::DMA,
-            1 => ZoneType::MEM32,
-            #[cfg(target_pointer_width = "64")]
+            1 => ZoneType::LinearMem,
             2 => ZoneType::HighMem,
             _ => panic!("Invalid zone index"),
         }
@@ -214,8 +213,13 @@ impl ZoneType {
 
     pub const fn range(&self) -> (usize, usize) {
         match self {
-            ZoneType::DMA => (0, (1 << 24) - 1),             // 16MB
-            ZoneType::MEM32 => (1 << 24, u32::MAX as usize), // 4GB
+            ZoneType::DMA => (0, (1 << 24) - 1), // 16MB
+            #[cfg(target_pointer_width = "32")]
+            ZoneType::LinearMem => (1 << 24, 0x37ffffff), // 896MB
+            #[cfg(target_pointer_width = "64")]
+            ZoneType::LinearMem => (1 << 24, 1 << 32), // 4GB
+            #[cfg(target_pointer_width = "32")]
+            ZoneType::HighMem => (0x38000000, usize::MAX), // >896MB
             #[cfg(target_pointer_width = "64")]
             ZoneType::HighMem => (1 << 32, usize::MAX), // >4GB
         }
@@ -225,7 +229,7 @@ impl ZoneType {
         if addr < (1 << 24) {
             ZoneType::DMA
         } else if addr <= u32::MAX as usize {
-            ZoneType::MEM32
+            ZoneType::LinearMem
         } else {
             #[cfg(target_pointer_width = "64")]
             {

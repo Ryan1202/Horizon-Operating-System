@@ -28,7 +28,6 @@ pub struct MemCaches {
     pub list_head: Spinlock<ListHead<MemCache>>,
     pub mem_cache: NonNull<MemCache>,
     pub mem_cache_node: NonNull<MemCache>,
-    pub slub_cache: NonNull<MemCache>,
 }
 
 unsafe impl Sync for MemCaches {}
@@ -44,29 +43,21 @@ impl MemCaches {
         let mut mem_cache_node =
             unsafe { MemCacheNode::bootstrap_cache(mem_cache_node, mem_cache.as_mut()) };
 
-        let slub_cache = unsafe {
-            mem_cache
-                .as_mut()
-                .new_boot::<Slub>(b"slub_cache\0".as_ptr(), mem_cache_node.as_mut())
-        };
         unsafe {
             let caches_uninit = &mut *CACHES.get();
             let caches = caches_uninit.write(MemCaches {
                 list_head: Spinlock::new(ListHead::empty()),
                 mem_cache,
                 mem_cache_node,
-                slub_cache,
             });
 
             let mem_cache_node = caches.mem_cache_node.as_mut();
             let mem_cache = caches.mem_cache.as_mut();
-            let slub_cache = caches.slub_cache.as_mut();
 
             let mut list_head = caches.list_head.lock();
             list_head.init();
             list_head.add_head(&mut mem_cache_node.list);
             list_head.add_head(&mut mem_cache.list);
-            list_head.add_head(&mut slub_cache.list);
         }
     }
 
@@ -103,7 +94,8 @@ impl MemCacheNode {
     fn bootstrap() -> NonNull<Self> {
         let (_, object_num, order) = calculate_sizes(Self::OBJECT_SIZE, true);
 
-        let mut slub = Slub::new(ZoneType::MEM32, Self::OBJECT_SIZE, object_num, order).unwrap();
+        let mut slub =
+            Slub::new(ZoneType::LinearMem, Self::OBJECT_SIZE, object_num, order).unwrap();
 
         unsafe {
             let _slub = slub.as_mut();
@@ -132,7 +124,7 @@ impl MemCacheNode {
         let (object_size, object_num, order) = calculate_sizes(object_size::<T>(), true);
 
         unsafe {
-            let slub = Slub::new(ZoneType::MEM32, object_size, object_num, order).unwrap();
+            let slub = Slub::new(ZoneType::LinearMem, object_size, object_num, order).unwrap();
 
             result.as_mut().init(slub);
         }

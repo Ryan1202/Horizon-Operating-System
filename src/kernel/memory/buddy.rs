@@ -1,4 +1,7 @@
-use core::ptr::NonNull;
+use core::{
+    ops::{Add, Sub},
+    ptr::NonNull,
+};
 
 use crate::{
     kernel::memory::page::{
@@ -13,6 +16,22 @@ const MAX_ORDER: PageOrder = PageOrder(11);
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PageOrder(u8);
+
+impl Add<u8> for PageOrder {
+    type Output = PageOrder;
+
+    fn add(self, rhs: u8) -> Self::Output {
+        PageOrder(self.0 + rhs)
+    }
+}
+
+impl Sub<u8> for PageOrder {
+    type Output = PageOrder;
+
+    fn sub(self, rhs: u8) -> Self::Output {
+        PageOrder(self.0 - rhs)
+    }
+}
 
 impl PageOrder {
     pub const fn new(order: u8) -> Self {
@@ -68,13 +87,20 @@ impl BuddyAllocator {
 
     pub fn init(&mut self) {
         let mut type_index = 0;
-        let mut current_zone = &mut self.zones[type_index];
         let mut zone_type = ZoneType::from_index(type_index);
-        let (_, mut zone_end) = zone_type.range();
+        let (_, zone_end) = zone_type.range();
+        let mut zone_end = PageNumber::from_addr(zone_end);
 
         let mut page_number = PageNumber::new(0);
         let mut page;
 
+        for i in 0..ZoneType::ZONE_COUNT {
+            for list_head in self.zones[i].free_pages.iter_mut() {
+                list_head.init();
+            }
+        }
+
+        let mut current_zone = &mut self.zones[type_index];
         loop {
             page = Page::from_page_number(page_number);
             match unsafe { page.as_mut().unwrap_unchecked() } {
@@ -85,17 +111,19 @@ impl BuddyAllocator {
                     // 只有Free类型的页才会被加入Buddy系统管理
                     let (mut start, end) = (hole.start, hole.end);
 
-                    // 找到对应的Zone
-                    while PageNumber::from_addr(zone_end) < start {
-                        type_index += 1;
-                        zone_type = ZoneType::from_index(type_index);
-                        current_zone = &mut self.zones[type_index];
-                        let range = zone_type.range();
-                        zone_end = range.1;
-                    }
-
                     while start <= end {
-                        let temp_end = end.min(start + MAX_ORDER.to_count());
+                        // 找到对应的Zone
+                        while zone_end < start {
+                            type_index += 1;
+                            zone_type = ZoneType::from_index(type_index);
+                            current_zone = &mut self.zones[type_index];
+                            let range = zone_type.range();
+                            zone_end = PageNumber::from_addr(range.1);
+                        }
+
+                        let temp_end = end
+                            .min(start + (MAX_ORDER - 1).to_count() - 1)
+                            .min(zone_end);
                         let order = PageOrder::from_page_count(temp_end.count_from(start));
 
                         unsafe {
@@ -113,7 +141,7 @@ impl BuddyAllocator {
                             }
                         };
 
-                        start = end + 1;
+                        start = temp_end + 1;
                     }
 
                     page_number = end + 1;
@@ -124,7 +152,7 @@ impl BuddyAllocator {
                     continue;
                 }
                 _ => {
-                    page_number = page_number + 1;
+                    panic!("Buddy init error: invalid page type");
                 }
             }
         }
@@ -168,12 +196,12 @@ impl BuddyAllocator {
                 }
             }
 
+            split_order.0 -= 1;
             next_page = unsafe {
                 Page::from_page_number(page_number + (1 << split_order.val()))
                     .as_mut()
                     .unwrap_unchecked()
             };
-            split_order.0 -= 1;
         }
 
         if let Page::Buddy(buddy_page) = page {
@@ -199,7 +227,7 @@ impl PageAllocator for BuddyAllocator {
         let target_order = order;
         let mut page = None;
 
-        while page.is_none() {
+        while page.is_none() && order < MAX_ORDER {
             let list_head = self.get_zone(zone_type).free_pages[order.val()];
 
             page = if list_head.is_empty() {
