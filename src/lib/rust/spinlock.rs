@@ -118,6 +118,7 @@ impl SpinlockRaw {
 
 unsafe impl Sync for SpinlockRaw {}
 
+#[repr(C)]
 pub struct Spinlock<T> {
     lock: SpinlockRaw,
     _inner: UnsafeCell<T>,

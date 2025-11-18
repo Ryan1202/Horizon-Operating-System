@@ -3,7 +3,7 @@
 #[macro_export]
 macro_rules! list_owner {
     ($var:ident, $container:ty, $field:ident) => {
-        unsafe { $crate::container_of!($var, $container, $field) }
+        unsafe { $crate::container_of!($var as *mut ListNode<$container>, $container, $field) }
     };
 }
 
@@ -93,7 +93,7 @@ impl<Owner> Clone for ListHead<Owner> {
     }
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 pub struct ListNode<Owner> {
     pub prev: *mut ListNode<Owner>,
     pub next: *mut ListNode<Owner>,

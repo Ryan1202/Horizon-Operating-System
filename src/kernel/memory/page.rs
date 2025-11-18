@@ -1,11 +1,11 @@
 use core::{
     ops::{Add, Sub},
-    ptr::{copy_nonoverlapping, with_exposed_provenance_mut, NonNull},
+    ptr::{with_exposed_provenance_mut, NonNull},
 };
 
 use crate::{
     kernel::memory::{
-        block::{page_manager, E820Ards, PAGE_INFO_START},
+        block::{page_manager, E820Ards},
         buddy::{BuddyPage, PageOrder},
         slub::Slub,
     },
@@ -63,42 +63,51 @@ impl Sub<usize> for PageNumber {
     }
 }
 
+#[repr(C)]
 pub struct PageHole {
     pub start: PageNumber,
     pub end: PageNumber,
 }
 
+#[cfg(target_pointer_width = "32")]
+type PageAlign = [u8; 31];
+#[cfg(target_pointer_width = "64")]
+type PageAlign = [u8; 63];
+
+#[repr(C, u8)]
 pub enum Page {
-    End,
-    /// 已被管理，但未初始化
-    Unused,
+    /// 暂未使用
+    Unused = 0,
     HardwareUsed(PageHole),
     SystemReserved(PageHole),
     Free(PageHole),
     Buddy(BuddyPage),
     Slub(Slub),
+    _Align(PageAlign),
 }
 const _: () = assert!(size_of::<Page>() <= MAX_PAGE_STRUCT_SIZE);
+
+pub const PAGE_INFO_COUNT: usize = 1 << 20;
+const PAGE_INFO_SIZE: usize = PAGE_INFO_COUNT * size_of::<Page>();
+
+extern "C" {
+    #[link_name = "page_info"]
+    static mut PAGE_INFO: [Page; PAGE_INFO_COUNT];
+}
 
 impl Page {
     /// 填充 [start, end] 范围的Page
     fn fill_range(start: PageNumber, end: PageNumber, e820_type: u32) {
         let pages: *mut Page = Page::from_page_number(start) as *mut Page;
-        let count = end.count_from(start);
         let hole = PageHole { start, end };
         let page_info = match e820_type {
             0 => Page::SystemReserved(hole),
             1 => Page::Free(hole),
             _ => Page::HardwareUsed(hole),
         };
-        const PAGE_UNINITED: Page = Page::Unused;
 
+        // 写入首个 page 描述
         unsafe { pages.write(page_info) };
-        for j in 1..count {
-            unsafe {
-                copy_nonoverlapping(&PAGE_UNINITED as *const Page, pages.add(j), 1);
-            }
-        }
     }
 
     /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
@@ -143,18 +152,14 @@ impl Page {
             last = block_end;
         }
 
-        // 最后留一个终止标记
-        let page = Page::from_page_number(last);
-        unsafe { page.write(Page::End) };
-
-        (last.get() + 1) * size_of::<Page>()
+        PAGE_INFO_SIZE
     }
 }
 
 impl Page {
     pub const fn from_page_number(page_number: PageNumber) -> *mut Page {
         debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
-        unsafe { PAGE_INFO_START.offset(page_number.0 as isize) }
+        unsafe { &mut PAGE_INFO[page_number.0] }
     }
 
     pub const unsafe fn from_addr(addr: usize) -> *mut Page {
@@ -173,14 +178,14 @@ impl Page {
     }
 
     pub const fn start_addr(&self) -> usize {
-        let page_number = unsafe { (self as *const Page).offset_from(PAGE_INFO_START) as usize };
+        let page_number = unsafe { (self as *const Page).offset_from(&PAGE_INFO[0]) as usize };
         page_number * PAGE_SIZE
     }
 }
 
 /// 内存区域类型
 /// Zone只决定了系统能管理的物理内存范围，与Page管理的内存范围无关
-#[repr(C)]
+#[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum ZoneType {
     /// (ISA )DMA区，低于16MB

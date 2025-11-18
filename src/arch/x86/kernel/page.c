@@ -75,7 +75,7 @@ size_t __early_init page_early_setup(void) {
 	addr				  = (size_t)&_kernel_start_phy & ~0x3fffff;
 
 	for (page = kernel_start_page; page < kernel_end_page; page++) {
-		if ((page & (PAGE_SIZE - 1)) == 0) {
+		if ((page & ((PAGE_SIZE) / sizeof(size_t) - 1)) == 0) {
 			pt = (size_t *)((size_t)pt + PAGE_SIZE);
 			early_memset(pt, 0, PAGE_SIZE);
 			pdt[page >> 10] = (size_t)pt | SIGN_RW | SIGN_SYS | SIGN_P;

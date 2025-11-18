@@ -12,9 +12,6 @@ pub struct E820Ards {
     pub block_type: u32,
 }
 
-// 内存块描述结构体数组起始地址
-pub static mut PAGE_INFO_START: *mut Page = null_mut();
-
 #[no_mangle]
 pub static mut PREALLOCATED_END_PHY: usize = 0;
 
@@ -40,11 +37,9 @@ pub unsafe extern "C" fn page_early_init(
     VIR_BASE_ADDR = &VIR_BASE as *const _ as usize;
 
     PAGE_MANAGER_VIR = with_exposed_provenance_mut(PREALLOCATED_END_PHY + VIR_BASE_ADDR);
-    PAGE_INFO_START = PAGE_MANAGER_VIR.add(1).cast();
+    Page::init(blocks, block_count, (kernel_start, kernel_end));
 
-    let size = Page::init(blocks, block_count, (kernel_start, kernel_end));
-
-    PREALLOCATED_END_PHY += page_align_up(size_of::<BuddyAllocator>() + size);
+    PREALLOCATED_END_PHY += page_align_up(size_of::<BuddyAllocator>());
 }
 
 pub unsafe fn page_manager() -> Option<&'static mut BuddyAllocator> {

@@ -4,8 +4,10 @@ use core::{
 };
 
 use crate::{
+    container_of, container_of_enum,
     kernel::memory::page::{
-        page_count, Page, PageAllocator, PageError, PageNumber, ZoneType, PAGE_SIZE,
+        page_count, Page, PageAllocator, PageError, PageNumber, ZoneType, PAGE_INFO_COUNT,
+        PAGE_SIZE,
     },
     lib::rust::list::{ListHead, ListNode},
     list_first_owner,
@@ -63,10 +65,10 @@ impl PageOrder {
         PAGE_SIZE << self.0
     }
 }
-#[repr(C)]
+
+#[repr(C, align(4))]
 pub struct BuddyPage {
     pub list: ListNode<BuddyPage>,
-    pub page: NonNull<Page>,
     pub order: PageOrder,
     pub zone_type: ZoneType,
 }
@@ -101,12 +103,9 @@ impl BuddyAllocator {
         }
 
         let mut current_zone = &mut self.zones[type_index];
-        loop {
+        while page_number.get() < PAGE_INFO_COUNT {
             page = Page::from_page_number(page_number);
             match unsafe { page.as_mut().unwrap_unchecked() } {
-                &mut Page::End => {
-                    break;
-                }
                 Page::Free(hole) => {
                     // 只有Free类型的页才会被加入Buddy系统管理
                     let (mut start, end) = (hole.start, hole.end);
@@ -130,7 +129,6 @@ impl BuddyAllocator {
                             let page = Page::from_page_number(start);
                             page.write(Page::Buddy(BuddyPage {
                                 list: ListNode::new(),
-                                page: NonNull::new_unchecked(page),
                                 order,
                                 zone_type,
                             }));
@@ -179,7 +177,6 @@ impl BuddyAllocator {
                 Page::Unused => {
                     *next_page = Page::Buddy(BuddyPage {
                         list: ListNode::new(),
-                        page: unsafe { NonNull::new_unchecked(next_page) },
                         order: split_order,
                         zone_type,
                     });
@@ -214,7 +211,9 @@ impl BuddyAllocator {
     fn merge_page(&mut self, left: &mut BuddyPage, right: &mut BuddyPage) {
         unsafe {
             left.order = PageOrder::new(right.order.0 + 1);
-            right.page.write(Page::Unused);
+
+            let page = NonNull::new_unchecked(container_of_enum!(left as *mut _, Page, Buddy.0));
+            page.write(Page::Unused);
 
             self.get_zone(right.zone_type).free_pages[left.order.val()].add_head(&mut left.list);
         }
@@ -236,15 +235,20 @@ impl PageAllocator for BuddyAllocator {
                 list_first_owner!(BuddyPage, list, list_head)
             };
             if let Some(buddy_page) = page {
-                let buddy_page = unsafe { buddy_page.as_mut().unwrap_unchecked() };
-                unsafe { buddy_page.list.del() };
+                let _buddy_page = unsafe { buddy_page.as_mut().unwrap_unchecked() };
+                unsafe { _buddy_page.list.del() };
+
+                let page = unsafe {
+                    container_of_enum!(buddy_page, Page, Buddy.0)
+                        .as_mut()
+                        .unwrap_unchecked()
+                };
 
                 if order != target_order {
-                    let page = unsafe { buddy_page.page.as_mut() };
                     self.split_page(zone_type, order, target_order, page);
                 }
 
-                return Some(unsafe { NonNull::new_unchecked(buddy_page.page.as_ptr()) });
+                return Some(unsafe { NonNull::new_unchecked(page) });
             }
             order.0 += 1;
         }

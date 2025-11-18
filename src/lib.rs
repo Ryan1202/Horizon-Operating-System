@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 #![feature(sync_unsafe_cell)]
+#![feature(offset_of_enum)]
 
 use core::panic::PanicInfo;
 

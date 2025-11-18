@@ -4,11 +4,13 @@
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
 use core::{
+    mem::offset_of,
     num::{NonZeroU16, NonZeroUsize},
     ptr::NonNull,
 };
 
 use crate::{
+    container_of, container_of_enum,
     kernel::memory::{
         block::{page_manager, VIR_BASE_ADDR},
         buddy::{BuddyPage, PageOrder},
@@ -30,27 +32,29 @@ pub(self) const MAX_PARTIAL: u8 = 10;
 
 pub(self) const ALIGN: usize = core::mem::size_of::<usize>();
 
+#[repr(C)]
 pub struct Slub {
     pub slub_type: SlubType,
     /// object总数量
-    object_num: NonZeroU16,
-    /// 分配的页结构体指针
-    pages: NonNull<Page>,
+    object_size: NonZeroU16,
     /// 所属内存区域类型
     zone_type: ZoneType,
 }
 
+#[repr(C)]
 pub struct SlubHead {
     pub list: ListNode<Slub>,
     lock: Spinlock<SlubInner>,
 }
 
+#[repr(C)]
 pub enum SlubType {
     Head(SlubHead),
     Body(NonNull<Slub>),
 }
 
 /// Slub 内部数据结构
+#[repr(C)]
 pub struct SlubInner {
     /// 空闲对象头
     freelist: Option<NonNull<FreeNode>>,
@@ -58,6 +62,7 @@ pub struct SlubInner {
     inuse: u16,
 }
 
+#[repr(C)]
 pub struct FreeNode {
     pub next: Option<NonNull<FreeNode>>,
 }
@@ -95,8 +100,7 @@ impl Slub {
 
         first_page.write(Page::Slub(Slub {
             slub_type: SlubType::Head(SlubHead::new(Some(free_nodes))),
-            object_num,
-            pages,
+            object_size,
             zone_type,
         }));
 
@@ -111,8 +115,7 @@ impl Slub {
 
             let slub_info = Slub {
                 slub_type: SlubType::Body(slub),
-                object_num,
-                pages,
+                object_size,
                 zone_type,
             };
             page.write(Page::Slub(slub_info));
@@ -142,11 +145,10 @@ impl Slub {
         let order = cache_info.order;
 
         let slub = ptr.as_mut();
-        let page = slub.pages;
+        let page = NonNull::new_unchecked(container_of_enum!(slub as *mut _, Page, Slub.0));
 
         page.write(Page::Buddy(BuddyPage {
             list: ListNode::new(),
-            page,
             order,
             zone_type: slub.zone_type,
         }));
@@ -212,24 +214,15 @@ impl FreeNode {
     }
 }
 
-const fn reserved_space(embed: bool) -> usize {
-    if embed {
-        core::mem::size_of::<Slub>()
-    } else {
-        0
-    }
-}
-
-fn calculate_order(size: ObjectSize, embed: bool) -> Result<PageOrder, SlubError> {
+fn calculate_order(size: ObjectSize) -> Result<PageOrder, SlubError> {
     let mut size = size.0.get().next_multiple_of(size_of::<usize>() as u16);
     size = size.min(MAX_OBJECT_SIZE as u16).max(MIN_OBJECT_SIZE as u16);
 
     let mut order = 0;
-    let reserved_space = reserved_space(embed);
 
     for fraction in [16, 8, 4, 2] {
         for _order in 0..MAX_PAGE_ORDER.val() {
-            let slab_size = (PAGE_SIZE << _order) - reserved_space;
+            let slab_size = PAGE_SIZE << _order;
 
             let remain = slab_size % (size as usize);
             if remain < (slab_size / fraction) {
@@ -250,11 +243,10 @@ fn calculate_order(size: ObjectSize, embed: bool) -> Result<PageOrder, SlubError
     }
 }
 
-fn calculate_sizes(size: ObjectSize, embed: bool) -> (NonZeroU16, NonZeroU16, PageOrder) {
-    let order = calculate_order(size, embed).unwrap();
+fn calculate_sizes(size: ObjectSize) -> (NonZeroU16, NonZeroU16, PageOrder) {
+    let order = calculate_order(size).unwrap();
 
-    let reserved_space = reserved_space(embed);
-    let slab_size = (PAGE_SIZE << order.val()) - reserved_space;
+    let slab_size = PAGE_SIZE << order.val();
 
     let object_size = size.0.get().next_multiple_of(size_of::<usize>() as u16) as usize;
     let object_num = (slab_size / object_size) as u16;

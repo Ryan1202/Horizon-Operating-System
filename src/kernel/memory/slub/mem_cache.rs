@@ -43,7 +43,7 @@ impl ObjectSize {
 
     pub const fn from_u16(size: u16) -> ObjectSize {
         assert!(size != 0, "size == 0, NonZeroU16 required");
-        debug_assert!((size as usize) < MAX_OBJECT_SIZE);
+        debug_assert!((size as usize) <= MAX_OBJECT_SIZE);
         // SAFETY: 已经断言 size != 0
         unsafe { Self::new(size) }
     }
@@ -130,7 +130,7 @@ impl MemCacheNode {
 
     /// 创建一个Slub存放自身，作为 MemCacheNode 类型的 MemCache 的一个节点
     fn bootstrap() -> NonNull<Self> {
-        let (_, object_num, order) = calculate_sizes(Self::OBJECT_SIZE, true);
+        let (_, object_num, order) = calculate_sizes(Self::OBJECT_SIZE);
 
         let mut slub =
             Slub::new(ZoneType::LinearMem, Self::OBJECT_SIZE.0, object_num, order).unwrap();
@@ -159,7 +159,7 @@ impl MemCacheNode {
     pub fn new<T>(&mut self) -> Option<NonNull<MemCacheNode>> {
         let mut result = self.allocate::<MemCacheNode>()?;
 
-        let (object_size, object_num, order) = calculate_sizes(ObjectSize::from::<T>(), true);
+        let (object_size, object_num, order) = calculate_sizes(ObjectSize::from::<T>());
 
         unsafe {
             let slub = Slub::new(ZoneType::LinearMem, object_size, object_num, order).unwrap();
@@ -242,7 +242,7 @@ unsafe impl Sync for MemCache {}
 impl MemCache {
     #[inline]
     fn init(&mut self, name: *const u8, node: NonNull<MemCacheNode>, object_size: ObjectSize) {
-        let (object_size, object_num, order) = calculate_sizes(object_size, true);
+        let (object_size, object_num, order) = calculate_sizes(object_size);
 
         let min_partial = (object_size.ilog2() as u8 / 2)
             .min(MAX_PARTIAL)
