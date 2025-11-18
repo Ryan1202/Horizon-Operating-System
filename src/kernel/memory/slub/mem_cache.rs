@@ -3,8 +3,11 @@ use core::{cell::SyncUnsafeCell, mem::MaybeUninit, num::NonZeroU16, ptr::NonNull
 use crate::{
     kernel::memory::{
         buddy::PageOrder,
-        page::ZoneType,
-        slub::{calculate_sizes, mem_cache, Slub, ALIGN, MAX_PARTIAL, MIN_PARTIAL},
+        page::{page_align_down, ZoneType},
+        slub::{
+            calculate_sizes, mem_cache, Slub, SlubHead, SlubType, ALIGN, MAX_PARTIAL, MIN_PARTIAL,
+        },
+        Page,
     },
     lib::rust::{
         list::{ListHead, ListNode},
@@ -80,16 +83,13 @@ static CACHES: SyncUnsafeCell<MaybeUninit<MemCaches>> = SyncUnsafeCell::new(Mayb
 /// 每个节点的缓存（这里我们忽略节点/NUMA，仅保留一个节点结构）
 pub struct MemCacheNode {
     slub: NonNull<Slub>,
-    pub partial_list: Spinlock<ListHead<Slub>>,
+    pub partial_list: Spinlock<ListHead<SlubHead>>,
 }
-
-unsafe impl Sync for MemCacheNode {}
 
 impl MemCacheNode {
     const OBJECT_SIZE: NonZeroU16 = mem_cache::object_size::<Slub>();
 
     fn init(&mut self, slub: NonNull<Slub>) {
-        debug_assert!(!unsafe { slub.as_ref() }.list.is_linked());
         *self = Self {
             slub: slub,
             partial_list: Spinlock::new(ListHead::empty()),
@@ -103,12 +103,14 @@ impl MemCacheNode {
     fn bootstrap() -> NonNull<Self> {
         let (_, object_num, order) = calculate_sizes(Self::OBJECT_SIZE, true);
 
-        let mut slub =
-            Slub::new_embedded(ZoneType::MEM32, Self::OBJECT_SIZE, object_num, order).unwrap();
+        let mut slub = Slub::new(ZoneType::MEM32, Self::OBJECT_SIZE, object_num, order).unwrap();
 
         unsafe {
             let _slub = slub.as_mut();
-            let mut mem_cache_node: NonNull<Self> = _slub.allocate().unwrap();
+            let mut mem_cache_node: NonNull<Self> = match &mut _slub.slub_type {
+                SlubType::Head(head) => head.allocate().unwrap(),
+                _ => unreachable!(),
+            };
 
             mem_cache_node.as_mut().init(slub);
 
@@ -130,7 +132,7 @@ impl MemCacheNode {
         let (object_size, object_num, order) = calculate_sizes(object_size::<T>(), true);
 
         unsafe {
-            let slub = Slub::new_embedded(ZoneType::MEM32, object_size, object_num, order).unwrap();
+            let slub = Slub::new(ZoneType::MEM32, object_size, object_num, order).unwrap();
 
             result.as_mut().init(slub);
         }
@@ -139,14 +141,48 @@ impl MemCacheNode {
     }
 
     pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
-        let mut result = None;
-        let mut list_head = self.partial_list.lock();
+        // 优先从正在使用的Slub分配
+        let mut slub = self.slub;
+        match &mut unsafe { slub.as_mut() }.slub_type {
+            SlubType::Head(head) => head.allocate().or_else(|| {
+                let mut result = None;
+                let mut list_head = self.partial_list.lock();
 
-        list_for_each_owner!(slub, Slub, list, list_head, {
-            result = unsafe { slub.as_mut().unwrap().allocate() };
-        });
+                list_for_each_owner!(slub, SlubHead, list, list_head, {
+                    result = unsafe { slub.as_mut().unwrap().allocate() };
+                });
 
-        result
+                result
+            }),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
+        let _obj = obj.as_ptr();
+        // 先找到所在页的 Page 结构，再从其中取出 Slub 地址
+        let page = unsafe {
+            _obj.map_addr(|addr| page_align_down(addr))
+                .cast::<Page>()
+                .as_mut()
+        }?;
+
+        if let Page::Slub(slub) = page {
+            let head = match &mut slub.slub_type {
+                SlubType::Body(head) => unsafe {
+                    // 如果是Body就重新定位到Head
+                    match &mut head.as_mut().slub_type {
+                        SlubType::Head(head) => head,
+                        _ => unreachable!(),
+                    }
+                },
+                SlubType::Head(head) => head,
+            };
+
+            head.free(obj);
+        }
+
+        Some(())
     }
 }
 

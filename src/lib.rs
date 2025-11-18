@@ -6,6 +6,8 @@
 
 use core::panic::PanicInfo;
 
+const CACHELINE_SIZE: usize = 64;
+
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {}

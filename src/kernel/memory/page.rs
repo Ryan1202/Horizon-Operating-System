@@ -16,6 +16,11 @@ pub const PAGE_SIZE: usize = 0x1000;
 
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
 
+#[derive(Debug)]
+pub enum PageError {
+    IncorrectPageType,
+}
+
 #[repr(transparent)]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct PageNumber(usize);
@@ -164,7 +169,7 @@ impl Page {
         (self as *mut Page).sub(count)
     }
 
-    pub const fn addr(&self) -> usize {
+    pub const fn start_addr(&self) -> usize {
         let page_number = unsafe { (self as *const Page).offset_from(PAGE_INFO_START) as usize };
         page_number * PAGE_SIZE
     }
@@ -248,7 +253,7 @@ pub const fn page_count(size: usize) -> usize {
 
 pub trait PageAllocator {
     fn allocate_pages(&mut self, zone_type: ZoneType, order: PageOrder) -> Option<NonNull<Page>>;
-    fn free_pages(&mut self, page: NonNull<Page>) -> Result<(), ()>;
+    fn free_pages(&mut self, page: NonNull<Page>) -> Result<(), PageError>;
 }
 
 #[no_mangle]
@@ -259,7 +264,7 @@ pub extern "C" fn allocate_pages(zone_type: ZoneType, order: PageOrder) -> usize
             .allocate_pages(zone_type, order)
             .map(|v| v.read())
     }
-    .map_or(0, |v| v.addr())
+    .map_or(0, |v| v.start_addr())
 }
 
 #[no_mangle]

@@ -1,7 +1,9 @@
 use core::ptr::NonNull;
 
 use crate::{
-    kernel::memory::page::{page_count, Page, PageAllocator, PageNumber, ZoneType, PAGE_SIZE},
+    kernel::memory::page::{
+        page_count, Page, PageAllocator, PageError, PageNumber, ZoneType, PAGE_SIZE,
+    },
     lib::rust::list::{ListHead, ListNode},
     list_first_owner,
 };
@@ -135,7 +137,7 @@ impl BuddyAllocator {
         target_order: PageOrder,
         page: &mut Page,
     ) {
-        let page_number = PageNumber::from_addr(page.addr());
+        let page_number = PageNumber::from_addr(page.start_addr());
 
         let mut split_order = PageOrder::new(order.0 - 1);
         let mut next_page = unsafe {
@@ -221,9 +223,9 @@ impl PageAllocator for BuddyAllocator {
         None
     }
 
-    fn free_pages(&mut self, mut page: NonNull<Page>) -> Result<(), ()> {
+    fn free_pages(&mut self, mut page: NonNull<Page>) -> Result<(), PageError> {
         let page = unsafe { page.as_mut() };
-        let addr = page.addr();
+        let addr = page.start_addr();
         let page_number = PageNumber::from_addr(addr);
 
         let zone_type = ZoneType::from_address(addr);
@@ -263,7 +265,7 @@ impl PageAllocator for BuddyAllocator {
 
             Ok(())
         } else {
-            Err(())
+            Err(PageError::IncorrectPageType)
         }
     }
 }

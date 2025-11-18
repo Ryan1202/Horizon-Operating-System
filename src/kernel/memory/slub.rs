@@ -3,14 +3,17 @@
 // - 使用从 C 导入的自旋锁（见 src/include/kernel/spinlock.h）
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
-use core::{num::NonZeroU16, ptr::NonNull};
+use core::{
+    num::{NonZeroU16, NonZeroUsize},
+    ptr::NonNull,
+};
 
 use crate::{
     kernel::memory::{
-        block::{page_manager, VIR_BASE_ADDR},
-        buddy::PageOrder,
+        block::page_manager,
+        buddy::{BuddyPage, PageOrder},
         page::{PageAllocator, ZoneType, PAGE_SIZE},
-        slub::mem_cache::MemCaches,
+        slub::mem_cache::{MemCache, MemCaches},
         Page,
     },
     lib::rust::{list::ListNode, spinlock::Spinlock},
@@ -28,25 +31,35 @@ pub(self) const MAX_PARTIAL: u8 = 10;
 pub(self) const ALIGN: usize = core::mem::size_of::<usize>();
 
 pub struct Slub {
-    pub list: ListNode<Slub>,
-    /// 全局自旋锁保护全局操作
-    inner: Spinlock<SlubInner>,
+    pub slub_type: SlubType,
     /// object总数量
     object_num: NonZeroU16,
     /// 分配的页结构体指针
     pages: NonNull<Page>,
+    /// 所属内存区域类型
+    zone_type: ZoneType,
+}
+
+pub struct SlubHead {
+    pub list: ListNode<Slub>,
+    lock: Spinlock<SlubInner>,
+}
+
+pub enum SlubType {
+    Head(SlubHead),
+    Body(NonNull<Slub>),
 }
 
 /// Slub 内部数据结构
 pub struct SlubInner {
     /// 空闲对象头
-    freelist: *mut FreeNode,
+    freelist: Option<NonNull<FreeNode>>,
     /// 正在使用的对象数量
     inuse: u16,
 }
 
 pub struct FreeNode {
-    pub next: *mut FreeNode,
+    pub next: Option<NonNull<FreeNode>>,
 }
 const _: () = assert!(size_of::<FreeNode>() <= MIN_OBJECT_SIZE);
 
@@ -64,7 +77,6 @@ impl Slub {
         object_num: NonZeroU16,
         object_size: NonZeroU16,
         order: PageOrder,
-        slab_addr: Option<NonNull<Slub>>,
     ) -> Result<NonNull<Slub>, SlubError> {
         // 分配页
         let pages = page_manager()
@@ -72,90 +84,115 @@ impl Slub {
             .allocate_pages(zone_type, order)
             .ok_or(SlubError::PageAllocationFailed)?;
 
-        let page_addr = pages
-            .read()
-            .addr
-            .map_addr(|paddr| VIR_BASE_ADDR + paddr)
-            .cast::<Slub>();
-
-        let (slub, free_nodes) = if let Some(addr) = slab_addr {
-            // 使用传入的 Slub 地址，free node 在页地址的起始处
-            (addr, NonNull::new_unchecked(page_addr.cast::<FreeNode>()))
-        } else {
-            // 获取页地址作为 Slub 起始地址, free node 紧随其后
-            (
-                NonNull::new_unchecked(page_addr),
-                NonNull::new_unchecked(page_addr.add(1).cast::<FreeNode>()),
-            )
+        let start_addr = pages.as_ref().start_addr();
+        let free_nodes = {
+            pages
+                .with_addr(NonZeroUsize::new(start_addr).unwrap())
+                .cast::<FreeNode>()
         };
 
-        // 填写 Page 中的 Slub 字段
+        let mut first_page = pages;
+
+        first_page.write(Page::Slub(Slub {
+            slub_type: SlubType::Head(SlubHead::new(Some(free_nodes))),
+            object_num,
+            pages,
+            zone_type,
+        }));
+
+        let mut slub = match first_page.as_mut() {
+            Page::Slub(slub) => NonNull::new_unchecked(slub),
+            _ => unreachable!(),
+        };
+
+        // 填写 Page 中的 Slub
         for i in 0..order.to_count() {
-            let page = pages.add(i).as_mut();
-            page.slub = slub.as_ptr();
+            let page = pages.add(i);
+
+            let slub_info = Slub {
+                slub_type: SlubType::Body(slub),
+                object_num,
+                pages,
+                zone_type,
+            };
+            page.write(Page::Slub(slub_info));
         }
 
         FreeNode::init(free_nodes, object_num, object_size);
 
-        let inner = Spinlock::new(SlubInner::new(free_nodes.as_ptr()));
-
-        slub.write(Slub {
-            list: ListNode::new(),
-            inner,
-            object_num,
-            pages,
-        });
+        let slub_ref = unsafe { slub.as_mut() };
+        match &mut slub_ref.slub_type {
+            SlubType::Head(head) => head.list.init(),
+            _ => unreachable!(),
+        }
 
         Ok(slub)
     }
 
-    pub fn new_embedded(
+    pub fn new(
         zone_type: ZoneType,
         object_size: NonZeroU16,
         object_num: NonZeroU16,
         order: PageOrder,
     ) -> Result<NonNull<Self>, SlubError> {
-        unsafe { Self::init_slab(zone_type, object_num, object_size, order, None) }
+        unsafe { Self::init_slab(zone_type, object_num, object_size, order) }
+    }
+
+    pub unsafe fn destroy(mut ptr: NonNull<Self>, cache_info: &MemCache) {
+        let order = cache_info.order;
+
+        let slub = ptr.as_mut();
+        let page = slub.pages;
+
+        page.write(Page::Buddy(BuddyPage {
+            list: ListNode::new(),
+            page,
+            order,
+            zone_type: slub.zone_type,
+        }));
+
+        page_manager().unwrap().free_pages(page).unwrap();
+    }
+}
+
+impl SlubHead {
+    const fn new(freelist: Option<NonNull<FreeNode>>) -> Self {
+        Self {
+            list: ListNode::new(),
+            lock: Spinlock::new(SlubInner { freelist, inuse: 0 }),
+        }
+    }
+
+    pub fn get_inuse_relaxed(&self) -> u16 {
+        let inuse = self.lock.get_relaxed().inuse;
+        inuse
     }
 
     pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
-        let mut inner = self.inner.lock();
+        let mut inner = self.lock.lock();
 
-        if inner.freelist.is_null() {
-            return None;
-        }
+        let freelist = inner.freelist?;
+
+        let node = freelist;
+        inner.freelist = unsafe { node.read() }.next;
+        inner.inuse += 1;
+
+        Some(node.cast())
+    }
+
+    pub fn free<T>(&mut self, obj: NonNull<T>) {
+        let mut inner = self.lock.lock();
+
+        let node = obj.cast::<FreeNode>();
 
         unsafe {
-            let node = inner.freelist;
-            inner.freelist = (*node).next;
-            inner.inuse += 1;
-
-            Some(NonNull::new_unchecked(node.cast::<T>()))
+            node.write(FreeNode {
+                next: inner.freelist,
+            });
         }
-    }
 
-    pub fn free<T>(&mut self, obj: *mut T) {
-        let mut inner = self.inner.lock();
-
-        unsafe {
-            let node = obj.cast::<FreeNode>();
-            (*node).next = inner.freelist;
-            inner.freelist = node;
-            inner.inuse -= 1;
-        }
-    }
-}
-
-impl SlubInner {
-    pub const fn new(freelist: *mut FreeNode) -> Self {
-        SlubInner { freelist, inuse: 0 }
-    }
-}
-
-impl Spinlock<SlubInner> {
-    pub fn get_inuse_relaxed(&self) -> u16 {
-        let inuse = self.get_relaxed().inuse;
-        inuse
+        inner.freelist = Some(node);
+        inner.inuse -= 1;
     }
 }
 
@@ -166,15 +203,11 @@ impl FreeNode {
         unsafe {
             for _ in 0..(object_num.get() - 1) {
                 let next = current.byte_add(object_size.get() as usize);
-                current.write(FreeNode {
-                    next: next.as_ptr(),
-                });
+                current.write(FreeNode { next: Some(next) });
                 current = next;
             }
 
-            current.write(FreeNode {
-                next: core::ptr::null_mut(),
-            });
+            current.write(FreeNode { next: None });
         }
     }
 }
