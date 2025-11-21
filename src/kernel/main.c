@@ -43,6 +43,8 @@
 #include <stdint.h>
 #include <string.h>
 
+void run_memory_benchmarks(void);
+
 void		   idle(void *arg);
 struct task_s *task_idle;
 extern Driver  core_driver;
@@ -113,7 +115,6 @@ int main() {
 
 	init_memory();
 	init_object_tree();
-	while (true) {}
 	init_device_managers();
 	init_bus_manager();
 
@@ -121,6 +122,8 @@ int main() {
 
 	platform_init();
 	platform_start_devices();
+	run_memory_benchmarks();
+	while (true) {}
 
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0, NULL);

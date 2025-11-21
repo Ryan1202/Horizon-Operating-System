@@ -1,9 +1,8 @@
 use core::{num::NonZeroU16, ptr::NonNull};
 
 use crate::{
-    kernel::memory::{
-        buddy::PageOrder,
-        page::{Page, ZoneType, page_align_down},
+    kernel::memory::physical::{
+        page::{Page, ZoneType, buddy::PageOrder, page_align_down},
         slub::{ObjectSize, Slub, SlubHead, SlubType, calculate_sizes, mem_cache::MemCache},
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},

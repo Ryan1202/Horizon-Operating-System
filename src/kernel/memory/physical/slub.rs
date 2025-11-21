@@ -11,10 +11,15 @@ use core::{
 use crate::{
     container_of_enum,
     kernel::memory::{
-        block::{VIR_BASE_ADDR, page_manager},
-        buddy::{BuddyPage, PageOrder},
-        page::{PAGE_SIZE, Page, PageAllocator, PageError, ZoneType},
-        slub::mem_cache::{MemCache, MemCaches},
+        VIR_BASE_ADDR,
+        physical::{
+            page::{
+                PAGE_SIZE, Page, PageAllocator, PageError, ZoneType,
+                buddy::{BuddyPage, PageOrder},
+                page_manager,
+            },
+            slub::mem_cache::{MemCache, MemCaches},
+        },
     },
     lib::rust::{list::ListNode, spinlock::Spinlock},
 };

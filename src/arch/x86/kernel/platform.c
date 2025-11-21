@@ -74,12 +74,12 @@ DriverResult platform_init() {
 
 	register_serial();
 	result = register_vesa_display();
-	result = register_apic();
+	// result = register_apic();
 	result = register_pic();
 	result = register_pit();
 	result = register_cmos();
 
-	dma_init();
+	// dma_init();
 
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
 
@@ -105,7 +105,7 @@ void platform_start_devices() {
 		serial_device_open(serial_object, SERIAL_BAUD_115200, serial_receive);
 	}
 
-	print_features();
+	// print_features();
 	DRV_RESULT_PRINT_CALL(
 		init_and_start_logical_device(pit_timer_device->device));
 	// if (use_apic)

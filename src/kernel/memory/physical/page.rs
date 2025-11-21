@@ -1,4 +1,6 @@
 use core::{
+    cell::SyncUnsafeCell,
+    mem::MaybeUninit,
     ops::{Add, Sub},
     ptr::{NonNull, with_exposed_provenance_mut},
 };
@@ -6,11 +8,17 @@ use core::{
 use crate::{
     CACHELINE_SIZE,
     kernel::memory::{
-        block::{E820Ards, page_manager},
-        buddy::{BuddyPage, PageOrder},
-        slub::Slub,
+        VIR_BASE, VIR_BASE_ADDR,
+        physical::{
+            E820Ards, PREALLOCATED_END_PHY,
+            page::buddy::{BuddyAllocator, BuddyPage, PageOrder},
+            slub::Slub,
+        },
     },
+    lib::rust::spinlock::Spinlock,
 };
+
+pub(super) mod buddy;
 
 pub const PAGE_SIZE: usize = 0x1000;
 
@@ -93,6 +101,54 @@ const PAGE_INFO_SIZE: usize = PAGE_INFO_COUNT * size_of::<Page>();
 unsafe extern "C" {
     #[link_name = "page_info"]
     static mut PAGE_INFO: [Page; PAGE_INFO_COUNT];
+}
+
+/// Buddy 分配器的虚拟地址存储位置
+///
+/// 使用SyncUnsafeCell实现内部可变性，由Spinlock真正保证线程安全。
+/// 为了简化获取过程，MaybeUninit并不被Spinlock包裹，所以只能在单线程环境下初始化保证安全
+static PAGE_MANAGER_VIR: SyncUnsafeCell<MaybeUninit<Spinlock<BuddyAllocator>>> =
+    SyncUnsafeCell::new(MaybeUninit::uninit());
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn page_early_init(
+    blocks: *mut E820Ards,
+    block_count: u16,
+    kernel_start: usize,
+    kernel_end: usize,
+) {
+    unsafe {
+        // 都向后对齐到页
+        // 只是为了看着稍微舒服一点
+        PREALLOCATED_END_PHY = page_align_up(PREALLOCATED_END_PHY.max(kernel_end));
+
+        VIR_BASE_ADDR = &VIR_BASE as *const _ as usize;
+
+        Page::init(blocks, block_count, (kernel_start, PREALLOCATED_END_PHY));
+    }
+}
+
+pub fn page_manager<'a>() -> &'a mut Spinlock<BuddyAllocator> {
+    unsafe { (*PAGE_MANAGER_VIR.get()).assume_init_mut() }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn page_init() {
+    unsafe {
+        let page_manager = PAGE_MANAGER_VIR.get();
+        *page_manager = MaybeUninit::new(Spinlock::new(BuddyAllocator::empty()));
+        (*page_manager).assume_init_mut().lock().init();
+    }
+}
+
+// 内核启动早期分配的页都是不会释放的，如页表结构等
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn early_allocate_pages(count: u8) -> usize {
+    unsafe {
+        let addr = PREALLOCATED_END_PHY;
+        PREALLOCATED_END_PHY += (count as usize) * 0x1000;
+        addr
+    }
 }
 
 impl Page {

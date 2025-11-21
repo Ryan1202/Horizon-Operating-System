@@ -1,6 +1,6 @@
 use core::{
     cell::SyncUnsafeCell,
-    mem::{MaybeUninit, transmute},
+    mem::MaybeUninit,
     num::NonZeroU16,
     ptr::{NonNull, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
@@ -8,11 +8,10 @@ use core::{
 
 use crate::{
     container_of, container_of_enum,
-    kernel::memory::{
-        buddy::PageOrder,
+    kernel::memory::physical::{
+        page::buddy::PageOrder,
         slub::{
-            self, ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubHead, SlubType,
-            calculate_sizes,
+            ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubHead, SlubType, calculate_sizes,
             config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
             mem_cache_node::MemCacheNode,
         },
@@ -226,12 +225,14 @@ impl MemCache {
 
             // 重新存回 Slub 指针
             self.slub.store(slub_ptr, Ordering::Release);
-            return result;
+            if let Some(result) = result {
+                return Some(result);
+            }
         }
 
         // 未初始化或者已被占用，从 Node 中分配
         let node = unsafe { self.node.as_mut() };
-        node.allocate::<T>()
+        Some(node.allocate::<T>().unwrap())
     }
 
     /// 释放对象
