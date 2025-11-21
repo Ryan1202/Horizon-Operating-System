@@ -4,19 +4,19 @@ use core::{
 };
 
 use crate::{
-    container_of, container_of_enum,
+    container_of_enum,
     kernel::memory::page::{
-        page_count, Page, PageAllocator, PageError, PageNumber, ZoneType, PAGE_INFO_COUNT,
-        PAGE_SIZE,
+        PAGE_INFO_COUNT, PAGE_SIZE, Page, PageAllocator, PageError, PageNumber, ZoneType,
+        page_count,
     },
     lib::rust::list::{ListHead, ListNode},
     list_first_owner,
 };
 
-const MAX_ORDER: PageOrder = PageOrder(11);
+pub const MAX_ORDER: PageOrder = PageOrder(11);
 
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct PageOrder(u8);
 
 impl Add<u8> for PageOrder {
@@ -83,10 +83,20 @@ pub struct BuddyAllocator {
 }
 
 impl BuddyAllocator {
+    pub const fn empty() -> Self {
+        Self {
+            zones: [Zone {
+                free_pages: [ListHead::empty(); MAX_ORDER.0 as usize],
+            }; ZoneType::ZONE_COUNT],
+        }
+    }
+
     const fn get_zone<'a>(&'a mut self, zone_type: ZoneType) -> &'a mut Zone {
         &mut self.zones[zone_type.index()]
     }
 
+    /// 初始化Buddy内存分配器
+    /// 由于链表需要在目标内存上初始化，所以必须先assume_init，再初始化每一个字段
     pub fn init(&mut self) {
         let mut type_index = 0;
         let mut zone_type = ZoneType::from_index(type_index);
@@ -105,7 +115,7 @@ impl BuddyAllocator {
         let mut current_zone = &mut self.zones[type_index];
         while page_number.get() < PAGE_INFO_COUNT {
             page = Page::from_page_number(page_number);
-            match unsafe { page.as_mut().unwrap_unchecked() } {
+            match unsafe { page.as_mut() } {
                 Page::Free(hole) => {
                     // 只有Free类型的页才会被加入Buddy系统管理
                     let (mut start, end) = (hole.start, hole.end);
@@ -126,16 +136,16 @@ impl BuddyAllocator {
                         let order = PageOrder::from_page_count(temp_end.count_from(start));
 
                         unsafe {
-                            let page = Page::from_page_number(start);
+                            let mut page = Page::from_page_number(start);
                             page.write(Page::Buddy(BuddyPage {
                                 list: ListNode::new(),
                                 order,
                                 zone_type,
                             }));
 
-                            let page = page.as_mut().unwrap_unchecked();
-                            if let Page::Buddy(buddy_page) = &mut *page {
-                                current_zone.free_pages[order.val()].add_head(&mut buddy_page.list);
+                            let page = page.as_mut();
+                            if let Page::Buddy(buddy_page) = page {
+                                current_zone.free_pages[order.val()].add_tail(&mut buddy_page.list);
                             }
                         };
 
@@ -163,14 +173,8 @@ impl BuddyAllocator {
         target_order: PageOrder,
         page: &mut Page,
     ) {
-        let page_number = PageNumber::from_addr(page.start_addr());
-
         let mut split_order = PageOrder::new(order.0 - 1);
-        let mut next_page = unsafe {
-            Page::from_page_number(page_number + (1 << split_order.val()))
-                .as_mut()
-                .unwrap_unchecked()
-        };
+        let mut next_page = unsafe { page.next_page(1 << split_order.val()).as_mut() };
 
         while split_order.0 > target_order.0 {
             match next_page {
@@ -182,10 +186,8 @@ impl BuddyAllocator {
                     });
 
                     if let Page::Buddy(buddy_page) = next_page {
-                        unsafe {
-                            self.get_zone(zone_type).free_pages[split_order.val()]
-                                .add_head(&mut buddy_page.list);
-                        }
+                        self.get_zone(zone_type).free_pages[split_order.val()]
+                            .add_head(&mut buddy_page.list);
                     }
                 }
                 _ => {
@@ -194,11 +196,7 @@ impl BuddyAllocator {
             }
 
             split_order.0 -= 1;
-            next_page = unsafe {
-                Page::from_page_number(page_number + (1 << split_order.val()))
-                    .as_mut()
-                    .unwrap_unchecked()
-            };
+            next_page = unsafe { page.next_page(1 << split_order.val()).as_mut() };
         }
 
         if let Page::Buddy(buddy_page) = page {
@@ -209,10 +207,10 @@ impl BuddyAllocator {
     }
 
     fn merge_page(&mut self, left: &mut BuddyPage, right: &mut BuddyPage) {
-        unsafe {
-            left.order = PageOrder::new(right.order.0 + 1);
+        left.order = PageOrder::new(right.order.0 + 1);
 
-            let page = NonNull::new_unchecked(container_of_enum!(left as *mut _, Page, Buddy.0));
+        let page = container_of_enum!(NonNull::from_mut(left), Page, Buddy.0);
+        unsafe {
             page.write(Page::Unused);
 
             self.get_zone(right.zone_type).free_pages[left.order.val()].add_head(&mut left.list);
@@ -227,28 +225,25 @@ impl PageAllocator for BuddyAllocator {
         let mut page = None;
 
         while page.is_none() && order < MAX_ORDER {
-            let list_head = self.get_zone(zone_type).free_pages[order.val()];
+            let list_head = &mut self.get_zone(zone_type).free_pages[order.val()];
 
             page = if list_head.is_empty() {
                 None
             } else {
                 list_first_owner!(BuddyPage, list, list_head)
             };
-            if let Some(buddy_page) = page {
-                let _buddy_page = unsafe { buddy_page.as_mut().unwrap_unchecked() };
-                unsafe { _buddy_page.list.del() };
+            if let Some(mut buddy_page) = page {
+                let _buddy_page = unsafe { buddy_page.as_mut() };
+                _buddy_page.list.del();
 
-                let page = unsafe {
-                    container_of_enum!(buddy_page, Page, Buddy.0)
-                        .as_mut()
-                        .unwrap_unchecked()
-                };
+                let mut page = container_of_enum!(buddy_page, Page, Buddy.0);
+                let page = unsafe { page.as_mut() };
 
                 if order != target_order {
                     self.split_page(zone_type, order, target_order, page);
                 }
 
-                return Some(unsafe { NonNull::new_unchecked(page) });
+                return Some(NonNull::from_mut(page));
             }
             order.0 += 1;
         }
@@ -256,8 +251,8 @@ impl PageAllocator for BuddyAllocator {
     }
 
     fn free_pages(&mut self, mut page: NonNull<Page>) -> Result<(), PageError> {
-        let page = unsafe { page.as_mut() };
-        let addr = page.start_addr();
+        let _page = unsafe { page.as_mut() };
+        let addr = _page.start_addr();
         let page_number = PageNumber::from_addr(addr);
 
         let zone_type = ZoneType::from_address(addr);
@@ -268,32 +263,36 @@ impl PageAllocator for BuddyAllocator {
             PageNumber::new(zone_range.1),
         );
 
-        if let Page::Buddy(this_buddy_page) = page {
+        if let Page::Buddy(this_buddy_page) = _page {
             // 仅释放Buddy类型的页
             let current_order = this_buddy_page.order;
             if current_order < MAX_ORDER {
                 if page_number <= zone_end - current_order.to_count() {
-                    let buddy_page = Page::from_page_number(page_number + current_order.to_count());
+                    let mut buddy_page =
+                        unsafe { page.as_mut() }.next_page(current_order.to_count());
 
                     unsafe {
-                        if let Page::Buddy(buddy_page) = buddy_page.as_mut().unwrap_unchecked() {
+                        if let Page::Buddy(buddy_page) = buddy_page.as_mut() {
                             self.merge_page(this_buddy_page, buddy_page);
                             return Ok(());
                         }
                     }
                 } else if page_number >= zone_start + current_order.to_count() {
-                    let buddy_page = Page::from_page_number(page_number - current_order.to_count());
+                    let mut buddy_page =
+                        unsafe { page.as_mut() }.prev_page(current_order.to_count());
 
                     unsafe {
-                        if let Page::Buddy(buddy_page) = buddy_page.as_mut().unwrap_unchecked() {
+                        if let Page::Buddy(buddy_page) = buddy_page.as_mut() {
                             self.merge_page(buddy_page, this_buddy_page);
                             return Ok(());
                         }
                     }
+                } else {
+                    panic!("Buddy free error: buddy page out of zone range unexpectedly!");
                 }
             }
             // 无法合并，直接加入空闲链表
-            unsafe { zone.free_pages[current_order.val()].add_head(&mut this_buddy_page.list) };
+            zone.free_pages[current_order.val()].add_head(&mut this_buddy_page.list);
 
             Ok(())
         } else {

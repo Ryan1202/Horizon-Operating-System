@@ -4,25 +4,24 @@
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
 use core::{
-    mem::offset_of,
     num::{NonZeroU16, NonZeroUsize},
     ptr::NonNull,
 };
 
 use crate::{
-    container_of, container_of_enum,
+    container_of_enum,
     kernel::memory::{
-        block::{page_manager, VIR_BASE_ADDR},
+        block::{VIR_BASE_ADDR, page_manager},
         buddy::{BuddyPage, PageOrder},
-        page::{PageAllocator, ZoneType, PAGE_SIZE},
-        slub::mem_cache::{MemCache, MemCaches, ObjectSize},
-        Page,
+        page::{PAGE_SIZE, Page, PageAllocator, PageError, ZoneType},
+        slub::mem_cache::{MemCache, MemCaches},
     },
     lib::rust::{list::ListNode, spinlock::Spinlock},
 };
 
-mod config;
+pub(super) mod config;
 mod mem_cache;
+mod mem_cache_node;
 
 pub(self) const MIN_OBJECT_SIZE: usize = 8;
 pub(self) const MAX_OBJECT_SIZE: usize = 4096;
@@ -31,6 +30,10 @@ pub(self) const MIN_PARTIAL: u8 = 5;
 pub(self) const MAX_PARTIAL: u8 = 10;
 
 pub(self) const ALIGN: usize = core::mem::size_of::<usize>();
+
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct ObjectSize(pub NonZeroU16);
 
 #[repr(C)]
 pub struct Slub {
@@ -70,14 +73,30 @@ const _: () = assert!(size_of::<FreeNode>() <= MIN_OBJECT_SIZE);
 
 #[derive(Debug)]
 pub enum SlubError {
-    TooLargeSize,
-    TooMuchWaste,
-    PageAllocationFailed,
+    /// 请求的对象大小超过允许的最大值`MAX_OBJECT_SIZE`
+    ///
+    /// `TooLargeSize(size: usize)`
+    TooLargeSize(usize),
+
+    /// 请求的对象大小导致内存浪费过多(超过1/2组页)
+    ///
+    /// `TooMuchWaste(waste: usize, size: usize)`
+    TooMuchWaste(usize, usize),
+
+    /// 分配页失败（可能是当前Zone内存不足）
+    ///
+    /// `PageAllocationFailed(zone_type: ZoneType, requsted_order: usize)`
+    PageAllocationFailed(ZoneType, PageOrder),
+
+    /// `Slub`调用`Buddy`释放页时，传入了非`Page::Buddy`类型的页
+    ///
+    /// `IncorrectAddressToFree(addr: NonNull<Page>)`
+    IncorrectAddressToFree(NonNull<Page>),
 }
 
 impl Slub {
     // 通用初始化逻辑
-    unsafe fn init_slab(
+    fn init_slab(
         zone_type: ZoneType,
         object_num: NonZeroU16,
         object_size: NonZeroU16,
@@ -85,40 +104,45 @@ impl Slub {
     ) -> Result<NonNull<Slub>, SlubError> {
         // 分配页
         let pages = page_manager()
-            .unwrap()
+            .lock()
             .allocate_pages(zone_type, order)
-            .ok_or(SlubError::PageAllocationFailed)?;
+            .ok_or(SlubError::PageAllocationFailed(zone_type, order))?;
 
-        let start_addr = pages.as_ref().start_addr() + VIR_BASE_ADDR;
+        let start_addr = unsafe { pages.as_ref().start_addr() + VIR_BASE_ADDR };
         let free_nodes = {
             pages
-                .with_addr(NonZeroUsize::new(start_addr).unwrap())
+                .with_addr(
+                    NonZeroUsize::new(start_addr)
+                        .expect("start_addr allocated from page should be non zero!"),
+                )
                 .cast::<FreeNode>()
         };
 
         let mut first_page = pages;
 
-        first_page.write(Page::Slub(Slub {
-            slub_type: SlubType::Head(SlubHead::new(Some(free_nodes))),
-            object_size,
-            zone_type,
-        }));
+        unsafe {
+            first_page.write(Page::Slub(Slub {
+                slub_type: SlubType::Head(SlubHead::new(Some(free_nodes))),
+                object_size,
+                zone_type,
+            }))
+        };
 
-        let mut slub = match first_page.as_mut() {
-            Page::Slub(slub) => NonNull::new_unchecked(slub),
+        let mut slub = match unsafe { first_page.as_mut() } {
+            Page::Slub(slub) => NonNull::from_mut(slub),
             _ => unreachable!(),
         };
 
         // 填写 Page 中的 Slub
         for i in 1..order.to_count() {
-            let page = pages.add(i);
+            let page = unsafe { pages.add(i) };
 
             let slub_info = Slub {
                 slub_type: SlubType::Body(slub),
                 object_size,
                 zone_type,
             };
-            page.write(Page::Slub(slub_info));
+            unsafe { page.write(Page::Slub(slub_info)) };
         }
 
         FreeNode::init(free_nodes, object_num, object_size);
@@ -134,26 +158,38 @@ impl Slub {
 
     pub fn new(
         zone_type: ZoneType,
-        object_size: NonZeroU16,
+        object_size: ObjectSize,
         object_num: NonZeroU16,
         order: PageOrder,
     ) -> Result<NonNull<Self>, SlubError> {
-        unsafe { Self::init_slab(zone_type, object_num, object_size, order) }
+        Self::init_slab(zone_type, object_num, object_size.0, order)
     }
 
-    pub unsafe fn destroy(mut ptr: NonNull<Self>, cache_info: &MemCache) {
+    pub fn destroy(mut ptr: NonNull<Self>, cache_info: &MemCache) -> Result<(), SlubError> {
         let order = cache_info.order;
 
-        let slub = ptr.as_mut();
-        let page = NonNull::new_unchecked(container_of_enum!(slub as *mut _, Page, Slub.0));
+        let slub = unsafe { ptr.as_mut() };
+        let page = container_of_enum!(NonNull::from_mut(slub), Page, Slub.0);
 
-        page.write(Page::Buddy(BuddyPage {
-            list: ListNode::new(),
-            order,
-            zone_type: slub.zone_type,
-        }));
+        unsafe {
+            page.write(Page::Buddy(BuddyPage {
+                list: ListNode::new(),
+                order,
+                zone_type: slub.zone_type,
+            }))
+        };
 
-        page_manager().unwrap().free_pages(page).unwrap();
+        page_manager().lock().free_pages(page).map_err(|e| match e {
+            PageError::IncorrectPageType => SlubError::IncorrectAddressToFree(page),
+        })
+    }
+
+    #[inline]
+    pub fn free(&mut self, obj: NonNull<u8>) {
+        match &mut self.slub_type {
+            SlubType::Head(head) => head.free(obj),
+            SlubType::Body(body_slub) => unsafe { body_slub.as_mut() }.free(obj),
+        }
     }
 }
 
@@ -170,6 +206,9 @@ impl SlubHead {
         inuse
     }
 
+    /// 返回一个类型为`T`的对象的指针，内存大小在创建`Slub`时已确定
+    ///
+    /// 如果该`Slub`没有剩余可用对象，则返回`None`
     pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
         let mut inner = self.lock.lock();
 
@@ -237,28 +276,33 @@ fn calculate_order(size: ObjectSize) -> Result<PageOrder, SlubError> {
     }
 
     if size <= MAX_OBJECT_SIZE as u16 {
-        Err(SlubError::TooMuchWaste)
+        Err(SlubError::TooMuchWaste(
+            (PAGE_SIZE << order) % (size as usize),
+            size as usize,
+        ))
     } else {
-        Err(SlubError::TooLargeSize)
+        Err(SlubError::TooLargeSize(size as usize))
     }
 }
 
-fn calculate_sizes(size: ObjectSize) -> (NonZeroU16, NonZeroU16, PageOrder) {
-    let order = calculate_order(size).unwrap();
+fn calculate_sizes(size: NonZeroU16) -> Result<(ObjectSize, NonZeroU16, PageOrder), SlubError> {
+    let object_size = NonZeroU16::new(size.get().next_multiple_of(size_of::<usize>() as u16))
+        .expect("`object_size` should be non zero after alignment!");
+    let object_size = ObjectSize(object_size);
+    let order = calculate_order(object_size)?;
 
     let slab_size = PAGE_SIZE << order.val();
 
-    let object_size = size.0.get().next_multiple_of(size_of::<usize>() as u16) as usize;
-    let object_num = (slab_size / object_size) as u16;
+    let object_num = (slab_size / object_size.0.get() as usize) as u16;
 
-    (
-        NonZeroU16::new(object_size as u16).unwrap(),
-        NonZeroU16::new(object_num).unwrap(),
+    Ok((
+        object_size,
+        NonZeroU16::new(object_num).expect("`object_num` should be non zero after calculation!"),
         order,
-    )
+    ))
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn mem_caches_init() {
+#[unsafe(no_mangle)]
+pub extern "C" fn mem_caches_init() {
     MemCaches::init();
 }

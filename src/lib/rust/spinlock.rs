@@ -1,10 +1,9 @@
-//! Rust implementation of kernel spinlocks exported for C usage.
+//! 内核自旋锁的 Rust 实现并导出给 C 使用。
 //!
-//! This provides C-callable functions that mirror the inline functions in
-//! `src/include/kernel/spinlock.h`. The implementation operates on the
-//! underlying integer lock word so it works for both the simple `volatile int`
-//! variant and the debug `struct { int lock; ... }` variant (both have the
-//! lock word at the start).
+//! 该模块提供与 `src/include/kernel/spinlock.h` 中内联函数对应的
+//! C 可调用接口。实现直接操作底层的整数锁字（lock word），因此
+//! 对于简单的 `volatile int` 版本和调试用的 `struct { int lock; ... }`
+//! 版本均兼容（两者的首字段都是锁字）。
 
 use core::cell::UnsafeCell;
 use core::ffi::c_int;
@@ -13,11 +12,12 @@ use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-extern "C" {
-    // Architecture-specific helpers provided elsewhere (C/ASM).
+unsafe extern "C" {
+    // 架构相关的辅助函数在其他地方提供（C/汇编）。
     fn save_eflags_cli() -> c_int;
     fn io_store_eflags(flags: c_int);
 }
+
 pub struct CSpinlock {
     ptr: NonNull<SpinlockRaw>,
 }
@@ -47,14 +47,14 @@ pub struct SpinlockRaw {
 }
 
 impl SpinlockRaw {
-    /// Create a new unlocked spinlock value (suitable for static init via
-    /// `Spinlock { lock: 0 }`).
+    /// 创建一个未加锁的自旋锁值（适用于静态初始化，例如 `Spinlock { lock: 0 }`）。
     pub const fn new_unlocked() -> Self {
         SpinlockRaw {
             lock: AtomicBool::new(false),
         }
     }
 
+    /// 创建一个已加锁的自旋锁初始值。
     pub const fn new_locked() -> Self {
         SpinlockRaw {
             lock: AtomicBool::new(true),
@@ -74,24 +74,32 @@ impl SpinlockRaw {
 
     #[inline]
     pub fn lock(&mut self) {
-        while self
-            .lock
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            while self.lock.load(Ordering::Relaxed) != false {
+        // TTAS（test-then-test-and-set）模式：先做短时间的 Relaxed 轮询，
+        // 在看到为未加锁时再尝试通过弱 CAS 获取锁。弱 CAS 允许虚假失败，
+        // 因此放在循环中是合理且高效的。
+        loop {
+            while self.lock.load(Ordering::Relaxed) == true {
                 spin_loop();
+            }
+            if self
+                .lock
+                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                return;
             }
         }
     }
 
     #[inline]
     pub fn unlock(&mut self) {
+        // 使用 Release 语义确保在释放锁之前的写对后续获取者可见
         self.lock.store(false, Ordering::Release);
     }
 
     #[inline]
     pub fn lock_irqsave(&mut self) -> c_int {
+        // 保存并关闭中断，然后获取锁，返回之前的中断状态
         let flags = unsafe { save_eflags_cli() };
         self.lock();
         flags
@@ -99,6 +107,7 @@ impl SpinlockRaw {
 
     #[inline]
     pub fn try_lock_irqsave(&mut self) -> c_int {
+        // 尝试在禁用中断的情况下获取锁；若失败则恢复中断并返回 0
         let flags = unsafe { save_eflags_cli() };
         let ok = self.try_lock();
         if ok != 0 {
@@ -111,6 +120,7 @@ impl SpinlockRaw {
 
     #[inline]
     pub fn unlock_irqrestore(&mut self, flags: c_int) {
+        // 释放锁并恢复之前的中断状态
         self.unlock();
         unsafe { io_store_eflags(flags) };
     }
@@ -121,10 +131,10 @@ unsafe impl Sync for SpinlockRaw {}
 #[repr(C)]
 pub struct Spinlock<T> {
     lock: SpinlockRaw,
-    _inner: UnsafeCell<T>,
+    pub(super) _inner: UnsafeCell<T>,
 }
 
-unsafe impl<T> Sync for Spinlock<T> where T: Send {}
+unsafe impl<T> Sync for Spinlock<T> {}
 
 pub struct SpinGuard<'a, T> {
     lock: &'a mut SpinlockRaw,
@@ -145,6 +155,7 @@ impl<T> Spinlock<T> {
         }
     }
 
+    /// 锁住自旋锁保护内部数据，通过`SpinGuard`提供安全的可变引用
     pub fn lock(&mut self) -> SpinGuard<'_, T> {
         self.lock.lock();
         SpinGuard {
@@ -154,6 +165,7 @@ impl<T> Spinlock<T> {
     }
 
     pub fn lock_irqsave(&mut self) -> SpinIrqGuard<'_, T> {
+        // 禁用中断并获取锁，返回带有中断状态的`Guard`
         let status = self.lock.lock_irqsave();
         SpinIrqGuard {
             lock: &mut self.lock,
@@ -163,6 +175,7 @@ impl<T> Spinlock<T> {
     }
 
     pub fn get_relaxed(&self) -> &T {
+        // 在无需同步语义（仅在明确知道安全的场景下）下获取对内部数据的只读访问
         unsafe { &*self._inner.get() }
     }
 }
@@ -197,14 +210,14 @@ impl<'a, T> DerefMut for SpinIrqGuard<'a, T> {
 
 impl<'a, T> Drop for SpinGuard<'a, T> {
     fn drop(&mut self) {
-        // Ensure the lock is released if still held
+        // 在 Guard 被丢弃时释放锁（确保不会忘记释放）
         self.lock.unlock();
     }
 }
 
 impl<'a, T> Drop for SpinIrqGuard<'a, T> {
     fn drop(&mut self) {
-        // Ensure the lock is released if still held
+        // 在 Guard 被丢弃时释放锁并恢复中断状态
         self.lock.unlock_irqrestore(self.status as c_int);
     }
 }

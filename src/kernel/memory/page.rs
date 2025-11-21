@@ -1,15 +1,15 @@
 use core::{
     ops::{Add, Sub},
-    ptr::{with_exposed_provenance_mut, NonNull},
+    ptr::{NonNull, with_exposed_provenance_mut},
 };
 
 use crate::{
+    CACHELINE_SIZE,
     kernel::memory::{
-        block::{page_manager, E820Ards},
+        block::{E820Ards, page_manager},
         buddy::{BuddyPage, PageOrder},
         slub::Slub,
     },
-    CACHELINE_SIZE,
 };
 
 pub const PAGE_SIZE: usize = 0x1000;
@@ -90,7 +90,7 @@ const _: () = assert!(size_of::<Page>() <= MAX_PAGE_STRUCT_SIZE);
 pub const PAGE_INFO_COUNT: usize = 1 << 20;
 const PAGE_INFO_SIZE: usize = PAGE_INFO_COUNT * size_of::<Page>();
 
-extern "C" {
+unsafe extern "C" {
     #[link_name = "page_info"]
     static mut PAGE_INFO: [Page; PAGE_INFO_COUNT];
 }
@@ -98,7 +98,7 @@ extern "C" {
 impl Page {
     /// 填充 [start, end] 范围的Page
     fn fill_range(start: PageNumber, end: PageNumber, e820_type: u32) {
-        let pages: *mut Page = Page::from_page_number(start) as *mut Page;
+        let pages = Page::from_page_number(start);
         let hole = PageHole { start, end };
         let page_info = match e820_type {
             0 => Page::SystemReserved(hole),
@@ -157,24 +157,24 @@ impl Page {
 }
 
 impl Page {
-    pub const fn from_page_number(page_number: PageNumber) -> *mut Page {
+    pub const fn from_page_number(page_number: PageNumber) -> NonNull<Page> {
         debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
-        unsafe { &mut PAGE_INFO[page_number.0] }
+        NonNull::from_mut(unsafe { &mut PAGE_INFO[page_number.0] })
     }
 
-    pub const unsafe fn from_addr(addr: usize) -> *mut Page {
+    pub const unsafe fn from_addr(addr: usize) -> NonNull<Page> {
         let page_num = PageNumber::from_addr(addr);
         Page::from_page_number(page_num)
     }
 
-    pub const unsafe fn next_page(&mut self, count: usize) -> *mut Page {
+    pub const fn next_page(&mut self, count: usize) -> NonNull<Page> {
         debug_assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
-        (self as *mut Page).add(count)
+        unsafe { NonNull::from_mut(self).add(count) }
     }
 
-    pub const unsafe fn prev_page(&mut self, count: usize) -> *mut Page {
+    pub const fn prev_page(&mut self, count: usize) -> NonNull<Page> {
         debug_assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
-        (self as *mut Page).sub(count)
+        unsafe { NonNull::from_mut(self).sub(count) }
     }
 
     pub const fn start_addr(&self) -> usize {
@@ -186,7 +186,7 @@ impl Page {
 /// 内存区域类型
 /// Zone只决定了系统能管理的物理内存范围，与Page管理的内存范围无关
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ZoneType {
     /// (ISA )DMA区，低于16MB
     DMA = 0,
@@ -265,26 +265,21 @@ pub trait PageAllocator {
     fn free_pages(&mut self, page: NonNull<Page>) -> Result<(), PageError>;
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn allocate_pages(zone_type: ZoneType, order: PageOrder) -> usize {
-    unsafe {
-        page_manager()
-            .unwrap_unchecked()
-            .allocate_pages(zone_type, order)
-            .map(|v| v.read())
-    }
-    .map_or(0, |v| v.start_addr())
+    page_manager()
+        .lock()
+        .allocate_pages(zone_type, order)
+        .map_or(0, |v| unsafe { v.as_ref() }.start_addr())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn free_pages(addr: usize) -> i8 {
-    unsafe {
-        match page_manager()
-            .unwrap_unchecked()
-            .free_pages(NonNull::new(with_exposed_provenance_mut(addr)).unwrap())
-        {
-            Ok(_) => 0,
-            Err(_) => -1,
-        }
+    match page_manager()
+        .lock()
+        .free_pages(NonNull::new(with_exposed_provenance_mut(addr)).unwrap())
+    {
+        Ok(_) => 0,
+        Err(_) => -1,
     }
 }

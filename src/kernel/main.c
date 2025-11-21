@@ -112,8 +112,8 @@ int main() {
 	uint8_t *zero = 0;
 
 	init_memory();
-	while (true) {}
 	init_object_tree();
+	while (true) {}
 	init_device_managers();
 	init_bus_manager();
 

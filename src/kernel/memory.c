@@ -254,106 +254,107 @@ bool split_page(struct memory_manage *mm, size_t page_addr, int pow) {
 }
 
 // 默认对齐32字节
-void *kmalloc(uint32_t size) {
-	void *address;
-	void *new_address;
+// void *kmalloc(uint32_t size) {
+// 	void *address;
+// 	void *new_address;
 
-	if (size == 0) { return NULL; }
+// 	if (size == 0) { return NULL; }
 
-	int flags = save_and_disable_interrupt(); // TODO
-	// 大于半个页就按页分配
-	if (size > 2048) {
-		int pages = (size + PAGE_SIZE - 1) >> 12; // 一共占多少个页
-		int index = find_free_block(memory_manage);
-		if (index == -1) {
-			store_interrupt_status(flags);
-			return NULL;
-		}
-		address = kernel_alloc_pages(pages); // 分配页
-		if (address == NULL) {
-			store_interrupt_status(flags);
-			return NULL;
-		}
-		memory_manage->free_blocks[index].address = (uint32_t)address;
-		memory_manage->free_blocks[index].size	  = pages; // 大小是页的数量
-		memory_manage->free_blocks[index].flags	  = MEMORY_BLOCK_ALLOCATED;
-		memory_manage->free_blocks[index].mode	  = MEMORY_BLOCK_MODE_BIG;
-		store_interrupt_status(flags);
-		return (void *)address;
-	} else if (0 < size && size <= 2048) {					   // size <= 2048
-		int pow = MAX(aligned_up_log2n(size), MEMORY_MIN_POW); // 指数
-		size	= 1 << pow;
-		// 第一次寻找，如果在块中没有找到，就打散一个页
-		if (!list_empty(
-				&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW])) {
-			struct memory_block *block = list_first_owner(
-				&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW],
-				struct memory_block, list);
-			address		 = (void *)block->address;
-			block->flags = MEMORY_BLOCK_ALLOCATED;
-			list_del(&block->list);
-			store_interrupt_status(flags);
-			return (void *)address;
-		}
-		// 如果都没有找到，分配一个页，然后打散
-		// 分配一个页，用来被打散
-		new_address = kernel_alloc_pages(1);
-		if (new_address == NULL) {
-			store_interrupt_status(flags);
-			return NULL;
-		}
-		if (!split_page(memory_manage, (size_t)new_address, pow)) {
-			store_interrupt_status(flags);
-			return NULL;
-		}
+// 	int flags = save_and_disable_interrupt(); // TODO
+// 	// 大于半个页就按页分配
+// 	if (size > 2048) {
+// 		int pages = (size + PAGE_SIZE - 1) >> 12; // 一共占多少个页
+// 		int index = find_free_block(memory_manage);
+// 		if (index == -1) {
+// 			store_interrupt_status(flags);
+// 			return NULL;
+// 		}
+// 		address = kernel_alloc_pages(pages); // 分配页
+// 		if (address == NULL) {
+// 			store_interrupt_status(flags);
+// 			return NULL;
+// 		}
+// 		memory_manage->free_blocks[index].address = (uint32_t)address;
+// 		memory_manage->free_blocks[index].size	  = pages; // 大小是页的数量
+// 		memory_manage->free_blocks[index].flags	  = MEMORY_BLOCK_ALLOCATED;
+// 		memory_manage->free_blocks[index].mode	  = MEMORY_BLOCK_MODE_BIG;
+// 		store_interrupt_status(flags);
+// 		return (void *)address;
+// 	} else if (0 < size && size <= 2048) {					   // size <= 2048
+// 		int pow = MAX(aligned_up_log2n(size), MEMORY_MIN_POW); // 指数
+// 		size	= 1 << pow;
+// 		// 第一次寻找，如果在块中没有找到，就打散一个页
+// 		if (!list_empty(
+// 				&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW])) {
+// 			struct memory_block *block = list_first_owner(
+// 				&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW],
+// 				struct memory_block, list);
+// 			address		 = (void *)block->address;
+// 			block->flags = MEMORY_BLOCK_ALLOCATED;
+// 			list_del(&block->list);
+// 			store_interrupt_status(flags);
+// 			return (void *)address;
+// 		}
+// 		// 如果都没有找到，分配一个页，然后打散
+// 		// 分配一个页，用来被打散
+// 		new_address = kernel_alloc_pages(1);
+// 		if (new_address == NULL) {
+// 			store_interrupt_status(flags);
+// 			return NULL;
+// 		}
+// 		if (!split_page(memory_manage, (size_t)new_address, pow)) {
+// 			store_interrupt_status(flags);
+// 			return NULL;
+// 		}
 
-		// 打散后再寻找
-		struct memory_block *block = list_first_owner(
-			&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW],
-			struct memory_block, list);
-		address		 = (void *)block->address;
-		block->flags = MEMORY_BLOCK_ALLOCATED;
-		list_del(&block->list);
-		store_interrupt_status(flags);
-		return (void *)address;
-	}
-	// size=0或者没有找到
-	store_interrupt_status(flags);
-	return NULL; // 失败
-}
+// 		// 打散后再寻找
+// 		struct memory_block *block = list_first_owner(
+// 			&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW],
+// 			struct memory_block, list);
+// 		address		 = (void *)block->address;
+// 		block->flags = MEMORY_BLOCK_ALLOCATED;
+// 		list_del(&block->list);
+// 		store_interrupt_status(flags);
+// 		return (void *)address;
+// 	}
+// 	// size=0或者没有找到
+// 	store_interrupt_status(flags);
+// 	return NULL; // 失败
+// }
 
-int kfree(void *address) {
-	if (address == NULL) { return 0; }
-	int					 i;
-	uint32_t			 addr = (uint32_t)address;
-	struct memory_block *block;
+// int kfree(void *address) {
+// 	if (address == NULL) { return 0; }
+// 	int					 i;
+// 	uint32_t			 addr = (uint32_t)address;
+// 	struct memory_block *block;
 
-	int flags = save_and_disable_interrupt();
-	for (i = 0; i < MEMORY_BLOCKS; i++) {
-		block = &memory_manage->free_blocks[i];
-		if (block->address == addr && block->flags == MEMORY_BLOCK_ALLOCATED) {
-			if (block->mode == MEMORY_BLOCK_MODE_BIG) {
-				kernel_free_page(block->address, block->size);
-				block->flags = MEMORY_BLOCK_FREE;
-				block->size	 = 0; // 只有大块才需要重新设置size
-				store_interrupt_status(flags);
-				return 0;
-			} else if (block->mode == MEMORY_BLOCK_MODE_SMALL) {
-				int pow		 = aligned_up_log2n(block->size);
-				block->flags = MEMORY_BLOCK_USING;
-				list_add_tail(
-					&block->list,
-					&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW]);
-				// 存在一种情况，那就是所有被打散的内存都被释放后，可能需要释放那个页，目前还没有考虑它
-				// 小块不需要设置大小，因为就是打散了的块
-				store_interrupt_status(flags);
-				return 0;
-			}
-		}
-	}
+// 	int flags = save_and_disable_interrupt();
+// 	for (i = 0; i < MEMORY_BLOCKS; i++) {
+// 		block = &memory_manage->free_blocks[i];
+// 		if (block->address == addr && block->flags == MEMORY_BLOCK_ALLOCATED) {
+// 			if (block->mode == MEMORY_BLOCK_MODE_BIG) {
+// 				kernel_free_page(block->address, block->size);
+// 				block->flags = MEMORY_BLOCK_FREE;
+// 				block->size	 = 0; // 只有大块才需要重新设置size
+// 				store_interrupt_status(flags);
+// 				return 0;
+// 			} else if (block->mode == MEMORY_BLOCK_MODE_SMALL) {
+// 				int pow		 = aligned_up_log2n(block->size);
+// 				block->flags = MEMORY_BLOCK_USING;
+// 				list_add_tail(
+// 					&block->list,
+// 					&memory_manage->free_blocks_list[pow - MEMORY_MIN_POW]);
+// 				//
+// 存在一种情况，那就是所有被打散的内存都被释放后，可能需要释放那个页，目前还没有考虑它
+// 				// 小块不需要设置大小，因为就是打散了的块
+// 				store_interrupt_status(flags);
+// 				return 0;
+// 			}
+// 		}
+// 	}
 
-	return -1; // 失败
-}
+// 	return -1; // 失败
+// }
 
 void print_memory_result(
 	MemoryResult result, char *file, int line, char *func_with_args) {

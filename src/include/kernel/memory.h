@@ -66,7 +66,7 @@ int			 mmap_search(struct mmap *btmp, unsigned int cnt);
 void		 mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
 int			 mmap_get(struct mmap *btmp, uint32_t bit_index);
 MemoryResult alloc_vaddr(size_t in_size, uint32_t *out_vaddr);
-void		*kmalloc(uint32_t size);
+void		*kmalloc(size_t size);
 int			 kfree(void *address);
 
 void print_memory_result(

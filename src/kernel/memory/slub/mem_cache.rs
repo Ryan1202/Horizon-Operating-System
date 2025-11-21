@@ -1,53 +1,28 @@
 use core::{
     cell::SyncUnsafeCell,
-    mem::MaybeUninit,
-    num::{NonZero, NonZeroU16},
-    ptr::NonNull,
+    mem::{MaybeUninit, transmute},
+    num::NonZeroU16,
+    ptr::{NonNull, null_mut},
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
 use crate::{
+    container_of, container_of_enum,
     kernel::memory::{
         buddy::PageOrder,
-        page::{page_align_down, ZoneType},
         slub::{
+            self, ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubHead, SlubType,
             calculate_sizes,
-            config::{DEFAULT_CACHES, DEFAULT_CACHE_CONFIGS},
-            Slub, SlubHead, SlubType, ALIGN, MAX_OBJECT_SIZE, MAX_PARTIAL, MIN_PARTIAL,
+            config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
+            mem_cache_node::MemCacheNode,
         },
-        Page,
     },
     lib::rust::{
         list::{ListHead, ListNode},
         spinlock::{Spinlock, SpinlockRaw},
     },
-    list_for_each_owner,
+    list_first_owner,
 };
-
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-pub struct ObjectSize(pub NonZeroU16);
-
-impl ObjectSize {
-    const unsafe fn new(size: u16) -> Self {
-        Self(NonZeroU16::new_unchecked(
-            size.next_multiple_of(ALIGN as u16),
-        ))
-    }
-
-    pub const fn from<T: Sized>() -> ObjectSize {
-        let size = size_of::<T>() as u16;
-        assert!(size != 0, "size_of::<T>() == 0, NonZeroU16 required");
-        // SAFETY: 已经断言 size != 0
-        unsafe { Self::new(size) }
-    }
-
-    pub const fn from_u16(size: u16) -> ObjectSize {
-        assert!(size != 0, "size == 0, NonZeroU16 required");
-        debug_assert!((size as usize) <= MAX_OBJECT_SIZE);
-        // SAFETY: 已经断言 size != 0
-        unsafe { Self::new(size) }
-    }
-}
 
 #[repr(C)]
 pub struct MemCaches {
@@ -81,11 +56,8 @@ impl MemCaches {
             let mem_cache = caches.mem_cache.as_mut();
 
             for (i, cache) in DEFAULT_CACHE_CONFIGS.iter().enumerate() {
-                DEFAULT_CACHES[i] = mem_cache.new_boot(
-                    cache.name.as_ptr(),
-                    mem_cache_node,
-                    ObjectSize::from_u16(cache.object_size as u16),
-                );
+                DEFAULT_CACHES[i] =
+                    mem_cache.new_boot(cache.name.as_ptr(), mem_cache_node, cache.object_size);
             }
 
             let mut list_head = caches.list_head.lock();
@@ -101,157 +73,71 @@ impl MemCaches {
 
     pub fn add_cache(&mut self, cache: &mut MemCache) {
         let mut list_head = self.list_head.lock();
-        unsafe {
-            list_head.add_head(&mut cache.list);
-        }
+        list_head.add_head(&mut cache.list);
     }
 }
 
 static CACHES: SyncUnsafeCell<MaybeUninit<MemCaches>> = SyncUnsafeCell::new(MaybeUninit::uninit());
 
-/// 每个节点的缓存（这里我们忽略节点/NUMA，仅保留一个节点结构）
-pub struct MemCacheNode {
-    slub: NonNull<Slub>,
-    pub partial_list: Spinlock<ListHead<SlubHead>>,
-}
-
-impl MemCacheNode {
-    const OBJECT_SIZE: ObjectSize = ObjectSize::from::<Self>();
-
-    fn init(&mut self, slub: NonNull<Slub>) {
-        *self = Self {
-            slub: slub,
-            partial_list: Spinlock::new(ListHead::empty()),
-        };
-
-        let mut partial_list = self.partial_list.lock();
-        partial_list.init();
-    }
-
-    /// 创建一个Slub存放自身，作为 MemCacheNode 类型的 MemCache 的一个节点
-    fn bootstrap() -> NonNull<Self> {
-        let (_, object_num, order) = calculate_sizes(Self::OBJECT_SIZE);
-
-        let mut slub =
-            Slub::new(ZoneType::LinearMem, Self::OBJECT_SIZE.0, object_num, order).unwrap();
-
-        unsafe {
-            let _slub = slub.as_mut();
-            let mut mem_cache_node: NonNull<Self> = match &mut _slub.slub_type {
-                SlubType::Head(head) => head.allocate().unwrap(),
-                _ => unreachable!(),
-            };
-
-            mem_cache_node.as_mut().init(slub);
-
-            mem_cache_node
-        }
-    }
-
-    /// 从已创建的 MemCacheNode 创建 "mem_cache_node" 的 MemCache
-    pub fn bootstrap_cache(ptr: NonNull<Self>, mem_cache: &mut MemCache) -> NonNull<MemCache> {
-        const NAME: *const u8 = b"mem_cache_node\0".as_ptr();
-
-        mem_cache.new_boot_from_node(NAME, ptr, ObjectSize::from::<Self>())
-    }
-
-    // 从分配 MemCacheNode 的 Node 中分配用于其他类型的 MemCacheNode 对象
-    pub fn new<T>(&mut self) -> Option<NonNull<MemCacheNode>> {
-        let mut result = self.allocate::<MemCacheNode>()?;
-
-        let (object_size, object_num, order) = calculate_sizes(ObjectSize::from::<T>());
-
-        unsafe {
-            let slub = Slub::new(ZoneType::LinearMem, object_size, object_num, order).unwrap();
-
-            result.as_mut().init(slub);
-        }
-
-        Some(result)
-    }
-
-    pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
-        // 优先从正在使用的Slub分配
-        let mut slub = self.slub;
-        match &mut unsafe { slub.as_mut() }.slub_type {
-            SlubType::Head(head) => head.allocate().or_else(|| {
-                let mut result = None;
-                let mut list_head = self.partial_list.lock();
-
-                list_for_each_owner!(slub, SlubHead, list, list_head, {
-                    result = unsafe { slub.as_mut().unwrap().allocate() };
-                });
-
-                result
-            }),
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
-        // 先找到所在页的 Page 结构，再从其中取出 Slub 地址
-        let page = unsafe {
-            obj.map_addr(|addr| NonZero::new(page_align_down(addr.get())).unwrap())
-                .cast::<Page>()
-                .as_mut()
-        };
-
-        if let Page::Slub(slub) = page {
-            let head = match &mut slub.slub_type {
-                SlubType::Body(head) => unsafe {
-                    // 如果是Body就重新定位到Head
-                    match &mut head.as_mut().slub_type {
-                        SlubType::Head(head) => head,
-                        _ => unreachable!(),
-                    }
-                },
-                SlubType::Head(head) => head,
-            };
-
-            head.free(obj);
-        }
-
-        Some(())
-    }
-}
-
 /// 顶层 MemCache（非常简化）
 pub struct MemCache {
     /// 链表节点，连接到 MemCaches 的 list_head
-    pub list: ListNode<MemCache>,
+    list: ListNode<MemCache>,
     /// 名称（仅保存指针，字符串应位于只读数据段）
-    pub name: *const u8,
-    /// 对象大小（字节）
-    pub object_size: NonZeroU16,
+    name: *const u8,
+    /// 指向 Slub 的原子指针
+    slub: AtomicPtr<Slub>,
+    /// 原始对象大小（字节）
+    original_size: NonZeroU16,
     /// 对象个数
-    pub object_num: NonZeroU16,
+    object_num: NonZeroU16,
     /// 页阶数
     pub order: PageOrder,
     /// 最小部分填充数量
-    pub min_partial: u8,
+    min_partial: u8,
     /// 对齐要求
-    pub align: usize,
+    align: usize,
     /// 单一节点（忽略 NUMA）
-    pub node: NonNull<MemCacheNode>,
+    node: NonNull<MemCacheNode>,
     /// 全局自旋锁保护全局操作
-    pub spinlock: SpinlockRaw,
+    spinlock: SpinlockRaw,
 }
 
 unsafe impl Sync for MemCache {}
 
 impl MemCache {
-    #[inline]
-    fn init(&mut self, name: *const u8, node: NonNull<MemCacheNode>, object_size: ObjectSize) {
-        let (object_size, object_num, order) = calculate_sizes(object_size);
+    const OBJECT_SIZE: NonZeroU16 = NonZeroU16::new(64).unwrap();
 
-        let min_partial = (object_size.ilog2() as u8 / 2)
+    #[inline]
+    fn init(
+        &mut self,
+        name: *const u8,
+        mut node: NonNull<MemCacheNode>,
+        size: NonZeroU16,
+    ) -> Result<(), SlubError> {
+        let (object_size, object_num, order) = calculate_sizes(size)?;
+
+        let min_partial = (object_size.0.ilog2() as u8 / 2)
             .min(MAX_PARTIAL)
             .max(MIN_PARTIAL);
+
+        let slub = {
+            let partial_list = unsafe { node.as_mut() }.partial_list.lock();
+
+            // 从 MemCacheNode 的partial list中获取一个 Slub 作为首选 Slub
+            let mut slub_head = list_first_owner!(SlubHead, list, partial_list)
+                .expect("Trying to init Memcache from a node without slub!");
+            unsafe { slub_head.as_mut().list.del() };
+
+            let slub_type = container_of_enum!(slub_head, SlubType, Head.0);
+            container_of!(slub_type, Slub, slub_type)
+        };
 
         *self = Self {
             list: ListNode::new(),
             name,
-            object_size,
+            slub: AtomicPtr::new(slub.as_ptr()),
+            original_size: size,
             object_num,
             order,
             align: ALIGN,
@@ -259,6 +145,8 @@ impl MemCache {
             node,
             spinlock: SpinlockRaw::new_unlocked(),
         };
+
+        Ok(())
     }
 
     fn bootstrap(mut mem_cache_node: NonNull<MemCacheNode>) -> NonNull<Self> {
@@ -266,31 +154,37 @@ impl MemCache {
 
         unsafe {
             // 申请 “mem_cache" 的 MemCacheNode
-            let mut node = MemCacheNode::new::<MemCache>(mem_cache_node.as_mut()).unwrap();
+            let mut node = mem_cache_node.as_mut().new(Self::OBJECT_SIZE).unwrap();
 
             // 申请 "mem_cache" 的 MemCache
             let mut mem_cache = node.as_mut().allocate::<MemCache>().unwrap();
 
             mem_cache
                 .as_mut()
-                .init(NAME, node, ObjectSize::from::<Self>());
+                .init(NAME, node, Self::OBJECT_SIZE)
+                .expect("Unexpected error ocurred when bootstrapping MemCache!");
 
             mem_cache
         }
     }
 
-    fn new_boot_from_node(
+    pub(super) fn new_boot_from_node(
         &mut self,
         name: *const u8,
         mem_cache_node: NonNull<MemCacheNode>,
-        object_size: ObjectSize,
+        object_size: NonZeroU16,
     ) -> NonNull<Self> {
         // 申请 MemCache
         let node = unsafe { self.node.as_mut() };
-        let mut mem_cache = node.allocate::<MemCache>().unwrap();
+        let mut mem_cache = node
+            .allocate::<MemCache>()
+            .expect("Unexpected error ocurred when allocating bootstrap MemCache from node!");
 
         unsafe {
-            mem_cache.as_mut().init(name, mem_cache_node, object_size);
+            mem_cache
+                .as_mut()
+                .init(name, mem_cache_node, object_size)
+                .expect("Unexpected error ocurred when init bootstrap MemCache from node!");
         };
 
         mem_cache
@@ -301,17 +195,43 @@ impl MemCache {
         &mut self,
         name: *const u8,
         node_cache: &mut MemCache,
-        object_size: ObjectSize,
+        object_size: NonZeroU16,
     ) -> NonNull<Self> {
         let node_cache_node = unsafe { node_cache.node.as_mut() };
-        let mem_cache_node = node_cache_node.new::<MemCache>().unwrap();
+        let mem_cache_node = node_cache_node
+            .new(object_size)
+            .expect("Unexpected error ocurred when creating bootstrap MemCache node!");
 
         self.new_boot_from_node(name, mem_cache_node, object_size)
     }
 
     /// 分配对象
-    pub unsafe fn alloc(&mut self) -> *mut u8 {
-        unimplemented!()
+    /// 返回`Option<NonNull<T>>`，指向类型为`T`的已分配对象
+    ///
+    /// 以下情况下会返回`None`：
+    /// - `Node`中没有可用的对象，且尝试创建新`Slub`失败
+    pub fn alloc<T>(&mut self) -> Option<NonNull<T>> {
+        // 交换出 Slub 指针并用空指针替代，防止并发分配冲突
+        let slub_ptr = self.slub.swap(null_mut(), Ordering::AcqRel);
+
+        if !slub_ptr.is_null() {
+            // 从 Slub 中分配
+            let slub = unsafe { &mut *slub_ptr };
+            let result = match &mut slub.slub_type {
+                SlubType::Head(head) => head.allocate::<T>(),
+                _ => {
+                    unreachable!("MemCache's Slub should always be SlubHead!");
+                }
+            };
+
+            // 重新存回 Slub 指针
+            self.slub.store(slub_ptr, Ordering::Release);
+            return result;
+        }
+
+        // 未初始化或者已被占用，从 Node 中分配
+        let node = unsafe { self.node.as_mut() };
+        node.allocate::<T>()
     }
 
     /// 释放对象
