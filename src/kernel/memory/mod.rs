@@ -1,6 +1,7 @@
 use core::ffi::c_void;
 
-mod physical;
+pub mod phy;
+pub mod vir;
 
 unsafe extern "C" {
     static VIR_BASE: *const c_void;

@@ -1,6 +1,6 @@
-mod kmalloc;
-mod page;
-mod slub;
+pub mod kmalloc;
+pub mod page;
+pub mod slub;
 
 #[repr(C)]
 pub struct E820Ards {

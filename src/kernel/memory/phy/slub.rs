@@ -12,7 +12,7 @@ use crate::{
     container_of_enum,
     kernel::memory::{
         VIR_BASE_ADDR,
-        physical::{
+        phy::{
             page::{
                 PAGE_SIZE, Page, PageAllocator, PageError, ZoneType,
                 buddy::{BuddyPage, PageOrder},

@@ -5,7 +5,7 @@ use core::{
 
 use crate::{
     container_of_enum,
-    kernel::memory::physical::page::{
+    kernel::memory::phy::page::{
         PAGE_INFO_COUNT, PAGE_SIZE, Page, PageAllocator, PageError, PageNumber, ZoneType,
         page_count,
     },

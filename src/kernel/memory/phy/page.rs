@@ -9,7 +9,7 @@ use crate::{
     CACHELINE_SIZE,
     kernel::memory::{
         VIR_BASE, VIR_BASE_ADDR,
-        physical::{
+        phy::{
             E820Ards, PREALLOCATED_END_PHY,
             page::buddy::{BuddyAllocator, BuddyPage, PageOrder},
             slub::Slub,

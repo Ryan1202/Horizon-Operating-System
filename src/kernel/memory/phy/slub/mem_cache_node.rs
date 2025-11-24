@@ -1,7 +1,7 @@
 use core::{num::NonZeroU16, ptr::NonNull};
 
 use crate::{
-    kernel::memory::physical::{
+    kernel::memory::phy::{
         page::{Page, ZoneType, buddy::PageOrder, page_align_down},
         slub::{ObjectSize, Slub, SlubHead, SlubType, calculate_sizes, mem_cache::MemCache},
     },

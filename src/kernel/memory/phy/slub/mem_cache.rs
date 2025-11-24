@@ -8,7 +8,7 @@ use core::{
 
 use crate::{
     container_of, container_of_enum,
-    kernel::memory::physical::{
+    kernel::memory::phy::{
         page::buddy::PageOrder,
         slub::{
             ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubHead, SlubType, calculate_sizes,

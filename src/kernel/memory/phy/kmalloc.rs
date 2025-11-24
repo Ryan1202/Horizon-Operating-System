@@ -1,6 +1,6 @@
 use core::{ffi::c_void, mem::transmute, ptr::NonNull};
 
-use crate::kernel::memory::physical::page::Page;
+use crate::kernel::memory::phy::page::Page;
 
 use super::slub::config::DEFAULT_CACHES;
 
