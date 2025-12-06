@@ -4,6 +4,7 @@
 #![no_main]
 #![feature(sync_unsafe_cell)]
 #![feature(offset_of_enum)]
+#![feature(pattern_type_range_trait)]
 
 use core::panic::PanicInfo;
 

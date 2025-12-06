@@ -79,7 +79,7 @@ SECTIONS {
         PROVIDE(page_info = .);
         . += 0x100000 * 32;
         . = ALIGN(4);   /* 4 bytes align */
-        *(.bss)
+        *(.bss*)
     } : data
 
     _kernel_end_vir = .;

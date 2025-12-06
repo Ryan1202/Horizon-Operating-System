@@ -89,18 +89,15 @@ void print_memory_result(
 
 // Rust bindings
 typedef enum ZoneType {
-	ZONE_DMA = 0,
-#ifdef __x86_64__
-	ZONE_MEM32	  = 1,
+	ZONE_MEM24	  = 0,
+	ZONE_LINEAR	  = 1,
 	ZONE_HIGH_MEM = 2,
-#elif defined(__i386__)
-	ZONE_MEM32 = 1,
-#endif
 } ZoneType;
 
 size_t allocate_pages(ZoneType zone, uint8_t order);
 void   free_pages(size_t addr);
 
 void mem_caches_init();
+void vmalloc_init();
 
 #endif

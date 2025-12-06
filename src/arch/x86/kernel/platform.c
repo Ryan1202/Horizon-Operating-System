@@ -105,7 +105,7 @@ void platform_start_devices() {
 		serial_device_open(serial_object, SERIAL_BAUD_115200, serial_receive);
 	}
 
-	// print_features();
+	print_features();
 	DRV_RESULT_PRINT_CALL(
 		init_and_start_logical_device(pit_timer_device->device));
 	// if (use_apic)

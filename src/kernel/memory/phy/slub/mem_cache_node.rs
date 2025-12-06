@@ -5,7 +5,10 @@ use crate::{
         page::{Page, ZoneType, buddy::PageOrder, page_align_down},
         slub::{ObjectSize, Slub, SlubHead, SlubType, calculate_sizes, mem_cache::MemCache},
     },
-    lib::rust::{list::ListHead, spinlock::Spinlock},
+    lib::rust::{
+        list::{ListHead, ListNode},
+        spinlock::Spinlock,
+    },
     list_for_each_owner,
 };
 

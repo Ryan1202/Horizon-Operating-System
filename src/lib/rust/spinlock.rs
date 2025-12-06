@@ -5,7 +5,7 @@
 //! 对于简单的 `volatile int` 版本和调试用的 `struct { int lock; ... }`
 //! 版本均兼容（两者的首字段都是锁字）。
 
-use core::cell::UnsafeCell;
+use core::cell::{SyncUnsafeCell, UnsafeCell};
 use core::ffi::c_int;
 use core::hint::spin_loop;
 use core::ops::{Deref, DerefMut};
@@ -126,8 +126,6 @@ impl SpinlockRaw {
     }
 }
 
-unsafe impl Sync for SpinlockRaw {}
-
 #[repr(C)]
 pub struct Spinlock<T> {
     lock: SpinlockRaw,
@@ -177,6 +175,20 @@ impl<T> Spinlock<T> {
     pub fn get_relaxed(&self) -> &T {
         // 在无需同步语义（仅在明确知道安全的场景下）下获取对内部数据的只读访问
         unsafe { &*self._inner.get() }
+    }
+
+    /// 在受保护上下文中初始化内部数据。
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保在非并发环境调用此方法
+    pub fn init_with<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut T),
+    {
+        self.lock = SpinlockRaw::new_unlocked();
+        let inner = unsafe { &mut *self._inner.get() };
+        f(inner);
     }
 }
 

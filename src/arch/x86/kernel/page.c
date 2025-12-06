@@ -13,6 +13,7 @@
 #include <kernel/page.h>
 #include <kernel/thread.h>
 #include <sections.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -24,7 +25,7 @@ extern struct VesaDisplayInfo vesa_display_info;
 extern void	 *_kernel_start_phy, *_kernel_start_vir;
 extern void	 *_kernel_end_phy, *_kernel_end_vir;
 extern size_t PREALLOCATED_END_PHY;
-extern void	 *VIR_BASE;
+extern size_t VIR_BASE[];
 
 size_t pdt_phy_addr;
 size_t kernel_start_vir;
@@ -86,7 +87,7 @@ size_t __early_init page_early_setup(void) {
 	}
 
 	size_t *preallocated_end =
-		(size_t *)((size_t)&PREALLOCATED_END_PHY - (size_t)&VIR_BASE);
+		(size_t *)((size_t)&PREALLOCATED_END_PHY - (size_t)VIR_BASE);
 	*preallocated_end = (size_t)pt + PAGE_SIZE;
 	return (size_t)pdt;
 }
@@ -100,7 +101,7 @@ void setup_page(void) {
 	size_t end = KERNEL_LINEAR_SIZE;
 
 	size_t *pdt		= (size_t *)0xfffff000;
-	int		pdt_off = ((size_t)&VIR_BASE) >> 22;
+	int		pdt_off = ((size_t)VIR_BASE) >> 22;
 
 	size_t kernel_end = page_align_up((size_t)&_kernel_end_phy);
 	// 预分配内存占用的页数
@@ -144,12 +145,81 @@ void setup_page(void) {
 	for (int i = 0; i < 1024; i++) {
 		if (pdt[i] & SIGN_P && pdt[i] & 0xfffff000) {
 			size_t phy_addr = pdt[i] & 0xfffff000;
-			size_t vir_addr = (size_t)&VIR_BASE + phy_addr;
+			size_t vir_addr = (size_t)VIR_BASE + phy_addr;
 
 			size_t *pte = pte_ptr(vir_addr);
 			(*pte) &= ~SIGN_RW;
 		}
 	}
+}
+
+size_t alloc_page_table(void) {
+	size_t page_table_phy = allocate_pages(ZONE_LINEAR, 0);
+	if (!page_table_phy) {
+		printk(COLOR_RED "kernel no page left!\n");
+		return 0;
+	}
+	size_t page_table_vir = (size_t)VIR_BASE + page_table_phy; // 映射到线性区
+	memset((void *)page_table_vir, 0, PAGE_SIZE);
+
+	size_t *pte = pte_ptr(page_table_vir);
+	*pte &= ~SIGN_RW;
+
+	return page_table_phy;
+}
+
+bool page_link(
+	size_t vaddr, size_t paddr, uint16_t page_count, uint8_t cache_type) {
+	size_t *pde = pde_ptr(vaddr);
+	size_t *pte = pte_ptr(vaddr);
+
+	if (!(*pde & SIGN_P)) {
+		size_t page_table_phy = alloc_page_table();
+		if (!page_table_phy) { return false; }
+
+		*pde = (page_table_phy | SIGN_RW | SIGN_SYS | SIGN_P);
+	}
+
+	if (*pte & SIGN_P) { return false; }
+
+	uint8_t cache_sign = 0;
+	switch (cache_type) {
+	case PAGE_CACHE_WRITE_BACK:
+		cache_sign = 0;
+		break;
+	case PAGE_CACHE_WRITE_COMBINE:
+		// Write Combine需要配置PAT来支持，否则和Write Through一样
+		cache_sign = SIGN_PWT | SIGN_PAT;
+		break;
+	case PAGE_CACHE_WRITE_THROUGH:
+		cache_sign = SIGN_PWT;
+		break;
+	case PAGE_CACHE_UNCACHED:
+		cache_sign = SIGN_PCD | SIGN_PWT;
+		break;
+	case PAGE_CACHE_UNCACHED_MINUS:
+		cache_sign = SIGN_PCD;
+		break;
+	}
+
+	for (int i = 0; i < page_count; i++) {
+		*pte = (paddr | SIGN_RW | SIGN_SYS | SIGN_P | cache_sign);
+		pte++;
+		paddr += PAGE_SIZE;
+		if (((size_t)pte & 0x00000fff) == 0) {
+			// 跨页表了，获取下一个页表
+			pde++;
+			if (!(*pde & SIGN_P)) {
+				size_t page_table = alloc_page_table();
+				if (!page_table) { return false; }
+
+				*pde = (page_table | SIGN_RW | SIGN_SYS | SIGN_P);
+			}
+			pte = (size_t *)(*pde & 0xfffff000);
+		}
+	}
+
+	return true;
 }
 
 /**

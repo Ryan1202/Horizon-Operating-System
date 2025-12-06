@@ -137,7 +137,7 @@ pub extern "C" fn page_init() {
     unsafe {
         let page_manager = PAGE_MANAGER_VIR.get();
         *page_manager = MaybeUninit::new(Spinlock::new(BuddyAllocator::empty()));
-        (*page_manager).assume_init_mut().lock().init();
+        (*page_manager).assume_init_mut().init_with(|pm| pm.init());
     }
 }
 
@@ -213,12 +213,14 @@ impl Page {
 }
 
 impl Page {
-    pub const fn from_page_number(page_number: PageNumber) -> NonNull<Page> {
+    #[inline(always)]
+    pub fn from_page_number(page_number: PageNumber) -> NonNull<Page> {
         debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
         NonNull::from_mut(unsafe { &mut PAGE_INFO[page_number.0] })
     }
 
-    pub const unsafe fn from_addr(addr: usize) -> NonNull<Page> {
+    #[inline(always)]
+    pub unsafe fn from_addr(addr: usize) -> NonNull<Page> {
         let page_num = PageNumber::from_addr(addr);
         Page::from_page_number(page_num)
     }
@@ -245,10 +247,10 @@ impl Page {
 #[derive(Clone, Copy, Debug)]
 pub enum ZoneType {
     /// (ISA )DMA区，低于16MB
-    DMA = 0,
-    /// 内核线性映射区，低于4GB（64位）或896MB（32位）
+    MEM24 = 0,
+    /// 内核线性映射区，低于4GB（64位）或512MB（32位）
     LinearMem = 1,
-    /// 高端内存区，超过4GB（64位）或896MB（32位）
+    /// 高端内存区，超过4GB（64位）或512MB（32位）
     HighMem = 2,
 }
 
@@ -257,7 +259,7 @@ impl ZoneType {
 
     pub const fn index(&self) -> usize {
         match self {
-            ZoneType::DMA => 0,
+            ZoneType::MEM24 => 0,
             ZoneType::LinearMem => 1,
             ZoneType::HighMem => 2,
         }
@@ -265,7 +267,7 @@ impl ZoneType {
 
     pub const fn from_index(index: usize) -> Self {
         match index {
-            0 => ZoneType::DMA,
+            0 => ZoneType::MEM24,
             1 => ZoneType::LinearMem,
             2 => ZoneType::HighMem,
             _ => panic!("Invalid zone index"),
@@ -274,32 +276,26 @@ impl ZoneType {
 
     pub const fn range(&self) -> (usize, usize) {
         match self {
-            ZoneType::DMA => (0, (1 << 24) - 1), // 16MB
+            ZoneType::MEM24 => (0, (1 << 24) - 1), // 16MB
             #[cfg(target_pointer_width = "32")]
-            ZoneType::LinearMem => (1 << 24, 0x37ffffff), // 896MB
+            ZoneType::LinearMem => (1 << 24, 0x1fffffff), // 512MB
             #[cfg(target_pointer_width = "64")]
             ZoneType::LinearMem => (1 << 24, 1 << 32), // 4GB
             #[cfg(target_pointer_width = "32")]
-            ZoneType::HighMem => (0x38000000, usize::MAX), // >896MB
+            ZoneType::HighMem => (0x20000000, usize::MAX), // >512MB
             #[cfg(target_pointer_width = "64")]
             ZoneType::HighMem => (1 << 32, usize::MAX), // >4GB
         }
     }
 
     pub const fn from_address(addr: usize) -> Self {
-        if addr < (1 << 24) {
-            ZoneType::DMA
-        } else if addr <= u32::MAX as usize {
-            ZoneType::LinearMem
-        } else {
+        match (addr | 1).ilog2() {
+            0..24 => ZoneType::MEM24,
+            #[cfg(target_pointer_width = "32")]
+            24..29 => ZoneType::LinearMem,
             #[cfg(target_pointer_width = "64")]
-            {
-                ZoneType::HighMem
-            }
-            #[cfg(not(target_pointer_width = "64"))]
-            {
-                unreachable!();
-            }
+            24..32 => ZoneType::LinearMem,
+            _ => ZoneType::HighMem,
         }
     }
 }

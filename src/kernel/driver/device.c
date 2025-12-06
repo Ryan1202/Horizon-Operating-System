@@ -7,6 +7,7 @@
 #include <kernel/memory.h>
 #include <objects/object.h>
 #include <result.h>
+#include <stddef.h>
 #include <string.h>
 
 DriverResult create_physical_device(
@@ -70,6 +71,7 @@ DriverResult create_logical_device(
 	*logical_device = kmalloc(sizeof(LogicalDevice));
 	if (logical_device == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	LogicalDevice *logi = *logical_device;
+	memset(*logical_device, 0, sizeof(LogicalDevice));
 
 	logi->kind			  = DEVICE_KIND_LOGICAL;
 	logi->state			  = DEVICE_STATE_UNINIT;

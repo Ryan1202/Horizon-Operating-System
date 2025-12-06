@@ -91,7 +91,7 @@ impl BuddyAllocator {
         }
     }
 
-    const fn get_zone<'a>(&'a mut self, zone_type: ZoneType) -> &'a mut Zone {
+    fn get_zone<'a>(&mut self, zone_type: ZoneType) -> &mut Zone {
         &mut self.zones[zone_type.index()]
     }
 

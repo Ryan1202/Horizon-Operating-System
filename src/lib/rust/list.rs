@@ -2,15 +2,11 @@
 
 use core::{marker::PhantomData, ptr::NonNull};
 
-use crate::lib::rust::spinlock::Spinlock;
+use super::spinlock::Spinlock;
 
 #[macro_export]
 macro_rules! list_owner {
-    ($var:ident, $container:ty, $field:ident) => {{
-        use $crate::lib::rust::list::ListNode;
-
-        $crate::container_of!($var.cast::<ListNode<$container>>(), $container, $field)
-    }};
+    ($var:ident, $container:ty, $field:ident) => {{ $crate::container_of!($var.cast::<ListNode<$container>>(), $container, $field) }};
 }
 
 #[macro_export]
@@ -63,6 +59,7 @@ macro_rules! list_for_each_owner_safe {
     all(target_has_atomic = "64", target_pointer_width = "32"),
     repr(align(8))
 )]
+#[derive(PartialEq, Default, Debug)]
 #[repr(C)]
 pub struct ListHead<Owner> {
     pub tail: Option<NonNull<ListNode<Owner>>>,
@@ -206,6 +203,7 @@ impl<Owner> Clone for ListHead<Owner> {
     all(target_has_atomic = "64", target_pointer_width = "32"),
     repr(align(8))
 )]
+#[derive(PartialEq, Default, Debug)]
 #[repr(C)]
 pub struct ListNode<Owner> {
     pub prev: Option<NonNull<ListNode<Owner>>>,

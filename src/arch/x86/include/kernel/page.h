@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #ifdef ARCH_X86
-#define KERNEL_LINEAR_SIZE 0x38000000 // 896MB内核线性空间大小
+#define KERNEL_LINEAR_SIZE 0x20000000 // 512MB内核线性空间大小
 #else
 #error "Unsupported architecture"
 #endif
@@ -26,6 +26,14 @@
 #define SIGN_PAT 0x80  // 页表属性
 #define SIGN_G	 0x100 // 全局
 #define SIGN_AVL 0x200 // 软件可用
+
+typedef enum {
+	PAGE_CACHE_WRITE_BACK	  = 0,
+	PAGE_CACHE_WRITE_COMBINE  = 1,
+	PAGE_CACHE_WRITE_THROUGH  = 2,
+	PAGE_CACHE_UNCACHED		  = 3,
+	PAGE_CACHE_UNCACHED_MINUS = 4,
+} PageCacheType;
 
 void		 setup_page(void);
 uint32_t	*pte_ptr(uint32_t vaddr);
@@ -50,6 +58,8 @@ void		*thread_alloc_page(struct task_s *thread, int pages);
 void		 thread_free_page(struct task_s *thread, uint32_t vaddr, int pages);
 MemoryResult thread_use_page(
 	struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages);
+
+void *ioremap(size_t paddr, size_t size, uint8_t cache_type);
 
 extern size_t pdt_phy_addr;
 

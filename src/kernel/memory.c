@@ -51,6 +51,8 @@ void init_memory(void) {
 	page_init();
 
 	mem_caches_init();
+
+	vmalloc_init();
 	// int i;
 	// for (i = 0; i < ards_nr; i++) {
 	// 	// 寻找可用最大内存
