@@ -1,7 +1,3 @@
-// Auto-generated root file for this crate
-// Target: /Users/a15922/Horizon-Operating-System/src/arch/x86/i686-none.json
-// Based on: lib.template.rs
-
 #![no_std]
 #![no_main]
 #![feature(sync_unsafe_cell)]
@@ -37,12 +33,4 @@ fn panic(_info: &PanicInfo) -> ! {
     let mut panic_output = ConsoleOutput;
     let _ = writeln!(panic_output, "Kernel Panic: {}", _info);
     loop {}
-}
-
-// Auto-generated module declarations
-pub mod kernel {
-    pub mod memory;
-}
-pub mod lib {
-    pub mod rust;
 }

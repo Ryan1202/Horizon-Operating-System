@@ -144,6 +144,11 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
         RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
         RbTreeBase<K, I, TA, NA>: AugmentLink<K, I, NA>,
     {
+        debug_assert!(
+            new_node.get_parent().is_none() && new_node.left.is_none() && new_node.right.is_none(),
+            "Inserting a node that is already in a tree!"
+        );
+
         let key = &new_node.key;
         let parent = self
             .root

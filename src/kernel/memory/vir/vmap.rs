@@ -163,7 +163,6 @@ impl VmapNode {
                             }
                         }
 
-                        self.allocated.lock().insert(&mut vpages_ref.rb_node);
                         return Some(vpages);
                     }
 
