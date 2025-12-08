@@ -288,7 +288,7 @@ static __init void i8042_driver_entry(void) {
 	create_physical_device(&i8042_device, platform_bus, &attr);
 	register_physical_device(i8042_device, &i8042_device_ops);
 
-	I8042Device *i8042		   = kmalloc(sizeof(I8042Device));
+	I8042Device *i8042		   = kzalloc(sizeof(I8042Device));
 	i8042_device->private_data = i8042;
 }
 

@@ -28,11 +28,11 @@ PRIVATE void storage_modify_merged_request(
 
 PRIVATE void storage_new_merge_request(
 	StorageRequest *new_request, StorageRequest *request) {
-	StorageRequest *req = kmalloc(sizeof(StorageRequest));
-	req->buf = NULL; // 缓冲区先不申请，等到真正提交时再申请
-	req->position = MIN(new_request->position, request->position);
-	req->count	  = MAX(new_request->position + new_request->count,
-						request->position + request->count) -
+	StorageRequest *req = kzalloc(sizeof(StorageRequest));
+	req->buf			= NULL; // 缓冲区先不申请，等到真正提交时再申请
+	req->position		= MIN(new_request->position, request->position);
+	req->count			= MAX(new_request->position + new_request->count,
+							  request->position + request->count) -
 				 req->position;
 	req->rw				= new_request->rw;
 	req->is_finished	= 0;

@@ -88,7 +88,7 @@ uint16_t tcp_checksum(
 
 void tcp_register(NetworkConnection *conn) {
 	conn->trans_protocol = TRANS_PROTO_TCP;
-	if (conn->tcp.info == NULL) { conn->tcp.info = kmalloc(sizeof(Tcp)); }
+	if (conn->tcp.info == NULL) { conn->tcp.info = kzalloc(sizeof(Tcp)); }
 	NET_BUF_RESV_HEAD(conn, sizeof(TcpHeader));
 }
 

@@ -102,7 +102,7 @@ DriverResult usb_hid_mouse_probe(
 		&input_device, INPUT_TYPE_MOUSE, &usb_hid_mouse_device_ops,
 		physical_device, &usb_hid_mouse_device_driver));
 
-	UsbHidMouse *mouse				   = kmalloc(sizeof(UsbHidMouse));
+	UsbHidMouse *mouse				   = kzalloc(sizeof(UsbHidMouse));
 	mouse->device					   = input_device;
 	mouse->usb_device				   = usb_device;
 	mouse->interface				   = interface;

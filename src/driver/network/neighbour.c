@@ -20,7 +20,7 @@ void neighbour_init(void) {
 NeighbourEntry *neighbour_entry_create(
 	NetworkDevice *device, NeighbourKey hash_key, uint8_t *addr,
 	uint8_t length) {
-	NeighbourEntry *entry = kmalloc(sizeof(NeighbourEntry) + length);
+	NeighbourEntry *entry = kzalloc(sizeof(NeighbourEntry) + length);
 	if (!entry) { return NULL; }
 
 	hash_key %= NEIGH_BUCKET_SIZE;

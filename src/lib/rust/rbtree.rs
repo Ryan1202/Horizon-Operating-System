@@ -170,7 +170,7 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
         }
     }
 
-    pub fn delete<'a>(&mut self, key: &K) -> Option<()>
+    pub fn delete<'a>(&mut self, key: &K) -> Option<NonNull<RbNodeBase<K, I, NA>>>
     where
         &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
         RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
@@ -179,10 +179,22 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
         I: 'a,
         NA: 'a,
     {
-        let mut target = self.search_exact(key, K::cmp)?;
+        let target = self.search_exact(key, K::cmp)?;
+        self.delete_node(target);
+        Some(target)
+    }
+
+    pub fn delete_node<'a>(&mut self, mut target: NonNull<RbNodeBase<K, I, NA>>)
+    where
+        &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
+        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
+        RbNodeIter<'a, K, I, NA>: Iterator<Item = &'a mut RbNodeBase<K, I, NA>>,
+        K: 'a + Ord + Sized,
+        I: 'a,
+        NA: 'a,
+    {
         let target_ref = unsafe { target.as_mut() };
         target_ref.delete(self);
-        Some(())
     }
 }
 

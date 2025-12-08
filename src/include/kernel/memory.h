@@ -67,6 +67,7 @@ void		 mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
 int			 mmap_get(struct mmap *btmp, uint32_t bit_index);
 MemoryResult alloc_vaddr(size_t in_size, uint32_t *out_vaddr);
 void		*kmalloc(size_t size);
+void		*kzalloc(uint32_t size);
 int			 kfree(void *address);
 
 void print_memory_result(
@@ -95,7 +96,7 @@ typedef enum ZoneType {
 } ZoneType;
 
 size_t allocate_pages(ZoneType zone, uint8_t order);
-void   free_pages(size_t addr);
+int	   free_pages(size_t paddr);
 
 void mem_caches_init();
 void vmalloc_init();

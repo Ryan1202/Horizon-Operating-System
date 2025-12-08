@@ -60,7 +60,7 @@ DriverResult create_framebuffer_device(
 		DEVICE_TYPE_FRAMEBUFFER);
 	if (result != DRIVER_OK) return result;
 
-	*fb_device = kmalloc(sizeof(FrameBufferDevice));
+	*fb_device = kzalloc(sizeof(FrameBufferDevice));
 	if (*fb_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

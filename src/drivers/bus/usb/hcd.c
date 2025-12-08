@@ -33,7 +33,7 @@ DriverResult usb_create_hcd(
 		&logical_device, physical_device, device_driver, ops,
 		DEVICE_TYPE_BUS_CONTROLLER));
 
-	UsbHcd *hcd = kmalloc(sizeof(UsbHcd));
+	UsbHcd *hcd = kzalloc(sizeof(UsbHcd));
 	if (hcd == NULL) {
 		ret = DRIVER_ERROR_OUT_OF_MEMORY;
 		goto failed_create_hcd;
@@ -50,7 +50,7 @@ DriverResult usb_create_hcd(
 	ret = create_bus(&hcd->bus, &usb_bus_driver, &usb_bus_ops);
 	if (ret != DRIVER_OK) goto failed_create_bus;
 
-	hcd->ports = kmalloc(sizeof(UsbHcdPort) * port_cnt);
+	hcd->ports = kzalloc(sizeof(UsbHcdPort) * port_cnt);
 	if (hcd->ports == NULL) {
 		ret = DRIVER_ERROR_OUT_OF_MEMORY;
 		goto failed_create_ports;

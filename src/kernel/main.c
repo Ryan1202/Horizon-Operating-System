@@ -40,6 +40,7 @@
 #include <objects/handle.h>
 #include <objects/ops.h>
 #include <sections.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -110,6 +111,8 @@ void kernel_early_init(void) {
 	platform_early_init();
 }
 
+extern size_t page_info[];
+
 int main() {
 	uint8_t *zero = 0;
 
@@ -122,8 +125,6 @@ int main() {
 
 	platform_init();
 	platform_start_devices();
-	run_memory_benchmarks();
-	while (true) {}
 
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0, NULL);

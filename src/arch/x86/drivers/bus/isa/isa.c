@@ -44,6 +44,8 @@ DriverResult isa_register_device_driver(
 
 	isa_device_driver->device_driver = device_driver;
 	isa_device_driver->ops			 = ops;
+	isa_device_driver->bus_driver	 = NULL;
+	isa_device_driver->bus			 = NULL;
 	list_add_tail(&isa_device_driver->list, &isa_driver_lh);
 
 	return DRIVER_OK;

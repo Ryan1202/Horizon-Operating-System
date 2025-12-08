@@ -266,7 +266,7 @@ impl PageAllocator for BuddyAllocator {
         if let Page::Buddy(this_buddy_page) = _page {
             // 仅释放Buddy类型的页
             let current_order = this_buddy_page.order;
-            if current_order < MAX_ORDER {
+            if current_order < MAX_ORDER - 1 {
                 if page_number <= zone_end - current_order.to_count() {
                     let mut buddy_page =
                         unsafe { page.as_mut() }.next_page(current_order.to_count());
@@ -291,12 +291,12 @@ impl PageAllocator for BuddyAllocator {
                     panic!("Buddy free error: buddy page out of zone range unexpectedly!");
                 }
             }
-            // 无法合并，直接加入空闲链表
-            zone.free_pages[current_order.val()].add_head(&mut this_buddy_page.list);
-
-            Ok(())
-        } else {
-            Err(PageError::IncorrectPageType)
+            if current_order < MAX_ORDER {
+                // 无法合并
+                zone.free_pages[current_order.val()].add_head(&mut this_buddy_page.list);
+                return Ok(());
+            }
         }
+        Err(PageError::IncorrectPageType)
     }
 }

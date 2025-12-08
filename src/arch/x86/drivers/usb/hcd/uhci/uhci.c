@@ -325,12 +325,12 @@ DriverResult uhci_init(void *_device) {
 void uhci_probe_thread(void *arg) {
 	Uhci *uhci = (Uhci *)arg;
 
-	UsbHub *hub		= kmalloc(sizeof(UsbHub));
+	UsbHub *hub		= kzalloc(sizeof(UsbHub));
 	hub->usb_device = NULL;
 	hub->hcd		= uhci->hcd;
 	hub->ops		= &uhci_root_hub_ops;
 
-	struct UsbHubDescriptor *desc = kmalloc(sizeof(struct UsbHubDescriptor));
+	struct UsbHubDescriptor *desc = kzalloc(sizeof(struct UsbHubDescriptor));
 	hub->desc					  = desc;
 	desc->bLength				  = 9;
 	desc->bDescriptorType		  = USB_DESC_TYPE_HUB;
@@ -399,7 +399,7 @@ DriverResult uhci_pci_probe(
 
 	DriverResult result;
 
-	Uhci *uhci	   = kmalloc(sizeof(Uhci));
+	Uhci *uhci	   = kzalloc(sizeof(Uhci));
 	uhci->device   = pci_device;
 	uhci->io_base  = io_base;
 	uhci->port_cnt = port_cnt;

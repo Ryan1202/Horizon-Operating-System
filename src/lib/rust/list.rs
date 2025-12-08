@@ -204,7 +204,7 @@ impl<Owner> Clone for ListHead<Owner> {
     repr(align(8))
 )]
 #[derive(PartialEq, Default, Debug)]
-#[repr(C)]
+#[repr(C, align(4))]
 pub struct ListNode<Owner> {
     pub prev: Option<NonNull<ListNode<Owner>>>,
     pub next: Option<NonNull<ListNode<Owner>>>,

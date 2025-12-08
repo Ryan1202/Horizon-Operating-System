@@ -34,7 +34,7 @@ UsbHcdOps uhci_hcd_ops = {
 };
 
 void *uhci_create_pipeline(UsbDevice *usb_device, UsbEndpoint *endpoint) {
-	UhciPipeline *pipe = kmalloc(sizeof(UhciPipeline));
+	UhciPipeline *pipe = kzalloc(sizeof(UhciPipeline));
 	pipe->qh.qe_link   = UHCI_TERMINATE;
 	pipe->qh.qh_link   = UHCI_TERMINATE;
 	pipe->qh.endpoint  = endpoint;
@@ -59,7 +59,7 @@ void *uhci_create_pipeline(UsbDevice *usb_device, UsbEndpoint *endpoint) {
 			usb_device->hcd->device->private_data, &pipe->qh, ASYNC);
 	}
 	pipe->td_used	   = 0;
-	pipe->pre_alloc_td = kmalloc(sizeof(UhciTd) * pipe->td_count);
+	pipe->pre_alloc_td = kzalloc(sizeof(UhciTd) * pipe->td_count);
 	list_init(&pipe->pipe_lh);
 
 	for (int i = 0; i < pipe->td_count; i++) {
@@ -72,7 +72,7 @@ UhciTd *uhci_alloc_td(UhciPipeline *pipe) {
 	UhciTd *td;
 	int		index = BIT_FFZ_R(pipe->td_used);
 	if (index >= pipe->td_count) {
-		td = kmalloc(sizeof(UhciTd));
+		td = kzalloc(sizeof(UhciTd));
 	} else {
 		td = &pipe->pre_alloc_td[index];
 		pipe->td_used |= (1 << index);

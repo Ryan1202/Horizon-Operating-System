@@ -1,4 +1,9 @@
-use core::ffi::c_void;
+use core::{
+    ffi::c_void,
+    fmt::{Arguments, Write},
+};
+
+use crate::{ConsoleOutput, kernel::memory::phy::page::PageError};
 
 pub mod phy;
 pub mod vir;
@@ -11,6 +16,8 @@ pub static mut VIR_BASE_ADDR: usize = 0;
 
 unsafe extern "C" {
     fn page_link(vaddr: usize, paddr: usize, page_count: u16, cache_type: PageCacheType) -> bool;
+    fn page_unlink(vaddr: usize, page_count: u16);
+    fn vir2phys(vaddr: usize) -> usize;
 }
 
 #[repr(u8)]
@@ -20,4 +27,19 @@ pub enum PageCacheType {
     WriteThrough = 2,
     Uncached = 3,
     UncachedMinus = 4,
+}
+
+#[derive(Debug)]
+pub enum MemoryError {
+    OutOfMemory,
+    DoubleRelease,
+    InvalidSize(usize),
+    PageError(PageError),
+}
+
+impl MemoryError {
+    pub fn log_error(&self, args: Arguments) {
+        let mut output = ConsoleOutput;
+        writeln!(output, "{}: MemoryError: {:?}", args, self).ok();
+    }
 }

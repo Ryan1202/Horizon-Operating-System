@@ -13,7 +13,7 @@ typedef volatile int spinlock_t;
 	{ (lock) = 0; }
 
 static inline void spinlock_init(spinlock_t *lock) {
-	lock = 0;
+	*lock = 0;
 }
 
 #define SPINLOCK_GET(lock) *lock

@@ -162,7 +162,7 @@ PRIVATE FsResult fat_longname_entry_write(
 PUBLIC FatDirEntry *generate_dir_entry(
 	FatInfo *fat_info, FatDirEntry *parent_entry, ShortDir *short_dir,
 	string_t name, FatLocation *location, ObjectAttr *attr) {
-	FatDirEntry *entry = kmalloc(sizeof(FatDirEntry));
+	FatDirEntry *entry = kzalloc(sizeof(FatDirEntry));
 	entry->name.text   = kmalloc(name.length);
 	memcpy(entry->name.text, name.text, name.length);
 	entry->name.length	   = name.length;
@@ -181,7 +181,7 @@ PUBLIC FatDirEntry *generate_dir_entry(
 	Object	   *object;
 	ObjectAttr *_attr = attr;
 	if (_attr == NULL) {
-		_attr = kmalloc(sizeof(ObjectAttr));
+		_attr = kzalloc(sizeof(ObjectAttr));
 		fat_attr_to_sys_attr(short_dir, _attr, location);
 	}
 

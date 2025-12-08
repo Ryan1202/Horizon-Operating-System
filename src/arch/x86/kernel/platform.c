@@ -74,7 +74,7 @@ DriverResult platform_init() {
 
 	register_serial();
 	result = register_vesa_display();
-	// result = register_apic();
+	result = register_apic();
 	result = register_pic();
 	result = register_pit();
 	result = register_cmos();

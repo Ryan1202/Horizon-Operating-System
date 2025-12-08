@@ -18,10 +18,13 @@ use crate::{
     lib::rust::spinlock::Spinlock,
 };
 
-pub(super) mod buddy;
+pub mod buddy;
 
 pub const PAGE_SIZE: usize = 0x1000;
 
+#[cfg(target_pointer_width = "32")]
+const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
+#[cfg(target_pointer_width = "64")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
 
 #[derive(Debug)]
@@ -77,12 +80,8 @@ pub struct PageHole {
     pub end: PageNumber,
 }
 
-#[cfg(target_pointer_width = "32")]
-type PageAlign = [u8; 31];
-#[cfg(target_pointer_width = "64")]
-type PageAlign = [u8; 63];
-
-#[repr(C, u8)]
+#[cfg_attr(target_pointer_width = "32", repr(C, u8, align(32)))]
+#[cfg_attr(target_pointer_width = "64", repr(C, u8, align(64)))]
 pub enum Page {
     /// 暂未使用
     Unused = 0,
@@ -91,7 +90,6 @@ pub enum Page {
     Free(PageHole),
     Buddy(BuddyPage),
     Slub(Slub),
-    _Align(PageAlign),
 }
 const _: () = assert!(size_of::<Page>() <= MAX_PAGE_STRUCT_SIZE);
 
@@ -317,20 +315,18 @@ pub trait PageAllocator {
     fn free_pages(&mut self, page: NonNull<Page>) -> Result<(), PageError>;
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn allocate_pages(zone_type: ZoneType, order: PageOrder) -> usize {
+#[unsafe(export_name = "allocate_pages")]
+pub extern "C" fn allocate_pages_c(zone_type: ZoneType, order: PageOrder) -> usize {
     page_manager()
         .lock()
         .allocate_pages(zone_type, order)
         .map_or(0, |v| unsafe { v.as_ref() }.start_addr())
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn free_pages(addr: usize) -> i8 {
-    match page_manager()
-        .lock()
-        .free_pages(NonNull::new(with_exposed_provenance_mut(addr)).unwrap())
-    {
+#[unsafe(export_name = "free_pages")]
+pub extern "C" fn free_pages_c(paddr: usize) -> i8 {
+    let page = unsafe { Page::from_addr(paddr) };
+    match page_manager().lock().free_pages(page) {
         Ok(_) => 0,
         Err(_) => -1,
     }

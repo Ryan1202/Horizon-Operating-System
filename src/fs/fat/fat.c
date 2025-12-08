@@ -109,7 +109,7 @@ FsResult fat_mount(FileSystemInfo *fs_info, Object *root_object) {
 	FatBpb	  *bpb = (FatBpb *)fs_info->partition->superblock;
 	FatFsInfo *fat_fs_info =
 		(FatFsInfo *)(fs_info->partition->superblock + SECTOR_SIZE);
-	FatInfo *fat_info	  = kmalloc(sizeof(FatInfo));
+	FatInfo *fat_info	  = kzalloc(sizeof(FatInfo));
 	fat_info->fs_info	  = fs_info;
 	fs_info->private_data = fat_info;
 
@@ -213,7 +213,7 @@ FsResult fat_lookup(
 	ShortDir	short_dir;
 	FS_RESULT_PASS(fat_info->ops->fat_dir_lookup(
 		fat_info, parent_entry, *name, &location, &short_dir));
-	ObjectAttr *tmp_attr = kmalloc(sizeof(ObjectAttr));
+	ObjectAttr *tmp_attr = kzalloc(sizeof(ObjectAttr));
 	fat_attr_to_sys_attr(&short_dir, tmp_attr, &location);
 
 	*attr = tmp_attr;
@@ -253,7 +253,7 @@ FsResult fat_opendir(
 	FatInfo		*fat_info = fs_info->private_data;
 	FatDirEntry *parent	  = parent_obj->value.directory.data;
 
-	*iterator = kmalloc(sizeof(FatDirIterator));
+	*iterator = kzalloc(sizeof(FatDirIterator));
 	if (fat_info->type == FAT_TYPE_FAT32) {
 		fat_dir_iterator_init(*iterator, fat_info, parent);
 	} else {
@@ -321,7 +321,7 @@ FsResult fat_create_handle(ObjectHandle *handle) {
 	Object *file = handle->object;
 	if (file->fs_info == NULL) return FS_ERROR_INVALID_PARAMS;
 	FatInfo		   *fat_info	= file->fs_info->private_data;
-	CurrentCluster *cur_cluster = kmalloc(sizeof(CurrentCluster));
+	CurrentCluster *cur_cluster = kzalloc(sizeof(CurrentCluster));
 	if (cur_cluster == NULL) return FS_ERROR_OUT_OF_MEMORY;
 	fat_cluster_list_get(fat_info, file->value.file.data, 0, cur_cluster);
 	handle->handle_data = cur_cluster;

@@ -52,10 +52,9 @@ DriverResult unregister_bus_driver(BusDriver *bus_driver) {
 }
 
 DriverResult create_bus(Bus **bus, BusDriver *bus_driver, BusOps *ops) {
-	*bus = kmalloc(sizeof(Bus));
+	*bus = kzalloc(sizeof(Bus));
 	if (*bus == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	Bus *b = *bus;
-	memset(*bus, 0, sizeof(Bus));
 
 	Bus *primary_bus = b->primary_bus;
 	Bus *tmp_bus	 = b;

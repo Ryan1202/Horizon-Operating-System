@@ -3,7 +3,7 @@ use core::{num::NonZeroU16, ptr::NonNull};
 use crate::{
     kernel::memory::phy::{
         page::{Page, ZoneType, buddy::PageOrder, page_align_down},
-        slub::{ObjectSize, Slub, SlubHead, SlubType, calculate_sizes, mem_cache::MemCache},
+        slub::{ObjectSize, Slub, SlubType, calculate_sizes, mem_cache::MemCache},
     },
     lib::rust::{
         list::{ListHead, ListNode},
@@ -44,8 +44,11 @@ impl MemCacheNode {
         partial_list.init();
         if let Some(mut slub) = slub {
             unsafe {
-                if let SlubType::Head(head) = &mut slub.as_mut().slub_type {
-                    partial_list.add_head(&mut head.list);
+                let slub = slub.as_mut();
+                if let SlubType::Head(_) = &mut slub.slub_type {
+                    partial_list.add_head(&mut slub.list);
+                } else {
+                    panic!("MemCacheNode::init() called with a Slub that is not SlubType::Head!");
                 }
             }
         }
@@ -109,10 +112,14 @@ impl MemCacheNode {
         if !self.partial_list.get_atomic_snapshot().is_empty() {
             let mut partial_list = self.partial_list.lock();
 
-            list_for_each_owner!(slub_head, SlubHead, list, &mut partial_list, {
-                let result = unsafe { slub_head.as_mut() }.allocate::<T>();
-                if result.is_some() {
-                    return result;
+            list_for_each_owner!(slub_head, Slub, list, &mut partial_list, {
+                let inner = &mut unsafe { slub_head.as_mut() }.slub_type;
+                if let SlubType::Head(head) = inner {
+                    if let Some(obj) = head.allocate::<T>() {
+                        return Some(obj);
+                    }
+                } else {
+                    panic!("Slub in MemCacheNode::partial_list is not SlubType::Head!");
                 }
             });
         }
@@ -126,8 +133,9 @@ impl MemCacheNode {
         )
         .ok()?;
 
-        if let SlubType::Head(new_head) = &mut unsafe { new_slub.as_mut() }.slub_type {
-            self.partial_list.lock().add_head(&mut new_head.list);
+        let new_slub = unsafe { new_slub.as_mut() };
+        if let SlubType::Head(new_head) = &mut new_slub.slub_type {
+            self.partial_list.lock().add_head(&mut new_slub.list);
             new_head.allocate()
         } else {
             panic!("Slub::new() returns a SlubType::Body slub!");

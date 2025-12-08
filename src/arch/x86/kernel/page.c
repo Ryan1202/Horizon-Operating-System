@@ -5,6 +5,7 @@
  * @version 1.2
  * @date 2022-07-15
  */
+#include "math.h"
 #include <drivers/vesa_display.h>
 #include <kernel/console.h>
 #include <kernel/func.h>
@@ -93,6 +94,8 @@ size_t __early_init page_early_setup(void) {
 }
 
 void setup_page(void) {
+	pdt_phy_addr =
+		((((size_t)&_kernel_end_phy) + (PAGE_SIZE - 1)) & ~(PAGE_SIZE - 1));
 	// 物理地址->虚拟地址映射关系:
 	// 0x00000000-0x00400000 => 0x00000000-0x00400000
 	// 0x00000000-0x37ffffff => 0xc0000000-0xf7ffffff
@@ -215,11 +218,27 @@ bool page_link(
 
 				*pde = (page_table | SIGN_RW | SIGN_SYS | SIGN_P);
 			}
-			pte = (size_t *)(*pde & 0xfffff000);
+			pte = (size_t *)((*pde & 0xfffff000) + (size_t)VIR_BASE);
 		}
 	}
 
 	return true;
+}
+
+void page_unlink(size_t vaddr, size_t page_count) {
+	size_t *pde = pde_ptr(vaddr);
+	size_t *pte = pte_ptr(vaddr);
+
+	for (int i = 0; i < page_count; i++) {
+		*pte = 0;
+		pte++;
+		if (((size_t)pte & 0x00000fff) == 0) {
+			// 跨页表了，获取下一个页表
+			pde++;
+			if (!(*pde & SIGN_P)) { return; }
+			pte = (size_t *)((*pde & 0xfffff000) + (size_t)VIR_BASE);
+		}
+	}
 }
 
 /**
@@ -411,30 +430,32 @@ int free_vir_page(int vir_addr) {
  * @return void* 起始地址
  */
 void *kernel_alloc_pages(int pages) {
-	int i;
-	int vir_page_addr, vir_page_addr_more;
+	int order = aligned_up_log2n(pages);
+	return (void *)((size_t)VIR_BASE + allocate_pages(ZONE_LINEAR, order));
+	// int i;
+	// int vir_page_addr, vir_page_addr_more;
 
-	int old_status = io_load_eflags();
-	io_cli();
+	// int old_status = io_load_eflags();
+	// io_cli();
 
-	vir_page_addr = alloc_vir_pages(pages); // 分配一个虚拟地址的页
-	if (vir_page_addr < 0) return NULL;
-	fill_vir_page_table(
-		vir_page_addr, alloc_mem_page(),
-		SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
+	// vir_page_addr = alloc_vir_pages(pages); // 分配一个虚拟地址的页
+	// if (vir_page_addr < 0) return NULL;
+	// fill_vir_page_table(
+	// 	vir_page_addr, alloc_mem_page(),
+	// 	SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
 
-	vir_page_addr_more = vir_page_addr + PAGE_SIZE; // 分配一个虚拟地址的页
-	for (i = 1; i < pages; i++) {
-		fill_vir_page_table(
-			vir_page_addr_more, alloc_mem_page(),
-			SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
-		vir_page_addr_more += PAGE_SIZE;
-	}
+	// vir_page_addr_more = vir_page_addr + PAGE_SIZE; // 分配一个虚拟地址的页
+	// for (i = 1; i < pages; i++) {
+	// 	fill_vir_page_table(
+	// 		vir_page_addr_more, alloc_mem_page(),
+	// 		SIGN_SYS); // 把页添加到当前页目录表系统中，使他可以被使用
+	// 	vir_page_addr_more += PAGE_SIZE;
+	// }
 
-	memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
-	io_store_eflags(old_status);
+	// memset((void *)vir_page_addr, 0, PAGE_SIZE * pages);
+	// io_store_eflags(old_status);
 
-	return (void *)vir_page_addr;
+	// return (void *)vir_page_addr;
 }
 
 /**
@@ -469,29 +490,31 @@ void *kernel_alloc_continuous_pages(int pages) {
  * @param vaddr 虚拟地址
  * @param pages 页数
  */
-void kernel_free_page(int vaddr, int pages) {
-	int i;
-	int vir_page_addr = vaddr;
+int kernel_free_page(int vaddr, int pages) {
+	size_t paddr = vir2phy(vaddr);
+	return free_pages(paddr);
+	// int i;
+	// int vir_page_addr = vaddr;
 
-	int old_status = io_load_eflags();
-	io_cli();
+	// int old_status = io_load_eflags();
+	// io_cli();
 
-	free_vir_page(vir_page_addr);
-	clean_vir_page_table(vir_page_addr);
-	if (pages == 1) { // 如果只有一个页
-		io_store_eflags(old_status);
+	// free_vir_page(vir_page_addr);
+	// clean_vir_page_table(vir_page_addr);
+	// if (pages == 1) { // 如果只有一个页
+	// 	io_store_eflags(old_status);
 
-		return;
-	} else if (pages > 1) {
-		for (i = 1; i < pages; i++) {
-			vir_page_addr += PAGE_SIZE;
-			free_vir_page(vir_page_addr);
-			clean_vir_page_table(vir_page_addr);
-		}
-		io_store_eflags(old_status);
+	// 	return;
+	// } else if (pages > 1) {
+	// 	for (i = 1; i < pages; i++) {
+	// 		vir_page_addr += PAGE_SIZE;
+	// 		free_vir_page(vir_page_addr);
+	// 		clean_vir_page_table(vir_page_addr);
+	// 	}
+	// 	io_store_eflags(old_status);
 
-		return;
-	}
+	// 	return;
+	// }
 }
 
 /**

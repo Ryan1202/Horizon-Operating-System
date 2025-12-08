@@ -12,7 +12,6 @@
 #include <kernel/memory/block.h>
 #include <kernel/page.h>
 #include <kernel/percpu.h>
-#include <math.h>
 #include <stdint.h>
 #include <string.h>
 

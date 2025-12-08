@@ -11,7 +11,7 @@ use crate::{
     kernel::memory::phy::{
         page::buddy::PageOrder,
         slub::{
-            ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubHead, SlubType, calculate_sizes,
+            ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubType, calculate_sizes,
             config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
             mem_cache_node::MemCacheNode,
         },
@@ -124,12 +124,12 @@ impl MemCache {
             let partial_list = unsafe { node.as_mut() }.partial_list.lock();
 
             // 从 MemCacheNode 的partial list中获取一个 Slub 作为首选 Slub
-            let mut slub_head = list_first_owner!(SlubHead, list, partial_list)
+            let mut slub = list_first_owner!(Slub, list, partial_list)
                 .expect("Trying to init Memcache from a node without slub!");
-            unsafe { slub_head.as_mut().list.del() };
-
-            let slub_type = container_of_enum!(slub_head, SlubType, Head.0);
-            container_of!(slub_type, Slub, slub_type)
+            unsafe {
+                slub.as_mut().list.del();
+            }
+            slub
         };
 
         *self = Self {

@@ -57,12 +57,12 @@ static void update_stats(struct perf_stats *stats, uint32_t cycles) {
 static void print_stats(
 	const char *test_name, const struct perf_stats *stats, int iter) {
 	int avg_cycles = iter ? (stats->total_cycles / iter) : 0;
-	// printk("[%s] Results:\n", test_name);
-	// printk("  Total cycles: %u\n", stats->total_cycles);
-	// printk("  Avg cycles/op: %u\n", stats->total_cycles / iter);
-	// printk("  Max cycles: %u\n", stats->max_cycles);
-	// printk("  Min cycles: %u\n", stats->min_cycles);
-	// printk("  Allocation failures: %u\n", stats->alloc_fails);
+	printk("[%s] Results:\n", test_name);
+	printk("  Total cycles: %u\n", stats->total_cycles);
+	printk("  Avg cycles/op: %u\n", stats->total_cycles / iter);
+	printk("  Max cycles: %u\n", stats->max_cycles);
+	printk("  Min cycles: %u\n", stats->min_cycles);
+	printk("  Allocation failures: %u\n", stats->alloc_fails);
 }
 
 void test_long_running(uint32_t minutes) {
@@ -164,7 +164,7 @@ void test_large_page_allocs(void) {
 }
 
 void run_memory_benchmarks(void) {
-	// printk("===== Starting Memory Allocator Benchmarks =====\n");
+	printk("===== Starting Memory Allocator Benchmarks =====\n");
 
 	Timer timer;
 	timer_init(&timer);
@@ -172,8 +172,8 @@ void run_memory_benchmarks(void) {
 	// 基础测试
 	test_small_allocs();
 	// delay_ms(&timer, 100);
-	// test_large_page_allocs();
+	test_large_page_allocs();
 	// delay_ms(&timer, 100);
 
-	// printk("===== Benchmark Suite Completed =====\n");
+	printk("===== Benchmark Suite Completed =====\n");
 }

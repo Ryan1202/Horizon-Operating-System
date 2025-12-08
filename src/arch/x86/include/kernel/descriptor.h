@@ -54,10 +54,8 @@ extern struct gate_descriptor	 *idt;
 
 #define NR_IRQ 16
 
-#define GDT_ADDR 0x200000
 #define GDT_SIZE 0x7ff
 
-#define IDT_ADDR 0x200800
 #define IDT_SIZE 0x7ff
 
 #define DA_LDT			 0x82 /* 局部描述符表段类型值		*/

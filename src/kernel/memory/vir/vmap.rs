@@ -5,6 +5,7 @@ use core::{
 use crate::{
     container_of,
     kernel::memory::{
+        MemoryError,
         phy::{kmalloc::kmalloc, page::ZoneType},
         vir::page::{VirtPageNumber, VirtPages, VmRange},
     },
@@ -25,7 +26,7 @@ pub(super) struct VmapPool {
 pub(super) struct VmapNode {
     pub(super) pools: [VmapPool; MAX_VMAP_POOL_PAGES],
 
-    pub(super) linked_rbtree: Spinlock<LinkedRbTree<VmRange>>,
+    pub(super) allocated: Spinlock<LinkedRbTreeBase<VmRange, (), usize>>,
 }
 
 static VMAP_NODE: SyncUnsafeCell<MaybeUninit<VmapNode>> =
@@ -62,7 +63,7 @@ impl VmapNode {
         for pool in self.pools.iter_mut() {
             pool.list_head.init_with(|list_head| list_head.init());
         }
-        self.linked_rbtree.init_with(|rbtree| rbtree.init());
+        self.allocated.init_with(|rbtree| rbtree.init());
     }
 
     fn pool_put(&mut self, vpages: &mut VirtPages) {
@@ -111,75 +112,92 @@ impl VmapNode {
         }
     }
 
-    pub fn allocate(&mut self, count: NonZeroUsize) -> Option<NonNull<VirtPages>> {
-        let vpages = self.pool_get(count).or_else(|| {
-            #[allow(static_mut_refs)]
-            let mut tree = unsafe { FREE_VMAP_TREE.lock() };
-            let mut node = tree.root?;
+    pub fn allocate(&mut self, count: NonZeroUsize) -> Result<NonNull<VirtPages>, MemoryError> {
+        let mut vpages = self
+            .pool_get(count)
+            .or_else(|| {
+                #[allow(static_mut_refs)]
+                let mut tree = unsafe { FREE_VMAP_TREE.lock() };
+                let mut node = tree.root?;
 
-            if (unsafe { node.as_ref() }).get_key().get_count() < count.get() {
-                return None;
-            }
-            loop {
-                let node_ref = unsafe { node.as_mut() };
-                let left = node_ref.left;
-
-                if let Some(left_ref) = left
-                    && linked_augment!(unsafe { left_ref.as_ref() }) >= count.get()
-                {
-                    // 左子树还有更合适的节点
-                    node = left_ref;
-                    continue;
+                if (unsafe { node.as_ref() }).get_key().get_count() < count.get() {
+                    return None;
                 }
+                loop {
+                    let node_ref = unsafe { node.as_mut() };
+                    let left = node_ref.left;
 
-                let _count = node_ref.get_key().get_count();
-                if _count >= count.get() {
-                    let mut vpages = container_of!(node, VirtPages, rb_node);
+                    if let Some(left_ref) = left
+                        && linked_augment!(unsafe { left_ref.as_ref() }) >= count.get()
+                    {
+                        // 左子树还有更合适的节点
+                        node = left_ref;
+                        continue;
+                    }
 
-                    if _count > count.get() {
+                    let _count = node_ref.get_key().get_count();
+                    if _count >= count.get() {
+                        let mut vpages = container_of!(node, VirtPages, rb_node);
                         let vpages_ref = unsafe { vpages.as_mut() };
 
-                        let mut new_vpages = kmalloc::<VirtPages>(unsafe {
-                            NonZeroUsize::new_unchecked(size_of::<VirtPages>())
-                        })?;
+                        if _count > count.get() {
+                            let mut new_vpages = kmalloc::<VirtPages>(unsafe {
+                                NonZeroUsize::new_unchecked(size_of::<VirtPages>())
+                            })?;
 
-                        vpages_ref.rb_node.delete(&mut tree);
-                        unsafe {
-                            let new_vpages_ref = new_vpages.as_mut();
-                            new_vpages.write(VirtPages::new(VmRange {
-                                start: VirtPageNumber::new(NonZeroUsize::new_unchecked(
-                                    vpages_ref.rb_node.get_key().start.get().get() + count.get(),
-                                )),
-                                end: vpages_ref.rb_node.get_key().end,
-                            }));
-                            tree.insert(&mut new_vpages_ref.rb_node);
-                            vpages_ref.rb_node.get_key_mut().end =
-                                VirtPageNumber::new(NonZeroUsize::new_unchecked(
-                                    vpages_ref.rb_node.get_key().start.get().get() + count.get()
-                                        - 1,
-                                ));
+                            vpages_ref.rb_node.delete(&mut tree);
+                            unsafe {
+                                let new_vpages_ref = new_vpages.as_mut();
+                                let end =
+                                    vpages_ref.rb_node.get_key().start.get().get() + count.get();
+
+                                new_vpages.write(VirtPages::new(VmRange {
+                                    start: VirtPageNumber::new(NonZeroUsize::new_unchecked(end)),
+                                    end: vpages_ref.rb_node.get_key().end,
+                                }));
+
+                                vpages_ref.rb_node.get_key_mut().end =
+                                    VirtPageNumber::new(NonZeroUsize::new_unchecked(end - 1));
+
+                                tree.insert(&mut new_vpages_ref.rb_node);
+                            }
                         }
+
+                        self.allocated.lock().insert(&mut vpages_ref.rb_node);
+                        return Some(vpages);
                     }
-                    return Some(vpages);
+
+                    node = node_ref
+                        .right
+                        .expect("Max size of childs < count when max size of the node >= count");
                 }
+            })
+            .ok_or(MemoryError::OutOfMemory)?;
 
-                node = node_ref
-                    .right
-                    .expect("Max size of childs < count when max size of the node >= count");
-            }
-        })?;
-
-        Some(vpages)
+        self.allocated
+            .lock()
+            .insert(&mut unsafe { vpages.as_mut() }.rb_node);
+        Ok(vpages)
     }
 
-    pub fn deallocate(&mut self, vpages: &mut VirtPages) {
-        if vpages.rb_node.get_key().get_count() >= MAX_VMAP_POOL_PAGES {
+    pub fn deallocate(&mut self, range: &VmRange) -> Result<(), MemoryError> {
+        let mut node = self
+            .allocated
+            .lock()
+            .delete(&range)
+            .ok_or(MemoryError::DoubleRelease)?;
+        let mut vpages = container_of!(node, VirtPages, rb_node);
+
+        let node = unsafe { node.as_mut() };
+        if node.get_key().get_count() >= MAX_VMAP_POOL_PAGES {
             #[allow(static_mut_refs)]
             unsafe {
-                FREE_VMAP_TREE.lock().insert(&mut vpages.rb_node);
+                FREE_VMAP_TREE.lock().insert(node);
             }
         } else {
-            self.pool_put(vpages);
+            self.pool_put(unsafe { vpages.as_mut() });
         }
+
+        Ok(())
     }
 }

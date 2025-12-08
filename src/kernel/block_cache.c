@@ -29,11 +29,11 @@ static BlockCacheEntry *get_free_entry(BlockCache *cache) {
 BlockCache *block_cache_create(
 	int size, int count, BlockCacheRealTransfer read,
 	BlockCacheRealTransfer write, void *private_data) {
-	BlockCache *cache = kmalloc(sizeof(BlockCache));
+	BlockCache *cache = kzalloc(sizeof(BlockCache));
 	if (!cache) return NULL;
 	cache->count   = count;
 	cache->size	   = size;
-	cache->entries = kmalloc(sizeof(BlockCacheEntry) * count);
+	cache->entries = kzalloc(sizeof(BlockCacheEntry) * count);
 	if (!cache->entries) {
 		kfree(cache);
 		return NULL;

@@ -42,6 +42,7 @@ pub struct ObjectSize(pub NonZeroU16);
 
 #[repr(C)]
 pub struct Slub {
+    pub list: ListNode<Slub>,
     pub slub_type: SlubType,
     /// object总数量
     object_size: NonZeroU16,
@@ -49,20 +50,14 @@ pub struct Slub {
     zone_type: ZoneType,
 }
 
-#[repr(C)]
-pub struct SlubHead {
-    pub list: ListNode<Slub>,
-    lock: Spinlock<SlubInner>,
-}
-
-#[repr(C)]
+#[repr(u8)]
 pub enum SlubType {
-    Head(SlubHead),
+    Head(Spinlock<SlubInner>),
     Body(NonNull<Slub>),
 }
 
 /// Slub 内部数据结构
-#[repr(C)]
+#[repr(C, packed)]
 pub struct SlubInner {
     /// 空闲对象头
     freelist: Option<NonNull<FreeNode>>,
@@ -127,7 +122,11 @@ impl Slub {
 
         unsafe {
             first_page.write(Page::Slub(Slub {
-                slub_type: SlubType::Head(SlubHead::new(Some(free_nodes))),
+                list: ListNode::new(),
+                slub_type: SlubType::Head(Spinlock::new(SlubInner {
+                    freelist: Some(free_nodes),
+                    inuse: 0,
+                })),
                 object_size,
                 zone_type,
             }))
@@ -143,6 +142,7 @@ impl Slub {
             let page = unsafe { pages.add(i) };
 
             let slub_info = Slub {
+                list: ListNode::new(),
                 slub_type: SlubType::Body(slub),
                 object_size,
                 zone_type,
@@ -153,10 +153,7 @@ impl Slub {
         FreeNode::init(free_nodes, object_num, object_size);
 
         let slub_ref = unsafe { slub.as_mut() };
-        match &mut slub_ref.slub_type {
-            SlubType::Head(head) => head.list.init(),
-            _ => unreachable!(),
-        }
+        slub_ref.list.init();
 
         Ok(slub)
     }
@@ -198,16 +195,9 @@ impl Slub {
     }
 }
 
-impl SlubHead {
-    const fn new(freelist: Option<NonNull<FreeNode>>) -> Self {
-        Self {
-            list: ListNode::new(),
-            lock: Spinlock::new(SlubInner { freelist, inuse: 0 }),
-        }
-    }
-
+impl Spinlock<SlubInner> {
     pub fn get_inuse_relaxed(&self) -> u16 {
-        let inuse = self.lock.get_relaxed().inuse;
+        let inuse = self.get_relaxed().inuse;
         inuse
     }
 
@@ -215,7 +205,7 @@ impl SlubHead {
     ///
     /// 如果该`Slub`没有剩余可用对象，则返回`None`
     pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
-        let mut inner = self.lock.lock();
+        let mut inner = self.lock();
 
         let freelist = inner.freelist?;
 
@@ -227,7 +217,7 @@ impl SlubHead {
     }
 
     pub fn free<T>(&mut self, obj: NonNull<T>) {
-        let mut inner = self.lock.lock();
+        let mut inner = self.lock();
 
         let node = obj.cast::<FreeNode>();
 

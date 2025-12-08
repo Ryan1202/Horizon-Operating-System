@@ -141,7 +141,7 @@ DriverResult create_timer_device(
 		DEVICE_TYPE_TIMER);
 	if (result != DRIVER_OK) return result;
 
-	*timer_device = kmalloc(sizeof(TimerDevice));
+	*timer_device = kzalloc(sizeof(TimerDevice));
 	if (*timer_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

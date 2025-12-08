@@ -45,7 +45,7 @@ int			 alloc_vir_pages(int count);
 int			 free_vir_page(int vir_addr);
 void		*kernel_alloc_pages(int pages);
 void		*kernel_alloc_continuous_pages(int pages);
-void		 kernel_free_page(int vaddr, int pages);
+int			 kernel_free_page(int vaddr, int pages);
 void		 fill_vir_page_table(uint32_t vaddr, uint32_t paddr, uint8_t sign);
 void		 clean_vir_page_table(uint32_t vaddr);
 uint32_t	 alloc_mem_page(void);

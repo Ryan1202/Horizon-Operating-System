@@ -1,4 +1,5 @@
 #include "rtl8139.h"
+#include "kernel/platform.h"
 #include <bits.h>
 #include <driver/interrupt/interrupt_dm.h>
 #include <driver/network/buffer.h>
@@ -274,7 +275,9 @@ DriverResult rtl8139_start(void *_device) {
 	io_out_byte(rtl_device->io_base + REG_CR, CR_RE | CR_TE);
 
 	// 配置接收缓冲区
-	rtl_device->rx_buffer = kernel_alloc_continuous_pages(8 << RECV_BUF_LEN);
+	rtl_device->rx_buffer =
+		(void *)((size_t)VIR_BASE +
+				 allocate_pages(ZONE_LINEAR, 3 << RECV_BUF_LEN));
 	rtl_device->rx_buffer_phy = vir2phy((size_t)rtl_device->rx_buffer);
 	io_out_dword(rtl_device->io_base + REG_RBSTART, rtl_device->rx_buffer_phy);
 	io_out_dword(
@@ -334,7 +337,7 @@ DriverResult rtl8139_pci_probe(
 	}
 	if (chipset == RTL_UNKNOWN) { return DRIVER_ERROR_UNSUPPORT_DEVICE; }
 
-	Rtl8139Device *rtl_device = kmalloc(sizeof(Rtl8139Device));
+	Rtl8139Device *rtl_device = kzalloc(sizeof(Rtl8139Device));
 	rtl_device->pci_device	  = pci_device;
 	rtl_device->chipset		  = chipset;
 

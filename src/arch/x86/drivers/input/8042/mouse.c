@@ -147,7 +147,7 @@ void ps2_mouse_register(PhysicalDevice *physical_device, int port) {
 	create_input_device(
 		&in, INPUT_TYPE_MOUSE, &ps2_mouse_device_ops, physical_device,
 		&i8042_device_driver);
-	Ps2Mouse *mouse			 = kmalloc(sizeof(Ps2Mouse));
+	Ps2Mouse *mouse			 = kzalloc(sizeof(Ps2Mouse));
 	mouse->port				 = port;
 	in->device->private_data = mouse;
 }

@@ -1,4 +1,9 @@
-use core::{ffi::c_void, mem::transmute, num::NonZeroUsize, ptr::NonNull};
+use core::{
+    ffi::c_void,
+    mem::transmute,
+    num::NonZeroUsize,
+    ptr::{NonNull, null_mut},
+};
 
 use crate::kernel::memory::phy::page::Page;
 
@@ -8,21 +13,38 @@ use super::slub::config::DEFAULT_CACHES;
 pub extern "C" fn kmalloc_c(size: usize) -> *mut c_void {
     let size = match NonZeroUsize::new(size) {
         Some(size) => size,
-        None => return core::ptr::null_mut(),
+        None => return null_mut(),
     };
 
     unsafe { transmute(kmalloc::<c_void>(size)) }
 }
 
+#[unsafe(export_name = "kzalloc")]
+pub extern "C" fn kzalloc_c(size: usize) -> *mut c_void {
+    let size = match NonZeroUsize::new(size) {
+        Some(size) => size,
+        None => return null_mut(),
+    };
+
+    match kmalloc::<c_void>(size) {
+        Some(ptr) => {
+            unsafe { ptr.write_bytes(0, size.get()) };
+            ptr.as_ptr()
+        }
+        None => return null_mut(),
+    }
+}
+
 pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
-    let ilog = size.get().next_power_of_two().ilog2().max(3) as usize;
+    let ilog = size.get().max(8).next_power_of_two().ilog2() as usize;
 
     if ilog > 12 {
         // 超过 4096 bytes，暂不支持大对象分配
         return None;
     }
 
-    let cache = unsafe { DEFAULT_CACHES[ilog - 3].as_mut() };
+    #[allow(static_mut_refs)]
+    let cache = unsafe { DEFAULT_CACHES.get_unchecked(ilog - 3).clone().as_mut() };
     cache.alloc::<T>()
 }
 
