@@ -1,1 +1,1 @@
-SRC	+= rtl8139.c
+SRC	+= rtl8139/

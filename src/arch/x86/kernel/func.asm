@@ -1,6 +1,6 @@
 	global io_in8,		io_out8,	io_in16,	io_out16,	io_in32,	io_out32
 	global io_read,		io_write
-	global io_cli,		io_sti,		io_hlt,		io_stihlt
+	global io_cli,		io_sti,		io_hlt,		io_stihlt,	save_eflags_cli
 	global read_cr3,	write_cr3,	read_cr2,	read_cr0,	write_cr0,	enable_paging
 	global load_gdtr,	load_idtr
 	global io_load_eflags,			io_store_eflags
@@ -11,7 +11,7 @@
 	global stack_exception
 	global general_protection
 	global page_fault
-	global IRQ_timer,	IRQ_pit,	IRQ_keyboard,
+	global IRQ_timer,	IRQ_pit,	IRQ_keyboard
 	global thread_intr_exit
 	global switch_to
 
@@ -85,16 +85,16 @@ EXCEPTION_ENTRY 8,ERROR_CODE
 EXCEPTION_ENTRY 9,NO_ERROR_CODE
 EXCEPTION_ENTRY 10,ERROR_CODE
 EXCEPTION_ENTRY 11,ERROR_CODE 
-EXCEPTION_ENTRY 12,NO_ERROR_CODE
+EXCEPTION_ENTRY 12,ERROR_CODE
 EXCEPTION_ENTRY 13,ERROR_CODE
 EXCEPTION_ENTRY 14,ERROR_CODE
 EXCEPTION_ENTRY 15,NO_ERROR_CODE 
-EXCEPTION_ENTRY 16,ERROR_CODE
+EXCEPTION_ENTRY 16,NO_ERROR_CODE
 EXCEPTION_ENTRY 17,ERROR_CODE 
 EXCEPTION_ENTRY 18,NO_ERROR_CODE
-EXCEPTION_ENTRY 19,ERROR_CODE
-EXCEPTION_ENTRY 20,ERROR_CODE
-EXCEPTION_ENTRY 21,NO_ERROR_CODE 
+EXCEPTION_ENTRY 19,NO_ERROR_CODE
+EXCEPTION_ENTRY 20,NO_ERROR_CODE
+EXCEPTION_ENTRY 21,ERROR_CODE 
 EXCEPTION_ENTRY 22,NO_ERROR_CODE
 EXCEPTION_ENTRY 23,ERROR_CODE
 EXCEPTION_ENTRY 24,ERROR_CODE
@@ -122,7 +122,7 @@ INTERRUPT_ENTRY 13
 INTERRUPT_ENTRY 14
 INTERRUPT_ENTRY 15
 
-INTERRUPT_ENTRY	0, 
+INTERRUPT_ENTRY	0
 
 io_in8:		;int io_in8(int port);
 	mov		edx,[esp+4]
@@ -253,6 +253,12 @@ io_store_eflags:	; void io_store_eflags(int eflags);
 	mov		eax,[esp+4]
 	push	eax
 	popfd			; pop eflags
+	ret
+
+save_eflags_cli:	; int save_eflags_cli(void);
+	pushfd
+	cli
+	pop eax
 	ret
 
 global syscall_handler

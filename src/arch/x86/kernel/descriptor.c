@@ -5,14 +5,18 @@
  * @version 1.2
  * @date 2022-07-31
  */
+#include <driver/interrupt/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
+#include <kernel/driver_interface.h>
 #include <kernel/func.h>
 #include <kernel/page.h>
+#include <kernel/softirq.h>
+#include <kernel/thread.h>
 #include <kernel/tss.h>
 #include <string.h>
 
@@ -328,7 +332,9 @@ void exception_handler(
 		} else {
 			printk(COLOR_RED "    TI: selector in gdt.\n");
 		}
-		printk(COLOR_RED "    Selector: idx %d\n", (error_code & 0xfff8) >> 3);
+		printk(
+			COLOR_RED "    Selector: idx %d\n" COLOR_RESET,
+			(error_code & 0xfff8) >> 3);
 	}
 
 	io_hlt();
@@ -336,28 +342,32 @@ void exception_handler(
 		;
 }
 
-void do_irq(int irq) {
-	if (use_apic) {
-		apic_eoi();
-	} else {
-		pic_eoi(irq);
+void irq_return(void) {
+	if (need_resched() && preempt_count() == 0) {
+		get_current_thread()->flags.need_resched = 0;
+		schedule();
 	}
+}
+
+void do_irq(int irq) {
+	disable_interrupt();
+	hardirq_enter();
 	device_irq_handler(irq);
 	irq_table[irq](irq);
+
+	interrupt_eoi(irq);
+	hardirq_exit();
+	enable_interrupt();
+
+	do_softirq();
+
+	irq_return();
 }
 
 void default_irq_handler(int irq) {
-	if (use_apic) {
-		apic_eoi();
-	} else {
-		pic_eoi(irq);
-	}
-}
-
-void irq_enable(int irq) {
-	if (use_apic) {
-		apic_enable_irq(irq);
-	} else {
-		pic_enable_irq(irq);
-	}
+	// if (use_apic) {
+	// 	apic_eoi();
+	// } else {
+	// 	pic_eoi(irq);
+	// }
 }

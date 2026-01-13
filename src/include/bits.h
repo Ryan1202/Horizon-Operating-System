@@ -23,14 +23,16 @@
 #define HOST2LE_WORD(n)	 (n)
 #define HOST2LE_DWORD(n) (n)
 
-#define BIT(n)		 (1 << n)
-#define BIT_FFS_R(n) (bsf(n)) // 从低到高找到第一个非0位的位置
-#define BIT_FFS_L(n) (bsr(n)) // 从高到低找到第一个非0位的位置
+#define BIT(n)		 (1 << (n))
+#define BIT_FFS_R(n) (bsf(n))	 // 从低到高找到第一个非0位的位置
+#define BIT_FFS_L(n) (bsr(n))	 // 从高到低找到第一个非0位的位置
+#define BIT_FFZ_R(n) (bsf(~(n))) // 从低到高找到第一个为0位的位置
+#define BIT_FFZ_L(n) (bsr(~(n))) // 从高到低找到第一个为0位的位置
 
-#define BIN_EN(n, x)	 ((n) | x)
-#define BIN_DIS(n, x)	 ((n) & ~x)
-#define BIN_IS_DIS(n, x) (!BIN_EN(n, x))
-#define BIN_IS_EN(n, x)	 (!BIN_IS_DIS(n, x))
+#define BIN_EN(n, x)	 ((n) | (x))
+#define BIN_DIS(n, x)	 ((n) & ~(x))
+#define BIN_IS_DIS(n, x) (!((n) & (x)))
+#define BIN_IS_EN(n, x)	 ((!BIN_IS_DIS(n, x)))
 
 #endif
 

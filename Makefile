@@ -1,3 +1,5 @@
+UNAME_S := $(shell uname -s)
+
 DD			=	dd
 CP			=	cp
 GRUB_MKIMG	=	grub-mkimage
@@ -11,6 +13,14 @@ export ARCH
 ifeq ($(ARCH), x86)
 	QEMU		=	qemu-system-i386
 	TARGET_PLATFORM	=	i386-pc
+endif
+
+ifeq ($(UNAME_S),Linux)
+    QEMU_CFG = qemu-linux.cfg
+else ifeq ($(UNAME_S),Darwin)
+    QEMU_CFG = qemu-macos.cfg
+else ifeq ($(OS),Windows_NT)
+    QEMU_CFG = qemu-windows.cfg
 endif
 
 FD_IMG		=	./horizon.img
@@ -30,6 +40,8 @@ FS_DIR		=	$(KERNEL_DIR)/fs
 LIB_DIR		=	$(KERNEL_SRC)/lib
 DISK_DIR	=	disk
 
+KERNEL_OUTPUT_DIR = $(KERNEL_SRC)/build
+
 LOADER_OFF	=	2
 LOADER_CNTS	=	8
 
@@ -38,9 +50,12 @@ KERNEL_CNTS	=	600
 
 BOOT_BIN	=	$(BOOT_DIR)/boot.bin
 LOADER_BIN	=	$(BOOT_DIR)/loader.bin
-KERNEL_ELF	=	$(KERNEL_SRC)/kernel.elf
+KERNEL_ELF	=	$(KERNEL_OUTPUT_DIR)/kernel.elf
 
 IMAGETOOL	=	$(TOOL_SRC)/bin/imagetool
+CONFIGURATOR	=	$(TOOL_SRC)/bin/configurator
+
+INSTALL_GRUB_SCRIPT =	$(TOOL_SRC)/grub/install_grub.py
 
 .PHONY: cld
 
@@ -51,7 +66,7 @@ run: kernel libs qemu
 run_dbg: kernel libs qemu_dbg
 
 hd: tool
-	$(PYTHON) ./install_grub.py \
+	$(PYTHON) $(INSTALL_GRUB_SCRIPT) \
 		--image $(HD_IMG) \
 		--fs fat32 \
 		--platform $(TARGET_PLATFORM)
@@ -59,9 +74,10 @@ hd: tool
 app:
 	$(MAKE) -s -C $(APP_SRC)
 
-kernel:
+kernel: tool
 	$(MAKE) -s -C $(BOOT_DIR)
-	$(MAKE) -s -C $(KERNEL_SRC)
+	$(CONFIGURATOR) --work-dir . --out-dir $(KERNEL_OUTPUT_DIR)
+	$(MAKE) -s -C $(KERNEL_OUTPUT_DIR)
 	$(IMAGETOOL) $(HD_IMG) copy $(KERNEL_ELF) /p0/kernel.elf
 	
 tool:
@@ -89,28 +105,33 @@ writehd: $(HD_IMG)
 # qemu 7.1后取消了-soundhw，改用-audio
 qemu_dbg:
 	$(QEMU) \
+	-no-reboot \
 	-s -S \
-	-monitor stdio \
+	-serial stdio \
 	-m 1024 \
-	-hda $(HD_IMG) \
+	-drive file=$(HD_IMG),if=ide,format=raw \
 	-usb \
+	-device piix3-usb-uhci \
 	-device usb-kbd \
 	-device usb-mouse \
-	-audio pa,model=sb16 \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
-	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
+	-object filter-dump,id=f1,netdev=nc1,file=dump.pcap \
+	-readconfig $(QEMU_CFG) \
 	-boot c
 	
 qemu:
 	$(QEMU) \
-	-monitor stdio \
+	-no-reboot \
+	-serial stdio \
 	-m 1024 \
-	-hda $(HD_IMG) \
+	-drive file=$(HD_IMG),if=ide,format=raw \
 	-usb \
+	-device piix3-usb-uhci \
+	-device usb-kbd \
 	-device usb-mouse \
-	-audio pa,model=sb16 \
 	-device rtl8139,netdev=nc1 \
 	-netdev user,id=nc1,hostfwd=tcp::5555-:80 \
-	-object filter-dump,id=f1,netdev=nc1,file=dump.dat \
+	-object filter-dump,id=f1,netdev=nc1,file=dump.pcap \
+	-readconfig $(QEMU_CFG) \
 	-boot c

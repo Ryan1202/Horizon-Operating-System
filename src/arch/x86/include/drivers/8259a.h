@@ -1,6 +1,8 @@
 #ifndef _8259A_H
 #define _8259A_H
 
+#include <kernel/driver.h>
+
 #define PIC0_ICW1 0x20
 #define PIC0_OCW1 0x20
 #define PIC0_IMR  0x21
@@ -16,9 +18,9 @@
 
 #define PIC_EOI 0x20
 
-void mask_8259a(void);
-void init_8259a(void);
-void pic_enable_irq(int irq);
-void pic_eoi(int irq);
+extern struct PhysicalDevice *i8259a_device;
+
+void		 mask_8259a(void);
+DriverResult register_pic(void);
 
 #endif

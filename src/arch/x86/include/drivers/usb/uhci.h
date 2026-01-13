@@ -2,8 +2,14 @@
 #define _UHCI_H
 
 #include <bits.h>
-#include <drivers/pci.h>
-#include <drivers/usb/usb.h>
+#include <driver/timer/timer_dm.h>
+#include <drivers/bus/pci/pci.h>
+#include <drivers/bus/usb/hcd.h>
+#include <drivers/bus/usb/usb.h>
+#include <drivers/usb/core/urb.h>
+#include <drivers/usb/core/usb.h>
+#include <kernel/driver_interface.h>
+#include <kernel/list.h>
 #include <stdint.h>
 
 #define FRAMELIST_SIZE 1024
@@ -16,6 +22,8 @@
 #define UHCI_SOFMOD		 0x0c
 #define UHCI_PORTSC1	 0x10
 #define UHCI_PORTSC2	 0x12
+
+#define UHCI_PCI_REG_LEGSUP 0xc0
 
 #define UHCI_CMD_RUN		0x01
 #define UHCI_CMD_HCRESET	0x02
@@ -39,6 +47,13 @@
 #define UHCI_PORT_SC_ENABLE	   BIT(2)
 #define UHCI_PORT_SC_CONN_CHG  BIT(1)
 #define UHCI_PORT_SC_CONNECTED BIT(0)
+
+#define UHCI_STAT_HC_HALTED			BIT(5)
+#define UHCI_STAT_HC_PROCESS_ERROR	BIT(4)
+#define UHCI_STAT_HOST_SYSTEM_ERROR BIT(3)
+#define UHCI_STAT_RESUME_DETECT		BIT(2)
+#define UHCI_STAT_ERROR_INT			BIT(1)
+#define UHCI_STAT_INTERRUPT			BIT(0)
 
 #define UHCI_STAT_SPEED			  BIT(29)
 #define UHCI_STAT_ERROR_LIMIT_BIT 27
@@ -64,24 +79,28 @@
 #define UHCI_QH_TD_SELECT	BIT(1) // 1:QH, 0:TD
 #define UHCI_TERMINATE		BIT(0)
 
-struct uhci_frame_list {
+#define UHCI_SKEL_QH_COUNT 11
+
+typedef struct UhciFrameList {
 	uint32_t *frames_vir;
 	uint32_t *frames_phy;
-};
+} UhciFrameList;
 
-typedef struct uhci_qh {
+typedef struct UhciQh {
 	// 硬件用
-	uint32_t qh_link;
-	uint32_t qe_link;
+	uint32_t	   qh_link;
+	uint32_t	   qe_link;
 	// 软件用
-	uint32_t qh_addr_phy;
-	uint32_t prev_ptr;
-	uint32_t last_ptr;
-	uint32_t next_ptr;
-	uint32_t align[2]; // 用于对齐16字节
-} uhci_qh_t;
+	uint8_t		   enqueued : 1;
+	struct UhciQh *next;
+	union {
+		struct UhciQh *first_qh;
+		struct UhciTd *first_td;
+	};
+	UsbEndpoint *endpoint;
+} __attribute__((packed, aligned(16))) UhciQh;
 
-typedef struct uhci_td {
+typedef struct UhciTd {
 	uint32_t link;
 
 	// TD control and status
@@ -113,25 +132,40 @@ typedef struct uhci_td {
 	uint32_t buf_addr_phy;
 
 	// software use
-	uint32_t prev_ptr;
-	uint32_t td_addr_phy;
-	uint32_t software_use[2];
-} __attribute__((packed)) uhci_td_t;
+	list_t			 list;
+	struct UhciTd	*next;
+	UsbRequestBlock *urb;
+} __attribute__((packed, aligned(16))) UhciTd;
 
-struct uhci_skel {
-	struct uhci_qh qh[11]; // 1ms, 2ms, 4ms, 8ms, 16ms, 32ms, 64ms, 128ms
-};
+typedef struct UhciSched {
+	UhciQh qh;
+
+	uint8_t td_count;
+	uint8_t td_used;	  // bitmap
+	UhciTd *pre_alloc_td; // 预分配的TD
+
+	list_t pipe_lh;
+} UhciPipeline;
+
+typedef struct UhciSkel {
+	struct UhciQh
+		qh[UHCI_SKEL_QH_COUNT]; // 1ms, 2ms, 4ms, 8ms, 16ms, 32ms, 64ms, 128ms
+} UhciSkel;
 
 typedef struct {
-	struct pci_device	  *device;
-	uint32_t			   io_base;
-	struct uhci_frame_list fl;
-	uint8_t				   port_cnt;
+	PciDevice	 *device;
+	uint32_t	  io_base;
+	UhciFrameList fl;
+	uint8_t		  port_cnt;
+	Timer		  timer;
 
-	struct uhci_skel *skel;
-} uhci_t;
+	UhciSkel *skel;
+	UsbHcd	 *hcd;
 
-enum uhci_skel_type {
+	DeviceIrq *irq;
+} Uhci;
+
+typedef enum UhciSkelType {
 	TIME_1MS = 0,
 	TIME_2MS,
 	TIME_4MS,
@@ -140,21 +174,22 @@ enum uhci_skel_type {
 	TIME_32MS,
 	TIME_64MS,
 	TIME_128MS,
-	LOW_SPEED,
-	FULL_SPEED,
+	ASYNC,
 	TERM,
-};
+} UhciSkelType;
 
-void uhci_skel_init(uhci_t *devext);
+void uhci_skel_init(Uhci *uhci);
 
-void uhci_skel_add_qh(uhci_t *devext, uhci_qh_t *qh, enum uhci_skel_type type);
-void uhci_skel_del_qh(uhci_t *devext, uhci_qh_t *qh, enum uhci_skel_type type);
+void uhci_skel_add_qh(Uhci *uhci, UhciQh *qh, UhciSkelType type);
+void uhci_skel_del_qh(Uhci *uhci, UhciQh *qh, UhciSkelType type);
 
-usb_setup_status_t uhci_control_transaction_in(
-	usb_hcd_t *hcd, usb_device_t *device, usb_transfer_t *transfer,
-	void *buffer, uint32_t data_length, usb_request_t *usb_req);
-usb_setup_status_t uhci_control_transaction_out(
-	usb_hcd_t *hcd, usb_device_t *device, usb_transfer_t *transfer,
-	void *buffer, uint32_t data_length, usb_request_t *usb_req);
+void uhci_free_all_td(UhciPipeline *pipe);
+
+UsbSetupStatus uhci_ctrl_transfer_in(
+	UsbHcd *hcd, UsbDevice *device, void *buffer, uint32_t data_length,
+	UsbControlRequest *usb_req);
+UsbSetupStatus uhci_ctrl_transfer_out(
+	UsbHcd *hcd, UsbDevice *device, void *buffer, uint32_t data_length,
+	UsbControlRequest *usb_req);
 
 #endif

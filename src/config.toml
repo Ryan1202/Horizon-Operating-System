@@ -1,0 +1,15 @@
+dir = ["driver/", "drivers/", "fs/", "kernel/", "lib/", "objects/"]
+includes = ["include/", "../include/"]
+output = "kernel.elf"
+
+[arch.x86]
+dir = ["arch/x86"]
+lds = "arch/x86/kernel.lds"
+includes = ["arch/x86/include"]
+macro = { ARCH_X86 = "32" }
+
+[arch.x86_64]
+dir = ["arch/x86"]
+lds = "arch/x86/kernel.lds"
+includes = ["arch/x86/include"]
+macro = { ARCH_X86 = "64" }

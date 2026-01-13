@@ -6,12 +6,17 @@ SRC		+=	memory.c
 SRC		+=	sync.c
 SRC		+=	thread.c
 SRC		+=	initcall.c
-SRC		+=	driver.c
 SRC		+=	process.c
 SRC		+=	syscall.c
 SRC		+=	app.c
 SRC		+=	elf.c
 SRC		+=	wait_queue.c
+SRC		+=	periodic_task.c
+SRC		+=	block_cache.c
+SRC		+=	rwlock.c
+SRC		+=	condvar.c
+SRC		+=	softirq.c
+SRC 	+=	driver/
 
 #INCLUDE_PATH = ../include/ ../$(ARCH)/include/
 

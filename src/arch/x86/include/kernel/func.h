@@ -1,6 +1,7 @@
 #ifndef _FUNC_H
 #define _FUNC_H
 
+#include <stdint.h>
 #define CR0_PE 0x01
 #define CR0_MP 0x02
 #define CR0_EM 0x04
@@ -26,16 +27,39 @@ void io_sti(void);
 void io_hlt(void);
 void io_stihlt(void);
 
-static inline void get_cpuid(unsigned int Mop, unsigned int Sop, unsigned int *a, unsigned int *b,
-							 unsigned int *c, unsigned int *d) {
-	__asm__ __volatile__("cpuid	\n\t" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "0"(Mop), "2"(Sop));
+static inline void get_cpuid(
+	unsigned int Mop, unsigned int Sop, unsigned int *a, unsigned int *b,
+	unsigned int *c, unsigned int *d) {
+	__asm__ __volatile__("cpuid	\n\t"
+						 : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d)
+						 : "0"(Mop), "2"(Sop));
 }
 
 static inline void ltr(unsigned short sel) {
 	__asm__ __volatile__("ltr %0" ::"r"(sel));
 }
+static inline void io_stream_in8(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        insb;\n\t \
+        mfence;" ::"d"(port),
+						 "D"(buffer), "c"(nr)
+						 : "memory");
+}
 
-static inline void port_insw(unsigned int port, unsigned int buffer, unsigned int nr) {
+static inline void io_stream_out8(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        outsb;\n\t \
+        mfence;\n\t" ::"d"(port),
+						 "S"(buffer), "c"(nr)
+						 : "memory");
+}
+
+static inline void io_stream_in16(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
 	__asm__ __volatile__("cld;\n\t \
         rep;\n\t \
         insw;\n\t \
@@ -44,10 +68,31 @@ static inline void port_insw(unsigned int port, unsigned int buffer, unsigned in
 						 : "memory");
 }
 
-static inline void port_outsw(unsigned int port, unsigned int buffer, unsigned int nr) {
+static inline void io_stream_out16(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
 	__asm__ __volatile__("cld;\n\t \
         rep;\n\t \
         outsw;\n\t \
+        mfence;\n\t" ::"d"(port),
+						 "S"(buffer), "c"(nr)
+						 : "memory");
+}
+
+static inline void io_stream_in32(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        insl;\n\t \
+        mfence;\n\t" ::"d"(port),
+						 "S"(buffer), "c"(nr)
+						 : "memory");
+}
+
+static inline void io_stream_out32(
+	unsigned int port, unsigned int buffer, unsigned int nr) {
+	__asm__ __volatile__("cld;\n\t \
+        rep;\n\t \
+        outsl;\n\t \
         mfence;\n\t" ::"d"(port),
 						 "S"(buffer), "c"(nr)
 						 : "memory");
@@ -65,6 +110,12 @@ static inline unsigned int bsf(unsigned int x) {
 	return index;
 }
 
+static inline uint64_t read_tsc(void) {
+	unsigned int low, high;
+	__asm__ __volatile__("rdtsc" : "=a"(low), "=d"(high));
+	return ((uint64_t)high << 32) | low;
+}
+
 #define GET_REG(reg, var) __asm__ __volatile__("mov %%" reg ", %0" : "=g"(var));
 
 int	 read_cr3();
@@ -80,6 +131,8 @@ void load_idtr(int limit, int addr);
 
 int	 io_load_eflags(void);
 void io_store_eflags(int eflags);
+
+int save_eflags_cli(void);
 
 void exception_entry0(void);
 void exception_entry1(void);

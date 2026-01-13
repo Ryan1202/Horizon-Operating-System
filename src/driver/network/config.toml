@@ -1,0 +1,2 @@
+dir = ["ethernet/", "protocols/"]
+c = ["buffer.c", "conn.c", "mii.c", "neighbour.c", "network_dm.c", "network.c"]

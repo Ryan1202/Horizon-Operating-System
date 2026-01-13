@@ -20,21 +20,21 @@ unsigned int cpu_get_freq(void) {
 	struct fifo	  fifo;
 	char		  fifo_buf[4];
 	fifo_init(&fifo, 4, (int *)fifo_buf);
-	timer = timer_alloc();
-	timer_init(timer, &fifo, 128);
+	// timer = timer_alloc();
+	// timer_init(timer, &fifo, 128);
 
-	timer_settime(timer, 100);
+	// timer_settime(timer, 100);
 	while (fifo_status(&fifo) == 0)
 		io_hlt();
 	fifo_get(&fifo);
-	timer_settime(timer, 100);
+	// timer_settime(timer, 100);
 	__asm__ __volatile__("rdtsc \n\t" : "=A"(tsc));
 	while (fifo_status(&fifo) == 0)
 		;
 	fifo_get(&fifo);
 	__asm__ __volatile__("rdtsc \n\t" : "=A"(tsc2));
 
-	timer_free(timer);
+	// timer_free(timer);
 
 	return (tsc2 - tsc) / 1000 / 1000;
 }

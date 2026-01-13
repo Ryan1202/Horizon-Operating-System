@@ -1,0 +1,10 @@
+SRC += storage/
+SRC += sound/
+SRC += timer/
+SRC += network/
+SRC += input/
+SRC += serial/
+SRC += framebuffer/
+SRC += interrupt/
+SRC += bus_dm.c
+SRC += time_dm.c

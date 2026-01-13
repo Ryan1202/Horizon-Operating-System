@@ -1,6 +1,8 @@
 #ifndef _CONFIG_H
 #define _CONFIG_H
 
-#define ARCH_X86
+#ifdef __GNUC__
+#define HAS_BUILTIN_CLZ
+#endif
 
 #endif

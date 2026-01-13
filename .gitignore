@@ -52,14 +52,25 @@ Module.symvers
 Mkfile.old
 dkms.conf
 compile_commands.json
+build/
+
+# Cache
+__pycache__/
+*.pyc
+.cache/
+
+# Rubbish
+.DS_Store
 
 # Others
-disk/
+/disk/
 tools/bin/
 tools/imagetool/target/
-core
 fixdep
 *.img
 *.log
 *.dat
 *.idx
+dump.pcap
+target/
+.stfolder/

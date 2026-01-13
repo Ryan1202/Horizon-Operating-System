@@ -8,7 +8,7 @@ endif
 X_ASFLAGS	:= $(ENV_AFLAGS) -I $(ARCH_DIR)/include/ -g
 X_CFLAGS    := $(ENV_CFLAGS) -fno-strict-aliasing -g
 ifeq ($(ARCH), x86)
-X_CFLAGS	+= -DARCH_X86
+X_CFLAGS	+= -DARCH_X86=32
 endif
 
 X_INCDIRS	:= ../include/ ./include/ $(ARCH_DIR)/include/
@@ -21,7 +21,7 @@ LD			:=  $(ENV_LD)
 export AS LD
 export ARCH_DIR
 
-SRC			:=	$(ARCH_DIR)/ fs/ kernel/ lib/ network/
+SRC			:=	$(ARCH_DIR)/ fs/ driver/ drivers/ kernel/ lib/ objects/
 
 NAME		:=	kernel.elf
 

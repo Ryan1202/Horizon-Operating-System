@@ -1,0 +1,11 @@
+dir = [
+    "framebuffer/",
+    "input/",
+    "interrupt/",
+    "network/",
+    "serial/",
+    "sound/",
+    "storage/",
+    "timer/",
+]
+c = ["bus_dm.c", "time_dm.c"]

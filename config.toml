@@ -1,0 +1,31 @@
+arch = "x86"
+
+[tools]
+cc = "x86_64-elf-gcc"
+as = "nasm"
+ld = "x86_64-elf-ld"
+cflags = [
+    "-march=i486",
+    "-std=gnu11",
+    "-nostdinc",
+    "-nostdlib",
+    "-O0",
+    "-m32",
+    "-g",
+    "-ffreestanding",
+    "-fno-pie",
+    "-fno-stack-protector",
+    "-fno-strict-aliasing",
+    "-fno-builtin",
+    "-Wall",
+    "-Wunused",
+]
+asflags = ["-g", "-f", "elf32"]
+ldflags = ["-m", "elf_i386", "-nostdlib"]
+rust_target = "src/arch/x86/i686-none.json"
+rustflags = ["-C", "relocation-model=static", "--emit", "obj"]
+
+[debug]
+level = "all"
+cflags = ["-O0", "-g"]
+asflags = ["-g"]

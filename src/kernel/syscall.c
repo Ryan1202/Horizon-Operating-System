@@ -12,25 +12,30 @@
 #include <stdint.h>
 #include <string.h>
 
-int		sys_getpid(void);
-int		sys_putchar(char c);
-int		sys_puts(char *str);
-int		sys_open(char *pathname, int flags);
-int		sys_close(int fd);
-ssize_t sys_read(int fd, void *buf, size_t count);
-ssize_t sys_write(int fd, void *buf, size_t count);
+int	   sys_getpid(void);
+int	   sys_putchar(char c);
+int	   sys_puts(char *str);
+int	   sys_open(char *pathname, int flags);
+int	   sys_close(int fd);
+size_t sys_read(int fd, void *buf, size_t count);
+size_t sys_write(int fd, void *buf, size_t count);
 
 typedef void *syscall_t;
 syscall_t	  syscall_table[][2] = {
-	{sys_getpid, (void *)0}, // 此处存的是数字，只是做了类型转换
-	{sys_putchar, (void *)1}, {sys_puts, (void *)1}, {sys_open, (void *)2},
-	{sys_close, (void *)1},	  {sys_read, (void *)3}, {sys_write, (void *)3},
+	{ sys_getpid, (void *)0}, // 此处存的是数字，只是做了类型转换
+	{sys_putchar, (void *)1},
+	  {   sys_puts, (void *)1},
+	 {	  sys_open, (void *)2},
+	{	 sys_close, (void *)1},
+	  {   sys_read, (void *)3},
+	 {  sys_write, (void *)3},
 };
 
 typedef unsigned long (*syscall0_func_t)(void);
 typedef unsigned long (*syscall1_func_t)(unsigned long);
 typedef unsigned long (*syscall2_func_t)(unsigned long, unsigned long);
-typedef unsigned long (*syscall3_func_t)(unsigned long, unsigned long, unsigned long);
+typedef unsigned long (*syscall3_func_t)(
+	unsigned long, unsigned long, unsigned long);
 
 int sys_getpid(void) {
 	return get_current_thread()->pid;
@@ -46,29 +51,30 @@ int sys_puts(char *str) {
 }
 
 int sys_open(char *pathname, int flags) {
-	struct index_node *inode = fs_open(pathname);
-	int				   fd	 = alloc_fd();
-	fds[fd]					 = inode->fp;
-	return fd;
+	// struct index_node *inode = fs_open(pathname);
+	// int				   fd	 = alloc_fd();
+	// fds[fd]					 = inode->fp;
+	// return fd;
 }
 
 int sys_close(int fd) {
-	int ret = fds[fd]->inode->f_ops.close(fds[fd]->inode);
-	fds[fd] = NULL;
-	return ret;
+	// int ret = fds[fd]->inode->f_ops.close(fds[fd]->inode);
+	// fds[fd] = NULL;
+	// return ret;
 }
 
-ssize_t sys_read(int fd, void *buf, size_t count) {
-	struct file *file = fds[fd];
-	return file->inode->f_ops.read(file->inode, buf, count);
+size_t sys_read(int fd, void *buf, size_t count) {
+	// struct file *file = fds[fd];
+	// return file->inode->f_ops.read(file->inode, buf, count);
 }
 
-ssize_t sys_write(int fd, void *buf, size_t count) {
-	struct file *file = fds[fd];
-	return file->inode->f_ops.write(file->inode, buf, count);
+size_t sys_write(int fd, void *buf, size_t count) {
+	// struct file *file = fds[fd];
+	// return file->inode->f_ops.write(file->inode, buf, count);
 }
 
-uint32_t do_syscall(uint32_t func, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
+uint32_t do_syscall(
+	uint32_t func, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
 	uint32_t ret = 0;
 	if (syscall_table[func]) {
 		switch ((uint32_t)syscall_table[func][1]) {

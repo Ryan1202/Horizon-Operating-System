@@ -1,0 +1,1 @@
+dir = ["multiboot2/", "bios_emu/", "drivers/", "kernel/"]

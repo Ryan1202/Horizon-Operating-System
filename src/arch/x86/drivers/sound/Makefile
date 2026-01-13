@@ -1,1 +1,1 @@
-SRC	+= sb16.c
+SRC	+= sb16/

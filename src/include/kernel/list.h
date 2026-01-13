@@ -15,17 +15,21 @@ typedef struct list {
 	struct list *next;
 } list_t;
 
-#define LIST_HEAD_INIT(name) \
-	{ &(name), &(name) }
+#define LIST_HEAD_INIT(name) {&(name), &(name)}
 
 #define LIST_HEAD(name) struct list name = LIST_HEAD_INIT(name)
+
+static inline bool list_in_list(const struct list *node) {
+	return (node->next != NULL && node->prev != NULL);
+}
 
 static inline void list_init(struct list *list) {
 	list->next = list;
 	list->prev = list;
 }
 
-static inline void __list_add(struct list *_new, struct list *prev, struct list *next) {
+static inline void __list_add(
+	struct list *_new, struct list *prev, struct list *next) {
 	next->prev = _new;
 	_new->next = next;
 	_new->prev = prev;
@@ -117,23 +121,28 @@ static inline void list_move_tail(struct list *node, struct list *head) {
 	list_add_tail(node, head);
 }
 
-static inline int list_is_first(const struct list *node, const struct list *head) {
+static inline int list_is_first(
+	const struct list *node, const struct list *head) {
 	return (node->prev == head); // 节点的前一个是否为链表头
 }
 
-static inline int list_is_last(const struct list *node, const struct list *head) {
+static inline int list_is_last(
+	const struct list *node, const struct list *head) {
 	return (node->next == head); // 节点的后一个是否为链表头
 }
 
 static inline int list_empty(const struct list *head) {
-	return (head->next == head); // 链表头的下一个是否为自己
+	return (head->next == head) || !head->next ||
+		   !head->prev; // 链表头的下一个是否为自己
 }
 
 #define list_owner(ptr, type, member) container_of(ptr, type, member)
 
-#define list_first_owner(head, type, member) list_owner((head)->next, type, member)
+#define list_first_owner(head, type, member) \
+	list_owner((head)->next, type, member)
 
-#define list_last_owner(head, type, member) list_owner((head)->prev, type, member)
+#define list_last_owner(head, type, member) \
+	list_owner((head)->prev, type, member)
 
 #define list_first_owner_or_null(head, type, member)               \
 	({                                                             \
@@ -149,11 +158,14 @@ static inline int list_empty(const struct list *head) {
 		 __pos != __head ? list_owner(__pos, type, member) : NULL; \
 	})
 
-#define list_next_owner(pos, member) list_owner((pos)->member.next, typeof(*(pos)), member)
+#define list_next_owner(pos, member) \
+	list_owner((pos)->member.next, typeof(*(pos)), member)
 
-#define list_prev_onwer(pos, member) list_owner((pos)->member.prev, typeof(*(pos)), member)
+#define list_prev_owner(pos, member) \
+	list_owner((pos)->member.prev, typeof(*(pos)), member)
 
-#define list_for_each(pos, head) for (pos = (head)->next; pos != (head); pos = pos->next)
+#define list_for_each(pos, head) \
+	for (pos = (head)->next; pos != (head); pos = pos->next)
 
 static inline int list_find(struct list *list, struct list *head) {
 	struct list *node;
@@ -175,28 +187,35 @@ static inline int list_length(struct list *head) {
 	return n;
 }
 
-#define list_for_each_prev(pos, head) for (pos = (head)->prev; pos != (head); pos = pos->prev)
+#define list_for_each_prev(pos, head) \
+	for (pos = (head)->prev; pos != (head); pos = pos->prev)
 
-#define list_for_each_safe(pos, _next, head) \
-	for (pos = (head)->next, _next = pos->next; pos != (head); pos = _next, _next = pos->next)
+#define list_for_each_safe(pos, _next, head)                   \
+	for (pos = (head)->next, _next = pos->next; pos != (head); \
+		 pos = _next, _next = pos->next)
 
-#define list_for_each_prev_safe(pos, _prev, head) \
-	for (pos = (head)->prev, _prev = pos->prev; pos != (head); pos = _prev, _prev = pos->prev)
+#define list_for_each_prev_safe(pos, _prev, head)              \
+	for (pos = (head)->prev, _prev = pos->prev; pos != (head); \
+		 pos = _prev, _prev = pos->prev)
 
-#define list_for_each_owner(pos, head, member)                                       \
-	for (pos = list_first_owner(head, typeof(*pos), member); &pos->member != (head); \
-		 pos = list_next_owner(pos, member))
+#define list_for_each_owner(pos, head, member)               \
+	for (pos = list_first_owner(head, typeof(*pos), member); \
+		 &pos->member != (head); pos = list_next_owner(pos, member))
 
-#define list_for_each_owner_reverse(pos, head, member)                              \
-	for (pos = list_last_owner(head, typeof(*pos), member); &pos->member != (head); \
-		 pos = list_prev_onwer(pos, member))
+#define list_for_each_owner_reverse(pos, head, member)      \
+	for (pos = list_last_owner(head, typeof(*pos), member); \
+		 &pos->member != (head); pos = list_prev_owner(pos, member))
 
-#define list_for_each_owner_safe(pos, next, head, member)                                         \
-	for (pos = list_first_owner(head, typeof(*pos), member), next = list_next_owner(pos, member); \
-		 &pos->member != (head); pos = next, next = list_next_owner(next, member))
+#define list_for_each_owner_safe(pos, next, head, member)    \
+	for (pos = list_first_owner(head, typeof(*pos), member), \
+		next = list_next_owner(pos, member);                 \
+		 &pos->member != (head);                             \
+		 pos = next, next = list_next_owner(next, member))
 
-#define list_for_each_owner_reverse_safe(pos, prev, head, member)                                \
-	for (pos = list_last_owner(head, typeof(*pos), member), prev = list_prev_onwer(pos, member); \
-		 &pos->member != (head); pos = prev, prev = list_prev_onwer(prev, member))
+#define list_for_each_owner_reverse_safe(pos, prev, head, member) \
+	for (pos = list_last_owner(head, typeof(*pos), member),       \
+		prev = list_prev_owner(pos, member);                      \
+		 &pos->member != (head);                                  \
+		 pos = prev, prev = list_prev_owner(prev, member))
 
 #endif

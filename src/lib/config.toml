@@ -1,0 +1,10 @@
+c = [
+    "ctype.c",
+    "dyn_array.c",
+    "math.c",
+    "random.c",
+    "string.c",
+    "vsprintf.c",
+    "hash/fnv.c",
+    "hash/md5.c",
+]

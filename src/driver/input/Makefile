@@ -1,0 +1,1 @@
+SRC += input_dm.c

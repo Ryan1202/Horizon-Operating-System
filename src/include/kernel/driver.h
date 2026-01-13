@@ -1,104 +1,107 @@
 #ifndef _DRIVER_H
 #define _DRIVER_H
 
-#define DRIVER_MAX_NAME_LEN 64
-#define DEVICE_MAX_NAME_LEN 64
-
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
+#include <kernel/wait_queue.h>
+#include <objects/attr.h>
+#include <objects/permission.h>
+#include <result.h>
 #include <string.h>
 
-typedef enum {
-	UNSUPPORT = -3,
-	NODEV	  = -2,
-	FAILED	  = -1,
-	SUCCUESS  = 0,
-	UNKNOWN,
-} status_t;
+static const Permission driver_sys_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+static const Permission driver_all_user_permission = {
+	.subject_id = SUBJECT_ID_ALL,
+	.permission = {1, 1, 0, 1, 0, 0, 0},
+};
+static const Permission driver_owner_permission = {
+	.subject_id = SUBJECT_ID_SYSTEM,
+	.permission = {1, 1, 1, 1, 1, 1, 1},
+};
+static const Permission driver_admin_permission = {
+	.subject_id = SUBJECT_ID_ADMIN,
+	.permission = {1, 1, 1, 1, 0, 0, 0},
+};
+static const ObjectAttr driver_object_attr = {
+	.type				 = OBJECT_TYPE_DRIVER,
+	.size				 = 0,
+	.owner_permission	 = driver_owner_permission,
+	.system_permission	 = driver_sys_permission,
+	.all_user_permission = driver_all_user_permission,
+	.admin_permission	 = driver_admin_permission,
+};
+
+typedef enum DriverResult {
+	DRIVER_OK,
+	DRIVER_ERROR_TIMEOUT,
+	DRIVER_ERROR_ALREADY_EXIST,
+	DRIVER_ERROR_NOT_EXIST,
+	DRIVER_ERROR_CONFLICT,
+	DRIVER_ERROR_NO_OPS,
+	DRIVER_ERROR_INCOMPLETABLE_OPS,
+	DRIVER_ERROR_INVALID_IRQ_NUMBER,
+	DRIVER_ERROR_OUT_OF_MEMORY,
+	DRIVER_ERROR_OBJECT,
+	DRIVER_ERROR_NULL_POINTER,
+	DRIVER_ERROR_UNSUPPORT_DEVICE,
+	DRIVER_ERROR_UNSUPPORT_FEATURE,
+	DRIVER_ERROR_BUSY,
+	DRIVER_ERROR_WAITING,
+	DRIVER_ERROR_EXCEED_MAX_SIZE,
+	DRIVER_ERROR_INVALID_TYPE,
+	DRIVER_ERROR_MEMORY_FREE,
+	DRIVER_ERROR_OTHER,
+} DriverResult;
+
+#define DRIVER_RESULT_PASS(func)                    \
+	{                                               \
+		DriverResult result = func;                 \
+		if (result != DRIVER_OK) { return result; } \
+	}
 
 typedef enum {
-	DEV_UNKNOWN = 0,
-	DEV_STORAGE,
-	DEV_MANAGER,
-	DEV_KEYBOARD,
-	DEV_MOUSE,
-	DEV_USB,
-	DEV_SOUND,
-	DEV_ETH_NET,
-} dev_type_t;
+	DRIVER_TYPE_DEVICE_DRIVER = 0,
+	DRIVER_TYPE_BUS_DRIVER,
+	DRIVER_TYPE_MAX,
+} DriverType;
 
-typedef struct _device_s {
-	list_t	   list;
-	spinlock_t lock;
-	dev_type_t type;
+typedef enum {
+	DRIVER_STATE_UNREGISTERED, // 驱动未注册
+	DRIVER_STATE_REGISTERED,   // 驱动已注册
+} DriverState;
 
-	struct index_node *inode;
-	struct _driver_s  *drv_obj;
-	void			  *device_extension;
-	string_t		   name;
-} device_t;
+// 描述驱动程序的结构，管理着一个驱动下的所有类型的抽象驱动
+typedef struct Driver {
+	string_t short_name;
+	list_t	 device_driver_lh;
+	list_t	 remapped_memory_lh;
 
-typedef struct {
-	status_t (*driver_enter)(struct _driver_s *drv);
-	status_t (*driver_exit)(struct _driver_s *drv);
-	status_t (*driver_open)(struct _device_s *dev);
-	status_t (*driver_close)(struct _device_s *dev);
-	status_t (*driver_read)(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-	status_t (*driver_write)(struct _device_s *dev, uint8_t *buf, uint32_t offset, size_t size);
-	status_t (*driver_devctl)(struct _device_s *dev, uint32_t func_num, uint32_t value);
-} driver_func_t;
+	DriverState state;
+} Driver;
 
-#define DEV_READ(device, buf, offset, size) \
-	device->drv_obj->function.driver_read(device, (uint8_t *)buf, (uint32_t)offset, (size_t)size)
-#define DEV_WRITE(device, buf, offset, size) \
-	device->drv_obj->function.driver_write(device, (uint8_t *)buf, (uint32_t)offset, (size_t)size)
-#define DEV_CTL(device, func, value) \
-	device->drv_obj->function.driver_devctl(device, (uint32_t)func, (uint32_t)value)
+DriverResult register_driver(Driver *driver);
+DriverResult unregister_driver(Driver *driver);
+DriverResult driver_start_all(void);
+void		 add_driver_objects(void);
+void		 print_driver_result(
+			DriverResult result, char *file, int line, char *func_with_args);
 
-typedef struct _device_manager_s {
-	string_t name;
-	list_t	 dev_listhead;
-	void	*private_data;
+extern list_t		 new_bus_lh;
+extern list_t		 bus_check_lh;
+extern list_t		 new_device_lh;
+extern spinlock_t	 device_list_lock;
+extern struct Object driver_object;
 
-	void (*dm_register)(struct _device_manager_s *dm, struct _device_s *dev, char *name);
-	void (*dm_unregister)(struct _device_manager_s *dm, struct _device_s *dev);
+#define DRV_PRINT_RESULT(result, func) \
+	print_driver_result(result, __FILE__, __LINE__, #func);
 
-	void (*drv_inited)(struct _device_manager_s *dm);
-} device_manager_t;
-
-typedef struct _driver_s {
-	list_t	 list;
-	list_t	 device_list;
-	string_t name;
-
-	driver_func_t function;
-
-	struct _device_manager_s *dm;
-} driver_t;
-
-typedef void (*driver_irq_handler_t)(device_t *devobj, int irq);
-typedef struct {
-	list_t				 list;
-	device_t			*devobj;
-	driver_irq_handler_t handler;
-} dev_irq_t;
-
-extern struct index_node *dev;
-
-void			   init_dm(void);
-void			   dm_start(void);
-struct index_node *dev_open(char *path);
-int				   dev_close(struct index_node *inode);
-int				   dev_read(struct index_node *inode, uint8_t *buffer, uint32_t length);
-int				   dev_write(struct index_node *inode, uint8_t *buffer, uint32_t length);
-int				   dev_ioctl(struct index_node *inode, uint32_t cmd, uint32_t arg);
-status_t		   driver_create(driver_func_t func, char *driver_name);
-status_t device_create(driver_t *driver, unsigned long device_extension_size, char *name, dev_type_t type,
-					   device_t **device);
-void	 device_delete(device_t *device);
-void	 device_register_irq(device_t *devobj, int irq, driver_irq_handler_t handler);
-void	 device_unregister_irq(device_t *devobj, int irq);
-void	 device_irq_handler(int irq);
-void	 driver_inited();
+#define DRV_RESULT_PRINT_CALL(func)                              \
+	{                                                            \
+		DriverResult result = func;                              \
+		if (result != DRIVER_OK) DRV_PRINT_RESULT(result, func); \
+	}
 
 #endif

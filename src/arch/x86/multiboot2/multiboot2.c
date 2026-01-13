@@ -1,21 +1,15 @@
 #include "multiboot2.h"
-#include <drivers/video.h>
+#include <drivers/vesa_display.h>
 #include <kernel/ards.h>
 #include <kernel/font.h>
 #include <stdint.h>
 #include <string.h>
 #include <types.h>
 
+extern struct VesaDisplayInfo vesa_display_info;
+
 void multiboot2_loader(uint32_t eax, uint32_t ebx) {
 	if (eax != 0x36d76289) {
-		// 尝试输出
-		video_info.vram			= (uint8_t *)0xe0000000;
-		video_info.width		= 1024;
-		video_info.height		= 768;
-		video_info.BitsPerPixel = 32;
-		print_string(
-			0, 0, 0xffffff, font16,
-			"Not booted by a multiboot2-compliant bootloader.");
 		while (true)
 			;
 	}
@@ -30,19 +24,19 @@ void multiboot2_loader(uint32_t eax, uint32_t ebx) {
 		uint32_t size = *(p + 1);
 		switch (type) {
 		case MBIT_FRAMEBUFER_INFO: {
-			struct framebuffer_tag *fb = (struct framebuffer_tag *)p;
-			video_info.vram			   = (uint8_t *)fb->framebuffer_addr[0];
-			video_info.width		   = fb->framebuffer_width;
-			video_info.height		   = fb->framebuffer_height;
-			video_info.BitsPerPixel	   = fb->framebuffer_bpp;
+			struct framebuffer_tag *fb	   = (struct framebuffer_tag *)p;
+			vesa_display_info.vram		   = (uint8_t *)fb->framebuffer_addr[0];
+			vesa_display_info.width		   = fb->framebuffer_width;
+			vesa_display_info.height	   = fb->framebuffer_height;
+			vesa_display_info.BitsPerPixel = fb->framebuffer_bpp;
 			break;
 		}
 		case MBIT_VBE_INFO: {
 			struct vbe_info_tag *vbe = (struct vbe_info_tag *)p;
-			video_info.vbe_mode_info =
-				(struct vbe_mode_info_block *)vbe->vbe_mode_info;
-			video_info.vbe_conrtol_info =
-				(struct vbe_control_info_block *)vbe->vbe_control_info;
+			vesa_display_info.vbe_mode_info =
+				(struct VbeModeInfoBlock *)vbe->vbe_mode_info;
+			vesa_display_info.vbe_conrtol_info =
+				(struct VbeControlInfoBlock *)vbe->vbe_control_info;
 			break;
 		}
 		case MBIT_MEM_MAP: {
@@ -70,5 +64,4 @@ void multiboot2_loader(uint32_t eax, uint32_t ebx) {
 		size >>= 2;
 		p += size;
 	}
-	print_string(0, 0, 0xc0c0c0, font16, "Starting up by multiboot2 success!");
 }

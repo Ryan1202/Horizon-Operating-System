@@ -44,27 +44,6 @@
         "utility": "c",
         "cstdlib": "c"
     },
-    "C_Cpp.codeAnalysis.clangTidy.checks.disabled": [
-        "clang-diagnostic-int-to-void-pointer-cast",
-        "clang-diagnostic-int-to-pointer-cast",
-        "clang-diagnostic-void-pointer-to-int-cast",
-        "clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling",
-        "clang-diagnostic-pointer-to-int-cast",
-        "clang-diagnostic-visibility",
-        "clang-analyzer-security.insecureAPI.strcpy",
-        "clang-diagnostic-incompatible-library-redeclaration",
-        "clang-diagnostic-implicit-function-declaration",
-        "clang-analyzer-deadcode.DeadStores",
-        "clang-diagnostic-error"
-    ],
-    "C_Cpp.errorSquiggles": "Disabled",
-    "makefile.launchConfigurations": [
-        {
-            "cwd": "/home/ryan/Desktop/horizon/src",
-            "binaryPath": "/home/ryan/Desktop/horizon/src/kernel.elf",
-            "binaryArgs": []
-        }
-    ],
     "C_Cpp.clang_format_style": "file",
     "C_Cpp.clang_format_fallbackStyle": "LLVM",
     "clangd.fallbackFlags": [

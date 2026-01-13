@@ -1,0 +1,12 @@
+c = [
+    "alu.c",
+    "bt.c",
+    "call.c",
+    "conditions.c",
+    "int.c",
+    "jmp.c",
+    "mov.c",
+    "segment.c",
+    "stack.c",
+    "xchg.c",
+]

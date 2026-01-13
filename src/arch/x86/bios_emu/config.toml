@@ -1,0 +1,2 @@
+dir = ["ops/"]
+c = ["bios_emu.c", "decode.c", "mod_rm.c", "operations.c", "segment.c"]

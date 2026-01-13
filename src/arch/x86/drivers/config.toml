@@ -1,0 +1,12 @@
+dir = [
+    "bus/",
+    "disk/",
+    "framebuffer/",
+    "input/",
+    "interrupt/",
+    "network/",
+    "sound/",
+    "timer/",
+    "usb/",
+]
+c = ["cmos.c", "msr.c", "serial.c"]

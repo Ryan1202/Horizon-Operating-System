@@ -1,0 +1,1 @@
+asm = ["boot.asm", "loader.asm"]

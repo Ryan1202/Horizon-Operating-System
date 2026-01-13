@@ -1,0 +1,2 @@
+c = ["multiboot2.c"]
+asm = ["multiboot2.asm"]

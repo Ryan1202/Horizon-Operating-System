@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "miDebuggerServerAddress": "127.0.0.1:1234",
-            "program": "${workspaceFolder}/src/kernel.elf",
+            "program": "${workspaceFolder}/src/build/kernel.elf",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
