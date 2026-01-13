@@ -95,8 +95,8 @@ typedef enum ZoneType {
 	ZONE_HIGH_MEM = 2,
 } ZoneType;
 
-size_t allocate_pages(ZoneType zone, uint8_t order);
-int	   free_pages(size_t paddr);
+size_t allocate_frames(ZoneType zone, uint8_t order);
+int	   free_frames(size_t paddr);
 
 void mem_caches_init();
 void vmalloc_init();

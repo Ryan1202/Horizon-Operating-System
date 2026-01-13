@@ -30,7 +30,7 @@ void fb_console_backend_init(void *context) {
 	int page_count = DIV_ROUND_UP(backend->buffer_size, PAGE_SIZE);
 	int order	   = aligned_up_log2n(page_count);
 	backend->text_buffer =
-		(void *)((size_t)VIR_BASE + allocate_pages(ZONE_LINEAR, order));
+		(void *)((size_t)VIR_BASE + allocate_frames(ZONE_LINEAR, order));
 	backend->current	 = backend->text_buffer;
 	backend->last_update = backend->text_buffer;
 	backend->line_ends	 = kmalloc(backend->height * sizeof(char *));

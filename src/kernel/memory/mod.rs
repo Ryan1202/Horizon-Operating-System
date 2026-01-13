@@ -3,7 +3,7 @@ use core::{
     fmt::{Arguments, Write},
 };
 
-use crate::{ConsoleOutput, kernel::memory::phy::page::PageError};
+use crate::{ConsoleOutput, kernel::memory::phy::frame::FrameError};
 
 pub mod page;
 pub mod phy;
@@ -37,7 +37,7 @@ pub enum MemoryError {
     AddressConflict,
     DoubleRelease,
     InvalidSize(usize),
-    PageError(PageError),
+    PageError(FrameError),
 }
 
 impl MemoryError {

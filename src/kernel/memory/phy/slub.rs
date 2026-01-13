@@ -5,15 +5,17 @@
 
 use core::{mem::ManuallyDrop, num::NonZeroU16, ops::DerefMut, ptr::NonNull};
 
-use crate::kernel::memory::{
-    VIR_BASE_ADDR,
-    phy::{
-        page::{
-            FRAME_MANAGER, Frame, FrameData, FrameTag, PAGE_SIZE, PageAllocator, PageError,
-            ZoneType,
-            buddy::{BuddyPage, PageOrder},
+use crate::{
+    arch::x86::kernel::page::PAGE_SIZE,
+    kernel::memory::{
+        VIR_BASE_ADDR,
+        phy::{
+            frame::{
+                FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameError, FrameTag, ZoneType,
+                buddy::{Buddy, FrameOrder},
+            },
+            slub::mem_cache::{MemCache, MemCaches},
         },
-        slub::mem_cache::{MemCache, MemCaches},
     },
 };
 
@@ -23,7 +25,7 @@ mod mem_cache_node;
 
 pub(self) const MIN_OBJECT_SIZE: usize = 8;
 pub(self) const MAX_OBJECT_SIZE: usize = 4096;
-pub(self) const MAX_PAGE_ORDER: PageOrder = PageOrder::new(3); // 最大 8 页
+pub(self) const MAX_FRAME_ORDER: FrameOrder = FrameOrder::new(3); // 最大 8 页
 pub(self) const MIN_PARTIAL: u8 = 5;
 pub(self) const MAX_PARTIAL: u8 = 10;
 
@@ -72,10 +74,10 @@ pub enum SlubError {
 
     /// 分配页失败（可能是当前Zone内存不足）
     ///
-    /// `PageAllocationFailed(zone_type: ZoneType, requsted_order: usize)`
-    PageAllocationFailed(ZoneType, PageOrder),
+    /// `FrameAllocationFailed(zone_type: ZoneType, requsted_order: usize)`
+    FrameAllocationFailed(ZoneType, FrameOrder),
 
-    /// `Slub`调用`Buddy`释放页时，传入了非`Page::Buddy`类型的页
+    /// `Slub`调用`Buddy`释放页时，传入了非`FrameTag::Buddy`类型的页
     ///
     /// `IncorrectAddressToFree(addr: NonNull<Frame>)`
     IncorrectAddressToFree(NonNull<Frame>),
@@ -87,14 +89,14 @@ impl Slub {
         zone_type: ZoneType,
         object_num: NonZeroU16,
         object_size: NonZeroU16,
-        order: PageOrder,
+        order: FrameOrder,
     ) -> Result<NonNull<Self>, SlubError> {
         // 分配页
-        let pages = FRAME_MANAGER
-            .allocate_pages(zone_type, order)
-            .ok_or(SlubError::PageAllocationFailed(zone_type, order))?;
+        let frames = FRAME_MANAGER
+            .allocate_frames(zone_type, order)
+            .ok_or(SlubError::FrameAllocationFailed(zone_type, order))?;
 
-        let start_addr = unsafe { pages.start_addr() + VIR_BASE_ADDR };
+        let start_addr = unsafe { frames.start_addr() + VIR_BASE_ADDR };
         let free_nodes = unsafe {
             (start_addr as *mut Frame)
                 .with_addr(start_addr)
@@ -114,26 +116,30 @@ impl Slub {
             })),
         };
 
-        let mut page = pages.next_frame(1);
+        let mut frame = frames.next_frame(1);
 
         let slub = {
-            let frame = pages;
-            *frame.tag.get_mut() = FrameTag::Slub;
-            *frame.data.get_mut() = data;
+            let frame = frames;
+
+            unsafe { frame.replace(FrameTag::Slub, data) };
 
             frame.list.get_mut().init();
             NonNull::from(Self::from_frame(frame))
         };
 
-        // 填写 Page 中的 Slub
+        // 填写 Frame 中的 Slub
         for i in 1..order.to_count() {
-            page = page.next_frame(1);
+            frame = frame.next_frame(1);
 
             let slub_info = Slub::Body { offset: i as u8 };
 
-            *page.tag.get_mut() = FrameTag::Slub;
-            *page.data.get_mut() = FrameData {
-                slub: ManuallyDrop::new(slub_info),
+            unsafe {
+                frame.replace(
+                    FrameTag::Slub,
+                    FrameData {
+                        slub: ManuallyDrop::new(slub_info),
+                    },
+                )
             };
         }
 
@@ -144,7 +150,7 @@ impl Slub {
         zone_type: ZoneType,
         object_size: ObjectSize,
         object_num: NonZeroU16,
-        order: PageOrder,
+        order: FrameOrder,
     ) -> Result<NonNull<Self>, SlubError> {
         Self::init_slab(zone_type, object_num, object_size.0, order)
     }
@@ -152,18 +158,24 @@ impl Slub {
     pub fn destroy(&mut self, cache_info: &MemCache) -> Result<(), SlubError> {
         let order = cache_info.order;
 
-        let page = Frame::from_child(self);
+        let frame = Frame::from_child(self);
 
-        *page.tag.get_mut() = FrameTag::Buddy;
-        *page.data.get_mut() = FrameData {
-            buddy: ManuallyDrop::new(BuddyPage {
-                order,
-                zone_type: ZoneType::from_address(page.start_addr()),
-            }),
+        unsafe {
+            frame.replace(
+                FrameTag::Buddy,
+                FrameData {
+                    buddy: ManuallyDrop::new(Buddy {
+                        order,
+                        zone_type: ZoneType::from_address(frame.start_addr()),
+                    }),
+                },
+            )
         };
 
-        FRAME_MANAGER.free_pages(page).map_err(|e| match e {
-            PageError::IncorrectPageType => SlubError::IncorrectAddressToFree(NonNull::from(page)),
+        FRAME_MANAGER.free_frames(frame).map_err(|e| match e {
+            FrameError::IncorrectFrameType => {
+                SlubError::IncorrectAddressToFree(NonNull::from(frame))
+            }
         })
     }
 
@@ -184,7 +196,7 @@ impl Slub {
     }
 
     pub fn from_frame(frame: &mut Frame) -> &mut Self {
-        unsafe { frame.data.get_mut().slub.deref_mut() }
+        unsafe { frame.get_data_mut().slub.deref_mut() }
     }
 }
 
@@ -236,14 +248,14 @@ impl FreeNode {
     }
 }
 
-fn calculate_order(size: ObjectSize) -> Result<PageOrder, SlubError> {
+fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
     let mut size = size.0.get().next_multiple_of(size_of::<usize>() as u16);
     size = size.min(MAX_OBJECT_SIZE as u16).max(MIN_OBJECT_SIZE as u16);
 
     let mut order = 0;
 
     for fraction in [16, 8, 4, 2] {
-        for _order in 0..MAX_PAGE_ORDER.val() {
+        for _order in 0..MAX_FRAME_ORDER.val() {
             let slab_size = PAGE_SIZE << _order;
 
             let remain = slab_size % (size as usize);
@@ -253,8 +265,8 @@ fn calculate_order(size: ObjectSize) -> Result<PageOrder, SlubError> {
             }
         }
 
-        if order < MAX_PAGE_ORDER.val() {
-            return Ok(PageOrder::new(order as u8));
+        if order < MAX_FRAME_ORDER.val() {
+            return Ok(FrameOrder::new(order as u8));
         }
     }
 
@@ -268,7 +280,7 @@ fn calculate_order(size: ObjectSize) -> Result<PageOrder, SlubError> {
     }
 }
 
-fn calculate_sizes(size: NonZeroU16) -> Result<(ObjectSize, NonZeroU16, PageOrder), SlubError> {
+fn calculate_sizes(size: NonZeroU16) -> Result<(ObjectSize, NonZeroU16, FrameOrder), SlubError> {
     let object_size = NonZeroU16::new(size.get().next_multiple_of(size_of::<usize>() as u16))
         .expect("`object_size` should be non zero after alignment!");
     let object_size = ObjectSize(object_size);

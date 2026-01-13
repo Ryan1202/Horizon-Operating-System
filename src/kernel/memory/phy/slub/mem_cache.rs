@@ -9,7 +9,7 @@ use core::{
 
 use crate::{
     kernel::memory::phy::{
-        page::{Frame, buddy::PageOrder},
+        frame::{Frame, buddy::FrameOrder},
         slub::{
             ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, calculate_sizes,
             config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
@@ -99,7 +99,7 @@ pub struct MemCache {
     /// 对象个数
     object_num: NonZeroU16,
     /// 页阶数
-    pub order: PageOrder,
+    pub order: FrameOrder,
     /// 最小部分填充数量
     min_partial: u8,
     /// 对齐要求

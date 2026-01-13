@@ -157,7 +157,7 @@ void setup_page(void) {
 }
 
 size_t alloc_page_table(void) {
-	size_t page_table_phy = allocate_pages(ZONE_LINEAR, 0);
+	size_t page_table_phy = allocate_frames(ZONE_LINEAR, 0);
 	if (!page_table_phy) {
 		printk(COLOR_RED "kernel no page left!\n");
 		return 0;
@@ -431,7 +431,7 @@ uint32_t vir2phy(uint32_t vaddr) {
  */
 void *kernel_alloc_pages(int pages) {
 	int order = aligned_up_log2n(pages);
-	return (void *)((size_t)VIR_BASE + allocate_pages(ZONE_LINEAR, order));
+	return (void *)((size_t)VIR_BASE + allocate_frames(ZONE_LINEAR, order));
 	// int i;
 	// int vir_page_addr, vir_page_addr_more;
 
@@ -492,7 +492,7 @@ void *kernel_alloc_pages(int pages) {
  */
 int kernel_free_page(int vaddr, int pages) {
 	size_t paddr = vir2phy(vaddr);
-	return free_pages(paddr);
+	return free_frames(paddr);
 	// int i;
 	// int vir_page_addr = vaddr;
 

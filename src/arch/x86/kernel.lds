@@ -75,9 +75,6 @@ SECTIONS {
 
     /* bss segement */
     .bss : AT(ADDR(.bss) - VIR_BASE) {
-        . = ALIGN(64);
-        PROVIDE(page_info = .);
-        . += 0x100000 * 32;
         . = ALIGN(4);   /* 4 bytes align */
         *(.bss*)
     } : data

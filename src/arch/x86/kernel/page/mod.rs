@@ -3,7 +3,7 @@ use crate::kernel::memory::page::PageTableEntry;
 pub type VirAddr = usize;
 pub type PhyAddr = usize;
 
-const PAGE_SIZE: usize = 4096;
+pub const PAGE_SIZE: usize = 4096;
 
 type EntryType = usize;
 

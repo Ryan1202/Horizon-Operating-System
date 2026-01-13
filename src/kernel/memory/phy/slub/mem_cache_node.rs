@@ -2,7 +2,7 @@ use core::{num::NonZeroU16, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
     kernel::memory::phy::{
-        page::{Frame, FrameNumber, FrameTag, ZoneType, buddy::PageOrder, page_align_down},
+        frame::{Frame, FrameNumber, FrameTag, ZoneType, buddy::FrameOrder, frame_align_down},
         slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
     },
     lib::rust::{
@@ -17,7 +17,7 @@ pub struct MemCacheNode {
     pub partial_list: Spinlock<ListHead<Frame>>,
     object_size: ObjectSize,
     object_num: NonZeroU16,
-    order: PageOrder,
+    order: FrameOrder,
     zone_type: ZoneType,
 }
 
@@ -28,7 +28,7 @@ impl MemCacheNode {
         &mut self,
         object_size: ObjectSize,
         object_num: NonZeroU16,
-        order: PageOrder,
+        order: FrameOrder,
         slub: Option<NonNull<Slub>>,
         zone_type: ZoneType,
     ) {
@@ -152,8 +152,8 @@ impl MemCacheNode {
     }
 
     pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
-        // 先找到所在页的 Page 结构，再从其中取出 Slub 地址
-        let frame_number = FrameNumber::from_addr(page_align_down(obj.addr().get()));
+        // 先找到所在页的 Frame 结构，再从其中取出 Slub 地址
+        let frame_number = FrameNumber::from_addr(frame_align_down(obj.addr().get()));
         let frame = Frame::from_frame_number(frame_number);
 
         if let FrameTag::Slub = frame.get_tag() {

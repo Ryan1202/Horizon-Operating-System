@@ -7,13 +7,13 @@ use core::{
 
 use crate::{
     CACHELINE_SIZE,
-    arch::x86::kernel::page::PageLevelEntry,
+    arch::x86::kernel::page::{PAGE_SIZE, PageLevelEntry},
     kernel::memory::{
         VIR_BASE, VIR_BASE_ADDR,
         page::PageTableEntry,
         phy::{
             E820Ards, PREALLOCATED_END_PHY,
-            page::buddy::{BuddyAllocator, BuddyPage, PageOrder},
+            frame::buddy::{Buddy, BuddyAllocator, FrameOrder},
             slub::Slub,
         },
     },
@@ -22,16 +22,14 @@ use crate::{
 
 pub mod buddy;
 
-pub const PAGE_SIZE: usize = 0x1000;
-
 #[cfg(target_pointer_width = "32")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
 #[cfg(target_pointer_width = "64")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
 
 #[derive(Debug)]
-pub enum PageError {
-    IncorrectPageType,
+pub enum FrameError {
+    IncorrectFrameType,
 }
 
 #[repr(transparent)]
@@ -87,11 +85,11 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "32", repr(align(32)))]
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
-    // list 在前，8字节对齐
+    // list 在前，8/16字节对齐
     pub(super) list: SyncUnsafeCell<ListNode<Frame>>,
     // 其他字段在后
-    pub data: SyncUnsafeCell<FrameData>,
-    pub tag: SyncUnsafeCell<FrameTag>,
+    data: SyncUnsafeCell<FrameData>,
+    tag: SyncUnsafeCell<FrameTag>,
 }
 
 unsafe impl Sync for Frame {}
@@ -99,7 +97,7 @@ unsafe impl Sync for Frame {}
 pub union FrameData {
     pub unused: (),
     pub range: ManuallyDrop<FrameRange>,
-    pub buddy: ManuallyDrop<BuddyPage>,
+    pub buddy: ManuallyDrop<Buddy>,
     pub slub: ManuallyDrop<Slub>,
     pub vmalloc: ManuallyDrop<(FrameRange, Option<NonNull<Frame>>)>,
 }
@@ -120,8 +118,8 @@ pub enum FrameTag {
 
 const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
 
-pub const PAGE_INFO_COUNT: usize = 1 << 20;
-const PAGE_INFO_SIZE: usize = PAGE_INFO_COUNT * size_of::<Frame>();
+pub const FRAME_INFO_COUNT: usize = 1 << 20;
+const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
 
 unsafe extern "C" {
     // #[link_name = "page_info"]
@@ -141,7 +139,7 @@ pub unsafe extern "C" fn page_early_init(
     unsafe {
         // 都向后对齐到页
         // 只是为了看着稍微舒服一点
-        PREALLOCATED_END_PHY = page_align_up(PREALLOCATED_END_PHY.max(kernel_end));
+        PREALLOCATED_END_PHY = frame_align_up(PREALLOCATED_END_PHY.max(kernel_end));
 
         VIR_BASE_ADDR = &VIR_BASE as *const _ as usize;
 
@@ -183,8 +181,7 @@ impl Frame {
         };
 
         // 写入首个 page 描述
-        *frame.data.get_mut() = data;
-        *frame.tag.get_mut() = tag;
+        unsafe { frame.replace(tag, data) };
     }
 
     /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
@@ -200,22 +197,25 @@ impl Frame {
             let block = unsafe { &*blocks.add(i as usize) };
 
             // 起始地址向后对齐，避免向前越界
-            let block_start = FrameNumber::from_addr(page_align_up(block.base_addr as usize));
-            let block_end = block_start + page_count(block.length as usize);
+            let start_addr = frame_align_up(block.base_addr as usize);
+            let block_start = FrameNumber::from_addr(start_addr);
+            let length =
+                frame_align_down(block.length as usize - (start_addr - (block.base_addr as usize)));
+            let block_end = block_start + frame_count(length);
 
             if last < block_start {
                 // 填充上一个块和当前块之间的空洞为保留
                 Self::fill_range(last, block_start - 1, 2);
             }
-            last = block_end;
+            last = block_end + 1;
 
-            if block_start >= block_end {
+            if block_start > block_end {
                 continue;
             }
 
-            // 填充 [block_start, block_end) 范围
+            // 填充 [block_start, block_end] 范围
             if block_end <= kernel_start || block_start >= kernel_end {
-                Self::fill_range(block_start, block_end - 1, block.block_type);
+                Self::fill_range(block_start, block_end, block.block_type);
             } else {
                 // 内存块和内核有重叠部分
                 if block_start < kernel_start {
@@ -225,7 +225,7 @@ impl Frame {
                 Self::fill_range(kernel_start, kernel_end, 0);
                 if block_end > kernel_end {
                     // 后半部分可用
-                    Self::fill_range(kernel_end + 1, block_end - 1, block.block_type);
+                    Self::fill_range(kernel_end + 1, block_end, block.block_type);
                 }
             }
         }
@@ -241,6 +241,43 @@ impl Frame {
 
     pub fn set_tag(&mut self, tag: FrameTag) {
         *self.tag.get_mut() = tag;
+    }
+
+    pub fn get_data_mut(&mut self) -> &mut FrameData {
+        self.data.get_mut()
+    }
+
+    /// 替换 Frame 的 tag 和 data，自动释放旧数据
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保 Frame 当前的 tag 和 data 是匹配且有效的
+    pub unsafe fn replace(&mut self, tag: FrameTag, data: FrameData) {
+        let _tag = self.tag.get_mut();
+        let _data = self.data.get_mut();
+        unsafe {
+            match *_tag {
+                FrameTag::Buddy => {
+                    ManuallyDrop::drop(&mut _data.buddy);
+                }
+                FrameTag::Free
+                | FrameTag::Io
+                | FrameTag::SystemReserved
+                | FrameTag::HardwareReserved => {
+                    ManuallyDrop::drop(&mut _data.range);
+                }
+                FrameTag::Slub => {
+                    ManuallyDrop::drop(&mut _data.slub);
+                }
+                FrameTag::Vmalloc => {
+                    ManuallyDrop::drop(&mut _data.vmalloc);
+                }
+                FrameTag::Unused => {}
+            }
+        }
+
+        *_tag = tag;
+        *_data = data;
     }
 }
 
@@ -353,34 +390,34 @@ impl ZoneType {
     }
 }
 
-pub const fn page_align_up(value: usize) -> usize {
+pub const fn frame_align_up(value: usize) -> usize {
     (value + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
 
-pub const fn page_align_down(value: usize) -> usize {
+pub const fn frame_align_down(value: usize) -> usize {
     value & !(PAGE_SIZE - 1)
 }
 
-pub const fn page_count(size: usize) -> usize {
+pub const fn frame_count(size: usize) -> usize {
     (size / PAGE_SIZE) + (size % PAGE_SIZE != 0) as usize
 }
 
-pub trait PageAllocator {
-    fn allocate_pages(&self, zone_type: ZoneType, order: PageOrder) -> Option<&mut Frame>;
-    fn free_pages(&self, page: &mut Frame) -> Result<(), PageError>;
+pub trait FrameAllocator {
+    fn allocate_frames(&self, zone_type: ZoneType, order: FrameOrder) -> Option<&mut Frame>;
+    fn free_frames(&self, page: &mut Frame) -> Result<(), FrameError>;
 }
 
-#[unsafe(export_name = "allocate_pages")]
-pub extern "C" fn allocate_pages_c(zone_type: ZoneType, order: PageOrder) -> usize {
+#[unsafe(export_name = "allocate_frames")]
+pub extern "C" fn allocate_frames_c(zone_type: ZoneType, order: FrameOrder) -> usize {
     FRAME_MANAGER
-        .allocate_pages(zone_type, order)
+        .allocate_frames(zone_type, order)
         .map_or(0, |v| v.start_addr())
 }
 
-#[unsafe(export_name = "free_pages")]
-pub extern "C" fn free_pages_c(paddr: usize) -> i8 {
+#[unsafe(export_name = "free_frames")]
+pub extern "C" fn free_frames_c(paddr: usize) -> i8 {
     let page = unsafe { Frame::from_addr(paddr) };
-    match FRAME_MANAGER.free_pages(page) {
+    match FRAME_MANAGER.free_frames(page) {
         Ok(_) => 0,
         Err(_) => -1,
     }

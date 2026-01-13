@@ -1,7 +1,8 @@
 use core::{num::NonZeroUsize, pin::Pin, ptr::NonNull};
 
 use crate::{
-    kernel::memory::phy::{kmalloc::kmalloc, page::PAGE_SIZE},
+    arch::x86::kernel::page::PAGE_SIZE,
+    kernel::memory::phy::kmalloc::kmalloc,
     lib::rust::{
         list::ListHead,
         rbtree::{

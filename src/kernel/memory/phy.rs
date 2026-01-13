@@ -1,5 +1,5 @@
+pub mod frame;
 pub mod kmalloc;
-pub mod page;
 pub mod slub;
 
 #[repr(C)]

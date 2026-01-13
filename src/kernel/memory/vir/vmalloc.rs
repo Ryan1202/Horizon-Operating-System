@@ -5,17 +5,20 @@ use core::{
     ptr::{NonNull, null_mut},
 };
 
-use crate::kernel::memory::{
-    MemoryError, PageCacheType, page_link, page_unlink,
-    phy::page::{
-        FRAME_MANAGER, Frame, FrameData, FrameNumber, FrameRange, FrameTag, PAGE_SIZE,
-        PageAllocator, PageError, ZoneType, buddy::PageOrder,
+use crate::{
+    arch::x86::kernel::page::PAGE_SIZE,
+    kernel::memory::{
+        MemoryError, PageCacheType, page_link, page_unlink,
+        phy::frame::{
+            FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameError, FrameNumber, FrameRange,
+            FrameTag, ZoneType, buddy::FrameOrder,
+        },
+        vir::{
+            page::{VirtPageNumber, VmRange},
+            vmap::get_vmap_node,
+        },
+        vir2phys,
     },
-    vir::{
-        page::{VirtPageNumber, VmRange},
-        vmap::get_vmap_node,
-    },
-    vir2phys,
 };
 
 #[unsafe(no_mangle)]
@@ -96,17 +99,19 @@ pub fn ioremap<T>(
         NonZeroUsize::new(size.div_ceil(PAGE_SIZE)).ok_or(MemoryError::InvalidSize(size))?;
 
     let frame = unsafe { Frame::from_addr(addr) };
-    let frame_tag = frame.tag.get_mut();
+    let frame_tag = frame.get_tag();
     match frame_tag {
-        FrameTag::Unused => {
-            *frame_tag = FrameTag::Io;
-            *frame.data.get_mut() = FrameData {
-                range: ManuallyDrop::new(FrameRange {
-                    start: FrameNumber::from_addr(addr),
-                    end: FrameNumber::from_addr(addr + count.get() * PAGE_SIZE - 1),
-                }),
-            };
-        }
+        FrameTag::Unused => unsafe {
+            frame.replace(
+                FrameTag::Io,
+                FrameData {
+                    range: ManuallyDrop::new(FrameRange {
+                        start: FrameNumber::from_addr(addr),
+                        end: FrameNumber::from_addr(addr + count.get() * PAGE_SIZE - 1),
+                    }),
+                },
+            );
+        },
         _ => return Err(MemoryError::AddressConflict),
     }
 
@@ -124,24 +129,25 @@ pub fn iounmap<T>(vaddr: usize) -> Result<(), MemoryError> {
     let node = get_vmap_node();
 
     let frame = unsafe { Frame::from_addr(vir2phys(vaddr)) };
-    let frame_tag = frame.tag.get_mut();
+    let frame_tag = frame.get_tag();
     match frame_tag {
         FrameTag::Io => {
             let count = unsafe {
-                let range = &mut frame.data.get_mut().range;
+                let range = &mut frame.get_data_mut().range;
                 range.end.get() - range.start.get()
             };
             let start = VirtPageNumber::from_addr(vaddr).unwrap();
             let end = VirtPageNumber::new(NonZeroUsize::new(start.get().get() + count).unwrap());
 
-            *frame_tag = FrameTag::Unused;
             unsafe {
+                frame.replace(FrameTag::Unused, FrameData { unused: () });
+
                 page_unlink(vaddr, (count + 1) as u16);
 
                 node.deallocate(&VmRange { start, end })
             }
         }
-        _ => Err(MemoryError::PageError(PageError::IncorrectPageType)),
+        _ => Err(MemoryError::PageError(FrameError::IncorrectFrameType)),
     }
 }
 
@@ -155,30 +161,32 @@ pub fn vmalloc<T>(size: usize, cache_type: PageCacheType) -> Result<NonNull<T>, 
 
     let mut vaddr = vstart.get();
     let mut left = count.get();
-    let mut order = PageOrder::new(count.ilog2() as u8);
+    let mut order = FrameOrder::new(count.ilog2() as u8);
     let mut last_page: Option<NonNull<Frame>> = None;
     while left > 0 {
-        let pages = FRAME_MANAGER.allocate_pages(ZoneType::HighMem, order);
+        let pages = FRAME_MANAGER.allocate_frames(ZoneType::HighMem, order);
 
         match pages {
             Some(frames) => {
                 let paddr = frames.start_addr();
 
                 match frames.get_tag() {
-                    FrameTag::Unused => {
-                        frames.set_tag(FrameTag::Vmalloc);
-                        *frames.data.get_mut() = FrameData {
-                            vmalloc: ManuallyDrop::new((
-                                FrameRange {
-                                    start: FrameNumber::from_addr(paddr),
-                                    end: FrameNumber::from_addr(
-                                        paddr + order.to_count() * PAGE_SIZE,
-                                    ),
-                                },
-                                None,
-                            )),
-                        }
-                    }
+                    FrameTag::Unused => unsafe {
+                        frames.replace(
+                            FrameTag::Vmalloc,
+                            FrameData {
+                                vmalloc: ManuallyDrop::new((
+                                    FrameRange {
+                                        start: FrameNumber::from_addr(paddr),
+                                        end: FrameNumber::from_addr(
+                                            paddr + order.to_count() * PAGE_SIZE,
+                                        ),
+                                    },
+                                    None,
+                                )),
+                            },
+                        );
+                    },
                     _ => return Err(MemoryError::AddressConflict),
                 }
                 unsafe {
@@ -191,7 +199,7 @@ pub fn vmalloc<T>(size: usize, cache_type: PageCacheType) -> Result<NonNull<T>, 
 
                     if let FrameTag::Vmalloc = last.get_tag() {
                         unsafe {
-                            last.data.get_mut().vmalloc.1 = this;
+                            last.get_data_mut().vmalloc.1 = this;
                         }
                     }
                 }
@@ -221,7 +229,7 @@ pub fn vfree<T>(range: VmRange) -> Result<(), MemoryError> {
     unsafe {
         while let FrameTag::Vmalloc = page.get_tag() {
             let (start, page_count, next) = {
-                let vmalloc = &page.data.get().as_ref().unwrap().vmalloc;
+                let vmalloc = &page.get_data_mut().vmalloc;
                 let range = &vmalloc.0;
                 (
                     range.start.get(),
@@ -240,6 +248,6 @@ pub fn vfree<T>(range: VmRange) -> Result<(), MemoryError> {
     node.deallocate(&range)?;
 
     FRAME_MANAGER
-        .free_pages(page)
+        .free_frames(page)
         .map_err(|e| MemoryError::PageError(e))
 }
