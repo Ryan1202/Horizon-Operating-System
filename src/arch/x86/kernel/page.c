@@ -346,18 +346,19 @@ uint32_t vir2phy(uint32_t vaddr) {
 // /**
 //  * @brief 映射物理地址到虚拟地址
 //  *
-//  * @param paddr 物理地址
-//  * @param size 大小
-//  * @param uint32_t* 虚拟地址
+//  * @param in_paddr 物理地址
+//  * @param in_size 大小
+//  * @param out_vaddr 虚拟地址
 //  */
 // MemoryResult remap(uint32_t in_paddr, size_t in_size, uint32_t *out_vaddr) {
 
 // 	if (!in_paddr || !in_size) { return MEMORY_RESULT_INVALID_INPUT; }
 
-// 	if (in_paddr + in_size < 0x400000) {
-// 		// 低4MB内存默认已经映射，直接返回
-// 		return in_paddr;
-// 	}
+// if (in_paddr + in_size < 0x400000) {
+// 	// 低4MB内存默认已经映射，直接返回
+// 	*out_vaddr = in_paddr;
+// 	return MEMORY_RESULT_OK;
+// }
 
 // 	uint32_t vaddr;
 // 	MEMORY_RESULT_DELIVER_CALL(alloc_vaddr, in_size, &vaddr);
@@ -408,7 +409,7 @@ uint32_t vir2phy(uint32_t vaddr) {
 
 // /**
 //  * @brief 释放虚拟页
-//  *
+//  * @param vir_addr 虚拟地址
 //  * @param vir_addr 西你也地址
 //  * @return int 成功为0，失败为-1
 //  */
@@ -586,7 +587,6 @@ int kernel_free_page(int vaddr, int pages) {
 // 	mem_addr = idx * 0x1000 + PHY_MEM_BASE_ADDR;
 
 // 	return mem_addr;
-// 	return addr;
 // }
 
 // /**
