@@ -1,15 +1,19 @@
 use core::{
-    ops::{Add, Sub},
+    mem::{ManuallyDrop, zeroed},
+    ops::{Add, Deref, DerefMut, Sub},
+    pin::Pin,
     ptr::NonNull,
 };
 
 use crate::{
-    container_of_enum,
     kernel::memory::phy::page::{
-        PAGE_INFO_COUNT, PAGE_SIZE, Page, PageAllocator, PageError, PageNumber, ZoneType,
-        page_count,
+        Frame, FrameData, FrameNumber, FrameTag, PAGE_INFO_COUNT, PAGE_SIZE, PageAllocator,
+        PageError, ZoneType, page_count,
     },
-    lib::rust::list::{ListHead, ListNode},
+    lib::rust::{
+        list::{ListHead, ListNode},
+        spinlock::Spinlock,
+    },
     list_first_owner,
 };
 
@@ -66,16 +70,27 @@ impl PageOrder {
     }
 }
 
+#[derive(Clone)]
 #[repr(C, align(4))]
 pub struct BuddyPage {
-    pub list: ListNode<BuddyPage>,
     pub order: PageOrder,
     pub zone_type: ZoneType,
 }
 
-#[derive(Clone, Copy)]
+// impl<'a> From<&'a mut Frame> for &'a mut BuddyPage {
+//     fn from(value: &'a mut Frame) -> Self {
+//         unsafe { value.data.get_mut().buddy.deref_mut() }
+//     }
+// }
+
+impl<'a> Into<&'a mut BuddyPage> for &'a mut Frame {
+    fn into(self) -> &'a mut BuddyPage {
+        unsafe { self.data.get_mut().buddy.deref_mut() }
+    }
+}
+
 pub struct Zone {
-    pub free_pages: [ListHead<BuddyPage>; MAX_ORDER.0 as usize],
+    pub free_pages: [Spinlock<ListHead<Frame>>; MAX_ORDER.0 as usize],
 }
 
 pub struct BuddyAllocator {
@@ -84,50 +99,47 @@ pub struct BuddyAllocator {
 
 impl BuddyAllocator {
     pub const fn empty() -> Self {
-        Self {
-            zones: [Zone {
-                free_pages: [ListHead::empty(); MAX_ORDER.0 as usize],
-            }; ZoneType::ZONE_COUNT],
-        }
+        unsafe { zeroed() }
     }
 
-    fn get_zone<'a>(&mut self, zone_type: ZoneType) -> &mut Zone {
-        &mut self.zones[zone_type.index()]
+    fn get_zone<'a>(&self, zone_type: ZoneType) -> &Zone {
+        &self.zones[zone_type.index()]
     }
 
     /// 初始化Buddy内存分配器
     /// 由于链表需要在目标内存上初始化，所以必须先assume_init，再初始化每一个字段
-    pub fn init(&mut self) {
+    pub fn init(&self) {
         let mut type_index = 0;
         let mut zone_type = ZoneType::from_index(type_index);
         let (_, zone_end) = zone_type.range();
-        let mut zone_end = PageNumber::from_addr(zone_end);
+        let mut zone_end = FrameNumber::from_addr(zone_end);
 
-        let mut page_number = PageNumber::new(0);
-        let mut page;
+        let mut frame = FrameNumber::new(0);
 
         for i in 0..ZoneType::ZONE_COUNT {
-            for list_head in self.zones[i].free_pages.iter_mut() {
-                list_head.init();
+            for free in self.zones[i].free_pages.iter() {
+                let mut free = free.lock();
+                unsafe { Pin::new_unchecked(free.deref_mut()) }.init();
             }
         }
 
-        let mut current_zone = &mut self.zones[type_index];
-        while page_number.get() < PAGE_INFO_COUNT {
-            page = Page::from_page_number(page_number);
-            match unsafe { page.as_mut() } {
-                Page::Free(hole) => {
+        let mut current_zone = &self.zones[type_index];
+        while frame.get() < PAGE_INFO_COUNT {
+            let metadata = Frame::from_frame_number(frame);
+            match unsafe { *metadata.tag.get() } {
+                FrameTag::Free => {
                     // 只有Free类型的页才会被加入Buddy系统管理
-                    let (mut start, end) = (hole.start, hole.end);
+                    let range = unsafe { metadata.data.get_mut().range.deref() };
+                    let (mut start, end) = (range.start, range.end);
 
                     while start <= end {
                         // 找到对应的Zone
                         while zone_end < start {
                             type_index += 1;
                             zone_type = ZoneType::from_index(type_index);
-                            current_zone = &mut self.zones[type_index];
+                            current_zone = &self.zones[type_index];
                             let range = zone_type.range();
-                            zone_end = PageNumber::from_addr(range.1);
+                            zone_end = FrameNumber::from_addr(range.1);
                         }
 
                         let temp_end = end
@@ -136,27 +148,30 @@ impl BuddyAllocator {
                         let order = PageOrder::from_page_count(temp_end.count_from(start));
 
                         unsafe {
-                            let mut page = Page::from_page_number(start);
-                            page.write(Page::Buddy(BuddyPage {
-                                list: ListNode::new(),
-                                order,
-                                zone_type,
-                            }));
+                            let frame = Frame::from_frame_number(start);
 
-                            let page = page.as_mut();
-                            if let Page::Buddy(buddy_page) = page {
-                                current_zone.free_pages[order.val()].add_tail(&mut buddy_page.list);
-                            }
+                            *frame.tag.get_mut() = FrameTag::Buddy;
+                            *frame.data.get_mut() = FrameData {
+                                buddy: ManuallyDrop::new(BuddyPage { order, zone_type }),
+                            };
+
+                            let node = Pin::new_unchecked(frame.list.get_mut());
+
+                            let mut free = current_zone.free_pages[order.val()].lock();
+                            let head = Pin::new_unchecked(free.deref_mut());
+
+                            head.add_tail(node);
                         };
 
                         start = temp_end + 1;
                     }
 
-                    page_number = end + 1;
+                    frame = end + 1;
                 }
-                Page::HardwareUsed(hole) | Page::SystemReserved(hole) => {
+                FrameTag::HardwareReserved | FrameTag::SystemReserved => {
                     // 跳过不可用的页
-                    page_number = hole.end + 1;
+                    let range = unsafe { (*metadata.data.get()).range.deref() };
+                    frame = range.end + 1;
                     continue;
                 }
                 _ => {
@@ -167,27 +182,34 @@ impl BuddyAllocator {
     }
 
     fn split_page(
-        &mut self,
+        &self,
         zone_type: ZoneType,
         order: PageOrder,
         target_order: PageOrder,
-        page: &mut Page,
+        frame: &mut Frame,
     ) {
         let mut split_order = PageOrder::new(order.0 - 1);
-        let mut next_page = unsafe { page.next_page(1 << split_order.val()).as_mut() };
+        let mut next_page = frame.next_frame(1 << split_order.val());
 
         while split_order.0 > target_order.0 {
-            match next_page {
-                Page::Unused => {
-                    *next_page = Page::Buddy(BuddyPage {
-                        list: ListNode::new(),
-                        order: split_order,
-                        zone_type,
-                    });
+            match unsafe { *next_page.tag.get() } {
+                FrameTag::Unused => {
+                    *next_page.tag.get_mut() = FrameTag::Buddy;
+                    *next_page.data.get_mut() = FrameData {
+                        buddy: ManuallyDrop::new(BuddyPage {
+                            order: split_order,
+                            zone_type,
+                        }),
+                    };
 
-                    if let Page::Buddy(buddy_page) = next_page {
-                        self.get_zone(zone_type).free_pages[split_order.val()]
-                            .add_head(&mut buddy_page.list);
+                    unsafe {
+                        let node = Pin::new_unchecked(next_page.list.get_mut());
+
+                        let mut free =
+                            self.get_zone(zone_type).free_pages[split_order.val()].lock();
+                        let head = Pin::new_unchecked(free.deref_mut());
+
+                        head.add_head(node);
                     }
                 }
                 _ => {
@@ -196,96 +218,95 @@ impl BuddyAllocator {
             }
 
             split_order.0 -= 1;
-            next_page = unsafe { page.next_page(1 << split_order.val()).as_mut() };
+            next_page = frame.next_frame(1 << split_order.val());
         }
 
-        if let Page::Buddy(buddy_page) = page {
-            buddy_page.order = target_order;
-        } else {
-            panic!("Split page error: not a buddy page");
-        }
+        let buddy: &mut BuddyPage = frame.into();
+        buddy.order = target_order;
     }
 
-    fn merge_page(&mut self, left: &mut BuddyPage, right: &mut BuddyPage) {
-        left.order = PageOrder::new(right.order.0 + 1);
+    fn merge_page(&self, left: &mut Frame, right: &mut BuddyPage) {
+        let new_order = right.order.0 + 1;
+        let buddy: &mut BuddyPage = left.into();
+        buddy.order = PageOrder(new_order);
 
-        let page = container_of_enum!(NonNull::from_mut(left), Page, Buddy.0);
+        let page = Frame::from_child(right);
         unsafe {
-            page.write(Page::Unused);
+            *page.tag.get_mut() = FrameTag::Unused;
 
-            self.get_zone(right.zone_type).free_pages[left.order.val()].add_head(&mut left.list);
+            let node = Pin::new_unchecked(left.list.get_mut());
+            let mut free = self.get_zone(right.zone_type).free_pages[new_order as usize].lock();
+            let head = Pin::new_unchecked(free.deref_mut());
+
+            head.add_head(node);
         }
     }
 }
 
 impl PageAllocator for BuddyAllocator {
-    fn allocate_pages(&mut self, zone_type: ZoneType, order: PageOrder) -> Option<NonNull<Page>> {
+    fn allocate_pages(&self, zone_type: ZoneType, order: PageOrder) -> Option<&mut Frame> {
         let mut order = order;
         let target_order = order;
         let mut page = None;
 
         while page.is_none() && order < MAX_ORDER {
-            let list_head = &mut self.get_zone(zone_type).free_pages[order.val()];
+            let list_head = self.get_zone(zone_type).free_pages[order.val()].lock();
 
             page = if list_head.is_empty() {
                 None
             } else {
-                list_first_owner!(BuddyPage, list, list_head)
+                list_first_owner!(Frame, list, list_head)
             };
             if let Some(mut buddy_page) = page {
-                let _buddy_page = unsafe { buddy_page.as_mut() };
-                _buddy_page.list.del();
+                let frame = unsafe { buddy_page.as_mut() };
 
-                let mut page = container_of_enum!(buddy_page, Page, Buddy.0);
-                let page = unsafe { page.as_mut() };
+                let list = frame.list.get_mut();
+                unsafe { Pin::new_unchecked(list) }.del();
 
                 if order != target_order {
-                    self.split_page(zone_type, order, target_order, page);
+                    self.split_page(zone_type, order, target_order, frame);
                 }
 
-                return Some(NonNull::from_mut(page));
+                return Some(frame);
             }
             order.0 += 1;
         }
         None
     }
 
-    fn free_pages(&mut self, mut page: NonNull<Page>) -> Result<(), PageError> {
-        let _page = unsafe { page.as_mut() };
-        let addr = _page.start_addr();
-        let page_number = PageNumber::from_addr(addr);
+    fn free_pages(&self, page: &mut Frame) -> Result<(), PageError> {
+        let addr = page.start_addr();
+        let page_number = FrameNumber::from_addr(addr);
 
         let zone_type = ZoneType::from_address(addr);
         let zone = self.get_zone(zone_type);
         let zone_range = zone_type.range();
         let (zone_start, zone_end) = (
-            PageNumber::from_addr(zone_range.0),
-            PageNumber::new(zone_range.1),
+            FrameNumber::from_addr(zone_range.0),
+            FrameNumber::new(zone_range.1),
         );
 
-        if let Page::Buddy(this_buddy_page) = _page {
+        if let FrameTag::Buddy = unsafe { *page.tag.get() } {
             // 仅释放Buddy类型的页
-            let current_order = this_buddy_page.order;
+            let current_order = {
+                let this_buddy_page: &mut BuddyPage = page.into();
+                this_buddy_page.order
+            };
+
             if current_order < MAX_ORDER - 1 {
                 if page_number <= zone_end - current_order.to_count() {
-                    let mut buddy_page =
-                        unsafe { page.as_mut() }.next_page(current_order.to_count());
+                    let frame = page.next_frame(current_order.to_count());
 
-                    unsafe {
-                        if let Page::Buddy(buddy_page) = buddy_page.as_mut() {
-                            self.merge_page(this_buddy_page, buddy_page);
-                            return Ok(());
-                        }
+                    if let FrameTag::Buddy = unsafe { *frame.tag.get() } {
+                        self.merge_page(page, frame.into());
+                        return Ok(());
                     }
                 } else if page_number >= zone_start + current_order.to_count() {
-                    let mut buddy_page =
-                        unsafe { page.as_mut() }.prev_page(current_order.to_count());
+                    let frame = page.prev_frame(current_order.to_count());
 
-                    unsafe {
-                        if let Page::Buddy(buddy_page) = buddy_page.as_mut() {
-                            self.merge_page(buddy_page, this_buddy_page);
-                            return Ok(());
-                        }
+                    if let FrameTag::Buddy = unsafe { *frame.tag.get() } {
+                        self.merge_page(frame, page.into());
+                        return Ok(());
                     }
                 } else {
                     panic!("Buddy free error: buddy page out of zone range unexpectedly!");
@@ -293,7 +314,14 @@ impl PageAllocator for BuddyAllocator {
             }
             if current_order < MAX_ORDER {
                 // 无法合并
-                zone.free_pages[current_order.val()].add_head(&mut this_buddy_page.list);
+                unsafe {
+                    let node = Pin::new_unchecked(page.list.get_mut());
+
+                    let mut free = zone.free_pages[current_order.val()].lock();
+                    let head = Pin::new_unchecked(free.deref_mut());
+
+                    head.add_head(node);
+                }
                 return Ok(());
             }
         }

@@ -151,8 +151,8 @@ impl RustConfig {
 
     fn write_root_file(&self, work_dir: &PathBuf) -> std::io::Result<()> {
         let work_dir = work_dir.canonicalize()?;
-        let template_path = work_dir.join("lib.template.rs");
-        let root_file_path = work_dir.join("lib.rs");
+        let template_path = work_dir.join("root.template.rs");
+        let root_file_path = work_dir.join("root.rs");
 
         // 读取模板文件
         let template_content = fs::read_to_string(&template_path)?;
@@ -261,7 +261,7 @@ impl RustConfig {
             // 在该 section 的末尾插入 path 字段（即在 next_idx 处插入）
             lines.insert(
                 next_idx,
-                format!("path = \"{}\"", work_dir.join("lib.rs").display()),
+                format!("path = \"{}\"", work_dir.join("root.rs").display()),
             );
         } else {
             // 如果没有 [lib] 节，则追加一个新的 [lib] 节并写入 path
@@ -269,7 +269,7 @@ impl RustConfig {
                 lines.push(String::new());
             }
             lines.push("[lib]".to_string());
-            lines.push("path = \"./lib.rs\"".to_string());
+            lines.push("path = \"./root.rs\"".to_string());
         }
 
         let new_contents = lines.join("\n");
@@ -322,9 +322,9 @@ impl RustConfig {
     ) -> Option<PathBuf> {
         let cargo_toml = work_dir.join("Cargo.template.toml");
         if cargo_toml.exists() && cargo_toml.is_file() {
-            let root_file = work_dir.join("lib.rs");
+            let root_file = work_dir.join("root.rs");
             if self.need_update() || !(root_file.exists() && root_file.is_file()) {
-                self.write_root_file(work_dir).expect("写入lib.rs失败");
+                self.write_root_file(work_dir).expect("写入root.rs失败");
 
                 let target_name = self
                     .target
@@ -336,7 +336,7 @@ impl RustConfig {
                     .unwrap();
                 dependency::do_rust_dependency(
                     &self,
-                    &work_dir.join("lib.rs"),
+                    &work_dir.join("root.rs"),
                     &out_dir,
                     &target_name,
                     debug_level == DebugLevel::Release,

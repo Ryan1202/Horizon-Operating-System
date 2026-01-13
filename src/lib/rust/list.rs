@@ -1,6 +1,10 @@
 // no external imports required
 
-use core::{marker::PhantomData, ptr::NonNull};
+use core::{
+    marker::{PhantomData, PhantomPinned},
+    pin::Pin,
+    ptr::NonNull,
+};
 
 use super::spinlock::Spinlock;
 
@@ -13,9 +17,7 @@ macro_rules! list_owner {
 macro_rules! list_first_owner {
     ($container:ty, $field:ident, $head:expr) => {{
         use $crate::list_owner;
-        $head
-            .head
-            .and_then(|n| Some(list_owner!(n, $container, $field)))
+        $head.head.map(|n| list_owner!(n, $container, $field))
     }};
 }
 
@@ -59,11 +61,18 @@ macro_rules! list_for_each_owner_safe {
     all(target_has_atomic = "64", target_pointer_width = "32"),
     repr(align(8))
 )]
-#[derive(PartialEq, Default, Debug)]
+#[derive(PartialEq, Debug)]
 #[repr(C)]
 pub struct ListHead<Owner> {
     pub tail: Option<NonNull<ListNode<Owner>>>,
     pub head: Option<NonNull<ListNode<Owner>>>,
+    _phantom: PhantomPinned,
+}
+
+impl<T> Default for ListHead<T> {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl<Owner> ListHead<Owner> {
@@ -71,34 +80,42 @@ impl<Owner> ListHead<Owner> {
         Self {
             tail: None,
             head: None,
+            _phantom: PhantomPinned,
         }
     }
 
     #[inline(always)]
-    pub fn init(&mut self) {
-        let ptr = self.into_node();
-        self.head = Some(ptr);
-        self.tail = Some(ptr);
+    pub fn init(self: Pin<&mut Self>) {
+        let ptr = self.as_ref().into_node();
+        let self_ref = unsafe { self.get_unchecked_mut() };
+        self_ref.head = Some(ptr);
+        self_ref.tail = Some(ptr);
     }
 
     #[inline(always)]
-    pub fn into_node(&self) -> NonNull<ListNode<Owner>> {
-        NonNull::from_ref(self).cast()
+    pub fn into_node(self: Pin<&Self>) -> NonNull<ListNode<Owner>> {
+        NonNull::from_ref(self.get_ref()).cast()
     }
 
     #[inline(always)]
-    pub fn add_head(&mut self, node: &mut ListNode<Owner>) {
-        node.add(self.into_node(), self.head.unwrap());
+    pub fn add_head(self: Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+        let prev = self.as_ref().into_node();
+        let next = self.head.unwrap();
+        unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
-    pub fn add_tail(&mut self, node: &mut ListNode<Owner>) {
-        node.add(self.tail.unwrap(), self.into_node());
+    pub fn add_tail(self: Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+        let prev = self.tail.unwrap();
+        let next = self.as_ref().into_node();
+        unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        (self.head.is_some_and(|ptr| ptr == self.into_node()))
+    pub fn is_empty(self: &Self) -> bool {
+        (self
+            .head
+            .is_some_and(|ptr| ptr == unsafe { Pin::new_unchecked(self) }.into_node()))
             || self.head.is_none()
             || self.tail.is_none()
     }
@@ -208,7 +225,7 @@ impl<Owner> Clone for ListHead<Owner> {
 pub struct ListNode<Owner> {
     pub prev: Option<NonNull<ListNode<Owner>>>,
     pub next: Option<NonNull<ListNode<Owner>>>,
-    _phantom: PhantomData<Owner>,
+    _phantom: (PhantomData<Owner>, PhantomPinned),
 }
 
 impl<Owner> ListNode<Owner> {
@@ -216,7 +233,7 @@ impl<Owner> ListNode<Owner> {
         Self {
             prev: None,
             next: None,
-            _phantom: PhantomData,
+            _phantom: (PhantomData, PhantomPinned),
         }
     }
 
@@ -226,66 +243,59 @@ impl<Owner> ListNode<Owner> {
     }
 
     #[inline(always)]
-    pub fn add(&mut self, mut prev: NonNull<ListNode<Owner>>, mut next: NonNull<ListNode<Owner>>) {
-        let (_prev, _next) = unsafe { (prev.as_mut(), next.as_mut()) };
-        let _self = Some(NonNull::from_mut(self));
-
-        _next.prev = _self;
-        self.next = Some(next);
-        self.prev = Some(prev);
-        _prev.next = _self;
+    fn ptr(&self) -> NonNull<Self> {
+        NonNull::from_ref(self)
     }
 
     #[inline(always)]
-    pub fn add_after(&mut self, mut node: NonNull<ListNode<Owner>>) {
-        let (_node, _next) = unsafe {
-            let node = node.as_mut();
+    unsafe fn add(self: Pin<&mut Self>, mut prev: NonNull<Self>, mut next: NonNull<Self>) {
+        let (_prev, _next) = unsafe { (prev.as_mut(), next.as_mut()) };
+        let _self = Some(NonNull::from(self.as_ref().get_ref()));
+        let self_ref = unsafe { self.get_unchecked_mut() };
+
+        _next.prev = _self;
+        _prev.next = _self;
+        self_ref.next = Some(next);
+        self_ref.prev = Some(prev);
+    }
+
+    /// 将当前节点添加到`node`节点之后
+    #[inline(always)]
+    pub fn add_after(self: Pin<&mut Self>, node: Pin<&mut Self>) {
+        unsafe {
             let next = node
                 .next
                 .expect("Trying to add_after on a node with no next")
-                .as_mut();
-            (node, next)
-        };
-        let _self = Some(NonNull::from_mut(self));
+                .as_ref();
 
-        _next.prev = _self;
-
-        self.prev = Some(node);
-        self.next = _node.next;
-
-        _node.next = _self;
+            self.add(node.ptr(), next.ptr());
+        }
     }
 
+    /// 将当前节点添加到`node`节点之前
     #[inline(always)]
-    pub fn add_before(&mut self, mut node: NonNull<ListNode<Owner>>) {
-        let (_node, _prev) = unsafe {
-            let node = node.as_mut();
+    pub fn add_before(self: Pin<&mut Self>, node: Pin<&mut Self>) {
+        unsafe {
             let prev = node
                 .prev
                 .expect("Trying to add_before on a node with no prev")
-                .as_mut();
-            (node, prev)
-        };
-        let _self = Some(NonNull::from_mut(self));
+                .as_ref();
 
-        _prev.next = _self;
-
-        self.prev = _node.prev;
-        self.next = Some(node);
-
-        _node.prev = _self;
+            self.add(prev.ptr(), node.ptr());
+        }
     }
 
     #[inline(always)]
-    pub fn del(&mut self) {
-        let prev = unsafe { self.prev.expect("prev node is null!").as_mut() };
-        let next = unsafe { self.next.expect("next node is null!").as_mut() };
+    pub fn del(self: Pin<&mut Self>) {
+        let this = unsafe { self.get_unchecked_mut() };
+        let prev = unsafe { this.prev.expect("prev node is null!").as_mut() };
+        let next = unsafe { this.next.expect("next node is null!").as_mut() };
 
-        prev.next = self.next;
-        next.prev = self.prev;
+        prev.next = this.next;
+        next.prev = this.prev;
 
-        self.prev = None;
-        self.next = None;
+        this.prev = None;
+        this.next = None;
     }
 
     #[inline(always)]

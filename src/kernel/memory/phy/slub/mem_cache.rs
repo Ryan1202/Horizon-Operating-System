@@ -2,16 +2,16 @@ use core::{
     cell::SyncUnsafeCell,
     mem::MaybeUninit,
     num::NonZeroU16,
+    pin::Pin,
     ptr::{NonNull, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
 };
 
 use crate::{
-    container_of, container_of_enum,
     kernel::memory::phy::{
-        page::buddy::PageOrder,
+        page::{Frame, buddy::PageOrder},
         slub::{
-            ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, SlubType, calculate_sizes,
+            ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, calculate_sizes,
             config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
             mem_cache_node::MemCacheNode,
         },
@@ -59,20 +59,28 @@ impl MemCaches {
                     mem_cache.new_boot(cache.name.as_ptr(), mem_cache_node, cache.object_size);
             }
 
-            let mut list_head = caches.list_head.lock();
-            list_head.init();
-            list_head.add_head(&mut mem_cache_node.list);
-            list_head.add_head(&mut mem_cache.list);
+            caches.list_head.init_with(|v| {
+                let mut head = Pin::new_unchecked(v);
+                head.as_mut().init();
 
-            for mut cache in DEFAULT_CACHES {
-                list_head.add_tail(&mut cache.as_mut().list);
-            }
+                head.as_mut()
+                    .add_head(Pin::new_unchecked(&mut mem_cache_node.list));
+                head.as_mut()
+                    .add_head(Pin::new_unchecked(&mut mem_cache.list));
+
+                for mut cache in DEFAULT_CACHES {
+                    head.as_mut()
+                        .add_tail(Pin::new_unchecked(&mut cache.as_mut().list));
+                }
+            });
         }
     }
 
-    pub fn add_cache(&mut self, cache: &mut MemCache) {
+    pub fn add_cache(&mut self, cache: Pin<&mut MemCache>) {
         let mut list_head = self.list_head.lock();
-        list_head.add_head(&mut cache.list);
+        unsafe {
+            Pin::new_unchecked(&mut *list_head).add_head(cache.map_unchecked_mut(|v| &mut v.list))
+        };
     }
 }
 
@@ -85,7 +93,7 @@ pub struct MemCache {
     /// 名称（仅保存指针，字符串应位于只读数据段）
     name: *const u8,
     /// 指向 Slub 的原子指针
-    slub: AtomicPtr<Slub>,
+    slub: AtomicPtr<Frame>,
     /// 原始对象大小（字节）
     original_size: NonZeroU16,
     /// 对象个数
@@ -120,22 +128,22 @@ impl MemCache {
             .min(MAX_PARTIAL)
             .max(MIN_PARTIAL);
 
-        let slub = {
+        let frame = {
             let partial_list = unsafe { node.as_mut() }.partial_list.lock();
 
             // 从 MemCacheNode 的partial list中获取一个 Slub 作为首选 Slub
-            let mut slub = list_first_owner!(Slub, list, partial_list)
+            let mut frame = list_first_owner!(Frame, list, partial_list)
                 .expect("Trying to init Memcache from a node without slub!");
             unsafe {
-                slub.as_mut().list.del();
+                Pin::new_unchecked(frame.as_mut().list.get_mut()).del();
             }
-            slub
+            frame
         };
 
         *self = Self {
             list: ListNode::new(),
             name,
-            slub: AtomicPtr::new(slub.as_ptr()),
+            slub: AtomicPtr::new(frame.as_ptr()),
             original_size: size,
             object_num,
             order,
@@ -215,9 +223,10 @@ impl MemCache {
 
         if !slub_ptr.is_null() {
             // 从 Slub 中分配
-            let slub = unsafe { &mut *slub_ptr };
-            let result = match &mut slub.slub_type {
-                SlubType::Head(head) => head.allocate::<T>(),
+            let mut frame = unsafe { &mut *slub_ptr };
+            let slub = Slub::from_frame(&mut frame);
+            let result = match slub {
+                Slub::Head(head) => head.allocate::<T>(),
                 _ => {
                     unreachable!("MemCache's Slub should always be SlubHead!");
                 }

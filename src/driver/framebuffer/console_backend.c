@@ -187,7 +187,9 @@ void fb_console_backend_update(void *arg) {
 		current = backend->last_update;
 	}
 	while (current < backend->current) {
-		if (current == backend->line_ends[backend->last_update_y]) {
+		if (current == backend->line_ends[backend->last_update_y] &&
+			backend->text_buffer !=
+				backend->line_ends[backend->last_update_y]) {
 			backend->last_update_y++;
 			backend->last_update_x = 0;
 			cur_vram = vram + backend->last_update_y * 16 * line_length;

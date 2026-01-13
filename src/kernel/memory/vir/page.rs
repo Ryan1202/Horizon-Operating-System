@@ -1,4 +1,4 @@
-use core::{num::NonZeroUsize, ptr::NonNull};
+use core::{num::NonZeroUsize, pin::Pin, ptr::NonNull};
 
 use crate::{
     kernel::memory::phy::{kmalloc::kmalloc, page::PAGE_SIZE},
@@ -139,7 +139,7 @@ impl VirtPages {
     pub(super) unsafe fn split_to_pool(
         &mut self,
         count: NonZeroUsize,
-        list_head: &mut ListHead<LinkedRbNodeBase<VmRange, usize>>,
+        list_head: Pin<&mut ListHead<LinkedRbNodeBase<VmRange, usize>>>,
     ) -> Option<()> {
         let old_end = self.rb_node.get_key().end;
         let end = self.rb_node.get_key().start.get().get() + count.get();
@@ -155,7 +155,9 @@ impl VirtPages {
                 end: old_end,
             }));
 
-            list_head.add_tail(&mut new_vpages.as_mut().rb_node.augment.list_node);
+            let node = Pin::new_unchecked(&mut new_vpages.as_mut().rb_node.augment.list_node);
+
+            list_head.add_tail(node);
         }
         Some(())
     }

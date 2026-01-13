@@ -9,7 +9,7 @@ use core::cell::{SyncUnsafeCell, UnsafeCell};
 use core::ffi::c_int;
 use core::hint::spin_loop;
 use core::ops::{Deref, DerefMut};
-use core::ptr::NonNull;
+use core::ptr::{NonNull, write};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 unsafe extern "C" {
@@ -61,8 +61,13 @@ impl SpinlockRaw {
         }
     }
 
+    pub fn init_with(&self, value: Self) {
+        self.lock
+            .store(value.lock.load(Ordering::Relaxed), Ordering::Relaxed);
+    }
+
     #[inline]
-    pub fn try_lock(&mut self) -> c_int {
+    pub fn try_lock(&self) -> c_int {
         match self
             .lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -73,7 +78,7 @@ impl SpinlockRaw {
     }
 
     #[inline]
-    pub fn lock(&mut self) {
+    pub fn lock(&self) {
         // TTAS（test-then-test-and-set）模式：先做短时间的 Relaxed 轮询，
         // 在看到为未加锁时再尝试通过弱 CAS 获取锁。弱 CAS 允许虚假失败，
         // 因此放在循环中是合理且高效的。
@@ -92,13 +97,13 @@ impl SpinlockRaw {
     }
 
     #[inline]
-    pub fn unlock(&mut self) {
+    pub fn unlock(&self) {
         // 使用 Release 语义确保在释放锁之前的写对后续获取者可见
         self.lock.store(false, Ordering::Release);
     }
 
     #[inline]
-    pub fn lock_irqsave(&mut self) -> c_int {
+    pub fn lock_irqsave(&self) -> c_int {
         // 保存并关闭中断，然后获取锁，返回之前的中断状态
         let flags = unsafe { save_eflags_cli() };
         self.lock();
@@ -106,7 +111,7 @@ impl SpinlockRaw {
     }
 
     #[inline]
-    pub fn try_lock_irqsave(&mut self) -> c_int {
+    pub fn try_lock_irqsave(&self) -> c_int {
         // 尝试在禁用中断的情况下获取锁；若失败则恢复中断并返回 0
         let flags = unsafe { save_eflags_cli() };
         let ok = self.try_lock();
@@ -119,7 +124,7 @@ impl SpinlockRaw {
     }
 
     #[inline]
-    pub fn unlock_irqrestore(&mut self, flags: c_int) {
+    pub fn unlock_irqrestore(&self, flags: c_int) {
         // 释放锁并恢复之前的中断状态
         self.unlock();
         unsafe { io_store_eflags(flags) };
@@ -128,19 +133,19 @@ impl SpinlockRaw {
 
 #[repr(C)]
 pub struct Spinlock<T> {
-    lock: SpinlockRaw,
     pub(super) _inner: UnsafeCell<T>,
+    lock: SpinlockRaw,
 }
 
 unsafe impl<T> Sync for Spinlock<T> {}
 
 pub struct SpinGuard<'a, T> {
-    lock: &'a mut SpinlockRaw,
+    lock: &'a SpinlockRaw,
     _inner: &'a mut T,
 }
 
 pub struct SpinIrqGuard<'a, T> {
-    lock: &'a mut SpinlockRaw,
+    lock: &'a SpinlockRaw,
     _inner: &'a mut T,
     status: usize,
 }
@@ -154,19 +159,19 @@ impl<T> Spinlock<T> {
     }
 
     /// 锁住自旋锁保护内部数据，通过`SpinGuard`提供安全的可变引用
-    pub fn lock(&mut self) -> SpinGuard<'_, T> {
+    pub fn lock(&self) -> SpinGuard<'_, T> {
         self.lock.lock();
         SpinGuard {
-            lock: &mut self.lock,
+            lock: &self.lock,
             _inner: unsafe { &mut *self._inner.get() },
         }
     }
 
-    pub fn lock_irqsave(&mut self) -> SpinIrqGuard<'_, T> {
+    pub fn lock_irqsave(&self) -> SpinIrqGuard<'_, T> {
         // 禁用中断并获取锁，返回带有中断状态的`Guard`
         let status = self.lock.lock_irqsave();
         SpinIrqGuard {
-            lock: &mut self.lock,
+            lock: &self.lock,
             _inner: unsafe { &mut *self._inner.get() },
             status: status as usize,
         }
@@ -182,11 +187,11 @@ impl<T> Spinlock<T> {
     /// # Safety
     ///
     /// 调用者必须确保在非并发环境调用此方法
-    pub fn init_with<F>(&mut self, f: F)
+    pub unsafe fn init_with<F>(&self, f: F)
     where
         F: FnOnce(&mut T),
     {
-        self.lock = SpinlockRaw::new_unlocked();
+        self.lock.init_with(SpinlockRaw::new_unlocked());
         let inner = unsafe { &mut *self._inner.get() };
         f(inner);
     }

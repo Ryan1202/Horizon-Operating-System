@@ -1,9 +1,9 @@
-use core::{num::NonZeroU16, ptr::NonNull};
+use core::{num::NonZeroU16, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
     kernel::memory::phy::{
-        page::{Page, ZoneType, buddy::PageOrder, page_align_down},
-        slub::{ObjectSize, Slub, SlubType, calculate_sizes, mem_cache::MemCache},
+        page::{Frame, FrameNumber, FrameTag, ZoneType, buddy::PageOrder, page_align_down},
+        slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
     },
     lib::rust::{
         list::{ListHead, ListNode},
@@ -14,7 +14,7 @@ use crate::{
 
 /// 每个节点的缓存（这里我们忽略节点/NUMA，仅保留一个节点结构）
 pub struct MemCacheNode {
-    pub partial_list: Spinlock<ListHead<Slub>>,
+    pub partial_list: Spinlock<ListHead<Frame>>,
     object_size: ObjectSize,
     object_num: NonZeroU16,
     order: PageOrder,
@@ -40,18 +40,21 @@ impl MemCacheNode {
             zone_type,
         };
 
-        let mut partial_list = self.partial_list.lock();
-        partial_list.init();
-        if let Some(mut slub) = slub {
-            unsafe {
-                let slub = slub.as_mut();
-                if let SlubType::Head(_) = &mut slub.slub_type {
-                    partial_list.add_head(&mut slub.list);
-                } else {
-                    panic!("MemCacheNode::init() called with a Slub that is not SlubType::Head!");
+        unsafe {
+            self.partial_list.init_with(|v| {
+                let mut head = Pin::new_unchecked(v);
+                head.as_mut().init();
+
+                if let Some(mut slub) = slub {
+                    let slub = slub.as_mut();
+                    if let Slub::Head(_) = slub {
+                        let list = Frame::from_child(slub).list.get_mut();
+
+                        head.as_mut().add_head(Pin::new_unchecked(list));
+                    }
                 }
-            }
-        }
+            })
+        };
     }
 
     /// 创建一个Slub存放自身，作为 MemCacheNode 类型的 MemCache 的一个节点
@@ -62,8 +65,8 @@ impl MemCacheNode {
 
         unsafe {
             let _slub = slub.as_mut();
-            let mut mem_cache_node: NonNull<Self> = match &mut _slub.slub_type {
-                SlubType::Head(head) => head.allocate().unwrap(),
+            let mut mem_cache_node: NonNull<Self> = match _slub {
+                Slub::Head(head) => head.allocate().unwrap(),
                 _ => unreachable!(),
             };
 
@@ -110,11 +113,11 @@ impl MemCacheNode {
     /// 新的`Slub`分配失败时返回`None`
     pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
         if !self.partial_list.get_atomic_snapshot().is_empty() {
-            let mut partial_list = self.partial_list.lock();
+            let partial_list = self.partial_list.lock();
+            let head = unsafe { Pin::new_unchecked(&*partial_list) };
 
-            list_for_each_owner!(slub_head, Slub, list, &mut partial_list, {
-                let inner = &mut unsafe { slub_head.as_mut() }.slub_type;
-                if let SlubType::Head(head) = inner {
+            list_for_each_owner!(frame, Frame, list, head, {
+                if let Slub::Head(head) = Slub::from_frame(unsafe { frame.as_mut() }) {
                     if let Some(obj) = head.allocate::<T>() {
                         return Some(obj);
                     }
@@ -134,8 +137,14 @@ impl MemCacheNode {
         .ok()?;
 
         let new_slub = unsafe { new_slub.as_mut() };
-        if let SlubType::Head(new_head) = &mut new_slub.slub_type {
-            self.partial_list.lock().add_head(&mut new_slub.list);
+        if let Slub::Head(new_head) = new_slub {
+            let mut head = self.partial_list.lock();
+
+            let list = Frame::from_child(new_head).list.get_mut();
+            let node = unsafe { Pin::new_unchecked(list) };
+
+            unsafe { Pin::new_unchecked(head.deref_mut()) }.add_head(node);
+
             new_head.allocate()
         } else {
             panic!("Slub::new() returns a SlubType::Body slub!");
@@ -144,28 +153,24 @@ impl MemCacheNode {
 
     pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
         // 先找到所在页的 Page 结构，再从其中取出 Slub 地址
-        let page = unsafe {
-            obj.map_addr(|addr| {
-                let page_start = page_align_down(addr.get());
-                Page::from_addr(page_start).addr()
-            })
-            .cast::<Page>()
-            .as_mut()
-        };
+        let frame_number = FrameNumber::from_addr(page_align_down(obj.addr().get()));
+        let frame = Frame::from_frame_number(frame_number);
 
-        if let Page::Slub(slub) = page {
-            let head = match &mut slub.slub_type {
-                SlubType::Body(head) => unsafe {
+        if let FrameTag::Slub = frame.get_tag() {
+            let slub = Slub::from_frame(frame);
+            match slub {
+                Slub::Body { offset } => {
                     // 如果是Body就重新定位到Head
-                    match &mut head.as_mut().slub_type {
-                        SlubType::Head(head) => head,
-                        _ => unreachable!(),
+                    let head = Frame::from_frame_number(frame_number - *offset as usize);
+                    let head = Slub::from_frame(head);
+                    if let Slub::Head(head) = head {
+                        head.free(obj);
+                    } else {
+                        unreachable!("Slub body does not point to a head!");
                     }
-                },
-                SlubType::Head(head) => head,
+                }
+                Slub::Head(head) => head.free(obj),
             };
-
-            head.free(obj);
         }
 
         Some(())

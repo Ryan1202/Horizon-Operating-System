@@ -1,17 +1,18 @@
 use core::{
-    cell::SyncUnsafeCell, cmp::Ordering, mem::MaybeUninit, num::NonZeroUsize, ptr::NonNull,
+    cell::SyncUnsafeCell, cmp::Ordering, mem::MaybeUninit, num::NonZeroUsize, pin::Pin,
+    ptr::NonNull,
 };
 
 use crate::{
     container_of,
     kernel::memory::{
         MemoryError,
-        phy::{kmalloc::kmalloc, page::ZoneType},
+        phy::kmalloc::kmalloc,
         vir::page::{VirtPageNumber, VirtPages, VmRange},
     },
     lib::rust::{
         list::{ListHead, ListNode},
-        rbtree::linked::{Linked, LinkedRbNodeBase, LinkedRbTree, LinkedRbTreeBase},
+        rbtree::linked::{Linked, LinkedRbNodeBase, LinkedRbTreeBase},
         spinlock::Spinlock,
     },
     linked_augment, list_first_owner,
@@ -60,10 +61,13 @@ impl VmapNode {
             })
         };
 
-        for pool in self.pools.iter_mut() {
-            pool.list_head.init_with(|list_head| list_head.init());
+        unsafe {
+            for pool in self.pools.iter_mut() {
+                pool.list_head
+                    .init_with(|list_head| unsafe { Pin::new_unchecked(list_head).init() });
+            }
+            self.allocated.init_with(|rbtree| rbtree.init());
         }
-        self.allocated.init_with(|rbtree| rbtree.init());
     }
 
     fn pool_put(&mut self, vpages: &mut VirtPages) {
@@ -72,8 +76,12 @@ impl VmapNode {
             return;
         }
         let pool = unsafe { self.pools.get_unchecked_mut(count) };
+
         let mut list_head = pool.list_head.lock();
-        list_head.add_tail(&mut vpages.rb_node.augment.list_node);
+        let list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
+        let node = unsafe { Pin::new_unchecked(&mut vpages.rb_node.augment.list_node) };
+
+        list_head.add_tail(node);
     }
 
     fn pool_get(&mut self, count: NonZeroUsize) -> Option<NonNull<VirtPages>> {
@@ -87,6 +95,8 @@ impl VmapNode {
             return None;
         } else {
             let mut list_head = pool.list_head.lock();
+            let list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
+
             let mut node = list_first_owner!(Linked<VmRange, ()>, list_node, list_head)
                 .expect("List is empty after checked!");
             let rbnode = container_of!(node, LinkedRbNodeBase<VmRange, usize>, augment);
@@ -96,14 +106,14 @@ impl VmapNode {
                 Ordering::Less => None,
                 Ordering::Equal => {
                     let vpages = container_of!(rbnode, VirtPages, rb_node);
-                    unsafe { node.as_mut() }.list_node.del();
+                    unsafe { Pin::new_unchecked(&mut node.as_mut().list_node) }.del();
                     Some(vpages)
                 }
                 Ordering::Greater => {
                     let mut vpages = container_of!(rbnode, VirtPages, rb_node);
                     let vpages_ref = unsafe { vpages.as_mut() };
 
-                    unsafe { vpages_ref.split_to_pool(count, &mut list_head) }
+                    unsafe { vpages_ref.split_to_pool(count, list_head) }
                         .expect("Allocate slub memory failed in VmapNode::pool_get()!");
 
                     Some(vpages)

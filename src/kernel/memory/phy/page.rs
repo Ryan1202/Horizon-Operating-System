@@ -1,21 +1,23 @@
 use core::{
     cell::SyncUnsafeCell,
-    mem::MaybeUninit,
+    mem::{self, ManuallyDrop},
     ops::{Add, Sub},
-    ptr::{NonNull, with_exposed_provenance_mut},
+    ptr::NonNull,
 };
 
 use crate::{
     CACHELINE_SIZE,
+    arch::x86::kernel::page::PageLevelEntry,
     kernel::memory::{
         VIR_BASE, VIR_BASE_ADDR,
+        page::PageTableEntry,
         phy::{
             E820Ards, PREALLOCATED_END_PHY,
             page::buddy::{BuddyAllocator, BuddyPage, PageOrder},
             slub::Slub,
         },
     },
-    lib::rust::spinlock::Spinlock,
+    lib::rust::list::ListNode,
 };
 
 pub mod buddy;
@@ -34,22 +36,22 @@ pub enum PageError {
 
 #[repr(transparent)]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct PageNumber(usize);
+pub struct FrameNumber(usize);
 
-impl PageNumber {
+impl FrameNumber {
     pub const fn new(num: usize) -> Self {
-        PageNumber(num)
+        FrameNumber(num)
     }
 
     pub const fn from_addr(addr: usize) -> Self {
-        PageNumber(addr / PAGE_SIZE)
+        FrameNumber(addr / PAGE_SIZE)
     }
 
     pub const fn get(&self) -> usize {
         self.0
     }
 
-    pub const fn count_from(self, other: PageNumber) -> usize {
+    pub const fn count_from(self, other: FrameNumber) -> usize {
         if self.0 >= other.0 {
             self.0 - other.0 + 1
         } else {
@@ -58,55 +60,76 @@ impl PageNumber {
     }
 }
 
-impl Add<usize> for PageNumber {
-    type Output = PageNumber;
+impl Add<usize> for FrameNumber {
+    type Output = FrameNumber;
 
     fn add(self, rhs: usize) -> Self::Output {
-        PageNumber(self.0 + rhs)
+        FrameNumber(self.0 + rhs)
     }
 }
 
-impl Sub<usize> for PageNumber {
-    type Output = PageNumber;
+impl Sub<usize> for FrameNumber {
+    type Output = FrameNumber;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        PageNumber(self.0 - rhs)
+        FrameNumber(self.0 - rhs)
     }
+}
+
+#[derive(Clone)]
+#[repr(C)]
+pub struct FrameRange {
+    pub start: FrameNumber,
+    pub end: FrameNumber,
 }
 
 #[repr(C)]
-pub struct PageHole {
-    pub start: PageNumber,
-    pub end: PageNumber,
+#[cfg_attr(target_pointer_width = "32", repr(align(32)))]
+#[cfg_attr(target_pointer_width = "64", repr(align(64)))]
+pub struct Frame {
+    // list 在前，8字节对齐
+    pub(super) list: SyncUnsafeCell<ListNode<Frame>>,
+    // 其他字段在后
+    pub data: SyncUnsafeCell<FrameData>,
+    pub tag: SyncUnsafeCell<FrameTag>,
 }
 
-#[cfg_attr(target_pointer_width = "32", repr(C, u8, align(32)))]
-#[cfg_attr(target_pointer_width = "64", repr(C, u8, align(64)))]
-pub enum Page {
+unsafe impl Sync for Frame {}
+
+pub union FrameData {
+    pub unused: (),
+    pub range: ManuallyDrop<FrameRange>,
+    pub buddy: ManuallyDrop<BuddyPage>,
+    pub slub: ManuallyDrop<Slub>,
+    pub vmalloc: ManuallyDrop<(FrameRange, Option<NonNull<Frame>>)>,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FrameTag {
     /// 暂未使用
     Unused = 0,
-    HardwareUsed(PageHole),
-    SystemReserved(PageHole),
-    Free(PageHole),
-    Buddy(BuddyPage),
-    Slub(Slub),
+    HardwareReserved = 1,
+    SystemReserved = 2,
+    Free = 3,
+    Buddy = 4,
+    Slub = 5,
+    Io = 6,
+    Vmalloc = 7,
 }
-const _: () = assert!(size_of::<Page>() <= MAX_PAGE_STRUCT_SIZE);
+
+const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
 
 pub const PAGE_INFO_COUNT: usize = 1 << 20;
-const PAGE_INFO_SIZE: usize = PAGE_INFO_COUNT * size_of::<Page>();
+const PAGE_INFO_SIZE: usize = PAGE_INFO_COUNT * size_of::<Frame>();
 
 unsafe extern "C" {
-    #[link_name = "page_info"]
-    static mut PAGE_INFO: [Page; PAGE_INFO_COUNT];
+    // #[link_name = "page_info"]
+    // static mut PAGE_INFO: [Frame; PAGE_INFO_COUNT];
 }
 
 /// Buddy 分配器的虚拟地址存储位置
-///
-/// 使用SyncUnsafeCell实现内部可变性，由Spinlock真正保证线程安全。
-/// 为了简化获取过程，MaybeUninit并不被Spinlock包裹，所以只能在单线程环境下初始化保证安全
-static PAGE_MANAGER_VIR: SyncUnsafeCell<MaybeUninit<Spinlock<BuddyAllocator>>> =
-    SyncUnsafeCell::new(MaybeUninit::uninit());
+pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn page_early_init(
@@ -122,21 +145,13 @@ pub unsafe extern "C" fn page_early_init(
 
         VIR_BASE_ADDR = &VIR_BASE as *const _ as usize;
 
-        Page::init(blocks, block_count, (kernel_start, PREALLOCATED_END_PHY));
+        Frame::init(blocks, block_count, (kernel_start, PREALLOCATED_END_PHY));
     }
-}
-
-pub fn page_manager<'a>() -> &'a mut Spinlock<BuddyAllocator> {
-    unsafe { (*PAGE_MANAGER_VIR.get()).assume_init_mut() }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn page_init() {
-    unsafe {
-        let page_manager = PAGE_MANAGER_VIR.get();
-        *page_manager = MaybeUninit::new(Spinlock::new(BuddyAllocator::empty()));
-        (*page_manager).assume_init_mut().init_with(|pm| pm.init());
-    }
+    FRAME_MANAGER.init();
 }
 
 // 内核启动早期分配的页都是不会释放的，如页表结构等
@@ -149,93 +164,133 @@ pub unsafe extern "C" fn early_allocate_pages(count: u8) -> usize {
     }
 }
 
-impl Page {
+pub static mut FRAMES: [Frame; PageLevelEntry::MAX + 1] = unsafe { mem::zeroed() };
+
+/// 启动阶段的初始化函数，仅可在单线程环境使用
+impl Frame {
     /// 填充 [start, end] 范围的Page
-    fn fill_range(start: PageNumber, end: PageNumber, e820_type: u32) {
-        let pages = Page::from_page_number(start);
-        let hole = PageHole { start, end };
-        let page_info = match e820_type {
-            0 => Page::SystemReserved(hole),
-            1 => Page::Free(hole),
-            _ => Page::HardwareUsed(hole),
+    fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
+        let frame = Self::from_frame_number(start);
+        let range = FrameRange { start, end };
+        let data = FrameData {
+            range: ManuallyDrop::new(range),
+        };
+
+        let tag = match e820_type {
+            0 => FrameTag::SystemReserved,
+            1 => FrameTag::Free,
+            _ => FrameTag::HardwareReserved,
         };
 
         // 写入首个 page 描述
-        unsafe { pages.write(page_info) };
+        *frame.data.get_mut() = data;
+        *frame.tag.get_mut() = tag;
     }
 
     /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
-    pub fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (usize, usize)) -> usize {
+    fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (usize, usize)) -> usize {
         let (kernel_start, kernel_end) = (
-            PageNumber::from_addr(kernel_range.0),
-            PageNumber::from_addr(kernel_range.1),
+            FrameNumber::from_addr(kernel_range.0),
+            FrameNumber::from_addr(kernel_range.1),
         );
 
-        let mut last = PageNumber::new(0);
+        let mut last = FrameNumber::new(0);
         // 将每个可用内存块按Buddy的方式分割成块
         for i in 0..block_count {
             let block = unsafe { &*blocks.add(i as usize) };
 
             // 起始地址向后对齐，避免向前越界
-            let block_start = PageNumber::from_addr(page_align_up(block.base_addr as usize));
+            let block_start = FrameNumber::from_addr(page_align_up(block.base_addr as usize));
             let block_end = block_start + page_count(block.length as usize);
 
             if last < block_start {
                 // 填充上一个块和当前块之间的空洞为保留
                 Self::fill_range(last, block_start - 1, 2);
             }
+            last = block_end;
 
-            if block_start < block_end {
-                // 填充 [block_start, block_end) 范围
-                if block_end <= kernel_start || block_start >= kernel_end {
-                    Self::fill_range(block_start, block_end - 1, block.block_type);
-                } else {
-                    // 内存块和内核有重叠部分
-                    if block_start < kernel_start {
-                        // 前半部分可用
-                        Self::fill_range(block_start, kernel_start - 1, block.block_type);
-                    }
-                    Self::fill_range(kernel_start, kernel_end, 0);
-                    if block_end > kernel_end {
-                        // 后半部分可用
-                        Self::fill_range(kernel_end + 1, block_end - 1, block.block_type);
-                    }
-                }
+            if block_start >= block_end {
+                continue;
             }
 
-            last = block_end;
+            // 填充 [block_start, block_end) 范围
+            if block_end <= kernel_start || block_start >= kernel_end {
+                Self::fill_range(block_start, block_end - 1, block.block_type);
+            } else {
+                // 内存块和内核有重叠部分
+                if block_start < kernel_start {
+                    // 前半部分可用
+                    Self::fill_range(block_start, kernel_start - 1, block.block_type);
+                }
+                Self::fill_range(kernel_start, kernel_end, 0);
+                if block_end > kernel_end {
+                    // 后半部分可用
+                    Self::fill_range(kernel_end + 1, block_end - 1, block.block_type);
+                }
+            }
         }
 
         PAGE_INFO_SIZE
     }
 }
 
-impl Page {
+impl Frame {
+    pub fn get_tag(&self) -> FrameTag {
+        unsafe { *self.tag.get() }
+    }
+
+    pub fn set_tag(&mut self, tag: FrameTag) {
+        *self.tag.get_mut() = tag;
+    }
+}
+
+/// 工具函数实现
+impl Frame {
     #[inline(always)]
-    pub fn from_page_number(page_number: PageNumber) -> NonNull<Page> {
-        debug_assert!(page_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
-        NonNull::from_mut(unsafe { &mut PAGE_INFO[page_number.0] })
+    pub fn from_frame_number<'a>(frame_number: FrameNumber) -> &'a mut Frame {
+        assert!(frame_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
+        unsafe { &mut FRAMES[frame_number.0] }
     }
 
     #[inline(always)]
-    pub unsafe fn from_addr(addr: usize) -> NonNull<Page> {
-        let page_num = PageNumber::from_addr(addr);
-        Page::from_page_number(page_num)
-    }
-
-    pub const fn next_page(&mut self, count: usize) -> NonNull<Page> {
-        debug_assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
-        unsafe { NonNull::from_mut(self).add(count) }
-    }
-
-    pub const fn prev_page(&mut self, count: usize) -> NonNull<Page> {
-        debug_assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
-        unsafe { NonNull::from_mut(self).sub(count) }
+    pub unsafe fn from_addr<'a>(addr: usize) -> &'a mut Frame {
+        let page_num = FrameNumber::from_addr(addr);
+        Frame::from_frame_number(page_num)
     }
 
     pub const fn start_addr(&self) -> usize {
-        let page_number = unsafe { (self as *const Page).offset_from(&PAGE_INFO[0]) as usize };
-        page_number * PAGE_SIZE
+        let frame_number = unsafe {
+            (self as *const Frame).offset_from((&raw const FRAMES) as *const Frame) as usize
+        };
+        frame_number * PAGE_SIZE
+    }
+
+    pub fn from_child<'a, T>(child: &'a mut T) -> &'a mut Frame {
+        let addr = child as *mut T;
+        assert!(addr.addr() >= &raw const FRAMES as usize);
+        let max = unsafe { (&raw const FRAMES[PageLevelEntry::MAX]) as usize };
+        assert!(addr.addr() < max + size_of::<Frame>());
+        unsafe {
+            addr.map_addr(|v| v & !(align_of::<Self>() - 1))
+                .cast::<Self>()
+                .as_mut()
+                .unwrap()
+        }
+    }
+
+    pub fn prev_frame<'a>(&self, count: usize) -> &'a mut Frame {
+        assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
+        let addr = unsafe { (self as *const Frame as *mut Frame).sub(count) };
+        assert!(addr.addr() >= &raw const FRAMES as usize);
+        unsafe { addr.as_mut().unwrap() }
+    }
+
+    pub fn next_frame<'a>(&self, count: usize) -> &'a mut Frame {
+        assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
+        let addr = unsafe { (self as *const Frame as *mut Frame).add(count) };
+        let max = unsafe { (&raw const FRAMES[PageLevelEntry::MAX]) as usize };
+        assert!(addr.addr() <= max);
+        unsafe { addr.as_mut().unwrap() }
     }
 }
 
@@ -311,22 +366,21 @@ pub const fn page_count(size: usize) -> usize {
 }
 
 pub trait PageAllocator {
-    fn allocate_pages(&mut self, zone_type: ZoneType, order: PageOrder) -> Option<NonNull<Page>>;
-    fn free_pages(&mut self, page: NonNull<Page>) -> Result<(), PageError>;
+    fn allocate_pages(&self, zone_type: ZoneType, order: PageOrder) -> Option<&mut Frame>;
+    fn free_pages(&self, page: &mut Frame) -> Result<(), PageError>;
 }
 
 #[unsafe(export_name = "allocate_pages")]
 pub extern "C" fn allocate_pages_c(zone_type: ZoneType, order: PageOrder) -> usize {
-    page_manager()
-        .lock()
+    FRAME_MANAGER
         .allocate_pages(zone_type, order)
-        .map_or(0, |v| unsafe { v.as_ref() }.start_addr())
+        .map_or(0, |v| v.start_addr())
 }
 
 #[unsafe(export_name = "free_pages")]
 pub extern "C" fn free_pages_c(paddr: usize) -> i8 {
-    let page = unsafe { Page::from_addr(paddr) };
-    match page_manager().lock().free_pages(page) {
+    let page = unsafe { Frame::from_addr(paddr) };
+    match FRAME_MANAGER.free_pages(page) {
         Ok(_) => 0,
         Err(_) => -1,
     }

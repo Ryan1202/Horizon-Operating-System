@@ -40,6 +40,13 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
+pub mod arch {
+    pub mod x86 {
+        pub mod kernel {
+            pub mod page;
+        }
+    }
+}
 pub mod kernel {
     pub mod memory;
 }

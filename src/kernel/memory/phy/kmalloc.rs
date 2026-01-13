@@ -5,7 +5,13 @@ use core::{
     ptr::{NonNull, null_mut},
 };
 
-use crate::kernel::memory::phy::page::Page;
+use crate::kernel::memory::{
+    VIR_BASE_ADDR,
+    phy::{
+        page::{Frame, FrameTag},
+        slub::Slub,
+    },
+};
 
 use super::slub::config::DEFAULT_CACHES;
 
@@ -61,15 +67,14 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
 
 pub fn kfree<T>(ptr: NonNull<T>) {
     unsafe {
-        let mut page = Page::from_addr(ptr.as_ptr() as usize);
+        let phy_addr = ptr.as_ptr() as usize - VIR_BASE_ADDR;
+        let page = Frame::from_addr(phy_addr);
 
-        match page.as_mut() {
-            Page::Slub(slub) => {
-                slub.free(ptr.cast());
-            }
-            _ => {
-                return;
-            }
+        if let FrameTag::Slub = *page.tag.get() {
+            Slub::from_frame(page).free(ptr.cast());
+        } else {
+            // 非 Slub 分配的内存，不支持释放
+            panic!("Attempt to free non-Slub allocated memory");
         }
     }
 }

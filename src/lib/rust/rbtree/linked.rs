@@ -1,4 +1,4 @@
-use core::{cmp, marker::PhantomData, ptr::NonNull};
+use core::{cmp, marker::PhantomData, pin::Pin, ptr::NonNull};
 
 use crate::{container_of, list_first_owner, list_owner};
 
@@ -28,12 +28,14 @@ pub type LinkedRbTree<K> = LinkedRbTreeBase<K, (), ()>;
 impl<K: Sized, NA> AugmentLink<K, LinkedIter, Linked<K, NA>> for LinkedRbNodeBase<K, NA> {
     fn link_ext(&mut self, new_node: &mut LinkedRbNodeBase<K, NA>, order: cmp::Ordering) {
         let mut list_node = NonNull::from(&new_node.augment.list_node);
+        let cur = unsafe { Pin::new_unchecked(list_node.as_mut()) };
+        let node = unsafe { Pin::new_unchecked(&mut self.augment.list_node) };
         match order {
             cmp::Ordering::Less => {
-                unsafe { list_node.as_mut() }.add_before(NonNull::from(&self.augment.list_node));
+                cur.add_before(node);
             }
             cmp::Ordering::Greater => {
-                unsafe { list_node.as_mut() }.add_after(NonNull::from(&self.augment.list_node));
+                cur.add_after(node);
             }
             cmp::Ordering::Equal => {
                 unreachable!("Duplicate keys are not allowed in RbTree");
@@ -41,15 +43,16 @@ impl<K: Sized, NA> AugmentLink<K, LinkedIter, Linked<K, NA>> for LinkedRbNodeBas
         }
     }
     fn unlink_ext(&mut self) {
-        let list_node = &mut self.augment.list_node;
+        let list_node = unsafe { Pin::new_unchecked(&mut self.augment.list_node) };
         list_node.del();
     }
 }
 
 impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, Linked<K, NA>> for LinkedRbTreeBase<K, A, NA> {
     fn link_ext(&mut self, new_node: &mut LinkedRbNodeBase<K, NA>, _order: cmp::Ordering) {
-        let list_node = &mut new_node.augment.list_node;
-        self.augment.list_head.add_tail(list_node);
+        let head = unsafe { Pin::new_unchecked(&mut self.augment.list_head) };
+        let list_node = unsafe { Pin::new_unchecked(&mut new_node.augment.list_node) };
+        head.add_tail(list_node);
     }
     fn unlink_ext(&mut self) {}
 }
@@ -81,7 +84,7 @@ impl<K, A, NA> LinkedRbTreeBase<K, A, NA> {
     pub fn _linked_init(&mut self, augment: A) {
         self._init();
         self.augment.augment = augment;
-        self.augment.list_head.init();
+        unsafe { Pin::new_unchecked(&mut self.augment.list_head) }.init();
     }
 
     pub const fn _empty(augment: A) -> Self {

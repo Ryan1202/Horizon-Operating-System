@@ -5,6 +5,7 @@ use core::{
 
 use crate::{ConsoleOutput, kernel::memory::phy::page::PageError};
 
+pub mod page;
 pub mod phy;
 pub mod vir;
 
@@ -20,6 +21,7 @@ unsafe extern "C" {
     fn vir2phys(vaddr: usize) -> usize;
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum PageCacheType {
     WriteBack = 0,
@@ -32,6 +34,7 @@ pub enum PageCacheType {
 #[derive(Debug)]
 pub enum MemoryError {
     OutOfMemory,
+    AddressConflict,
     DoubleRelease,
     InvalidSize(usize),
     PageError(PageError),
