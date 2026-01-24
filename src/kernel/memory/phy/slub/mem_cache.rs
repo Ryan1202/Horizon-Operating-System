@@ -1,6 +1,6 @@
 use core::{
     cell::SyncUnsafeCell,
-    mem::MaybeUninit,
+    mem::{MaybeUninit, offset_of},
     num::NonZeroU16,
     pin::Pin,
     ptr::{NonNull, null_mut},
@@ -9,7 +9,7 @@ use core::{
 
 use crate::{
     kernel::memory::phy::{
-        frame::{Frame, buddy::FrameOrder},
+        frame::{Frame, options::FrameAllocOptions},
         slub::{
             ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, calculate_sizes,
             config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
@@ -20,7 +20,6 @@ use crate::{
         list::{ListHead, ListNode},
         spinlock::{Spinlock, SpinlockRaw},
     },
-    list_first_owner,
 };
 
 #[repr(C)]
@@ -34,14 +33,18 @@ unsafe impl Sync for MemCaches {}
 
 impl MemCaches {
     pub fn init() {
+        let mut frame_options = DEFAULT_FRAME_OPTIONS;
+
         // 从零创建 MemCacheNode，对应 "mem_cache_node" 的 MemCacheNode
-        let mem_cache_node = MemCacheNode::bootstrap();
+        let mem_cache_node = MemCacheNode::bootstrap(&mut frame_options);
 
-        // 从mem_cache_node 创建 "mem_cache" 的 MemCacheNode，再从零创建 "mem_cache" 的 MemCache
-        let mut mem_cache = MemCache::bootstrap(mem_cache_node);
+        // 从 mem_cache_node 创建 "mem_cache" 的 MemCacheNode，再从零创建 "mem_cache" 的 MemCache
+        let mut mem_cache = MemCache::bootstrap(mem_cache_node, frame_options);
 
-        let mem_cache_node =
-            unsafe { MemCacheNode::bootstrap_cache(mem_cache_node, mem_cache.as_mut()) };
+        // 将 mem_cache_node 放入 "mem_cache"
+        let mem_cache_node = unsafe {
+            MemCacheNode::bootstrap_cache(mem_cache_node, mem_cache.as_mut(), frame_options)
+        };
 
         unsafe {
             let caches_uninit = &mut *CACHES.get();
@@ -55,22 +58,23 @@ impl MemCaches {
             let mem_cache = caches.mem_cache.as_mut();
 
             for (i, cache) in DEFAULT_CACHE_CONFIGS.iter().enumerate() {
-                DEFAULT_CACHES[i] =
-                    mem_cache.new_boot(cache.name.as_ptr(), mem_cache_node, cache.object_size);
+                DEFAULT_CACHES[i] = mem_cache.new_boot(
+                    cache.name.as_ptr(),
+                    mem_cache_node,
+                    cache.object_size,
+                    frame_options,
+                );
             }
 
             caches.list_head.init_with(|v| {
                 let mut head = Pin::new_unchecked(v);
-                head.as_mut().init();
+                head.init();
 
-                head.as_mut()
-                    .add_head(Pin::new_unchecked(&mut mem_cache_node.list));
-                head.as_mut()
-                    .add_head(Pin::new_unchecked(&mut mem_cache.list));
+                head.add_head(Pin::new_unchecked(&mut mem_cache_node.list));
+                head.add_head(Pin::new_unchecked(&mut mem_cache.list));
 
                 for mut cache in DEFAULT_CACHES {
-                    head.as_mut()
-                        .add_tail(Pin::new_unchecked(&mut cache.as_mut().list));
+                    head.add_tail(Pin::new_unchecked(&mut cache.as_mut().list));
                 }
             });
         }
@@ -98,8 +102,6 @@ pub struct MemCache {
     original_size: NonZeroU16,
     /// 对象个数
     object_num: NonZeroU16,
-    /// 页阶数
-    pub order: FrameOrder,
     /// 最小部分填充数量
     min_partial: u8,
     /// 对齐要求
@@ -108,9 +110,13 @@ pub struct MemCache {
     node: NonNull<MemCacheNode>,
     /// 全局自旋锁保护全局操作
     spinlock: SpinlockRaw,
+    /// 物理页分配选项
+    pub frame_options: FrameAllocOptions,
 }
 
 unsafe impl Sync for MemCache {}
+
+pub const DEFAULT_FRAME_OPTIONS: FrameAllocOptions = FrameAllocOptions::new();
 
 impl MemCache {
     const OBJECT_SIZE: NonZeroU16 = NonZeroU16::new(64).unwrap();
@@ -121,6 +127,7 @@ impl MemCache {
         name: *const u8,
         mut node: NonNull<MemCacheNode>,
         size: NonZeroU16,
+        frame_options: FrameAllocOptions,
     ) -> Result<(), SlubError> {
         let (object_size, object_num, order) = calculate_sizes(size)?;
 
@@ -129,13 +136,15 @@ impl MemCache {
             .max(MIN_PARTIAL);
 
         let frame = {
-            let partial_list = unsafe { node.as_mut() }.partial_list.lock();
+            let mut partial_list = unsafe { node.as_mut() }.partial_list.lock();
 
-            // 从 MemCacheNode 的partial list中获取一个 Slub 作为首选 Slub
-            let mut frame = list_first_owner!(Frame, list, partial_list)
+            // 从 MemCacheNode 的 partial list 中获取一个 Slub 作为首选 Slub
+            let frame = partial_list
+                .iter(offset_of!(Frame, list))
+                .next()
                 .expect("Trying to init Memcache from a node without slub!");
             unsafe {
-                Pin::new_unchecked(frame.as_mut().list.get_mut()).del();
+                Pin::new_unchecked(frame.list.get_mut()).del();
             }
             frame
         };
@@ -143,32 +152,38 @@ impl MemCache {
         *self = Self {
             list: ListNode::new(),
             name,
-            slub: AtomicPtr::new(frame.as_ptr()),
+            slub: AtomicPtr::new(frame as *mut Frame),
             original_size: size,
             object_num,
-            order,
             align: ALIGN,
             min_partial,
             node,
             spinlock: SpinlockRaw::new_unlocked(),
+            frame_options: frame_options.dynamic(order),
         };
 
         Ok(())
     }
 
-    fn bootstrap(mut mem_cache_node: NonNull<MemCacheNode>) -> NonNull<Self> {
+    fn bootstrap(
+        mut mem_cache_node: NonNull<MemCacheNode>,
+        frame_options: FrameAllocOptions,
+    ) -> NonNull<Self> {
         const NAME: *const u8 = b"mem_cache\0".as_ptr();
 
         unsafe {
-            // 申请 “mem_cache" 的 MemCacheNode
-            let mut node = mem_cache_node.as_mut().new(Self::OBJECT_SIZE).unwrap();
+            // 申请 "mem_cache" 的 MemCacheNode
+            let mut node = mem_cache_node
+                .as_mut()
+                .new(Self::OBJECT_SIZE, frame_options)
+                .unwrap();
 
             // 申请 "mem_cache" 的 MemCache
-            let mut mem_cache = node.as_mut().allocate::<MemCache>().unwrap();
+            let mut mem_cache = node.as_mut().allocate::<MemCache>(frame_options).unwrap();
 
             mem_cache
                 .as_mut()
-                .init(NAME, node, Self::OBJECT_SIZE)
+                .init(NAME, node, Self::OBJECT_SIZE, frame_options)
                 .expect("Unexpected error ocurred when bootstrapping MemCache!");
 
             mem_cache
@@ -180,17 +195,18 @@ impl MemCache {
         name: *const u8,
         mem_cache_node: NonNull<MemCacheNode>,
         object_size: NonZeroU16,
+        frame_options: FrameAllocOptions,
     ) -> NonNull<Self> {
         // 申请 MemCache
         let node = unsafe { self.node.as_mut() };
         let mut mem_cache = node
-            .allocate::<MemCache>()
+            .allocate::<MemCache>(frame_options)
             .expect("Unexpected error ocurred when allocating bootstrap MemCache from node!");
 
         unsafe {
             mem_cache
                 .as_mut()
-                .init(name, mem_cache_node, object_size)
+                .init(name, mem_cache_node, object_size, frame_options)
                 .expect("Unexpected error ocurred when init bootstrap MemCache from node!");
         };
 
@@ -203,13 +219,14 @@ impl MemCache {
         name: *const u8,
         node_cache: &mut MemCache,
         object_size: NonZeroU16,
+        frame_options: FrameAllocOptions,
     ) -> NonNull<Self> {
         let node_cache_node = unsafe { node_cache.node.as_mut() };
         let mem_cache_node = node_cache_node
-            .new(object_size)
+            .new(object_size, frame_options)
             .expect("Unexpected error ocurred when creating bootstrap MemCache node!");
 
-        self.new_boot_from_node(name, mem_cache_node, object_size)
+        self.new_boot_from_node(name, mem_cache_node, object_size, frame_options)
     }
 
     /// 分配对象
@@ -241,11 +258,6 @@ impl MemCache {
 
         // 未初始化或者已被占用，从 Node 中分配
         let node = unsafe { self.node.as_mut() };
-        Some(node.allocate::<T>().unwrap())
-    }
-
-    /// 释放对象
-    pub unsafe fn free(&mut self, obj: *mut u8) {
-        unimplemented!()
+        Some(node.allocate::<T>(self.frame_options).unwrap())
     }
 }

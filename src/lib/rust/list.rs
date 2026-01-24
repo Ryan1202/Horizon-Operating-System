@@ -4,6 +4,7 @@ use core::{
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::NonNull,
+    slice,
 };
 
 use super::spinlock::Spinlock;
@@ -85,27 +86,26 @@ impl<Owner> ListHead<Owner> {
     }
 
     #[inline(always)]
-    pub fn init(self: Pin<&mut Self>) {
+    pub fn init(self: &mut Pin<&mut Self>) {
         let ptr = self.as_ref().into_node();
-        let self_ref = unsafe { self.get_unchecked_mut() };
+        let self_ref = unsafe { self.as_mut().get_unchecked_mut() };
         self_ref.head = Some(ptr);
         self_ref.tail = Some(ptr);
     }
 
-    #[inline(always)]
-    pub fn into_node(self: Pin<&Self>) -> NonNull<ListNode<Owner>> {
+    pub const fn into_node(self: Pin<&Self>) -> NonNull<ListNode<Owner>> {
         NonNull::from_ref(self.get_ref()).cast()
     }
 
     #[inline(always)]
-    pub fn add_head(self: Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+    pub fn add_head(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
         let prev = self.as_ref().into_node();
         let next = self.head.unwrap();
         unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
-    pub fn add_tail(self: Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+    pub fn add_tail(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
         let prev = self.tail.unwrap();
         let next = self.as_ref().into_node();
         unsafe { node.add(prev, next) };
@@ -118,6 +118,44 @@ impl<Owner> ListHead<Owner> {
             .is_some_and(|ptr| ptr == unsafe { Pin::new_unchecked(self) }.into_node()))
             || self.head.is_none()
             || self.tail.is_none()
+    }
+}
+
+pub struct ListIterator<'a, Owner> {
+    head: NonNull<ListNode<Owner>>,
+    next: Option<NonNull<ListNode<Owner>>>,
+    offset: isize,
+    _phantom: PhantomData<&'a Owner>,
+}
+
+impl<Owner> ListHead<Owner> {
+    pub fn iter<'a>(&mut self, offset: usize) -> ListIterator<'a, Owner> {
+        let head = unsafe { Pin::new_unchecked(&*self).into_node() };
+        ListIterator {
+            head,
+            next: self
+                .head
+                .and_then(|first| if first != head { Some(first) } else { None }),
+            offset: -(offset as isize),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, Owner> Iterator for ListIterator<'a, Owner> {
+    type Item = &'a mut Owner;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next;
+        self.next = self
+            .next
+            // 获取下一个节点
+            .and_then(|current| unsafe { current.as_ref().next })
+            // 判断是否到达尾节点
+            .and_then(|next| (next != self.head).then_some(next));
+
+        // 转换到 Owner 类型
+        current.map(|p| unsafe { p.offset(self.offset).cast().as_mut() })
     }
 }
 
@@ -200,15 +238,6 @@ impl<Owner> Spinlock<ListHead<Owner>> {
             let mut guard = self.lock();
             *guard = new;
         }
-    }
-}
-
-// Manual impls to avoid requiring `Owner: Clone`/`Owner: Copy`.
-// Raw pointers are Copy, so it's safe for the list pointer structs.
-impl<Owner> Copy for ListHead<Owner> {}
-impl<Owner> Clone for ListHead<Owner> {
-    fn clone(&self) -> Self {
-        *self
     }
 }
 
@@ -301,12 +330,5 @@ impl<Owner> ListNode<Owner> {
     #[inline(always)]
     pub fn is_linked(&self) -> bool {
         self.prev.is_some() && self.next.is_some()
-    }
-}
-
-impl<Owner> Copy for ListNode<Owner> {}
-impl<Owner> Clone for ListNode<Owner> {
-    fn clone(&self) -> Self {
-        *self
     }
 }

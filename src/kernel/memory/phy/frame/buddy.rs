@@ -1,20 +1,16 @@
 use core::{
-    mem::{ManuallyDrop, zeroed},
+    mem::{ManuallyDrop, offset_of, zeroed},
+    num::NonZeroUsize,
     ops::{Add, Deref, DerefMut, Sub},
     pin::Pin,
-    ptr::NonNull,
 };
 
 use crate::{
     kernel::memory::phy::frame::{
-        FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError, FrameNumber, FrameTag,
-        PAGE_SIZE, ZoneType, frame_count,
+        FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError, FrameNumber, FrameRange,
+        FrameTag, PAGE_SIZE, frame_count, zone::ZoneType,
     },
-    lib::rust::{
-        list::{ListHead, ListNode},
-        spinlock::Spinlock,
-    },
-    list_first_owner,
+    lib::rust::{list::ListHead, spinlock::Spinlock},
 };
 
 pub const MAX_ORDER: FrameOrder = FrameOrder(11);
@@ -47,7 +43,7 @@ impl FrameOrder {
 
     pub const fn from_frame_count(count: usize) -> Self {
         debug_assert!(count > 0);
-        debug_assert!(count <= MAX_ORDER.to_count());
+        debug_assert!(count <= MAX_ORDER.to_count().get());
         FrameOrder::new(count.next_power_of_two().ilog2() as u8)
     }
 
@@ -57,12 +53,12 @@ impl FrameOrder {
         Self::from_frame_count(frame_count)
     }
 
-    pub const fn val(&self) -> usize {
+    pub const fn get(&self) -> usize {
         self.0 as usize
     }
 
-    pub const fn to_count(&self) -> usize {
-        1 << self.0
+    pub const fn to_count(&self) -> NonZeroUsize {
+        unsafe { NonZeroUsize::new_unchecked(1 << self.0) }
     }
 
     pub const fn to_size(&self) -> usize {
@@ -120,6 +116,7 @@ impl ZoneState {
 
 pub struct BuddyAllocator {
     pub zones: [Zone; ZoneType::ZONE_COUNT],
+    pub static_frames: Spinlock<ListHead<Frame>>,
 }
 
 impl BuddyAllocator {
@@ -137,6 +134,13 @@ impl BuddyAllocator {
     pub fn init(&self) {
         // 初始化所有Zone的空闲链表
         self.init_zone_lists();
+
+        // 初始化静态分配链表
+        unsafe {
+            self.static_frames.init_with(|head| {
+                Pin::new_unchecked(head).init();
+            })
+        };
 
         // 扫描Frame，初始化Buddy分配器
         self.populate_zones_from_e820();
@@ -190,10 +194,17 @@ impl BuddyAllocator {
             let (zone_type, zone_boundary) = zone_state.get_zone_for_frame(start);
             let zone = self.get_zone(zone_type);
 
+            // 起始地址也要对齐到当前Order
+            let max_order = if start.get() == 0 {
+                MAX_ORDER - 1
+            } else {
+                FrameOrder::new((start.get().ilog2() as u8).min(MAX_ORDER.get() as u8 - 1))
+            };
+
             // 计算在当前Zone内能分割的最大范围
             // 受限于：E820块末尾、Zone边界、最大Order大小
             let chunk_end = end
-                .min(start + (MAX_ORDER - 1).to_count() - 1)
+                .min(start + max_order.to_count().get() - 1)
                 .min(zone_boundary);
 
             let order = FrameOrder::from_frame_count(chunk_end.count_from(start));
@@ -210,8 +221,8 @@ impl BuddyAllocator {
                 );
 
                 let node = Pin::new_unchecked(frame.list.get_mut());
-                let free = &mut zone.free_frames.lock()[order.val()];
-                let head = Pin::new_unchecked(free);
+                let free = &mut zone.free_frames.lock()[order.get()];
+                let mut head = Pin::new_unchecked(free);
                 head.add_tail(node);
             }
 
@@ -229,7 +240,7 @@ impl BuddyAllocator {
         frame: &mut Frame,
     ) {
         let mut split_order = FrameOrder::new(order.0 - 1);
-        let mut next_frame = frame.next_frame(1 << split_order.val());
+        let mut next_frame = frame.next_frame(1 << split_order.get());
 
         while split_order.0 > target_order.0 {
             match unsafe { *next_frame.tag.get() } {
@@ -246,8 +257,8 @@ impl BuddyAllocator {
                         let node = Pin::new_unchecked(next_frame.list.get_mut());
 
                         let free =
-                            &mut self.get_zone(zone_type).free_frames.lock()[split_order.val()];
-                        let head = Pin::new_unchecked(free);
+                            &mut self.get_zone(zone_type).free_frames.lock()[split_order.get()];
+                        let mut head = Pin::new_unchecked(free);
 
                         head.add_head(node);
                     }
@@ -258,14 +269,14 @@ impl BuddyAllocator {
             }
 
             split_order.0 -= 1;
-            next_frame = frame.next_frame(1 << split_order.val());
+            next_frame = frame.next_frame(1 << split_order.get());
         }
 
         let buddy = Buddy::from_frame(frame);
         buddy.order = target_order;
     }
 
-    fn merge(&self, left: &mut Frame, right: &mut Buddy) {
+    fn merge_exact(&self, left: &mut Frame, right: &mut Buddy) {
         let new_order = right.order.0 + 1;
         let buddy = Buddy::from_frame(left);
         buddy.order = FrameOrder(new_order);
@@ -276,31 +287,173 @@ impl BuddyAllocator {
 
             let node = Pin::new_unchecked(left.list.get_mut());
             let free = &mut self.get_zone(right.zone_type).free_frames.lock()[new_order as usize];
-            let head = Pin::new_unchecked(free);
+            let mut head = Pin::new_unchecked(free);
 
             head.add_head(node);
         }
     }
+
+    fn merge_once(&self, buddy: &mut Buddy, range: (FrameNumber, FrameNumber)) -> bool {
+        let order = buddy.order + 1;
+
+        let frame_number = FrameNumber::from_addr(buddy as *const _ as usize);
+
+        let left = frame_number.get() & !(order.to_count().get() - 1);
+        let left = FrameNumber::new(left);
+
+        if range.0 < left && (left + order.to_count().get()) < range.1 {
+            let left = Frame::from_frame_number(left);
+            let right = left.next_frame(buddy.order.to_count().get());
+
+            self.merge_exact(left, Buddy::from_frame(right));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 将 Frame 添加回空闲链表
+    fn add_to_free_list(
+        &self,
+        frame: &mut Frame,
+        order: FrameOrder,
+        zone: &Zone,
+    ) -> Result<(), FrameError> {
+        unsafe {
+            let node = Pin::new_unchecked(frame.list.get_mut());
+            let free = &mut zone.free_frames.lock()[order.get()];
+            let mut head = Pin::new_unchecked(free);
+            head.add_head(node);
+        }
+        Ok(())
+    }
+
+    fn derive_head_frame(frame_number: FrameNumber) -> Option<FrameNumber> {
+        let max_order =
+            FrameOrder::new((frame_number.get().ilog2() as u8).min(MAX_ORDER.get() as u8 - 1));
+        let mut frame_number = frame_number;
+        let mut frame;
+
+        for order in 0..=max_order.get() {
+            let mask = !((1 << order) - 1);
+            frame_number = FrameNumber::new(frame_number.get() & mask);
+            frame = Frame::from_frame_number(frame_number);
+
+            if let FrameTag::Buddy = frame.get_tag() {
+                return Some(frame_number);
+            }
+        }
+        None
+    }
+
+    /// 从 Buddy 块中剔除 range 覆盖的页
+    fn exclude_from_buddy(
+        &self,
+        frame_number: FrameNumber,
+        range: (FrameNumber, FrameNumber),
+    ) -> Result<Option<FrameOrder>, FrameError> {
+        let frame = Frame::from_frame_number(frame_number);
+
+        // 检查是否为 Head Frame
+        debug_assert!(!matches!(frame.get_tag(), FrameTag::Unused));
+        // 检查是否已经被分配
+        if !matches!(frame.get_tag(), FrameTag::Buddy) {
+            debug_assert!(false, "Exclude frames error: not a buddy frame");
+            return Err(FrameError::IncorrectFrameType);
+        }
+
+        let buddy = Buddy::from_frame(frame);
+        let order = buddy.order;
+        let buddy_count = order.to_count().get();
+
+        let zone_type = buddy.zone_type;
+        let index = zone_type.index();
+        let zone_end = FrameNumber::from_addr(zone_type.range().1);
+
+        // 5 种情况：
+        // 1. 完全覆盖：Buddy块完全在range内 → 标记Unused并移除
+        // 2. 左半覆盖：range覆盖左半部分 → 将当前Buddy块分割
+        // 3. 右半覆盖：range覆盖右半部分 → 将当前Buddy块分割
+        // 4. 中间穿过：range跨越Buddy块中点 → 将当前Buddy块前后两部分分割
+        // 5. 无交集：range与Buddy块无重叠 → 不处理
+
+        // 计算 Buddy 块的左右边界（对齐到块大小）
+        let left = frame_number.get() & !(buddy_count - 1);
+        let left = FrameNumber::new(left);
+        let right = left + buddy_count;
+
+        // 情况 5：无交集 - range 与 Buddy 块完全不重叠
+        if range.1 <= left || range.0 >= right {
+            return Ok(None);
+        }
+
+        // 从链表中移除
+        unsafe {
+            let _zone = self.get_zone(zone_type).free_frames.lock();
+
+            let node = Pin::new_unchecked(frame.list.get_mut());
+            node.del();
+        }
+
+        // 情况 1：完全覆盖 - Buddy 块完全在 range 内
+        if range.0 <= left && right <= range.1 {
+            // 标记为未使用
+            frame.set_tag(FrameTag::Unused);
+            return Ok(Some(order));
+        }
+
+        // 情况 2, 3, 4：部分覆盖 - 将不在 range 内的部分重新加入 Buddy 系统
+        let mut zone_state = ZoneState {
+            current_index: index,
+            current_zone_end: zone_end,
+        };
+
+        // 左侧未覆盖部分 [left, range.0)
+        if left < range.0 {
+            let _range = ManuallyDrop::new(FrameRange {
+                start: left,
+                end: range.0,
+            });
+            unsafe { frame.replace(FrameTag::Free, FrameData { range: _range }) };
+
+            self.add_free_block(&mut zone_state, left, range.0 - 1);
+        }
+
+        // 右侧未覆盖部分 [range.1, right)
+        if range.1 < right {
+            let _range = ManuallyDrop::new(FrameRange {
+                start: range.1,
+                end: right,
+            });
+            unsafe { frame.replace(FrameTag::Free, FrameData { range: _range }) };
+
+            self.add_free_block(&mut zone_state, range.1, right - 1);
+        }
+
+        // range 内的部分不加入 Buddy 系统（已从链表移除，保持 Unused 或由调用者处理）
+        assert!(zone_state.current_index == index);
+
+        Ok(Some(order))
+    }
 }
 
 impl FrameAllocator for BuddyAllocator {
-    fn allocate_frames(&self, zone_type: ZoneType, order: FrameOrder) -> Option<&mut Frame> {
+    fn allocate<'a>(&self, zone_type: ZoneType, order: FrameOrder) -> Option<&'a mut Frame> {
         let mut order = order;
         let target_order = order;
         let mut frame = None;
 
         while frame.is_none() && order < MAX_ORDER {
             let mut guard = self.get_zone(zone_type).free_frames.lock();
-            let list_head = &mut guard[order.val()];
+            let list_head = &mut guard[order.get()];
 
             frame = if list_head.is_empty() {
                 None
             } else {
-                list_first_owner!(Frame, list, list_head)
+                list_head.iter(offset_of!(Frame, list)).next()
             };
-            if let Some(buddy) = frame {
-                let frame = unsafe { buddy.clone().as_mut() };
 
+            if let Some(frame) = frame {
                 let list = frame.list.get_mut();
                 unsafe { Pin::new_unchecked(list) }.del();
 
@@ -310,6 +463,16 @@ impl FrameAllocator for BuddyAllocator {
                     self.split(zone_type, order, target_order, frame);
                 }
 
+                let start = FrameNumber::from_addr(frame.start_addr());
+                let end = start + target_order.to_count().get();
+                unsafe {
+                    frame.replace(
+                        FrameTag::Allocated,
+                        FrameData {
+                            range: ManuallyDrop::new(FrameRange { start, end }),
+                        },
+                    )
+                };
                 return Some(frame);
             }
             order.0 += 1;
@@ -317,9 +480,8 @@ impl FrameAllocator for BuddyAllocator {
         None
     }
 
-    fn free_frames(&self, frame: &mut Frame) -> Result<(), FrameError> {
+    fn free(&self, frame: &mut Frame) -> Result<(), FrameError> {
         let addr = frame.start_addr();
-        let frame_number = FrameNumber::from_addr(addr);
 
         let zone_type = ZoneType::from_address(addr);
         let zone = self.get_zone(zone_type);
@@ -329,45 +491,67 @@ impl FrameAllocator for BuddyAllocator {
             FrameNumber::new(zone_range.1),
         );
 
-        if let FrameTag::Buddy = unsafe { *frame.tag.get() } {
+        if let FrameTag::Buddy = frame.get_tag() {
             // 仅释放Buddy类型的页
-            let current_order = {
-                let this_frame = Buddy::from_frame(frame);
-                this_frame.order
-            };
+            let buddy = Buddy::from_frame(frame);
+            let order = buddy.order;
 
-            if current_order < MAX_ORDER - 1 {
-                if frame_number <= zone_end - current_order.to_count() {
-                    let next_frame = frame.next_frame(current_order.to_count());
-
-                    if let FrameTag::Buddy = next_frame.get_tag() {
-                        self.merge(frame, Buddy::from_frame(next_frame));
-                        return Ok(());
-                    }
-                } else if frame_number >= zone_start + current_order.to_count() {
-                    let prev_frame = frame.prev_frame(current_order.to_count());
-
-                    if let FrameTag::Buddy = prev_frame.get_tag() {
-                        self.merge(prev_frame, Buddy::from_frame(frame));
-                        return Ok(());
-                    }
-                } else {
-                    panic!("Buddy free error: buddy frame out of zone range unexpectedly!");
-                }
+            // 尝试合并相邻的伙伴块，如果无法合并则添加回空闲链表
+            if order < MAX_ORDER - 1 && self.merge_once(buddy, (zone_start, zone_end)) {
+                Ok(())
+            } else {
+                self.add_to_free_list(frame, order, zone)
             }
-            if current_order < MAX_ORDER {
-                // 无法合并
-                unsafe {
-                    let node = Pin::new_unchecked(frame.list.get_mut());
+        } else {
+            Err(FrameError::IncorrectFrameType)
+        }
+    }
 
-                    let free = &mut zone.free_frames.lock()[current_order.val()];
-                    let head = Pin::new_unchecked(free);
+    fn assign(&self, start: FrameNumber, count: usize) -> Result<(), FrameError> {
+        let max_order_count = (MAX_ORDER - 1).to_count().get();
+        let mut current = start;
+        let end = start + count;
+        let range = (start, end);
 
-                    head.add_head(node);
+        while current < end {
+            // 查找包含 current 的 Buddy 块头部
+            let mut head_frame = Self::derive_head_frame(current);
+
+            // 如果找不到 Buddy 块，跳到下一个可能的对齐位置
+            while head_frame.is_none() && current < end {
+                current = FrameNumber::new((current.get() + 1).next_multiple_of(max_order_count));
+                if current >= end {
+                    break;
                 }
-                return Ok(());
+                head_frame = Self::derive_head_frame(current);
+            }
+
+            if let Some(head) = head_frame {
+                // 处理这个 Buddy 块
+                let result = self.exclude_from_buddy(head, range)?;
+
+                if let Some(order) = result {
+                    // 推进到该 Buddy 块的末尾
+                    let buddy_count = order.to_count().get();
+                    current = head + buddy_count;
+                } else {
+                    // 无交集，推进到下一个可能的位置
+                    current = current + 1;
+                }
+            } else {
+                // 没找到更多 Buddy 块，结束
+                break;
             }
         }
-        Err(FrameError::IncorrectFrameType)
+
+        let mut head = self.static_frames.lock();
+        let mut head = unsafe { Pin::new_unchecked(head.deref_mut()) };
+
+        let frame = Frame::from_frame_number(start);
+        let node = unsafe { Pin::new_unchecked(frame.list.get_mut()) };
+
+        head.add_head(node);
+
+        Ok(())
     }
 }

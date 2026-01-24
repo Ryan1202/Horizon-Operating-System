@@ -11,8 +11,10 @@ use crate::{
         VIR_BASE_ADDR,
         phy::{
             frame::{
-                FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameError, FrameTag, ZoneType,
+                Frame, FrameData, FrameError, FrameTag,
                 buddy::{Buddy, FrameOrder},
+                options::{FrameAllocOptions, FrameAllocType},
+                zone::ZoneType,
             },
             slub::mem_cache::{MemCache, MemCaches},
         },
@@ -74,8 +76,8 @@ pub enum SlubError {
 
     /// 分配页失败（可能是当前Zone内存不足）
     ///
-    /// `FrameAllocationFailed(zone_type: ZoneType, requsted_order: usize)`
-    FrameAllocationFailed(ZoneType, FrameOrder),
+    /// `FrameAllocationFailed(options: FrameAllocOptions)`
+    FrameAllocationFailed(FrameAllocOptions, FrameError),
 
     /// `Slub`调用`Buddy`释放页时，传入了非`FrameTag::Buddy`类型的页
     ///
@@ -86,15 +88,14 @@ pub enum SlubError {
 impl Slub {
     // 通用初始化逻辑
     fn init_slab<'a>(
-        zone_type: ZoneType,
+        frame_options: FrameAllocOptions,
         object_num: NonZeroU16,
         object_size: NonZeroU16,
-        order: FrameOrder,
     ) -> Result<NonNull<Self>, SlubError> {
         // 分配页
-        let frames = FRAME_MANAGER
-            .allocate_frames(zone_type, order)
-            .ok_or(SlubError::FrameAllocationFailed(zone_type, order))?;
+        let (frames, zone_type) = frame_options
+            .allocate()
+            .map_err(|e| SlubError::FrameAllocationFailed(frame_options, e))?;
 
         let start_addr = unsafe { frames.start_addr() + VIR_BASE_ADDR };
         let free_nodes = unsafe {
@@ -128,7 +129,7 @@ impl Slub {
         };
 
         // 填写 Frame 中的 Slub
-        for i in 1..order.to_count() {
+        for i in 1..frame_options.get_count().get() {
             frame = frame.next_frame(1);
 
             let slub_info = Slub::Body { offset: i as u8 };
@@ -147,16 +148,20 @@ impl Slub {
     }
 
     pub fn new(
-        zone_type: ZoneType,
+        frame_options: FrameAllocOptions,
         object_size: ObjectSize,
         object_num: NonZeroU16,
-        order: FrameOrder,
     ) -> Result<NonNull<Self>, SlubError> {
-        Self::init_slab(zone_type, object_num, object_size.0, order)
+        Self::init_slab(frame_options, object_num, object_size.0)
     }
 
     pub fn destroy(&mut self, cache_info: &MemCache) -> Result<(), SlubError> {
-        let order = cache_info.order;
+        let alloc_type = cache_info.frame_options.get_type();
+        let order = if let FrameAllocType::Dynamic { order } = alloc_type {
+            *order
+        } else {
+            unreachable!("Slub cache should always use dynamic frame allocation!");
+        };
 
         let frame = Frame::from_child(self);
 
@@ -172,9 +177,12 @@ impl Slub {
             )
         };
 
-        FRAME_MANAGER.free_frames(frame).map_err(|e| match e {
+        frame.free().map_err(|e| match e {
             FrameError::IncorrectFrameType => {
                 SlubError::IncorrectAddressToFree(NonNull::from(frame))
+            }
+            FrameError::OutOfFrames => {
+                SlubError::FrameAllocationFailed(cache_info.frame_options, e)
             }
         })
     }
@@ -255,7 +263,7 @@ fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
     let mut order = 0;
 
     for fraction in [16, 8, 4, 2] {
-        for _order in 0..MAX_FRAME_ORDER.val() {
+        for _order in 0..MAX_FRAME_ORDER.get() {
             let slab_size = PAGE_SIZE << _order;
 
             let remain = slab_size % (size as usize);
@@ -265,7 +273,7 @@ fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
             }
         }
 
-        if order < MAX_FRAME_ORDER.val() {
+        if order < MAX_FRAME_ORDER.get() {
             return Ok(FrameOrder::new(order as u8));
         }
     }
@@ -286,7 +294,7 @@ fn calculate_sizes(size: NonZeroU16) -> Result<(ObjectSize, NonZeroU16, FrameOrd
     let object_size = ObjectSize(object_size);
     let order = calculate_order(object_size)?;
 
-    let slab_size = PAGE_SIZE << order.val();
+    let slab_size = PAGE_SIZE << order.get();
 
     let object_num = (slab_size / object_size.0.get() as usize) as u16;
 

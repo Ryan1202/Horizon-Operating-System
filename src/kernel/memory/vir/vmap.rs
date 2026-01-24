@@ -8,7 +8,7 @@ use crate::{
     kernel::memory::{
         MemoryError,
         phy::kmalloc::kmalloc,
-        vir::page::{VirtPageNumber, VirtPages, VmRange},
+        vir::page::{PageNumber, VirtPages, VmRange},
     },
     lib::rust::{
         list::{ListHead, ListNode},
@@ -47,8 +47,8 @@ impl VmapNode {
                 rbtree.init();
 
                 let (start, end) = (0xe0000000, 0xff800000);
-                let start = VirtPageNumber::from_addr(start).unwrap();
-                let end = VirtPageNumber::from_addr(end).unwrap();
+                let start = PageNumber::from_addr(start).unwrap();
+                let end = PageNumber::from_addr(end).unwrap();
 
                 let vm_range = VmRange { start, end };
 
@@ -64,7 +64,7 @@ impl VmapNode {
         unsafe {
             for pool in self.pools.iter_mut() {
                 pool.list_head
-                    .init_with(|list_head| unsafe { Pin::new_unchecked(list_head).init() });
+                    .init_with(|list_head| Pin::new_unchecked(list_head).init());
             }
             self.allocated.init_with(|rbtree| rbtree.init());
         }
@@ -78,7 +78,7 @@ impl VmapNode {
         let pool = unsafe { self.pools.get_unchecked_mut(count) };
 
         let mut list_head = pool.list_head.lock();
-        let list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
+        let mut list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
         let node = unsafe { Pin::new_unchecked(&mut vpages.rb_node.augment.list_node) };
 
         list_head.add_tail(node);
@@ -89,104 +89,127 @@ impl VmapNode {
         if index >= MAX_VMAP_POOL_PAGES {
             return None;
         }
+
         let pool = unsafe { self.pools.get_unchecked_mut(index) };
-        let list_head = pool.list_head.get_relaxed();
-        if list_head.is_empty() {
+        if pool.list_head.get_relaxed().is_empty() {
             return None;
-        } else {
-            let mut list_head = pool.list_head.lock();
-            let list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
+        }
 
-            let mut node = list_first_owner!(Linked<VmRange, ()>, list_node, list_head)
-                .expect("List is empty after checked!");
-            let rbnode = container_of!(node, LinkedRbNodeBase<VmRange, usize>, augment);
+        let mut list_head = pool.list_head.lock();
+        let list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
 
-            let node_count = unsafe { rbnode.as_ref() }.get_key().get_count();
-            match node_count.cmp(&count.get()) {
-                Ordering::Less => None,
-                Ordering::Equal => {
-                    let vpages = container_of!(rbnode, VirtPages, rb_node);
-                    unsafe { Pin::new_unchecked(&mut node.as_mut().list_node) }.del();
-                    Some(vpages)
-                }
-                Ordering::Greater => {
-                    let mut vpages = container_of!(rbnode, VirtPages, rb_node);
-                    let vpages_ref = unsafe { vpages.as_mut() };
+        let mut linked_node = list_first_owner!(Linked<VmRange, ()>, list_node, list_head)
+            .expect("List is empty after checked!");
 
-                    unsafe { vpages_ref.split_to_pool(count, list_head) }
-                        .expect("Allocate slub memory failed in VmapNode::pool_get()!");
+        // 通过 linked_node -> rbnode -> vpages 的层级关系获取 vpages
+        let rb_node = container_of!(linked_node, LinkedRbNodeBase<VmRange, usize>, augment);
+        let mut vpages = container_of!(rb_node, VirtPages, rb_node);
 
-                    Some(vpages)
-                }
+        let actual_count = unsafe { rb_node.as_ref() }.get_key().get_count();
+        match actual_count.cmp(&count.get()) {
+            Ordering::Less => None,
+            Ordering::Equal => {
+                unsafe { Pin::new_unchecked(&mut linked_node.as_mut().list_node) }.del();
+                Some(vpages)
+            }
+            Ordering::Greater => {
+                unsafe { vpages.as_mut().split_to_pool(count, list_head) }
+                    .expect("Allocate slub memory failed in VmapNode::pool_get()!");
+                Some(vpages)
             }
         }
     }
 
     pub fn allocate(&mut self, count: NonZeroUsize) -> Result<NonNull<VirtPages>, MemoryError> {
+        // 先从快速池获取
         let mut vpages = self
             .pool_get(count)
-            .or_else(|| {
-                #[allow(static_mut_refs)]
-                let mut tree = unsafe { FREE_VMAP_TREE.lock() };
-                let mut node = tree.root?;
-
-                if (unsafe { node.as_ref() }).get_key().get_count() < count.get() {
-                    return None;
-                }
-                loop {
-                    let node_ref = unsafe { node.as_mut() };
-                    let left = node_ref.left;
-
-                    if let Some(left_ref) = left
-                        && linked_augment!(unsafe { left_ref.as_ref() }) >= count.get()
-                    {
-                        // 左子树还有更合适的节点
-                        node = left_ref;
-                        continue;
-                    }
-
-                    let _count = node_ref.get_key().get_count();
-                    if _count >= count.get() {
-                        let mut vpages = container_of!(node, VirtPages, rb_node);
-                        let vpages_ref = unsafe { vpages.as_mut() };
-
-                        if _count > count.get() {
-                            let mut new_vpages = kmalloc::<VirtPages>(unsafe {
-                                NonZeroUsize::new_unchecked(size_of::<VirtPages>())
-                            })?;
-
-                            vpages_ref.rb_node.delete(&mut tree);
-                            unsafe {
-                                let new_vpages_ref = new_vpages.as_mut();
-                                let end =
-                                    vpages_ref.rb_node.get_key().start.get().get() + count.get();
-
-                                new_vpages.write(VirtPages::new(VmRange {
-                                    start: VirtPageNumber::new(NonZeroUsize::new_unchecked(end)),
-                                    end: vpages_ref.rb_node.get_key().end,
-                                }));
-
-                                vpages_ref.rb_node.get_key_mut().end =
-                                    VirtPageNumber::new(NonZeroUsize::new_unchecked(end - 1));
-
-                                tree.insert(&mut new_vpages_ref.rb_node);
-                            }
-                        }
-
-                        return Some(vpages);
-                    }
-
-                    node = node_ref
-                        .right
-                        .expect("Max size of childs < count when max size of the node >= count");
-                }
-            })
+            .or_else(|| self.allocate_from_tree(count))
             .ok_or(MemoryError::OutOfMemory)?;
 
+        // 加入已分配树
         self.allocated
             .lock()
             .insert(&mut unsafe { vpages.as_mut() }.rb_node);
         Ok(vpages)
+    }
+
+    /// 从红黑树中查找并分配满足条件的虚拟页块
+    /// 查找策略：优先左子树（smaller but sufficient），精确匹配或分割
+    fn allocate_from_tree(&mut self, count: NonZeroUsize) -> Option<NonNull<VirtPages>> {
+        #[allow(static_mut_refs)]
+        let tree = unsafe { FREE_VMAP_TREE.lock() };
+        let mut node = tree.root?;
+
+        // 根节点不满足要求，整棵树都不够大
+        if unsafe { node.as_ref() }.get_key().get_count() < count.get() {
+            return None;
+        }
+
+        // 在红黑树中查找最合适的节点（优先左子树的小块）
+        loop {
+            let node_ref = unsafe { node.as_mut() };
+
+            // 如果左子树存在且最大值满足需求，优先搜索左子树
+            if let Some(left) = node_ref.left {
+                if linked_augment!(unsafe { left.as_ref() }) >= count.get() {
+                    node = left;
+                    continue;
+                }
+            }
+
+            // 当前节点满足需求
+            let node_count = node_ref.get_key().get_count();
+            if node_count >= count.get() {
+                let mut vpages = container_of!(node, VirtPages, rb_node);
+
+                if node_count > count.get() {
+                    // 需要分割：从 vpages 中切出 count 个页，剩余部分重新插入树
+                    self.split_vpages(&mut vpages, count)?;
+                }
+
+                return Some(vpages);
+            }
+
+            // 当前节点不够大，搜索右子树
+            node = node_ref
+                .right
+                .expect("Augmented RB-tree invariant violated: child max < parent size");
+        }
+    }
+
+    /// 分割虚拟页块：从 vpages 中切出 count 个页，剩余部分重新插入树
+    /// 优化：直接修改原节点为剩余部分，避免删除/重新插入节点
+    fn split_vpages(&mut self, vpages: &mut NonNull<VirtPages>, count: NonZeroUsize) -> Option<()> {
+        let vpages_ref = unsafe { vpages.as_mut() };
+        let old_start = vpages_ref.rb_node.get_key().start;
+
+        // 计算分割点
+        let split_point = old_start.get().get() + count.get();
+
+        // 分配新节点存储分配部分 [old_start, split_point - 1]
+        let allocated_part =
+            kmalloc::<VirtPages>(unsafe { NonZeroUsize::new_unchecked(size_of::<VirtPages>()) })?;
+
+        // Safety
+        // 1. vpages_ref 在 tree 中已有节点，修改其范围不会违反 RB-tree 结构
+        // 2. split_point > old_start 保证不会出现无效范围
+        unsafe {
+            // 初始化分配部分
+            allocated_part.write(VirtPages::new(VmRange {
+                start: old_start,
+                end: PageNumber::new(NonZeroUsize::new_unchecked(split_point - 1)),
+            }));
+
+            // 修改原节点为剩余部分 [split_point, old_end]
+            vpages_ref.rb_node.get_key_mut().start =
+                PageNumber::new(NonZeroUsize::new_unchecked(split_point));
+        }
+
+        // 更新 vpages 指针指向分配部分（返回值）
+        *vpages = allocated_part;
+
+        Some(())
     }
 
     pub fn deallocate(&mut self, range: &VmRange) -> Result<(), MemoryError> {

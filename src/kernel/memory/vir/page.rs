@@ -15,16 +15,16 @@ use crate::{
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
-pub struct VirtPageNumber(NonZeroUsize);
+pub struct PageNumber(NonZeroUsize);
 
-impl VirtPageNumber {
+impl PageNumber {
     pub const fn new(num: NonZeroUsize) -> Self {
-        VirtPageNumber(num)
+        PageNumber(num)
     }
 
     pub const fn from_addr(addr: usize) -> Option<Self> {
         match NonZeroUsize::new(addr / PAGE_SIZE) {
-            Some(pn) => Some(VirtPageNumber(pn)),
+            Some(pn) => Some(PageNumber(pn)),
             None => None,
         }
     }
@@ -94,11 +94,48 @@ impl VirtPages {
         let addr = self.rb_node.get_key().start.get().get() * PAGE_SIZE;
         unsafe { NonZeroUsize::new_unchecked(addr) }
     }
+
+    /// 从当前 VirtPages 中切出 count 个页，剩余部分加入 pool 链表
+    /// 修改当前节点范围为 [start, start+count-1]，创建新节点 [start+count, old_end]
+    pub(super) unsafe fn split_to_pool(
+        &mut self,
+        count: NonZeroUsize,
+        mut list_head: Pin<&mut ListHead<LinkedRbNodeBase<VmRange, usize>>>,
+    ) -> Option<()> {
+        let range = self.rb_node.get_key();
+        let old_start = range.start.get().get();
+        let old_end = range.end;
+
+        // 计算分割点：[old_start, split_point-1] 用于分配，[split_point, old_end] 放回 pool
+        let split_point = old_start + count.get();
+
+        // 修改当前节点范围
+        unsafe {
+            self.rb_node.get_key_mut().end =
+                PageNumber::new(NonZeroUsize::new_unchecked(split_point - 1));
+        }
+
+        // 分配新节点存储剩余部分并加入链表
+        let mut remainder =
+            kmalloc::<VirtPages>(unsafe { NonZeroUsize::new_unchecked(size_of::<VirtPages>()) })?;
+
+        unsafe {
+            remainder.write(VirtPages::new(VmRange {
+                start: PageNumber::new(NonZeroUsize::new_unchecked(split_point)),
+                end: old_end,
+            }));
+
+            let node = Pin::new_unchecked(&mut remainder.as_mut().rb_node.augment.list_node);
+            list_head.add_tail(node);
+        }
+
+        Some(())
+    }
 }
 
 pub struct VmRange {
-    pub start: VirtPageNumber,
-    pub end: VirtPageNumber,
+    pub start: PageNumber,
+    pub end: PageNumber,
 }
 
 impl PartialEq for VmRange {
@@ -133,33 +170,5 @@ impl VmRange {
 
     pub const fn get_count(&self) -> usize {
         self.end.get().get() - self.start.get().get() + 1
-    }
-}
-
-impl VirtPages {
-    pub(super) unsafe fn split_to_pool(
-        &mut self,
-        count: NonZeroUsize,
-        list_head: Pin<&mut ListHead<LinkedRbNodeBase<VmRange, usize>>>,
-    ) -> Option<()> {
-        let old_end = self.rb_node.get_key().end;
-        let end = self.rb_node.get_key().start.get().get() + count.get();
-        unsafe {
-            self.rb_node.get_key_mut().end =
-                VirtPageNumber::new(NonZeroUsize::new_unchecked(end - 1));
-
-            let mut new_vpages =
-                kmalloc::<VirtPages>(NonZeroUsize::new_unchecked(size_of::<VirtPages>()))?;
-
-            new_vpages.write(VirtPages::new(VmRange {
-                start: VirtPageNumber::new(NonZeroUsize::new_unchecked(end)),
-                end: old_end,
-            }));
-
-            let node = Pin::new_unchecked(&mut new_vpages.as_mut().rb_node.augment.list_node);
-
-            list_head.add_tail(node);
-        }
-        Some(())
     }
 }

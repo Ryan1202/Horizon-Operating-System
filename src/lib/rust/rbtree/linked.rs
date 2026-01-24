@@ -50,7 +50,7 @@ impl<K: Sized, NA> AugmentLink<K, LinkedIter, Linked<K, NA>> for LinkedRbNodeBas
 
 impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, Linked<K, NA>> for LinkedRbTreeBase<K, A, NA> {
     fn link_ext(&mut self, new_node: &mut LinkedRbNodeBase<K, NA>, _order: cmp::Ordering) {
-        let head = unsafe { Pin::new_unchecked(&mut self.augment.list_head) };
+        let mut head = unsafe { Pin::new_unchecked(&mut self.augment.list_head) };
         let list_node = unsafe { Pin::new_unchecked(&mut new_node.augment.list_node) };
         head.add_tail(list_node);
     }

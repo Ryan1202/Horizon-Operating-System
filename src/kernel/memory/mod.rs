@@ -37,7 +37,7 @@ pub enum MemoryError {
     AddressConflict,
     DoubleRelease,
     InvalidSize(usize),
-    PageError(FrameError),
+    FrameError(FrameError),
 }
 
 impl MemoryError {

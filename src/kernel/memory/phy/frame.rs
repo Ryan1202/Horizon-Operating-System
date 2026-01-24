@@ -13,7 +13,10 @@ use crate::{
         page::PageTableEntry,
         phy::{
             E820Ards, PREALLOCATED_END_PHY,
-            frame::buddy::{Buddy, BuddyAllocator, FrameOrder},
+            frame::{
+                buddy::{Buddy, BuddyAllocator, FrameOrder},
+                zone::ZoneType,
+            },
             slub::Slub,
         },
     },
@@ -21,6 +24,8 @@ use crate::{
 };
 
 pub mod buddy;
+pub mod options;
+pub mod zone;
 
 #[cfg(target_pointer_width = "32")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
@@ -30,10 +35,11 @@ const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
 #[derive(Debug)]
 pub enum FrameError {
     IncorrectFrameType,
+    OutOfFrames,
 }
 
 #[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 pub struct FrameNumber(usize);
 
 impl FrameNumber {
@@ -109,11 +115,14 @@ pub enum FrameTag {
     Unused = 0,
     HardwareReserved = 1,
     SystemReserved = 2,
+    /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
     Free = 3,
-    Buddy = 4,
-    Slub = 5,
-    Io = 6,
-    Vmalloc = 7,
+    /// `Allocated` 用于标识该组页已被分配，但没有标识类型，需要搭配range使用
+    Allocated = 4,
+    Buddy = 5,
+    Slub = 6,
+    Io = 7,
+    Vmalloc = 8,
 }
 
 const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
@@ -121,13 +130,8 @@ const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
 pub const FRAME_INFO_COUNT: usize = 1 << 20;
 const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
 
-unsafe extern "C" {
-    // #[link_name = "page_info"]
-    // static mut PAGE_INFO: [Frame; PAGE_INFO_COUNT];
-}
-
 /// Buddy 分配器的虚拟地址存储位置
-pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
+static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn page_early_init(
@@ -232,6 +236,10 @@ impl Frame {
 
         PAGE_INFO_SIZE
     }
+
+    pub fn free(&mut self) -> Result<(), FrameError> {
+        FRAME_MANAGER.free(self)
+    }
 }
 
 impl Frame {
@@ -263,7 +271,8 @@ impl Frame {
                 FrameTag::Free
                 | FrameTag::Io
                 | FrameTag::SystemReserved
-                | FrameTag::HardwareReserved => {
+                | FrameTag::HardwareReserved
+                | FrameTag::Allocated => {
                     ManuallyDrop::drop(&mut _data.range);
                 }
                 FrameTag::Slub => {
@@ -331,65 +340,6 @@ impl Frame {
     }
 }
 
-/// 内存区域类型
-/// Zone只决定了系统能管理的物理内存范围，与Page管理的内存范围无关
-#[repr(u8)]
-#[derive(Clone, Copy, Debug)]
-pub enum ZoneType {
-    /// (ISA )DMA区，低于16MB
-    MEM24 = 0,
-    /// 内核线性映射区，低于4GB（64位）或512MB（32位）
-    LinearMem = 1,
-    /// 高端内存区，超过4GB（64位）或512MB（32位）
-    HighMem = 2,
-}
-
-impl ZoneType {
-    pub const ZONE_COUNT: usize = 3;
-
-    pub const fn index(&self) -> usize {
-        match self {
-            ZoneType::MEM24 => 0,
-            ZoneType::LinearMem => 1,
-            ZoneType::HighMem => 2,
-        }
-    }
-
-    pub const fn from_index(index: usize) -> Self {
-        match index {
-            0 => ZoneType::MEM24,
-            1 => ZoneType::LinearMem,
-            2 => ZoneType::HighMem,
-            _ => panic!("Invalid zone index"),
-        }
-    }
-
-    pub const fn range(&self) -> (usize, usize) {
-        match self {
-            ZoneType::MEM24 => (0, (1 << 24) - 1), // 16MB
-            #[cfg(target_pointer_width = "32")]
-            ZoneType::LinearMem => (1 << 24, 0x1fffffff), // 512MB
-            #[cfg(target_pointer_width = "64")]
-            ZoneType::LinearMem => (1 << 24, 1 << 32), // 4GB
-            #[cfg(target_pointer_width = "32")]
-            ZoneType::HighMem => (0x20000000, usize::MAX), // >512MB
-            #[cfg(target_pointer_width = "64")]
-            ZoneType::HighMem => (1 << 32, usize::MAX), // >4GB
-        }
-    }
-
-    pub const fn from_address(addr: usize) -> Self {
-        match (addr | 1).ilog2() {
-            0..24 => ZoneType::MEM24,
-            #[cfg(target_pointer_width = "32")]
-            24..29 => ZoneType::LinearMem,
-            #[cfg(target_pointer_width = "64")]
-            24..32 => ZoneType::LinearMem,
-            _ => ZoneType::HighMem,
-        }
-    }
-}
-
 pub const fn frame_align_up(value: usize) -> usize {
     (value + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
@@ -399,25 +349,27 @@ pub const fn frame_align_down(value: usize) -> usize {
 }
 
 pub const fn frame_count(size: usize) -> usize {
-    (size / PAGE_SIZE) + (size % PAGE_SIZE != 0) as usize
+    size.div_ceil(PAGE_SIZE)
 }
 
 pub trait FrameAllocator {
-    fn allocate_frames(&self, zone_type: ZoneType, order: FrameOrder) -> Option<&mut Frame>;
-    fn free_frames(&self, page: &mut Frame) -> Result<(), FrameError>;
+    fn allocate<'a>(&self, zone_type: ZoneType, order: FrameOrder) -> Option<&'a mut Frame>;
+    fn free(&self, page: &mut Frame) -> Result<(), FrameError>;
+    /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
+    fn assign(&self, start: FrameNumber, len: usize) -> Result<(), FrameError>;
 }
 
 #[unsafe(export_name = "allocate_frames")]
 pub extern "C" fn allocate_frames_c(zone_type: ZoneType, order: FrameOrder) -> usize {
     FRAME_MANAGER
-        .allocate_frames(zone_type, order)
+        .allocate(zone_type, order)
         .map_or(0, |v| v.start_addr())
 }
 
 #[unsafe(export_name = "free_frames")]
 pub extern "C" fn free_frames_c(paddr: usize) -> i8 {
-    let page = unsafe { Frame::from_addr(paddr) };
-    match FRAME_MANAGER.free_frames(page) {
+    let frame = unsafe { Frame::from_addr(paddr) };
+    match frame.free() {
         Ok(_) => 0,
         Err(_) => -1,
     }
