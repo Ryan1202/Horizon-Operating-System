@@ -2,9 +2,9 @@
 
 use core::{
     marker::{PhantomData, PhantomPinned},
+    ops::{Deref, DerefMut},
     pin::Pin,
     ptr::NonNull,
-    slice,
 };
 
 use super::spinlock::Spinlock;
@@ -12,42 +12,6 @@ use super::spinlock::Spinlock;
 #[macro_export]
 macro_rules! list_owner {
     ($var:ident, $container:ty, $field:ident) => {{ $crate::container_of!($var.cast::<ListNode<$container>>(), $container, $field) }};
-}
-
-#[macro_export]
-macro_rules! list_first_owner {
-    ($container:ty, $field:ident, $head:expr) => {{
-        use $crate::list_owner;
-        $head.head.map(|n| list_owner!(n, $container, $field))
-    }};
-}
-
-#[macro_export]
-macro_rules! list_for_each_owner {
-    ( $var:ident, $container:ty, $field:ident, $head:expr, $body:block) => {{
-        use $crate::list_owner;
-
-        let mut _next = $head.head;
-        while let Some(_node) = _next && _node != $head.into_node() {
-            let mut $var = list_owner!(_node, $container, $field);
-            $body
-            _next = unsafe { _node.as_ref() }.next;
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! list_for_each_owner_safe {
-    ($var:ident, $next:ident, $container:ty, $field:ident, $head:expr, $body:block) => {{
-        use $crate::list_owner;
-        let mut _node = unsafe { (*$head).head };
-        while !_node.is_none() && _node != unsafe { (*$head).tail } {
-            let $next = unsafe { (*_node).next };
-            let $var = list_owner!(_node, $container, $field);
-            $body
-            _node = $next;
-        }
-    }};
 }
 
 // 当目标支持宽原子并需要对齐时，通过 cfg_attr 在类型上强制对齐：
@@ -121,15 +85,15 @@ impl<Owner> ListHead<Owner> {
     }
 }
 
-pub struct ListIterator<'a, Owner> {
+pub struct ListIterator<Owner> {
     head: NonNull<ListNode<Owner>>,
     next: Option<NonNull<ListNode<Owner>>>,
     offset: isize,
-    _phantom: PhantomData<&'a Owner>,
+    _phantom: PhantomData<Owner>,
 }
 
 impl<Owner> ListHead<Owner> {
-    pub fn iter<'a>(&mut self, offset: usize) -> ListIterator<'a, Owner> {
+    pub fn iter(&mut self, offset: usize) -> ListIterator<Owner> {
         let head = unsafe { Pin::new_unchecked(&*self).into_node() };
         ListIterator {
             head,
@@ -142,8 +106,8 @@ impl<Owner> ListHead<Owner> {
     }
 }
 
-impl<'a, Owner> Iterator for ListIterator<'a, Owner> {
-    type Item = &'a mut Owner;
+impl<Owner> Iterator for ListIterator<Owner> {
+    type Item = NonNull<Owner>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.next;
@@ -155,7 +119,7 @@ impl<'a, Owner> Iterator for ListIterator<'a, Owner> {
             .and_then(|next| (next != self.head).then_some(next));
 
         // 转换到 Owner 类型
-        current.map(|p| unsafe { p.offset(self.offset).cast().as_mut() })
+        current.map(|p| unsafe { p.offset(self.offset).cast() })
     }
 }
 
@@ -249,8 +213,103 @@ impl<Owner> Spinlock<ListHead<Owner>> {
     all(target_has_atomic = "64", target_pointer_width = "32"),
     repr(align(8))
 )]
+pub struct AtomicListNode<Owner> {
+    pub inner: ListNode<Owner>,
+}
+
+impl<Owner> Deref for AtomicListNode<Owner> {
+    type Target = ListNode<Owner>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<Owner> DerefMut for AtomicListNode<Owner> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<Owner> AtomicListNode<Owner> {
+    /// 尝试以一致的方式读取 `ListHead { head, tail }` 的快照，返回
+    /// 一对 `Option<NonNull<ListNode<Owner>>>`（head, tail）。
+    ///
+    /// 成功时返回 `ListHead { head, tail }`快照（可能通过原子加载或通过加锁回退），
+    /// 在走原子路径时本函数不会阻塞；否则会获取锁以安全读取。
+    #[allow(unused)]
+    pub fn get_atomic_snapshot(&mut self) -> ListHead<Owner> {
+        // 注意：下面的导入放在 cfg 分支中，以避免在某些目标上出现
+        // “未使用的导入”警告。
+        // 64 位指针被打包为 128 位整数
+        #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
+        {
+            use core::mem::transmute;
+            use core::sync::atomic::AtomicU128;
+
+            let ptr: *mut AtomicU128 = unsafe { transmute(self._inner.get()) };
+
+            let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
+
+            return unsafe { transmute::<u128, ListHead<Owner>>(v) };
+        }
+
+        // 32 位指针被打包为 64-bit 位整数
+        #[cfg(all(target_has_atomic = "64", target_pointer_width = "32"))]
+        {
+            use core::mem::transmute;
+            use core::sync::atomic::AtomicU64;
+
+            let ptr: *mut AtomicU64 = unsafe { transmute(self.deref_mut()) };
+
+            let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
+
+            return unsafe { transmute::<u64, ListHead<Owner>>(v) };
+        }
+
+        #[cfg(not(any(
+            all(target_has_atomic = "128", target_pointer_width = "64"),
+            all(target_has_atomic = "64", target_pointer_width = "32")
+        )))]
+        const _: () = panic!("Unsupport atomic list operation");
+    }
+
+    #[allow(unused)]
+    pub fn set_atomic(&mut self, new: ListHead<Owner>) {
+        // 64 位指针被打包为 128 位整数（低 64 位存 head，高 64 位存 tail）
+        #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
+        {
+            use core::mem::transmute;
+            use core::sync::atomic::{AtomicU128, Ordering};
+
+            let ptr: *mut AtomicU128 = unsafe { transmute(self._inner.get()) };
+            let new: u128 = transmute(new);
+            unsafe { &*ptr }.store(new, Ordering::Release);
+            return;
+        }
+
+        // 32-bit pointers packed into 64-bit integer (low=head, high=tail)
+        #[cfg(all(target_has_atomic = "64", target_pointer_width = "32"))]
+        {
+            use core::mem::transmute;
+            use core::sync::atomic::{AtomicU64, Ordering};
+
+            let ptr: *mut AtomicU64 = unsafe { transmute(self.deref_mut()) };
+            let new: u64 = unsafe { transmute(new) };
+            unsafe { &*ptr }.store(new, Ordering::Release);
+            return;
+        }
+
+        #[cfg(not(any(
+            all(target_has_atomic = "128", target_pointer_width = "64"),
+            all(target_has_atomic = "64", target_pointer_width = "32")
+        )))]
+        const _: () = panic!("Unsupport atomic list operation");
+    }
+}
+
 #[derive(PartialEq, Default, Debug)]
-#[repr(C, align(4))]
+#[repr(C)]
 pub struct ListNode<Owner> {
     pub prev: Option<NonNull<ListNode<Owner>>>,
     pub next: Option<NonNull<ListNode<Owner>>>,

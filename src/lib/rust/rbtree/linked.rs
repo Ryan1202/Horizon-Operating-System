@@ -1,6 +1,6 @@
-use core::{cmp, marker::PhantomData, pin::Pin, ptr::NonNull};
+use core::{cmp, marker::PhantomData, mem::offset_of, pin::Pin, ptr::NonNull};
 
-use crate::{container_of, list_first_owner, list_owner};
+use crate::{container_of, list_owner};
 
 use super::{
     super::list::{ListHead, ListNode},
@@ -174,11 +174,12 @@ impl<'a, K: Ord + Sized, A, NA> LinkedRbTreeBase<K, A, NA> {
             }
         };
 
-        let list_head = &self.augment.list_head;
-        let first_node = match list_first_owner!(LinkedHead<K, A, NA>, list_head, list_head) {
-            Some(first_node) => {
-                container_of!(first_node, LinkedRbNodeBase<K, NA>, augment)
-            }
+        let list_head = &mut self.augment.list_head;
+        let first_node = list_head
+            .iter(offset_of!(LinkedHead<K, A, NA>, list_head))
+            .next();
+        let first_node = match first_node {
+            Some(v) => v,
             None => {
                 return RbNodeIter {
                     root,

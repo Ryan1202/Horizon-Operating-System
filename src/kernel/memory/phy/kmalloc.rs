@@ -2,15 +2,16 @@ use core::{
     ffi::c_void,
     mem::transmute,
     num::NonZeroUsize,
+    ops::DerefMut,
     ptr::{NonNull, null_mut},
 };
 
 use crate::kernel::memory::{
-    VIR_BASE_ADDR,
     phy::{
         frame::{Frame, FrameTag},
         slub::Slub,
     },
+    vir_base_addr,
 };
 
 use super::slub::config::DEFAULT_CACHES;
@@ -66,12 +67,12 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
 }
 
 pub fn kfree<T>(ptr: NonNull<T>) {
-    unsafe {
-        let phy_addr = ptr.as_ptr() as usize - VIR_BASE_ADDR;
-        let frame = Frame::from_addr(phy_addr);
+    let phy_addr = ptr.as_ptr() as usize - vir_base_addr();
+    let frame = Frame::from_addr_mut(phy_addr);
 
+    if let Some(mut frame) = frame {
         if let FrameTag::Slub = frame.get_tag() {
-            Slub::from_frame(frame).free(ptr.cast());
+            Slub::from_frame(frame.deref_mut()).free(ptr.cast());
         } else {
             // 非 Slub 分配的内存，不支持释放
             panic!("Attempt to free non-Slub allocated memory");

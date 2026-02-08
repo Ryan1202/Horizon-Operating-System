@@ -368,13 +368,13 @@ void schedule(void) {
 	// 从其他线程切回来之后，检查上一个线程是否已经结束
 	if (dead_task != NULL) {
 		size_t stack_page = (size_t)dead_task->kstack & ~(PAGE_SIZE - 1);
-		int	   result	  = kernel_free_page(stack_page, 1);
-		if (result < 0 && dead_task != main_thread) {
+		if (dead_task != main_thread && kernel_free_pages(stack_page) < 0) {
 			printk(
 				"[Memory Error] Free dead task stack page failed! "
 				"Task name:%s, pid:%d\n",
 				dead_task->name, dead_task->pid);
 		}
+
 		kfree(dead_task);
 		dead_task = NULL;
 	}

@@ -3,21 +3,28 @@
 // - 使用从 C 导入的自旋锁（见 src/include/kernel/spinlock.h）
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
-use core::{mem::ManuallyDrop, num::NonZeroU16, ops::DerefMut, ptr::NonNull};
+use core::{
+    mem::ManuallyDrop,
+    num::NonZeroU16,
+    ops::DerefMut,
+    ptr::{NonNull, with_exposed_provenance_mut},
+};
 
 use crate::{
     arch::x86::kernel::page::PAGE_SIZE,
     kernel::memory::{
-        VIR_BASE_ADDR,
+        MemoryError,
         phy::{
             frame::{
                 Frame, FrameData, FrameError, FrameTag,
                 buddy::{Buddy, FrameOrder},
                 options::{FrameAllocOptions, FrameAllocType},
+                reference::FrameMut,
                 zone::ZoneType,
             },
             slub::mem_cache::{MemCache, MemCaches},
         },
+        vir::page::options::PageAllocOptions,
     },
 };
 
@@ -52,8 +59,8 @@ pub struct SlubInner {
     inuse: u16,
     /// object总数量
     object_size: NonZeroU16,
-    /// 所属内存区域类型
-    zone_type: ZoneType,
+    // /// 所属内存区域类型
+    // zone_type: ZoneType,
 }
 
 #[repr(C)]
@@ -88,49 +95,44 @@ pub enum SlubError {
 impl Slub {
     // 通用初始化逻辑
     fn init_slab<'a>(
-        frame_options: FrameAllocOptions,
+        options: PageAllocOptions,
         object_num: NonZeroU16,
         object_size: NonZeroU16,
-    ) -> Result<NonNull<Self>, SlubError> {
+    ) -> Result<NonNull<Self>, MemoryError> {
         // 分配页
-        let (frames, zone_type) = frame_options
-            .allocate()
-            .map_err(|e| SlubError::FrameAllocationFailed(frame_options, e))?;
+        let mut pages = options.allocate()?;
+        let page_count = pages.get_count();
 
-        let start_addr = unsafe { frames.start_addr() + VIR_BASE_ADDR };
+        let start_addr = pages.start_addr().get();
         let free_nodes = unsafe {
-            (start_addr as *mut Frame)
-                .with_addr(start_addr)
-                .cast::<FreeNode>()
+            with_exposed_provenance_mut::<FreeNode>(start_addr)
                 .as_mut()
                 .unwrap()
         };
 
         FreeNode::init(free_nodes, object_num, object_size);
 
+        let first_frame = pages.get_frame().unwrap();
+
         let data = FrameData {
             slub: ManuallyDrop::new(Slub::Head(SlubInner {
                 freelist: Some(NonNull::from(free_nodes)),
                 inuse: 0,
                 object_size,
-                zone_type,
+                // ZoneType::from_address(first_frame.start_addr()),
             })),
         };
 
-        let mut frame = frames.next_frame(1);
-
         let slub = {
-            let frame = frames;
+            unsafe { first_frame.replace(FrameTag::Slub, data) };
 
-            unsafe { frame.replace(FrameTag::Slub, data) };
-
-            frame.list.get_mut().init();
-            NonNull::from(Self::from_frame(frame))
+            first_frame.list.get_mut().init();
+            NonNull::from(Self::from_frame(first_frame.deref_mut()))
         };
 
         // 填写 Frame 中的 Slub
-        for i in 1..frame_options.get_count().get() {
-            frame = frame.next_frame(1);
+        for i in 1..page_count {
+            let mut frame = first_frame.next_frame(i).unwrap();
 
             let slub_info = Slub::Body { offset: i as u8 };
 
@@ -148,43 +150,29 @@ impl Slub {
     }
 
     pub fn new(
-        frame_options: FrameAllocOptions,
+        options: PageAllocOptions,
         object_size: ObjectSize,
         object_num: NonZeroU16,
-    ) -> Result<NonNull<Self>, SlubError> {
-        Self::init_slab(frame_options, object_num, object_size.0)
+    ) -> Result<NonNull<Self>, MemoryError> {
+        Self::init_slab(options, object_num, object_size.0)
     }
 
-    pub fn destroy(&mut self, cache_info: &MemCache) -> Result<(), SlubError> {
-        let alloc_type = cache_info.frame_options.get_type();
+    pub fn destroy(mut frame: FrameMut, cache_info: &MemCache) {
+        assert!(matches!(frame.get_tag(), FrameTag::Slub));
+
+        let alloc_type = cache_info.options.frame.get_type();
         let order = if let FrameAllocType::Dynamic { order } = alloc_type {
             *order
         } else {
             unreachable!("Slub cache should always use dynamic frame allocation!");
         };
 
-        let frame = Frame::from_child(self);
-
         unsafe {
-            frame.replace(
-                FrameTag::Buddy,
-                FrameData {
-                    buddy: ManuallyDrop::new(Buddy {
-                        order,
-                        zone_type: ZoneType::from_address(frame.start_addr()),
-                    }),
-                },
-            )
-        };
+            let zone_type = ZoneType::from_address(frame.start_addr());
+            let buddy = ManuallyDrop::new(Buddy { order, zone_type });
 
-        frame.free().map_err(|e| match e {
-            FrameError::IncorrectFrameType => {
-                SlubError::IncorrectAddressToFree(NonNull::from(frame))
-            }
-            FrameError::OutOfFrames => {
-                SlubError::FrameAllocationFailed(cache_info.frame_options, e)
-            }
-        })
+            frame.replace(FrameTag::Allocated, FrameData { buddy });
+        }
     }
 
     #[inline]
@@ -193,7 +181,8 @@ impl Slub {
         match self {
             Slub::Head(head) => head.free(obj),
             Slub::Body { offset } => {
-                let head = Self::from_frame(frame.prev_frame(*offset as usize));
+                let mut head = frame.prev_frame(*offset as usize).unwrap();
+                let head = Self::from_frame(head.deref_mut());
                 if let Slub::Head(head) = head {
                     head.free(obj);
                 } else {

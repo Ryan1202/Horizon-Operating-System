@@ -147,7 +147,8 @@ void test_large_page_allocs(void) {
 		if (i >= HUGE_PAGE_CNT) {
 			struct mem_record *old = &pages[i % HUGE_PAGE_CNT];
 			if (old->ptr) {
-				kernel_free_page((int)old->ptr, old->page_cnt); // 关键修改点
+				kernel_free_pages(
+					(int)old->ptr /*, old->page_cnt*/); // 关键修改点
 				old->ptr = NULL;
 			}
 		}
@@ -156,7 +157,7 @@ void test_large_page_allocs(void) {
 	// 清理残留页
 	for (int i = 0; i < HUGE_PAGE_CNT; i++) {
 		if (pages[i].ptr) {
-			kernel_free_page((int)pages[i].ptr, pages[i].page_cnt);
+			kernel_free_pages((int)pages[i].ptr /*, pages[i].page_cnt*/);
 		}
 	}
 

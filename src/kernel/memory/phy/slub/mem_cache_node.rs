@@ -1,9 +1,12 @@
 use core::{mem::offset_of, num::NonZeroU16, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
-    kernel::memory::phy::{
-        frame::{Frame, FrameNumber, FrameTag, frame_align_down, options::FrameAllocOptions},
-        slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
+    kernel::memory::{
+        phy::{
+            frame::{Frame, FrameNumber, FrameTag, frame_align_down},
+            slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
+        },
+        vir::page::options::PageAllocOptions,
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
 };
@@ -48,11 +51,12 @@ impl MemCacheNode {
     }
 
     /// 创建一个Slub存放自身，作为 MemCacheNode 类型的 MemCache 的一个节点
-    pub(super) fn bootstrap(frame_options: &mut FrameAllocOptions) -> NonNull<Self> {
+    pub(super) fn bootstrap(mut options: PageAllocOptions) -> NonNull<Self> {
         let (object_size, object_num, order) = calculate_sizes(Self::OBJECT_SIZE).unwrap();
 
-        *frame_options = frame_options.dynamic(order);
-        let mut slub = Slub::new(*frame_options, object_size, object_num).unwrap();
+        options.frame = options.frame.dynamic(order);
+
+        let mut slub = Slub::new(options, object_size, object_num).unwrap();
 
         unsafe {
             let _slub = slub.as_mut();
@@ -71,30 +75,30 @@ impl MemCacheNode {
 
     /// 从已创建的 MemCacheNode 创建 "mem_cache_node" 的 MemCache
     pub fn bootstrap_cache(
-        ptr: NonNull<Self>,
+        mem_cache_node: NonNull<Self>,
         mem_cache: &mut MemCache,
-        frame_options: FrameAllocOptions,
+        options: PageAllocOptions,
     ) -> NonNull<MemCache> {
         const NAME: *const u8 = b"mem_cache_node\0".as_ptr();
 
-        mem_cache.new_boot_from_node(NAME, ptr, Self::OBJECT_SIZE, frame_options)
+        mem_cache.new_boot_from_node(NAME, mem_cache_node, Self::OBJECT_SIZE, options)
     }
 
     // 从分配 MemCacheNode 的 Node 中分配用于其他类型的 MemCacheNode 对象
     pub fn new(
         &mut self,
         object_size: NonZeroU16,
-        frame_options: FrameAllocOptions,
+        options: &mut PageAllocOptions,
     ) -> Option<NonNull<MemCacheNode>> {
         let (object_size, object_num, order) =
             calculate_sizes(NonZeroU16::new(object_size.get())?).unwrap();
 
-        let frame_options = frame_options.dynamic(order);
+        options.frame = options.frame.dynamic(order);
 
-        let mut result = self.allocate::<MemCacheNode>(frame_options)?;
+        let mut result = self.allocate::<MemCacheNode>(*options)?;
 
         unsafe {
-            let slub = Slub::new(frame_options, object_size, object_num).ok()?;
+            let slub = Slub::new(*options, object_size, object_num).ok()?;
 
             result.as_mut().init(object_size, object_num, Some(slub));
         }
@@ -107,12 +111,12 @@ impl MemCacheNode {
     /// 默认从`partial_list`中分配对象，若未分配到则尝试创建一个新的`Slub`并从中分配
     ///
     /// 新的`Slub`分配失败时返回`None`
-    pub fn allocate<T>(&mut self, frame_options: FrameAllocOptions) -> Option<NonNull<T>> {
+    pub fn allocate<T>(&mut self, options: PageAllocOptions) -> Option<NonNull<T>> {
         if !self.partial_list.get_atomic_snapshot().is_empty() {
             let mut partial_list = self.partial_list.lock();
 
-            for frame in partial_list.iter(offset_of!(Frame, list)) {
-                if let Slub::Head(head) = Slub::from_frame(frame) {
+            for mut frame in partial_list.iter(offset_of!(Frame, list)) {
+                if let Slub::Head(head) = Slub::from_frame(unsafe { frame.as_mut() }) {
                     if let Some(obj) = head.allocate::<T>() {
                         return Some(obj);
                     }
@@ -123,7 +127,7 @@ impl MemCacheNode {
         }
 
         // 从partial_list中没有分配到，创建一个新的Slub
-        let mut new_slub = Slub::new(frame_options, self.object_size, self.object_num).ok()?;
+        let mut new_slub = Slub::new(options, self.object_size, self.object_num).ok()?;
 
         let new_slub = unsafe { new_slub.as_mut() };
         if let Slub::Head(new_head) = new_slub {
@@ -143,15 +147,15 @@ impl MemCacheNode {
     pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
         // 先找到所在页的 Frame 结构，再从其中取出 Slub 地址
         let frame_number = FrameNumber::from_addr(frame_align_down(obj.addr().get()));
-        let frame = Frame::from_frame_number(frame_number);
+        let mut frame = Frame::get_mut(frame_number)?;
 
         if let FrameTag::Slub = frame.get_tag() {
-            let slub = Slub::from_frame(frame);
+            let slub = Slub::from_frame(frame.deref_mut());
             match slub {
                 Slub::Body { offset } => {
                     // 如果是Body就重新定位到Head
-                    let head = Frame::from_frame_number(frame_number - *offset as usize);
-                    let head = Slub::from_frame(head);
+                    let mut head = Frame::get_mut(frame_number - *offset as usize)?;
+                    let head = Slub::from_frame(head.deref_mut());
                     if let Slub::Head(head) = head {
                         head.free(obj);
                     } else {

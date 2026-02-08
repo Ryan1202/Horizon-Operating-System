@@ -1,6 +1,7 @@
 use core::{
     ffi::c_void,
     fmt::{Arguments, Write},
+    ptr::addr_of,
 };
 
 use crate::{ConsoleOutput, kernel::memory::phy::frame::FrameError};
@@ -13,7 +14,12 @@ unsafe extern "C" {
     static VIR_BASE: *const c_void;
 }
 
-pub static mut VIR_BASE_ADDR: usize = 0;
+#[inline(always)]
+pub fn vir_base_addr() -> usize {
+    addr_of!(VIR_BASE) as usize
+}
+
+const KLINEAR_SIZE: usize = 0x2000_0000;
 
 unsafe extern "C" {
     fn page_link(vaddr: usize, paddr: usize, page_count: u16, cache_type: PageCacheType) -> bool;
@@ -31,11 +37,12 @@ pub enum PageCacheType {
     UncachedMinus = 4,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MemoryError {
     OutOfMemory,
     AddressConflict,
-    DoubleRelease,
+    MultipleFree,
+    InvalidAddress(usize),
     InvalidSize(usize),
     FrameError(FrameError),
 }

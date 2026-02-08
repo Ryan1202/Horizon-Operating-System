@@ -1,20 +1,22 @@
 use core::{
     cell::SyncUnsafeCell,
+    fmt::Display,
     mem::{self, ManuallyDrop},
     ops::{Add, Sub},
     ptr::NonNull,
+    sync::atomic::AtomicUsize,
 };
 
 use crate::{
     CACHELINE_SIZE,
     arch::x86::kernel::page::{PAGE_SIZE, PageLevelEntry},
     kernel::memory::{
-        VIR_BASE, VIR_BASE_ADDR,
         page::PageTableEntry,
         phy::{
             E820Ards, PREALLOCATED_END_PHY,
             frame::{
                 buddy::{Buddy, BuddyAllocator, FrameOrder},
+                reference::{FrameMut, FrameRc, FrameRef},
                 zone::ZoneType,
             },
             slub::Slub,
@@ -25,6 +27,7 @@ use crate::{
 
 pub mod buddy;
 pub mod options;
+pub mod reference;
 pub mod zone;
 
 #[cfg(target_pointer_width = "32")]
@@ -32,10 +35,11 @@ const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
 #[cfg(target_pointer_width = "64")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FrameError {
     IncorrectFrameType,
     OutOfFrames,
+    Conflict,
 }
 
 #[repr(transparent)]
@@ -64,6 +68,12 @@ impl FrameNumber {
     }
 }
 
+impl Display for FrameNumber {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "FrameNumber {}", self.0)
+    }
+}
+
 impl Add<usize> for FrameNumber {
     type Output = FrameNumber;
 
@@ -80,7 +90,7 @@ impl Sub<usize> for FrameNumber {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct FrameRange {
     pub start: FrameNumber,
@@ -91,8 +101,10 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "32", repr(align(32)))]
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
-    // list 在前，8/16字节对齐
+    // list 和 xxcount 在前，方便对齐
     pub(super) list: SyncUnsafeCell<ListNode<Frame>>,
+    refcount: FrameRc,
+    mapcount: AtomicUsize,
     // 其他字段在后
     data: SyncUnsafeCell<FrameData>,
     tag: SyncUnsafeCell<FrameTag>,
@@ -105,7 +117,7 @@ pub union FrameData {
     pub range: ManuallyDrop<FrameRange>,
     pub buddy: ManuallyDrop<Buddy>,
     pub slub: ManuallyDrop<Slub>,
-    pub vmalloc: ManuallyDrop<(FrameRange, Option<NonNull<Frame>>)>,
+    pub pagelist: ManuallyDrop<(FrameOrder, Option<FrameMut>)>,
 }
 
 #[repr(u8)]
@@ -117,12 +129,11 @@ pub enum FrameTag {
     SystemReserved = 2,
     /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
     Free = 3,
-    /// `Allocated` 用于标识该组页已被分配，但没有标识类型，需要搭配range使用
+    /// `Allocated` 用于标识该组页已被分配，但没有标识类型，仍使用 buddy 数据
     Allocated = 4,
     Buddy = 5,
     Slub = 6,
     Io = 7,
-    Vmalloc = 8,
 }
 
 const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
@@ -131,7 +142,7 @@ pub const FRAME_INFO_COUNT: usize = 1 << 20;
 const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
 
 /// Buddy 分配器的虚拟地址存储位置
-static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
+pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn page_early_init(
@@ -144,8 +155,6 @@ pub unsafe extern "C" fn page_early_init(
         // 都向后对齐到页
         // 只是为了看着稍微舒服一点
         PREALLOCATED_END_PHY = frame_align_up(PREALLOCATED_END_PHY.max(kernel_end));
-
-        VIR_BASE_ADDR = &VIR_BASE as *const _ as usize;
 
         Frame::init(blocks, block_count, (kernel_start, PREALLOCATED_END_PHY));
     }
@@ -166,13 +175,13 @@ pub unsafe extern "C" fn early_allocate_pages(count: u8) -> usize {
     }
 }
 
-pub static mut FRAMES: [Frame; PageLevelEntry::MAX + 1] = unsafe { mem::zeroed() };
+pub static FRAMES: [Frame; PageLevelEntry::MAX + 1] = unsafe { mem::zeroed() };
 
 /// 启动阶段的初始化函数，仅可在单线程环境使用
 impl Frame {
     /// 填充 [start, end] 范围的Page
     fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
-        let frame = Self::from_frame_number(start);
+        let mut frame = Self::get_mut(start).unwrap();
         let range = FrameRange { start, end };
         let data = FrameData {
             range: ManuallyDrop::new(range),
@@ -236,10 +245,6 @@ impl Frame {
 
         PAGE_INFO_SIZE
     }
-
-    pub fn free(&mut self) -> Result<(), FrameError> {
-        FRAME_MANAGER.free(self)
-    }
 }
 
 impl Frame {
@@ -249,6 +254,10 @@ impl Frame {
 
     pub fn set_tag(&mut self, tag: FrameTag) {
         *self.tag.get_mut() = tag;
+    }
+
+    pub fn get_data(&self) -> &FrameData {
+        unsafe { &*self.data.get() }
     }
 
     pub fn get_data_mut(&mut self) -> &mut FrameData {
@@ -278,9 +287,6 @@ impl Frame {
                 FrameTag::Slub => {
                     ManuallyDrop::drop(&mut _data.slub);
                 }
-                FrameTag::Vmalloc => {
-                    ManuallyDrop::drop(&mut _data.vmalloc);
-                }
                 FrameTag::Unused => {}
             }
         }
@@ -292,16 +298,36 @@ impl Frame {
 
 /// 工具函数实现
 impl Frame {
-    #[inline(always)]
-    pub fn from_frame_number<'a>(frame_number: FrameNumber) -> &'a mut Frame {
+    pub fn get_tag_relaxed(frame_number: FrameNumber) -> FrameTag {
         assert!(frame_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
-        unsafe { &mut FRAMES[frame_number.0] }
+        FRAMES[frame_number.0].get_tag()
     }
 
     #[inline(always)]
-    pub unsafe fn from_addr<'a>(addr: usize) -> &'a mut Frame {
+    pub fn get(frame_number: FrameNumber) -> Option<FrameRef> {
+        FrameRef::new(Self::get_raw(frame_number))
+    }
+
+    #[inline(always)]
+    pub fn get_mut(frame_number: FrameNumber) -> Option<FrameMut> {
+        FrameMut::new(Self::get_raw(frame_number))
+    }
+
+    pub const fn get_raw(frame_number: FrameNumber) -> NonNull<Frame> {
+        assert!(frame_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
+        NonNull::from_ref(&FRAMES[frame_number.0])
+    }
+
+    #[inline(always)]
+    pub fn from_addr<'a>(addr: usize) -> Option<FrameRef> {
         let page_num = FrameNumber::from_addr(addr);
-        Frame::from_frame_number(page_num)
+        Frame::get(page_num)
+    }
+
+    #[inline(always)]
+    pub fn from_addr_mut<'a>(addr: usize) -> Option<FrameMut> {
+        let page_num = FrameNumber::from_addr(addr);
+        Frame::get_mut(page_num)
     }
 
     pub const fn start_addr(&self) -> usize {
@@ -314,7 +340,7 @@ impl Frame {
     pub fn from_child<'a, T>(child: &'a mut T) -> &'a mut Frame {
         let addr = child as *mut T;
         assert!(addr.addr() >= &raw const FRAMES as usize);
-        let max = unsafe { (&raw const FRAMES[PageLevelEntry::MAX]) as usize };
+        let max = (&raw const FRAMES[PageLevelEntry::MAX]) as usize;
         assert!(addr.addr() < max + size_of::<Frame>());
         unsafe {
             addr.map_addr(|v| v & !(align_of::<Self>() - 1))
@@ -324,19 +350,19 @@ impl Frame {
         }
     }
 
-    pub fn prev_frame<'a>(&self, count: usize) -> &'a mut Frame {
-        assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
-        let addr = unsafe { (self as *const Frame as *mut Frame).sub(count) };
-        assert!(addr.addr() >= &raw const FRAMES as usize);
-        unsafe { addr.as_mut().unwrap() }
+    pub fn to_frame_number(&self) -> FrameNumber {
+        let frame_number = unsafe {
+            (self as *const Frame).offset_from((&raw const FRAMES) as *const Frame) as usize
+        };
+        FrameNumber::new(frame_number)
     }
 
-    pub fn next_frame<'a>(&self, count: usize) -> &'a mut Frame {
-        assert!(count <= usize::MAX as usize / PAGE_SIZE + 1);
-        let addr = unsafe { (self as *const Frame as *mut Frame).add(count) };
-        let max = unsafe { (&raw const FRAMES[PageLevelEntry::MAX]) as usize };
-        assert!(addr.addr() <= max);
-        unsafe { addr.as_mut().unwrap() }
+    pub fn prev_frame(&mut self, count: usize) -> Option<FrameMut> {
+        Frame::get_mut(self.to_frame_number() - count)
+    }
+
+    pub fn next_frame(&mut self, count: usize) -> Option<FrameMut> {
+        Frame::get_mut(self.to_frame_number() + count)
     }
 }
 
@@ -353,8 +379,8 @@ pub const fn frame_count(size: usize) -> usize {
 }
 
 pub trait FrameAllocator {
-    fn allocate<'a>(&self, zone_type: ZoneType, order: FrameOrder) -> Option<&'a mut Frame>;
-    fn free(&self, page: &mut Frame) -> Result<(), FrameError>;
+    fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<FrameMut>;
+    fn free(&self, page: &mut Frame) -> Result<usize, FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     fn assign(&self, start: FrameNumber, len: usize) -> Result<(), FrameError>;
 }
@@ -367,10 +393,11 @@ pub extern "C" fn allocate_frames_c(zone_type: ZoneType, order: FrameOrder) -> u
 }
 
 #[unsafe(export_name = "free_frames")]
-pub extern "C" fn free_frames_c(paddr: usize) -> i8 {
-    let frame = unsafe { Frame::from_addr(paddr) };
-    match frame.free() {
-        Ok(_) => 0,
+pub extern "C" fn free_frames_c(paddr: usize) -> isize {
+    let frame = unsafe { Frame::get_raw(FrameNumber::from_addr(paddr)).as_mut() };
+
+    match FRAME_MANAGER.free(frame) {
+        Ok(count) => count as isize,
         Err(_) => -1,
     }
 }

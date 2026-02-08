@@ -2,6 +2,7 @@ use core::num::NonZeroUsize;
 
 use crate::kernel::memory::phy::frame::{
     FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
+    reference::FrameMut,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -61,7 +62,7 @@ impl FrameAllocOptions {
         }
     }
 
-    pub fn alloc_once(&self) -> Result<(&mut Frame, ZoneType), FrameError> {
+    pub fn try_alloc(&self) -> Result<(FrameMut, ZoneType), FrameError> {
         for &zone_type in self.fallback.chain.iter().flatten() {
             if let Ok(frame) = self.alloc_type.allocate(zone_type) {
                 return Ok(frame);
@@ -70,12 +71,12 @@ impl FrameAllocOptions {
         Err(FrameError::OutOfFrames)
     }
 
-    pub fn allocate(&self) -> Result<(&mut Frame, ZoneType), FrameError> {
-        self.alloc_once().or_else(|e| match self.retry {
+    pub fn allocate(&self) -> Result<(FrameMut, ZoneType), FrameError> {
+        self.try_alloc().or_else(|e| match self.retry {
             RetryPolicy::FastFail => Err(e),
             RetryPolicy::Retry(n) => {
                 for _ in 0..n {
-                    if let Ok(frame) = self.alloc_once() {
+                    if let Ok(frame) = self.allocate() {
                         return Ok(frame);
                     }
                 }
@@ -108,18 +109,20 @@ pub enum FrameAllocType {
 }
 
 impl FrameAllocType {
-    fn allocate(&self, zone: ZoneType) -> Result<(&mut Frame, ZoneType), FrameError> {
+    fn allocate(&self, zone: ZoneType) -> Result<(FrameMut, ZoneType), FrameError> {
         match self {
             Self::Dynamic { order } => FRAME_MANAGER
                 .allocate(zone, *order)
                 .map(|f| (f, zone))
                 .ok_or(FrameError::OutOfFrames),
-            Self::Static { start, count } => FRAME_MANAGER.assign(*start, count.get()).map(|_| {
-                (
-                    Frame::from_frame_number(*start),
-                    ZoneType::from_address(start.get()),
-                )
-            }),
+            Self::Static { start, count } => {
+                FRAME_MANAGER.assign(*start, count.get()).and_then(|_| {
+                    Ok((
+                        Frame::get_mut(*start).ok_or(FrameError::Conflict)?,
+                        ZoneType::from_address(start.get()),
+                    ))
+                })
+            }
         }
     }
 }
