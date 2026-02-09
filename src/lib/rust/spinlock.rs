@@ -5,12 +5,12 @@
 //! 对于简单的 `volatile int` 版本和调试用的 `struct { int lock; ... }`
 //! 版本均兼容（两者的首字段都是锁字）。
 
-use core::cell::{SyncUnsafeCell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::ffi::c_int;
 use core::hint::spin_loop;
 use core::ops::{Deref, DerefMut};
-use core::ptr::{NonNull, write};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::ptr::NonNull;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 unsafe extern "C" {
     // 架构相关的辅助函数在其他地方提供（C/汇编）。
@@ -23,8 +23,8 @@ pub struct CSpinlock {
 }
 
 impl CSpinlock {
-    pub unsafe fn from_ptr(ptr: *mut CSpinlock) -> Option<Self> {
-        NonNull::new(ptr).map(|nn_ptr| CSpinlock { ptr: nn_ptr.cast() })
+    pub unsafe fn from_ptr(ptr: *mut SpinlockRaw) -> Option<Self> {
+        NonNull::new(ptr).map(|ptr| CSpinlock { ptr })
     }
 }
 
@@ -43,21 +43,21 @@ impl Deref for CSpinlock {
 #[repr(transparent)]
 pub struct SpinlockRaw {
     // lock word must be first to preserve C compatibility
-    lock: AtomicBool,
+    lock: AtomicU32,
 }
 
 impl SpinlockRaw {
     /// 创建一个未加锁的自旋锁值（适用于静态初始化，例如 `Spinlock { lock: 0 }`）。
     pub const fn new_unlocked() -> Self {
         SpinlockRaw {
-            lock: AtomicBool::new(false),
+            lock: AtomicU32::new(0),
         }
     }
 
     /// 创建一个已加锁的自旋锁初始值。
     pub const fn new_locked() -> Self {
         SpinlockRaw {
-            lock: AtomicBool::new(true),
+            lock: AtomicU32::new(1),
         }
     }
 
@@ -70,7 +70,7 @@ impl SpinlockRaw {
     pub fn try_lock(&self) -> c_int {
         match self
             .lock
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
         {
             Ok(_) => 1,
             Err(_) => 0,
@@ -83,12 +83,12 @@ impl SpinlockRaw {
         // 在看到为未加锁时再尝试通过弱 CAS 获取锁。弱 CAS 允许虚假失败，
         // 因此放在循环中是合理且高效的。
         loop {
-            while self.lock.load(Ordering::Relaxed) == true {
+            while self.lock.load(Ordering::Relaxed) != 0 {
                 spin_loop();
             }
             if self
                 .lock
-                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
             {
                 return;
@@ -99,7 +99,7 @@ impl SpinlockRaw {
     #[inline]
     pub fn unlock(&self) {
         // 使用 Release 语义确保在释放锁之前的写对后续获取者可见
-        self.lock.store(false, Ordering::Release);
+        self.lock.store(0, Ordering::Release);
     }
 
     #[inline]

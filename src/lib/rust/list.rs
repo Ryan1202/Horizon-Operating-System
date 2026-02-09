@@ -2,30 +2,20 @@
 
 use core::{
     marker::{PhantomData, PhantomPinned},
+    mem::transmute,
     ops::{Deref, DerefMut},
     pin::Pin,
     ptr::NonNull,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
-use super::spinlock::Spinlock;
+use crate::lib::rust::spinlock::SpinGuard;
 
 #[macro_export]
 macro_rules! list_owner {
     ($var:ident, $container:ty, $field:ident) => {{ $crate::container_of!($var.cast::<ListNode<$container>>(), $container, $field) }};
 }
 
-// 当目标支持宽原子并需要对齐时，通过 cfg_attr 在类型上强制对齐：
-// - 在 64 位目标且支持 128-bit atomics 时，要求 16 字节对齐以匹配 AtomicU128。
-// - 在 32 位目标且支持 64-bit atomics 时，要求 8 字节对齐以匹配 AtomicU64。
-// 这样可以在编译期保证对齐，从而避免运行时的对齐检查和回退。
-#[cfg_attr(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    repr(align(16))
-)]
-#[cfg_attr(
-    all(target_has_atomic = "64", target_pointer_width = "32"),
-    repr(align(8))
-)]
 #[derive(PartialEq, Debug)]
 #[repr(C)]
 pub struct ListHead<Owner> {
@@ -123,88 +113,10 @@ impl<Owner> Iterator for ListIterator<Owner> {
     }
 }
 
-// 专门为包含 `ListHead` 的 `Spinlock` 提供的辅助方法：尝试在支持的
-// 平台上使用一次宽原子加载来原子性地获取 ListHead 的快照。
-// 如果目标平台不支持所需的原子宽度或者 `ListHead` 的对齐不满足要求，
-// 则回落为加锁读取以保证一致性。
-impl<Owner> Spinlock<ListHead<Owner>> {
-    /// 尝试以一致的方式读取 `ListHead { head, tail }` 的快照，返回
-    /// 一对 `Option<NonNull<ListNode<Owner>>>`（head, tail）。
-    ///
-    /// 成功时返回 `ListHead { head, tail }`快照（可能通过原子加载或通过加锁回退），
-    /// 在走原子路径时本函数不会阻塞；否则会获取锁以安全读取。
-    #[allow(unused)]
-    pub fn get_atomic_snapshot(&mut self) -> ListHead<Owner> {
-        // 注意：下面的导入放在 cfg 分支中，以避免在某些目标上出现
-        // “未使用的导入”警告。
-        // 64 位指针被打包为 128 位整数
-        #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::AtomicU128;
-
-            let ptr: *mut AtomicU128 = unsafe { transmute(self._inner.get()) };
-
-            let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
-
-            return unsafe { transmute::<u128, ListHead<Owner>>(v) };
-        }
-
-        // 32 位指针被打包为 64-bit 位整数
-        #[cfg(all(target_has_atomic = "64", target_pointer_width = "32"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::AtomicU64;
-
-            let ptr: *mut AtomicU64 = unsafe { transmute(self._inner.get()) };
-
-            let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
-
-            return unsafe { transmute::<u64, ListHead<Owner>>(v) };
-        }
-
-        // 回退：对于不支持相应原子操作的平台，使用自旋锁来获取
-        {
-            let guard = self.lock();
-            let snapshot = *guard; // ListHead is Copy
-
-            snapshot
-        }
-    }
-
-    #[allow(unused)]
-    pub fn set_atomic(&mut self, new: ListHead<Owner>) {
-        // 64 位指针被打包为 128 位整数（低 64 位存 head，高 64 位存 tail）
-        #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::{AtomicU128, Ordering};
-
-            let ptr: *mut AtomicU128 = unsafe { transmute(self._inner.get()) };
-            let new: u128 = transmute(new);
-            unsafe { &*ptr }.store(new, Ordering::Release);
-            return;
-        }
-
-        // 32-bit pointers packed into 64-bit integer (low=head, high=tail)
-        #[cfg(all(target_has_atomic = "64", target_pointer_width = "32"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::{AtomicU64, Ordering};
-
-            let ptr: *mut AtomicU64 = unsafe { transmute(self._inner.get()) };
-            let new: u64 = unsafe { transmute(new) };
-            unsafe { &*ptr }.store(new, Ordering::Release);
-            return;
-        }
-
-        {
-            let mut guard = self.lock();
-            *guard = new;
-        }
-    }
-}
-
+#[cfg(any(
+    all(target_has_atomic = "128", target_pointer_width = "64"),
+    all(target_has_atomic = "64", target_pointer_width = "32")
+))]
 #[cfg_attr(
     all(target_has_atomic = "128", target_pointer_width = "64"),
     repr(align(16))
@@ -232,13 +144,13 @@ impl<Owner> DerefMut for AtomicListNode<Owner> {
 }
 
 impl<Owner> AtomicListNode<Owner> {
-    /// 尝试以一致的方式读取 `ListHead { head, tail }` 的快照，返回
+    /// 尝试以一致的方式读取 `ListNode { head, tail }` 的快照，返回
     /// 一对 `Option<NonNull<ListNode<Owner>>>`（head, tail）。
     ///
-    /// 成功时返回 `ListHead { head, tail }`快照（可能通过原子加载或通过加锁回退），
+    /// 成功时返回 `ListNode { head, tail }`快照（可能通过原子加载或通过加锁回退），
     /// 在走原子路径时本函数不会阻塞；否则会获取锁以安全读取。
     #[allow(unused)]
-    pub fn get_atomic_snapshot(&mut self) -> ListHead<Owner> {
+    fn get_atomic_snapshot(&mut self) -> ListNode<Owner> {
         // 注意：下面的导入放在 cfg 分支中，以避免在某些目标上出现
         // “未使用的导入”警告。
         // 64 位指针被打包为 128 位整数
@@ -247,11 +159,11 @@ impl<Owner> AtomicListNode<Owner> {
             use core::mem::transmute;
             use core::sync::atomic::AtomicU128;
 
-            let ptr: *mut AtomicU128 = unsafe { transmute(self._inner.get()) };
+            let ptr: *mut AtomicU128 = unsafe { transmute(self.inner.get()) };
 
             let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
 
-            return unsafe { transmute::<u128, ListHead<Owner>>(v) };
+            return unsafe { transmute::<u128, ListNode<Owner>>(v) };
         }
 
         // 32 位指针被打包为 64-bit 位整数
@@ -264,25 +176,19 @@ impl<Owner> AtomicListNode<Owner> {
 
             let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
 
-            return unsafe { transmute::<u64, ListHead<Owner>>(v) };
+            return unsafe { transmute::<u64, ListNode<Owner>>(v) };
         }
-
-        #[cfg(not(any(
-            all(target_has_atomic = "128", target_pointer_width = "64"),
-            all(target_has_atomic = "64", target_pointer_width = "32")
-        )))]
-        const _: () = panic!("Unsupport atomic list operation");
     }
 
     #[allow(unused)]
-    pub fn set_atomic(&mut self, new: ListHead<Owner>) {
+    fn set_atomic(&mut self, new: ListHead<Owner>) {
         // 64 位指针被打包为 128 位整数（低 64 位存 head，高 64 位存 tail）
         #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
         {
             use core::mem::transmute;
             use core::sync::atomic::{AtomicU128, Ordering};
 
-            let ptr: *mut AtomicU128 = unsafe { transmute(self._inner.get()) };
+            let ptr: *mut AtomicU128 = unsafe { transmute(self.inner.get()) };
             let new: u128 = transmute(new);
             unsafe { &*ptr }.store(new, Ordering::Release);
             return;
@@ -299,12 +205,6 @@ impl<Owner> AtomicListNode<Owner> {
             unsafe { &*ptr }.store(new, Ordering::Release);
             return;
         }
-
-        #[cfg(not(any(
-            all(target_has_atomic = "128", target_pointer_width = "64"),
-            all(target_has_atomic = "64", target_pointer_width = "32")
-        )))]
-        const _: () = panic!("Unsupport atomic list operation");
     }
 }
 

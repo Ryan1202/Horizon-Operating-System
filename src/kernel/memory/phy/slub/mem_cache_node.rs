@@ -112,7 +112,7 @@ impl MemCacheNode {
     ///
     /// 新的`Slub`分配失败时返回`None`
     pub fn allocate<T>(&mut self, options: PageAllocOptions) -> Option<NonNull<T>> {
-        if !self.partial_list.get_atomic_snapshot().is_empty() {
+        if !self.partial_list.get_relaxed().is_empty() {
             let mut partial_list = self.partial_list.lock();
 
             for mut frame in partial_list.iter(offset_of!(Frame, list)) {
