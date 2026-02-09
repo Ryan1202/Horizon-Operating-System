@@ -9,7 +9,6 @@
     "linker": "rust-lld",
     "linker-flavor": "gnu-lld",
     "llvm-target": "i686-unknown-none-elf",
-    "max-atomic-width": 32,
     "metadata": {
         "description": "Freestanding/bare-metal x86 softfloat",
         "host_tools": false,
@@ -29,5 +28,6 @@
         "kcfi",
         "kernel-address"
     ],
+    "max-atomic-width": 64,
     "target-pointer-width": 32
 }

@@ -4,7 +4,7 @@
 #include <objects/object.h>
 
 ObjectHandle *object_handle_create(Object *object) {
-	ObjectHandle *handle = kmalloc(sizeof(ObjectHandle));
+	ObjectHandle *handle = kzalloc(sizeof(ObjectHandle));
 	if (handle == NULL) return NULL;
 	handle->object		= object;
 	handle->buf			= NULL;

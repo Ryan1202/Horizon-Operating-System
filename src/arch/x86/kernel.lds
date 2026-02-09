@@ -1,34 +1,43 @@
 OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
 OUTPUT_ARCH(i386)
-ENTRY(_start) /* start is at boot/xxx/xxx.S */
+ENTRY(_start) /* _start is at arch/x86/multiboot2/multiboot2.asm */
 
 PHDRS
 {
+    text_phy PT_LOAD FLAGS(5); /* R_E: 可读 + 可执行 */
     text PT_LOAD FLAGS(5); /* R_E: 可读 + 可执行 */
     data PT_LOAD FLAGS(6); /* R_W: 可读 + 可写 */
 }
 
-SECTIONS {
-    /* Load the kernel at this address: "." means the current address */
-    /*
-    if use lower addr: . = 0x00100000;
-    or not use high addr: . = 0x80100000;
-    */
-    . = 0x00100000;
+VIR_BASE = 0xC0000000;
+KERNEL_PHY_BASE = 0x00100000;
 
-    .multiboot2_header ALIGN(8) : {
-        KEEP(*(.multiboot2_header))
-    } : text
+SECTIONS {
+    . = KERNEL_PHY_BASE;
+    _kernel_start_phy = .;
+    _kernel_start_vir = VIR_BASE + KERNEL_PHY_BASE;
+
+    /* multiboot2位置要尽量靠前 */
+    .multiboot2 ALIGN(8) : {
+        KEEP(*(.multiboot2))
+    } : text_phy
+
+    /* early_init需要在物理地址上进行 */
+    .early_init : {
+        KEEP(*(.early_init))
+    } : text_phy
     
+    . = . + VIR_BASE;
+
     /* code segment */
-    .text : {
+    .text : AT(ADDR(.text) - VIR_BASE) {
         . = ALIGN(4);   /* 4 bytes align */
-        *(.text)
+        *(.text*)
         *(.init.text)
 		*(.exit.text)
     } : text
 
-    .initcall ALIGN(8) :
+    .initcall ALIGN(8) : AT(ADDR(.initcall) - VIR_BASE)
 	{
 		PROVIDE(__initcall_start = .);
 		KEEP(*(.initcall_0.text))
@@ -36,7 +45,7 @@ SECTIONS {
 		PROVIDE(__initcall_end = .);
 	} : text
 
-	.exitcall ALIGN(8) :
+	.exitcall ALIGN(8) : AT(ADDR(.exitcall) - VIR_BASE)
 	{
 		PROVIDE(__exitcall_start = .);
 		KEEP(*(.exitcall_0.text))
@@ -44,24 +53,32 @@ SECTIONS {
 		PROVIDE(__exitcall_end = .);
 	} : text
 
-    .percpu ALIGN(64) :
+    .data..percpu ALIGN(64) : AT(ADDR(.data..percpu) - VIR_BASE)
     {
         . = ALIGN(64);
         PROVIDE(__percpu_start = .);
-        *(.percpu)
+        *(.data..percpu)
         . = ALIGN(64);
         PROVIDE(__percpu_end = .);
     } : data
 
+    .rodata : AT(ADDR(.rodata) - VIR_BASE) {
+        . = ALIGN(4);   /* 4 bytes align */
+        *(.rodata*)
+    } : data
+
     /* data segment */
-    .data : {
+    .data : AT(ADDR(.data) - VIR_BASE) {
         . = ALIGN(4);   /* 4 bytes align */
         *(.data)
     } : data
 
     /* bss segement */
-    .bss : {
+    .bss : AT(ADDR(.bss) - VIR_BASE) {
         . = ALIGN(4);   /* 4 bytes align */
-        *(.bss)
+        *(.bss*)
     } : data
+
+    _kernel_end_vir = .;
+    _kernel_end_phy = _kernel_end_vir - VIR_BASE;
 }

@@ -58,13 +58,16 @@ struct memory_manage {
 	struct memory_block free_blocks[MEMORY_BLOCKS];
 };
 
+void		 memory_early_init(void);
 void		 init_memory(void);
-int			 get_memory_size(void);
+int			 get_memory_usable_size(void);
+int			 get_memory_total_size(void);
 int			 mmap_search(struct mmap *btmp, unsigned int cnt);
 void		 mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
 int			 mmap_get(struct mmap *btmp, uint32_t bit_index);
 MemoryResult alloc_vaddr(size_t in_size, uint32_t *out_vaddr);
-void		*kmalloc(uint32_t size);
+void		*kmalloc(size_t size);
+void		*kzalloc(uint32_t size);
 int			 kfree(void *address);
 
 void print_memory_result(
@@ -84,5 +87,18 @@ void print_memory_result(
 		}                                                \
 		result;                                          \
 	})
+
+// Rust bindings
+typedef enum ZoneType {
+	ZONE_MEM24	  = 0,
+	ZONE_LINEAR	  = 1,
+	ZONE_HIGH_MEM = 2,
+} ZoneType;
+
+size_t allocate_pages(ZoneType zone, uint8_t order);
+int	   free_pages(size_t paddr);
+
+void mem_caches_init();
+void vmalloc_init();
 
 #endif

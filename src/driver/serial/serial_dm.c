@@ -39,7 +39,7 @@ DriverResult create_serial_device(
 		&logical_device, physical_device, device_driver, ops,
 		DEVICE_TYPE_SERIAL));
 
-	*serial_device = kmalloc(sizeof(SerialDevice));
+	*serial_device = kzalloc(sizeof(SerialDevice));
 	if (*serial_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

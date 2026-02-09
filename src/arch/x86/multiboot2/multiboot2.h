@@ -10,10 +10,10 @@
 #define MBIT_MODULES			  3
 #define MBIT_ELF_SYMBOLS		  9
 #define MBIT_MEM_MAP			  6
-#define MBIT_BOOTOADER_NAME		  2
+#define MBIT_BOOTLOADER_NAME	  2
 #define MBIT_APM_TABLE			  10
 #define MBIT_VBE_INFO			  7
-#define MBIT_FRAMEBUFER_INFO	  8
+#define MBIT_FRAMEBUFFER_INFO	  8
 #define MBIT_ELF32_SYMTAB		  11
 #define MBIT_ELF64_SYMTAB		  12
 #define MBIT_SMBIOS_TABLE		  13

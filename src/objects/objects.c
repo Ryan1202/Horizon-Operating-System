@@ -16,7 +16,7 @@ const Permission sys_permission = {
 };
 
 Object root_object = {
-	.name = STRING_INIT(""), // 根对象的名字不会起到任何作用，所以设为空
+	.name	= STRING_INIT(""), // 根对象的名字不会起到任何作用，所以设为空
 	.parent = NULL,
 
 };
@@ -143,7 +143,7 @@ ObjectResult add_object(Object *parent, Object *child) {
 }
 
 Object *create_object(Object *parent, string_t *name, ObjectAttr attr) {
-	Object *object = kmalloc(sizeof(Object));
+	Object *object = kzalloc(sizeof(Object));
 	if (object == NULL) { return NULL; }
 
 	object->name		 = *name;

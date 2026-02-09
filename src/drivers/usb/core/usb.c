@@ -39,7 +39,7 @@ UsbDevice *usb_create_device(
 	result = create_physical_device(&physical_device, hcd->bus, &attr);
 	if (result != DRIVER_OK) return NULL;
 
-	UsbDevice *usb_device = (UsbDevice *)kmalloc(sizeof(UsbDevice));
+	UsbDevice *usb_device = (UsbDevice *)kzalloc(sizeof(UsbDevice));
 	list_init(&usb_device->ep_lh);
 	list_init(&usb_device->interface_lh);
 	usb_device->desc		 = kmalloc(sizeof(struct UsbDeviceDescriptor));
@@ -51,7 +51,7 @@ UsbDevice *usb_create_device(
 	usb_device->hub			 = hub;
 	physical_device->bus_ext = usb_device;
 
-	usb_device->ep0 = kmalloc(sizeof(UsbEndpoint));
+	usb_device->ep0 = kzalloc(sizeof(UsbEndpoint));
 	usb_init_endpoint(usb_device, usb_device->ep0, &ep0_desc);
 
 	register_physical_device(physical_device, &usb_device_ops);
@@ -67,7 +67,7 @@ UsbControlRequest *usb_create_request(
 	uint8_t direction, uint8_t type, uint8_t recipient, uint8_t request_id,
 	uint8_t value_hi, uint8_t value_lo, uint16_t index, uint16_t length) {
 	UsbControlRequest *request =
-		(UsbControlRequest *)kmalloc(sizeof(UsbControlRequest));
+		(UsbControlRequest *)kzalloc(sizeof(UsbControlRequest));
 	request->bmRequestType = direction << 7 | type << 5 | recipient;
 	request->bRequest	   = request_id;
 	request->wValue		   = HOST2LE_WORD(value_hi << 8 | value_lo);
@@ -109,7 +109,7 @@ int usb_probe_device(UsbHcd *hcd, UsbHub *hub, UsbDeviceSpeed speed) {
 	usb_set_config(hcd, usb_device, 1);
 
 	if (desc->bDeviceClass == USB_CLASS_HUB) {
-		UsbHub *new_hub		= kmalloc(sizeof(UsbHub));
+		UsbHub *new_hub		= kzalloc(sizeof(UsbHub));
 		new_hub->usb_device = usb_device;
 		new_hub->ops		= &usb_hub_ops;
 		new_hub->hcd		= hcd;

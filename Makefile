@@ -89,7 +89,7 @@ lib:
 clean:
 	$(MAKE) -s -C $(APP_SRC) clean
 	$(MAKE) -s -C $(BOOT_DIR) clean
-	$(MAKE) -s -C $(KERNEL_SRC) clean
+	$(MAKE) -s -C $(KERNEL_OUTPUT_DIR) clean
 	$(MAKE) -s -C $(LIB_SRC) clean
 
 clean_all:

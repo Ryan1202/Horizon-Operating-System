@@ -129,7 +129,7 @@ DriverResult usb_hid_keyboard_probe(
 		&input_device, INPUT_TYPE_KEYBOARD, &usb_hid_keyboard_device_ops,
 		physical_device, &usb_hid_keyboard_device_driver));
 
-	UsbHidKeyboard *keyboard		   = kmalloc(sizeof(UsbHidKeyboard));
+	UsbHidKeyboard *keyboard		   = kzalloc(sizeof(UsbHidKeyboard));
 	keyboard->device				   = input_device;
 	keyboard->usb_device			   = usb_device;
 	keyboard->interface				   = interface;

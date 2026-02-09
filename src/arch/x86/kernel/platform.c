@@ -48,6 +48,9 @@ PhysicalDevice *platform_device;
 void platform_early_init() {
 	// 初始化段描述符和中断描述符
 	init_descriptor();
+
+	// 读取CPU特性
+	read_features();
 }
 
 DriverResult platform_init() {
@@ -67,8 +70,6 @@ DriverResult platform_init() {
 	if (result != DRIVER_OK) { return result; }
 	register_physical_device(platform_device, &platform_device_ops);
 
-	read_features();
-
 	bios_emu_init();
 
 	register_serial();
@@ -78,7 +79,7 @@ DriverResult platform_init() {
 	result = register_pit();
 	result = register_cmos();
 
-	dma_init();
+	// dma_init();
 
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
 

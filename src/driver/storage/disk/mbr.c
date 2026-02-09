@@ -31,7 +31,7 @@ void parse_mbr_partition_table(StorageDevice *storage_device) {
 			attr.type		= OBJECT_TYPE_PARTITION;
 			Object *object = create_object(storage_device->object, &name, attr);
 
-			Partition *partition	  = kmalloc(sizeof(Partition));
+			Partition *partition	  = kzalloc(sizeof(Partition));
 			partition->storage_object = storage_device->device->object;
 			partition->type			  = PARTITION_TYPE_MBR;
 			partition->start_lba	  = partition_table[i].start_lba;

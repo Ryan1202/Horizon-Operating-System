@@ -64,7 +64,7 @@ DriverResult create_input_device(
 		DEVICE_TYPE_INPUT);
 	if (result != DRIVER_OK) return result;
 
-	*input_device = kmalloc(sizeof(InputDevice));
+	*input_device = kzalloc(sizeof(InputDevice));
 	if (*input_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

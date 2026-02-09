@@ -375,7 +375,7 @@ void ps2_keyboard_register(PhysicalDevice *physical_device, int port) {
 	create_input_device(
 		&in, INPUT_TYPE_KEYBOARD, &ps2_keyboard_device_ops, physical_device,
 		&i8042_device_driver);
-	Ps2Keyboard *kbd		 = kmalloc(sizeof(Ps2Keyboard));
+	Ps2Keyboard *kbd		 = kzalloc(sizeof(Ps2Keyboard));
 	kbd->port				 = port;
 	in->device->private_data = kbd;
 	kbd->locks				 = 0;

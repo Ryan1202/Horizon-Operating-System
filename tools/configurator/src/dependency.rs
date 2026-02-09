@@ -87,25 +87,41 @@ pub fn do_rust_dependency<'a>(
     // 禁用所有默认的后缀规则，防止 make 使用内置规则编译
     writeln!(cmd_file, ".SUFFIXES:\n").unwrap();
 
-    writeln!(cmd_file, "{}: {}", out_file.display(), file.display()).unwrap();
+    writeln!(cmd_file, "{}: FORCE", out_file.display()).unwrap();
 
     writeln!(cmd_file, "\t@echo RUSTC $@").unwrap();
     writeln!(
         cmd_file,
         "\t@rustup run {}",
         match rustc.target_type {
-            RustcTargetType::Builtin => { "cargo rustc" },
-            RustcTargetType::Custom => { "nightly cargo rustc" },
+            RustcTargetType::Builtin => {
+                "cargo rustc"
+            }
+            RustcTargetType::Custom => {
+                "nightly cargo rustc"
+            }
         },
     )
     .unwrap();
 
     writeln!(cmd_file, "\t@echo COPY $@").unwrap();
     if is_release {
-        writeln!(cmd_file, "\t@cp ./rustc_target/{}/release/lib*.a $@", target_name).unwrap();
+        writeln!(
+            cmd_file,
+            "\t@cp ./rustc_target/{}/release/lib*.a $@",
+            target_name
+        )
+        .unwrap();
     } else {
-        writeln!(cmd_file, "\t@cp ./rustc_target/{}/debug/lib*.a $@", target_name).unwrap();
+        writeln!(
+            cmd_file,
+            "\t@cp ./rustc_target/{}/debug/lib*.a $@",
+            target_name
+        )
+        .unwrap();
     }
+
+    writeln!(cmd_file, "\nFORCE:").unwrap();
 }
 
 pub fn do_dir_dependency<'a>(

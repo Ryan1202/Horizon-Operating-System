@@ -184,6 +184,9 @@ void ide_device_probe(IdeChannel *channel) {
 		channel->dma = kmalloc(sizeof(AtaDma));
 		channel->dma->prds =
 			kmalloc(sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
+		memset(
+			channel->dma->prds, 0,
+			sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
 		channel->dma->prdt_phy_addr	   = vir2phy((uint32_t)channel->dma->prds);
 		channel->dma->prdt_status	   = 0;
 		channel->dma->max_segment_size = 65536;

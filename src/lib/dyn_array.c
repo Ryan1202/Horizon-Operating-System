@@ -6,7 +6,7 @@
 #include <types.h>
 
 DynArray *dyn_array_new(size_t element_size, size_t block_size) {
-	DynArray *array = kmalloc(sizeof(DynArray));
+	DynArray *array = kzalloc(sizeof(DynArray));
 	if (array == NULL) { return NULL; }
 
 	array->size			= 0;
@@ -14,7 +14,7 @@ DynArray *dyn_array_new(size_t element_size, size_t block_size) {
 	array->block_size	= block_size;
 	array->element_size = find_next_pow_of_2(element_size);
 
-	array->first_block			   = kmalloc(sizeof(struct DynArrayBlock));
+	array->first_block			   = kzalloc(sizeof(struct DynArrayBlock));
 	array->first_block->next	   = NULL;
 	array->first_block->data	   = kmalloc(block_size * array->element_size);
 	array->first_block->left_space = array->block_size;
@@ -40,7 +40,7 @@ void dyn_array_extend_block(DynArray *dyn_array) {
 		block = block->next;
 	}
 
-	struct DynArrayBlock *new_block = kmalloc(sizeof(struct DynArrayBlock));
+	struct DynArrayBlock *new_block = kzalloc(sizeof(struct DynArrayBlock));
 
 	block->next		= new_block;
 	new_block->next = NULL;

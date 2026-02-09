@@ -7,12 +7,13 @@
 #include <kernel/memory.h>
 #include <objects/object.h>
 #include <result.h>
+#include <stddef.h>
 #include <string.h>
 
 DriverResult create_physical_device(
 	PhysicalDevice **physical_device, Bus *bus, ObjectAttr *attr) {
 
-	*physical_device = kmalloc(sizeof(PhysicalDevice));
+	*physical_device = kzalloc(sizeof(PhysicalDevice));
 	if (*physical_device == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	PhysicalDevice *phy = *physical_device;
 
@@ -67,7 +68,7 @@ DriverResult delete_physical_device(PhysicalDevice *physical_device) {
 DriverResult create_logical_device(
 	LogicalDevice **logical_device, PhysicalDevice *physical_device,
 	DeviceDriver *device_driver, DeviceOps *ops, DeviceType type) {
-	*logical_device = kmalloc(sizeof(LogicalDevice));
+	*logical_device = kzalloc(sizeof(LogicalDevice));
 	if (logical_device == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	LogicalDevice *logi = *logical_device;
 

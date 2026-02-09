@@ -1,8 +1,8 @@
 [bits 32]
 
-[section .text]
+[section .multiboot2]
 
-extern kernel_start, multiboot2_loader
+extern kernel_early_start, multiboot2_loader
 global _start
 
 LOADER_STACK_TOP	equ	0x90000
@@ -108,4 +108,4 @@ flush:
     push ebx
     push eax
     call multiboot2_loader
-    jmp kernel_start
+    jmp kernel_early_start

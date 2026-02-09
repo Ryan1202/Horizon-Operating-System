@@ -236,7 +236,7 @@ void register_serial() {
 			if (result != DRIVER_OK) continue;
 
 			logical_device	  = serial_device->device;
-			Serial *serial	  = kmalloc(sizeof(Serial));
+			Serial *serial	  = kzalloc(sizeof(Serial));
 			serial->base_port = serial_ports[i];
 			serial->irq_num	  = serial_irqs[i];
 			serial->device	  = serial_device->device;

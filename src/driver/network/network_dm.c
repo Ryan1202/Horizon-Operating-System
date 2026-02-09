@@ -31,7 +31,7 @@ DeviceManager		 network_dm = {
 };
 
 DriverResult network_dm_load(DeviceManager *manager) {
-	manager->private_data = kmalloc(sizeof(NetworkDeviceManager));
+	manager->private_data = kzalloc(sizeof(NetworkDeviceManager));
 	softirq_register_handler(SOFTIRQ_NETWORK, network_softirq_handler);
 	neighbour_init();
 	return DRIVER_OK;
@@ -54,7 +54,7 @@ DriverResult create_network_device(
 		DEVICE_TYPE_INTERNET);
 	if (result != DRIVER_OK) return result;
 
-	*network_device = kmalloc(sizeof(NetworkDevice));
+	*network_device = kzalloc(sizeof(NetworkDevice));
 	if (*network_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;
@@ -91,7 +91,7 @@ DriverResult create_network_device(
 
 	switch (type) {
 	case NETWORK_TYPE_ETHERNET: {
-		EthernetDevice *eth = kmalloc(sizeof(EthernetDevice));
+		EthernetDevice *eth = kzalloc(sizeof(EthernetDevice));
 		net->ethernet		= eth;
 		eth->acd_state		= ACD_STATE_NONE;
 		eth->arp_conn		= net_create_conn(obj);

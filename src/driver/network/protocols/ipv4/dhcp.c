@@ -579,7 +579,7 @@ void dhcp_reset(DhcpClient *dhcp, NetworkConnection *conn) {
 ProtocolResult dhcp_start(NetworkDevice *device) {
 	ProtocolResult result;
 
-	DhcpClient *dhcp = kmalloc(sizeof(DhcpClient));
+	DhcpClient *dhcp = kzalloc(sizeof(DhcpClient));
 
 	dhcp->device = device;
 

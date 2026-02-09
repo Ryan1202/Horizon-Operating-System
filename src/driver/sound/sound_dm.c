@@ -23,7 +23,7 @@ DeviceManager	   sound_dm = {
 };
 
 DriverResult sound_dm_load(DeviceManager *manager) {
-	manager->private_data		= kmalloc(sizeof(SoundDeviceManager));
+	manager->private_data		= kzalloc(sizeof(SoundDeviceManager));
 	sound_dm_ext.new_device_num = 0;
 	sound_dm_ext.device_count	= 0;
 	return DRIVER_OK;
@@ -46,7 +46,7 @@ DriverResult create_sound_device(
 		DEVICE_TYPE_SOUND);
 	if (result != DRIVER_OK) return result;
 
-	*sound_device = kmalloc(sizeof(SoundDevice));
+	*sound_device = kzalloc(sizeof(SoundDevice));
 	if (*sound_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

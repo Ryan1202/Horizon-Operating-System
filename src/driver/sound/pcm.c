@@ -21,7 +21,7 @@ TransferResult sound_pcm_transfer(
 
 PcmDevice *sound_register_pcm(
 	SoundDevice *sound_device, PcmOps *pcm_ops, size_t size) {
-	PcmDevice *pcm = kmalloc(sizeof(PcmDevice));
+	PcmDevice *pcm = kzalloc(sizeof(PcmDevice));
 	if (pcm == NULL) return NULL;
 
 	sound_device->pcm = pcm;
@@ -39,7 +39,7 @@ PcmDevice *sound_register_pcm(
 
 DriverResult pcm_register_stream(
 	PcmDevice *pcm, PcmStream **stream, PcmStreamOps *ops, void *private_data) {
-	*stream = kmalloc(sizeof(PcmStream));
+	*stream = kzalloc(sizeof(PcmStream));
 	if (*stream == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	PcmStream *s = *stream;
 
@@ -62,7 +62,7 @@ DriverResult pcm_register_stream(
 
 DriverResult pcm_register_dma(
 	PcmDevice *pcm, void *dma, void *param, DmaOps *ops) {
-	Dma *_dma = kmalloc(sizeof(Dma));
+	Dma *_dma = kzalloc(sizeof(Dma));
 	if (_dma == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	_dma->dma	= dma;
 	_dma->param = param;

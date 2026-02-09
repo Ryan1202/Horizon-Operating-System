@@ -177,7 +177,7 @@ DriverResult sb16_check(int port, Sb16Info **info) {
 	DRIVER_RESULT_PASS(sb16_get_version(&ports, &major, &minor));
 	print_info("SB16", "DSP found. version:%d.%d\n", major, minor);
 
-	*info			   = kmalloc(sizeof(Sb16Info));
+	*info			   = kzalloc(sizeof(Sb16Info));
 	(*info)->ports	   = ports;
 	(*info)->major_ver = major;
 	(*info)->minor_ver = minor;
@@ -229,7 +229,7 @@ DriverResult sb16_probe(IsaDeviceDriver *isa_device_driver) {
 
 DriverResult sb16_init(void *_device) {
 	LogicalDevice *device = _device;
-	Sb16Info	  *info	  = kmalloc(sizeof(Sb16Info));
+	Sb16Info	  *info	  = kzalloc(sizeof(Sb16Info));
 	device->private_data  = info;
 
 	// io_out8(info->ports.mixer, 0x80 /* 设置IRQ */);

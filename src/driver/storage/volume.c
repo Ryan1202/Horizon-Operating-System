@@ -25,7 +25,7 @@ void probe_volume(Partition *partition) {
 		FileSystem *fs;
 		list_for_each_owner (fs, &fs_list_head, list) {
 			if (fs->ops->fs_check(partition) == FS_OK) {
-				FileSystemInfo *fs_info = kmalloc(sizeof(FileSystemInfo));
+				FileSystemInfo *fs_info = kzalloc(sizeof(FileSystemInfo));
 				fs_info->partition		= partition;
 				fs_info->ops			= fs->ops;
 				string_t name;

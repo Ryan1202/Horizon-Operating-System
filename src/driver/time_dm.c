@@ -36,7 +36,7 @@ DriverResult create_time_device(
 		&logical_device, physical_device, device_driver, ops, DEVICE_TYPE_TIME);
 	if (result != DRIVER_OK) return result;
 
-	*time_device = kmalloc(sizeof(TimeDevice));
+	*time_device = kzalloc(sizeof(TimeDevice));
 	if (*time_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

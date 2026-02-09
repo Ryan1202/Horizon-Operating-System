@@ -127,7 +127,6 @@ void io_apic_write(uint32_t reg, uint32_t data) {
 DriverResult register_apic(void) {
 	register_device_driver(&core_driver, &apic_device_driver);
 
-	apic_driver_init(&apic_device_driver);
 	if (!use_apic) return DRIVER_ERROR_NOT_EXIST;
 
 	ObjectAttr attr = device_object_attr;

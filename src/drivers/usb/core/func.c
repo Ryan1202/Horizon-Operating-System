@@ -12,7 +12,7 @@
 void *usb_get_descriptor(
 	UsbHcd *hcd, UsbDevice *device, uint8_t type, uint8_t recipient,
 	uint8_t index, uint8_t value_hi, uint8_t value_lo, uint16_t desc_size) {
-	void *desc = kmalloc(desc_size);
+	void *desc = kzalloc(desc_size);
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, recipient,
@@ -25,7 +25,7 @@ void *usb_get_descriptor(
 void *usb_set_descriptor(
 	UsbHcd *hcd, UsbDevice *device, uint8_t type, uint8_t recipient,
 	uint8_t index, uint8_t value_hi, uint8_t value_lo, uint16_t desc_size) {
-	void *desc = kmalloc(desc_size);
+	void *desc = kzalloc(desc_size);
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_HOST_TO_DEVICE, USB_REQ_TYPE_STANDARD, recipient,
@@ -38,7 +38,7 @@ void *usb_set_descriptor(
 struct UsbConfigDescriptor *usb_get_config_descriptor(
 	UsbHcd *hcd, UsbDevice *usb_device) {
 	struct UsbConfigDescriptor *desc =
-		kmalloc(sizeof(struct UsbConfigDescriptor));
+		kzalloc(sizeof(struct UsbConfigDescriptor));
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_STANDARD, USB_REQ_RECIPIENT_DEVICE,
@@ -60,7 +60,7 @@ struct UsbConfigDescriptor *usb_get_config_descriptor(
 		if (type == USB_DESC_TYPE_INTERFACE) {
 			struct UsbInterfaceDescriptor *interface_desc =
 				(struct UsbInterfaceDescriptor *)buffer;
-			interface = kmalloc(
+			interface = kzalloc(
 				sizeof(UsbInterface) +
 				sizeof(UsbEndpoint *) * interface_desc->bNumEndpoints);
 
@@ -74,7 +74,7 @@ struct UsbConfigDescriptor *usb_get_config_descriptor(
 			struct UsbEndpointDescriptor *endpoint_desc =
 				(struct UsbEndpointDescriptor *)buffer;
 
-			UsbEndpoint *ep = kmalloc(sizeof(UsbEndpoint));
+			UsbEndpoint *ep = kzalloc(sizeof(UsbEndpoint));
 			usb_init_endpoint(usb_device, ep, endpoint_desc);
 
 			if (interface) {
@@ -111,7 +111,7 @@ UsbSetupStatus usb_set_config(UsbHcd *hcd, UsbDevice *device, uint8_t config) {
 struct UsbHubDescriptor *usb_get_hub_descriptor(UsbHub *hub) {
 	UsbDevice				*device = hub->usb_device;
 	UsbHcd					*hcd	= device->hcd;
-	struct UsbHubDescriptor *desc	= kmalloc(sizeof(struct UsbHubDescriptor));
+	struct UsbHubDescriptor *desc	= kzalloc(sizeof(struct UsbHubDescriptor));
 
 	UsbControlRequest usb_req = USB_BUILD_REQUEST(
 		USB_REQ_DEVICE_TO_HOST, USB_REQ_TYPE_CLASS, USB_REQ_RECIPIENT_DEVICE,
@@ -158,7 +158,7 @@ struct UsbStringDescriptor *usb_get_string_descriptor(
 	hcd->ops->ctrl_transfer_in(hcd, device, buffer, 2, &usb_req);
 
 	struct UsbStringDescriptor *desc =
-		kmalloc(sizeof(struct UsbStringDescriptor) + buffer[0]);
+		kzalloc(sizeof(struct UsbStringDescriptor) + buffer[0]);
 	usb_req.wLength = buffer[0];
 	hcd->ops->ctrl_transfer_in(hcd, device, desc, buffer[0], &usb_req);
 

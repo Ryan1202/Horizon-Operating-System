@@ -1,66 +1,66 @@
-#![no_std]
+use core::{ffi::c_void, mem::ManuallyDrop};
 
-use core::iter::Iterator;
-use core::marker::Copy;
-use core::option::Option;
-use core::option::Option::{None, Some};
+use crate::kernel::memory::{
+    MemoryError,
+    phy::frame::{buddy::FrameOrder, options::FrameAllocOptions},
+    vir::{
+        page::{Pages, options::PageAllocOptions},
+        vmalloc::vfree,
+    },
+};
 
-#[repr(C)]
-pub struct MemoryBitmap {
-    pub bitmap: *mut u8,
-    pub size_in_bytes: usize,
+pub trait PageTableEntry {
+    type PhyAddr;
+
+    const MAX: usize;
+
+    fn new_absent() -> Self;
+
+    fn new_present(phy_addr: Self::PhyAddr) -> Self;
+
+    fn is_present(&self) -> bool;
+
+    fn phy_addr(&self) -> Self::PhyAddr;
 }
 
-#[export_name = "virtual_memory_bitmap"]
-pub static mut VIRTUAL_MEMORY_BITMAP: MemoryBitmap = MemoryBitmap {
-    bitmap: core::ptr::null_mut(),
-    size_in_bytes: 0,
-};
+pub fn kernel_alloc_pages<'a>(count: usize) -> Result<Pages<'a>, MemoryError> {
+    let order = FrameOrder::new(count.next_power_of_two().ilog2() as u8);
 
-#[export_name = "physical_memory_bitmap"]
-pub static mut PHYSICAL_MEMORY_BITMAP: MemoryBitmap = MemoryBitmap {
-    bitmap: core::ptr::null_mut(),
-    size_in_bytes: 0,
-};
+    let frame_options = FrameAllocOptions::new().dynamic(order);
+    let page_options = PageAllocOptions::new(frame_options);
 
-impl MemoryBitmap {
-    #[no_mangle]
-    pub unsafe fn new_vir(addr: *mut u8, size_in_bytes: usize) {
-        VIRTUAL_MEMORY_BITMAP = MemoryBitmap {
-            bitmap: addr,
-            size_in_bytes,
-        };
-    }
-    #[no_mangle]
-    pub unsafe fn new_phy(addr: *mut u8, size_in_bytes: usize) {
-        PHYSICAL_MEMORY_BITMAP = MemoryBitmap {
-            bitmap: addr,
-            size_in_bytes,
-        };
-    }
+    let pages = page_options.allocate()?;
 
-    unsafe fn read<T: Copy>(&self, index: usize) -> T {
-        *(self.bitmap.add(index) as *const T)
-    }
+    Ok(pages)
+}
 
-    unsafe fn reverse(&mut self, index: usize, bit: u8) {
-        *(self.bitmap.add(index) as *mut u32) ^= 1 << bit;
-    }
-
-    pub fn alloc_single(&mut self) -> Option<usize> {
-        let mut dword;
-
-        for i in (0..(self.size_in_bytes)).step_by(4) {
-            dword = unsafe { self.read::<u32>(i) };
-            let bit = dword.leading_zeros();
-            if bit != 32 {
-                dword |= 1 << (31 - bit);
-                unsafe {
-                    self.reverse(i, bit as u8);
-                }
-                return Some(i * 32 + (31 - bit) as usize);
-            }
+#[unsafe(export_name = "kernel_alloc_pages")]
+pub fn kernel_alloc_pages_c(count: usize) -> *mut core::ffi::c_void {
+    match kernel_alloc_pages(count) {
+        Ok(pages) => {
+            let mut pages = ManuallyDrop::new(pages);
+            pages.get_ptr()
         }
-        None
+        Err(e) => {
+            e.log_error(format_args!(
+                "WARNING: calling kernel_alloc_pages_c failed: count = {:#x}",
+                count
+            ));
+            core::ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(export_name = "kernel_free_pages")]
+pub fn kernel_free_pages_c(ptr: usize) -> i32 {
+    match vfree::<c_void>(ptr) {
+        Ok(_) => 0,
+        Err(e) => {
+            e.log_error(format_args!(
+                "WARNING: calling vfree from C failed: vaddr = {:#x}",
+                ptr
+            ));
+            -1
+        }
     }
 }
