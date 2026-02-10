@@ -11,9 +11,9 @@ pub enum ZoneType {
     HighMem = 2,
 }
 
-impl ZoneType {
-    pub const ZONE_COUNT: usize = 3;
+pub const ZONE_COUNT: usize = 3;
 
+impl ZoneType {
     pub const fn index(&self) -> usize {
         match self {
             ZoneType::MEM24 => 0,

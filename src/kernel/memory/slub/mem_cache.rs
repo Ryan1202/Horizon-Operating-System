@@ -9,15 +9,13 @@ use core::{
 
 use crate::{
     kernel::memory::{
-        phy::{
-            frame::{Frame, options::FrameAllocOptions},
-            slub::{
-                ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, calculate_sizes,
-                config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
-                mem_cache_node::MemCacheNode,
-            },
+        frame::{Frame, options::FrameAllocOptions},
+        page::options::PageAllocOptions,
+        slub::{
+            ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, calculate_sizes,
+            config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
+            mem_cache_node::MemCacheNode,
         },
-        vir::page::options::PageAllocOptions,
     },
     lib::rust::{
         list::{ListHead, ListNode},
@@ -123,7 +121,7 @@ pub const DEFAULT_PAGE_OPTIONS: PageAllocOptions =
     PageAllocOptions::new(DEFAULT_FRAME_OPTIONS).contiguous(true);
 
 impl MemCache {
-    const OBJECT_SIZE: NonZeroU16 = NonZeroU16::new(64).unwrap();
+    const OBJECT_SIZE: NonZeroU16 = NonZeroU16::new(size_of::<Self>() as u16).unwrap();
 
     #[inline]
     fn init(

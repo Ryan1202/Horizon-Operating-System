@@ -7,10 +7,8 @@ use core::{
 };
 
 use crate::kernel::memory::{
-    phy::{
-        frame::{Frame, FrameTag},
-        slub::Slub,
-    },
+    frame::{Frame, FrameTag},
+    slub::Slub,
     vir_base_addr,
 };
 

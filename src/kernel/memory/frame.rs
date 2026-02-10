@@ -3,24 +3,21 @@ use core::{
     fmt::Display,
     mem::{self, ManuallyDrop},
     ops::{Add, Sub},
-    ptr::NonNull,
+    ptr::{NonNull, addr_of},
     sync::atomic::AtomicUsize,
 };
 
 use crate::{
     CACHELINE_SIZE,
-    arch::x86::kernel::page::{PAGE_SIZE, PageLevelEntry},
+    arch::x86::kernel::page::{PAGE_SIZE, PageLevelEntry, PhyAddr},
     kernel::memory::{
-        page::PageTableEntry,
-        phy::{
-            E820Ards, PREALLOCATED_END_PHY,
-            frame::{
-                buddy::{Buddy, BuddyAllocator, FrameOrder},
-                reference::{FrameMut, FrameRc, FrameRef},
-                zone::ZoneType,
-            },
-            slub::Slub,
+        frame::{
+            buddy::{Buddy, BuddyAllocator, FrameOrder},
+            reference::{FrameMut, FrameRc, FrameRef},
+            zone::ZoneType,
         },
+        page::PageTableEntry,
+        slub::Slub,
     },
     lib::rust::list::ListNode,
 };
@@ -29,6 +26,16 @@ pub mod buddy;
 pub mod options;
 pub mod reference;
 pub mod zone;
+
+#[repr(C)]
+pub struct E820Ards {
+    pub base_addr: u64,
+    pub length: u64,
+    pub block_type: u32,
+}
+
+#[unsafe(no_mangle)]
+pub static mut PREALLOCATED_END_PHY: usize = 0;
 
 #[cfg(target_pointer_width = "32")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
@@ -51,7 +58,7 @@ impl FrameNumber {
         FrameNumber(num)
     }
 
-    pub const fn from_addr(addr: usize) -> Self {
+    pub const fn from_addr(addr: PhyAddr) -> Self {
         FrameNumber(addr / PAGE_SIZE)
     }
 
@@ -60,11 +67,7 @@ impl FrameNumber {
     }
 
     pub const fn count_from(self, other: FrameNumber) -> usize {
-        if self.0 >= other.0 {
-            self.0 - other.0 + 1
-        } else {
-            other.0 - self.0 + 1
-        }
+        self.0.abs_diff(other.0) + 1
     }
 }
 
@@ -102,7 +105,7 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
     // list 和 xxcount 在前，方便对齐
-    pub(super) list: SyncUnsafeCell<ListNode<Frame>>,
+    pub list: SyncUnsafeCell<ListNode<Frame>>,
     refcount: FrameRc,
     mapcount: AtomicUsize,
     // 其他字段在后
@@ -117,7 +120,6 @@ pub union FrameData {
     pub range: ManuallyDrop<FrameRange>,
     pub buddy: ManuallyDrop<Buddy>,
     pub slub: ManuallyDrop<Slub>,
-    pub pagelist: ManuallyDrop<(FrameOrder, Option<FrameMut>)>,
 }
 
 #[repr(u8)]
@@ -153,7 +155,6 @@ pub unsafe extern "C" fn page_early_init(
 ) {
     unsafe {
         // 都向后对齐到页
-        // 只是为了看着稍微舒服一点
         PREALLOCATED_END_PHY = frame_align_up(PREALLOCATED_END_PHY.max(kernel_end));
 
         Frame::init(blocks, block_count, (kernel_start, PREALLOCATED_END_PHY));
@@ -179,13 +180,15 @@ pub static FRAMES: [Frame; PageLevelEntry::MAX + 1] = unsafe { mem::zeroed() };
 
 /// 启动阶段的初始化函数，仅可在单线程环境使用
 impl Frame {
-    /// 填充 [start, end] 范围的Page
+    /// 填充 [start, end] 范围的 `Frame`
+    ///
+    /// 实际上只填写 start 一个 `Frame`
     fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
+        debug_assert!(start <= end);
+
         let mut frame = Self::get_mut(start).unwrap();
-        let range = FrameRange { start, end };
-        let data = FrameData {
-            range: ManuallyDrop::new(range),
-        };
+        let range = ManuallyDrop::new(FrameRange { start, end });
+        let data = FrameData { range };
 
         let tag = match e820_type {
             0 => FrameTag::SystemReserved,
@@ -212,8 +215,10 @@ impl Frame {
             // 起始地址向后对齐，避免向前越界
             let start_addr = frame_align_up(block.base_addr as usize);
             let block_start = FrameNumber::from_addr(start_addr);
-            let length =
-                frame_align_down(block.length as usize - (start_addr - (block.base_addr as usize)));
+
+            let offset = start_addr - (block.base_addr as usize);
+            let length = frame_align_down(block.length as usize - offset);
+
             let block_end = block_start + frame_count(length);
 
             if last < block_start {
@@ -231,14 +236,18 @@ impl Frame {
                 Self::fill_range(block_start, block_end, block.block_type);
             } else {
                 // 内存块和内核有重叠部分
+                let e820_type = block.block_type;
+
+                // 前半部分可用
                 if block_start < kernel_start {
-                    // 前半部分可用
-                    Self::fill_range(block_start, kernel_start - 1, block.block_type);
+                    Self::fill_range(block_start, kernel_start - 1, e820_type);
                 }
+
                 Self::fill_range(kernel_start, kernel_end, 0);
+
+                // 后半部分可用
                 if block_end > kernel_end {
-                    // 后半部分可用
-                    Self::fill_range(kernel_end + 1, block_end, block.block_type);
+                    Self::fill_range(kernel_end + 1, block_end, e820_type);
                 }
             }
         }
@@ -319,28 +328,27 @@ impl Frame {
     }
 
     #[inline(always)]
-    pub fn from_addr<'a>(addr: usize) -> Option<FrameRef> {
+    pub fn from_addr<'a>(addr: PhyAddr) -> Option<FrameRef> {
         let page_num = FrameNumber::from_addr(addr);
         Frame::get(page_num)
     }
 
     #[inline(always)]
-    pub fn from_addr_mut<'a>(addr: usize) -> Option<FrameMut> {
+    pub fn from_addr_mut<'a>(addr: PhyAddr) -> Option<FrameMut> {
         let page_num = FrameNumber::from_addr(addr);
         Frame::get_mut(page_num)
     }
 
     pub const fn start_addr(&self) -> usize {
-        let frame_number = unsafe {
-            (self as *const Frame).offset_from((&raw const FRAMES) as *const Frame) as usize
-        };
+        let frame_number =
+            unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
         frame_number * PAGE_SIZE
     }
 
     pub fn from_child<'a, T>(child: &'a mut T) -> &'a mut Frame {
         let addr = child as *mut T;
-        assert!(addr.addr() >= &raw const FRAMES as usize);
-        let max = (&raw const FRAMES[PageLevelEntry::MAX]) as usize;
+        assert!(addr.addr() >= addr_of!(FRAMES).addr());
+        let max = addr_of!(FRAMES[PageLevelEntry::MAX]).addr();
         assert!(addr.addr() < max + size_of::<Frame>());
         unsafe {
             addr.map_addr(|v| v & !(align_of::<Self>() - 1))
@@ -351,9 +359,8 @@ impl Frame {
     }
 
     pub fn to_frame_number(&self) -> FrameNumber {
-        let frame_number = unsafe {
-            (self as *const Frame).offset_from((&raw const FRAMES) as *const Frame) as usize
-        };
+        let frame_number =
+            unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
         FrameNumber::new(frame_number)
     }
 
@@ -366,12 +373,12 @@ impl Frame {
     }
 }
 
-pub const fn frame_align_up(value: usize) -> usize {
-    (value + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
+pub const fn frame_align_up(addr: PhyAddr) -> PhyAddr {
+    (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
 }
 
-pub const fn frame_align_down(value: usize) -> usize {
-    value & !(PAGE_SIZE - 1)
+pub const fn frame_align_down(addr: PhyAddr) -> PhyAddr {
+    addr & !(PAGE_SIZE - 1)
 }
 
 pub const fn frame_count(size: usize) -> usize {

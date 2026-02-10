@@ -2,11 +2,9 @@ use core::{mem::offset_of, num::NonZeroU16, ops::DerefMut, pin::Pin, ptr::NonNul
 
 use crate::{
     kernel::memory::{
-        phy::{
-            frame::{Frame, FrameNumber, FrameTag, frame_align_down},
-            slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
-        },
-        vir::page::options::PageAllocOptions,
+        frame::{Frame, FrameNumber, FrameTag, frame_align_down},
+        page::options::PageAllocOptions,
+        slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
 };

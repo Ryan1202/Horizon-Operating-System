@@ -2,15 +2,12 @@ use crate::{
     arch::x86::kernel::page::PAGE_SIZE,
     kernel::memory::{
         MemoryError, PageCacheType,
-        phy::frame::{
+        frame::{
             FrameError, FrameTag,
             options::{FrameAllocOptions, FrameAllocType, RetryPolicy},
             zone::ZoneType,
         },
-        vir::{
-            page::{Pages, VirtPages},
-            vmap::get_vmap_node,
-        },
+        page::{Pages, dyn_pages::DynPages, vmap::get_vmap_node},
     },
 };
 
@@ -60,7 +57,7 @@ impl PageAllocOptions {
 }
 
 impl PageAllocOptions {
-    fn alloc_discontiguous<'a>(&self, pages: &'a mut VirtPages) -> Result<(), FrameError> {
+    fn alloc_discontiguous<'a>(&self, pages: &'a mut DynPages) -> Result<(), FrameError> {
         let mut order = if let FrameAllocType::Dynamic { order } = *self.frame.get_type() {
             order
         } else {
@@ -118,7 +115,7 @@ impl PageAllocOptions {
             let (frame, zone) = self.frame.allocate().map_err(MemoryError::FrameError)?;
 
             if !matches!(zone, ZoneType::LinearMem) {
-                let node = get_vmap_node();
+                let mut node = get_vmap_node();
                 let v = unsafe { node.allocate(count)?.as_mut() };
 
                 v.link(frame, count.get(), self.cache_type);
@@ -128,7 +125,7 @@ impl PageAllocOptions {
                 Ok(Pages::Fixed((frame, count.get())))
             }
         } else {
-            let node = get_vmap_node();
+            let mut node = get_vmap_node();
             let v = unsafe { node.allocate(count)?.as_mut() };
 
             self.alloc_discontiguous(v)

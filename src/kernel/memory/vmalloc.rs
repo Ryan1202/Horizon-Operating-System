@@ -8,20 +8,11 @@ use core::{
 use crate::{
     arch::x86::kernel::page::PAGE_SIZE,
     kernel::memory::{
-        KLINEAR_SIZE, MemoryError, PageCacheType,
-        phy::frame::{
-            Frame, FrameNumber, FrameTag,
-            buddy::FrameOrder,
-            frame_count,
-            options::FrameAllocOptions,
-            reference::{FrameMut, FrameRef},
-            zone::ZoneType,
+        MemoryError, PageCacheType,
+        frame::{
+            FrameNumber, buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType,
         },
-        vir::{
-            page::{PageNumber, Pages, VmRange, options::PageAllocOptions},
-            vmap::get_vmap_node,
-        },
-        vir_base_addr,
+        page::{PageNumber, Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
     },
 };
 
@@ -101,7 +92,7 @@ pub fn ioremap<'a>(
 }
 
 pub fn iounmap(vaddr: usize) -> Result<(), MemoryError> {
-    let node = get_vmap_node();
+    let mut node = get_vmap_node();
 
     let err = MemoryError::InvalidAddress(vaddr);
     let page_number = PageNumber::from_addr(vaddr).ok_or(err.clone())?;
@@ -144,43 +135,18 @@ pub fn vmalloc<T>(
         .map(|mut pages| unsafe { NonNull::new_unchecked(pages.get_ptr()) })
 }
 
-pub fn vfree<T>(vaddr: usize) -> Result<(), MemoryError> {
-    let node = get_vmap_node();
-
+pub fn vfree(vaddr: usize) -> Result<(), MemoryError> {
+    let mut node = get_vmap_node();
     let err = MemoryError::InvalidAddress(vaddr);
 
-    let linear_start = vir_base_addr();
-    let linear_end = linear_start + KLINEAR_SIZE;
+    let num = PageNumber::from_addr(vaddr).ok_or(err.clone())?;
+    let range = VmRange {
+        start: num,
+        end: num,
+    };
+    let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
 
-    // 如果在内核线性映射区，则无需释放虚拟页
-    if vaddr >= linear_start && vaddr < linear_end {
-        let frame = Frame::get_raw(FrameNumber::from_addr(vaddr - linear_start));
-        match unsafe { frame.as_ref() }.get_tag() {
-            FrameTag::Unused | FrameTag::HardwareReserved | FrameTag::SystemReserved => {
-                Err(MemoryError::MultipleFree)
-            }
-            FrameTag::Free => panic!(
-                "Attempt to free frame with unavailable tag at vaddr: {:#x}",
-                vaddr
-            ),
-            _ => unsafe {
-                if FrameMut::try_from_raw(frame).is_none() {
-                    let _ = FrameRef::from_raw(frame).ok_or(MemoryError::MultipleFree)?;
-                }
+    pages.unlink();
 
-                Ok(())
-            },
-        }
-    } else {
-        let num = PageNumber::from_addr(vaddr).unwrap();
-        let range = VmRange {
-            start: num,
-            end: num,
-        };
-        let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
-
-        pages.unlink();
-
-        node.deallocate(pages)
-    }
+    node.deallocate(pages)
 }

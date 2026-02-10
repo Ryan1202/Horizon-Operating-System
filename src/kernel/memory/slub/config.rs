@@ -5,7 +5,7 @@
 
 use core::{num::NonZeroU16, ptr::NonNull};
 
-use crate::kernel::memory::phy::slub::mem_cache::MemCache;
+use crate::kernel::memory::slub::mem_cache::MemCache;
 
 #[derive(Debug, Clone, Copy)]
 pub struct CacheConfig {

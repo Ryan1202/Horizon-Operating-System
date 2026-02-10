@@ -4,11 +4,13 @@ use core::{
     ptr::addr_of,
 };
 
-use crate::{ConsoleOutput, kernel::memory::phy::frame::FrameError};
+use crate::{ConsoleOutput, kernel::memory::frame::FrameError};
 
+pub mod frame;
+pub mod kmalloc;
 pub mod page;
-pub mod phy;
-pub mod vir;
+pub mod slub;
+pub mod vmalloc;
 
 unsafe extern "C" {
     static VIR_BASE: *const c_void;
@@ -24,7 +26,6 @@ const KLINEAR_SIZE: usize = 0x2000_0000;
 unsafe extern "C" {
     fn page_link(vaddr: usize, paddr: usize, page_count: u16, cache_type: PageCacheType) -> bool;
     fn page_unlink(vaddr: usize, page_count: u16);
-    fn vir2phys(vaddr: usize) -> usize;
 }
 
 #[derive(Clone, Copy, Debug)]

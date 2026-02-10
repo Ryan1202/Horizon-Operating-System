@@ -1,4 +1,5 @@
 use core::{
+    fmt,
     mem::{ManuallyDrop, offset_of, zeroed},
     num::NonZeroUsize,
     ops::{Add, DerefMut, Sub},
@@ -6,9 +7,11 @@ use core::{
 };
 
 use crate::{
-    kernel::memory::phy::frame::{
+    kernel::memory::frame::{
         FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError, FrameNumber, FrameRange,
-        FrameTag, PAGE_SIZE, frame_count, reference::FrameMut, zone::ZoneType,
+        FrameTag, PAGE_SIZE, frame_count,
+        reference::FrameMut,
+        zone::{ZONE_COUNT, ZoneType},
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
 };
@@ -115,7 +118,7 @@ impl ZoneState {
 }
 
 pub struct BuddyAllocator {
-    pub zones: [Zone; ZoneType::ZONE_COUNT],
+    pub zones: [Zone; ZONE_COUNT],
     pub static_frames: Spinlock<ListHead<Frame>>,
 }
 
@@ -148,7 +151,7 @@ impl BuddyAllocator {
 
     /// 初始化所有Zone的空闲链表结构
     fn init_zone_lists(&self) {
-        for i in 0..ZoneType::ZONE_COUNT {
+        for i in 0..ZONE_COUNT {
             unsafe {
                 self.zones[i].free_frames.init_with(|v| {
                     for free in v.iter_mut() {

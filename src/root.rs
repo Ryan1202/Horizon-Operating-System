@@ -1,6 +1,6 @@
 // Auto-generated root file for this crate
 // Target: /Users/a15922/Horizon-Operating-System/src/arch/x86/i686-none.json
-// Based on: lib.template.rs
+// Based on: "/Users/a15922/Horizon-Operating-System/src/root.template.rs"
 
 #![no_std]
 #![no_main]
@@ -40,15 +40,15 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
+pub mod kernel {
+    pub mod memory;
+}
 pub mod arch {
     pub mod x86 {
         pub mod kernel {
             pub mod page;
         }
     }
-}
-pub mod kernel {
-    pub mod memory;
 }
 pub mod lib {
     pub mod rust;

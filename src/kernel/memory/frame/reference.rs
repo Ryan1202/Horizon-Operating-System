@@ -7,7 +7,7 @@ use core::{
 
 use crate::{
     ConsoleOutput,
-    kernel::memory::phy::frame::{FRAME_MANAGER, Frame, FrameAllocator},
+    kernel::memory::frame::{FRAME_MANAGER, Frame, FrameAllocator},
 };
 
 #[repr(transparent)]

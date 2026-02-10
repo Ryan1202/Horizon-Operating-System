@@ -163,7 +163,7 @@ impl RustConfig {
         // 写入自动生成的开头注释
         writeln!(file, "// Auto-generated root file for this crate")?;
         writeln!(file, "// Target: {}", self.target)?;
-        writeln!(file, "// Based on: {}\n", template_path)?;
+        writeln!(file, "// Based on: {:?}\n", template_path)?;
 
         // 写入模板内容
         write!(file, "{}", template_content)?;

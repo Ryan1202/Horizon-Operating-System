@@ -14,17 +14,15 @@ use crate::{
     arch::x86::kernel::page::PAGE_SIZE,
     kernel::memory::{
         MemoryError,
-        phy::{
-            frame::{
-                Frame, FrameData, FrameError, FrameTag,
-                buddy::{Buddy, FrameOrder},
-                options::{FrameAllocOptions, FrameAllocType},
-                reference::FrameMut,
-                zone::ZoneType,
-            },
-            slub::mem_cache::{MemCache, MemCaches},
+        frame::{
+            Frame, FrameData, FrameError, FrameTag,
+            buddy::{Buddy, FrameOrder},
+            options::{FrameAllocOptions, FrameAllocType},
+            reference::FrameMut,
+            zone::ZoneType,
         },
-        vir::page::options::PageAllocOptions,
+        page::options::PageAllocOptions,
+        slub::mem_cache::{MemCache, MemCaches},
     },
 };
 

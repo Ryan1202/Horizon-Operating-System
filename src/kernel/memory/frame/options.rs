@@ -1,8 +1,8 @@
 use core::num::NonZeroUsize;
 
-use crate::kernel::memory::phy::frame::{
+use crate::kernel::memory::frame::{
     FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
-    reference::FrameMut,
+    reference::FrameMut, zone::ZONE_COUNT,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -88,7 +88,7 @@ impl FrameAllocOptions {
 
 #[derive(Debug, Clone, Copy)]
 pub struct FallbackChain {
-    chain: [Option<ZoneType>; ZoneType::ZONE_COUNT],
+    chain: [Option<ZoneType>; ZONE_COUNT],
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1,7 +1,7 @@
 use core::{
     cell::SyncUnsafeCell,
     cmp::Ordering,
-    mem::{MaybeUninit, offset_of},
+    mem::{self, MaybeUninit, offset_of},
     num::NonZeroUsize,
     ops::DerefMut,
     pin::Pin,
@@ -12,8 +12,8 @@ use crate::{
     container_of,
     kernel::memory::{
         MemoryError,
-        phy::kmalloc::kmalloc,
-        vir::page::{VirtPages, VmRange},
+        kmalloc::kmalloc,
+        page::{dyn_pages::DynPages, range::VmRange},
     },
     lib::rust::{
         list::ListHead,
@@ -21,7 +21,7 @@ use crate::{
             RbSearch,
             linked::{Linked, LinkedRbNodeBase, LinkedRbTreeBase},
         },
-        spinlock::Spinlock,
+        spinlock::{SpinGuard, Spinlock},
     },
     linked_augment,
 };
@@ -32,33 +32,32 @@ pub(super) struct VmapPool {
     pub(super) list_head: Spinlock<ListHead<LinkedRbNodeBase<VmRange, usize>>>,
 }
 
-pub(super) struct VmapNode {
+pub struct VmapNode {
     pub(super) pools: [VmapPool; MAX_VMAP_POOL_PAGES],
 
     pub(super) allocated: Spinlock<LinkedRbTreeBase<VmRange, (), usize>>,
 }
 
-static VMAP_NODE: SyncUnsafeCell<MaybeUninit<VmapNode>> =
-    SyncUnsafeCell::new(MaybeUninit::zeroed());
+static VMAP_NODE: Spinlock<VmapNode> = Spinlock::new(unsafe { mem::zeroed() });
 static mut FREE_VMAP_TREE: Spinlock<LinkedRbTreeBase<VmRange, (), usize>> =
     Spinlock::new(LinkedRbTreeBase::empty());
 
-pub(super) fn get_vmap_node<'a>() -> &'a mut VmapNode {
-    unsafe { (*VMAP_NODE.get()).assume_init_mut() }
+pub fn get_vmap_node<'a>() -> SpinGuard<'a, VmapNode> {
+    VMAP_NODE.lock()
 }
 
 impl VmapNode {
-    pub(super) fn init(&mut self) {
+    pub fn init(&mut self) {
         #[allow(static_mut_refs)]
         unsafe {
             FREE_VMAP_TREE.init_with(|rbtree| {
                 rbtree.init();
 
                 let mut pages =
-                    kmalloc::<VirtPages>(NonZeroUsize::new_unchecked(size_of::<VirtPages>()))
+                    kmalloc::<DynPages>(NonZeroUsize::new_unchecked(size_of::<DynPages>()))
                         .expect("Allocate slub memory failed in VmapNode::init()!");
 
-                pages.write(VirtPages::kernel());
+                pages.write(DynPages::kernel());
                 rbtree.insert(&mut pages.as_mut().rb_node);
             })
         };
@@ -72,7 +71,7 @@ impl VmapNode {
         }
     }
 
-    fn pool_put(&mut self, pages: &mut VirtPages) {
+    fn pool_put(&mut self, pages: &mut DynPages) {
         let count = pages.rb_node.get_key().get_count();
         if count >= MAX_VMAP_POOL_PAGES {
             return;
@@ -86,7 +85,7 @@ impl VmapNode {
         list_head.add_tail(node);
     }
 
-    fn pool_get(&mut self, count: NonZeroUsize) -> Option<NonNull<VirtPages>> {
+    fn pool_get(&mut self, count: NonZeroUsize) -> Option<NonNull<DynPages>> {
         let index = count.get() - 1;
         if index >= MAX_VMAP_POOL_PAGES {
             return None;
@@ -105,7 +104,7 @@ impl VmapNode {
             .expect("List is empty after checked!");
 
         // 通过 linked_node -> rbnode -> pages 的层级关系获取 pages
-        let mut pages = container_of!(rb_node, VirtPages, rb_node);
+        let mut pages = container_of!(rb_node, DynPages, rb_node);
 
         let actual_count = unsafe { rb_node.as_ref() }.get_key().get_count();
         match actual_count.cmp(&count.get()) {
@@ -122,7 +121,7 @@ impl VmapNode {
         }
     }
 
-    pub fn allocate(&mut self, count: NonZeroUsize) -> Result<NonNull<VirtPages>, MemoryError> {
+    pub fn allocate(&mut self, count: NonZeroUsize) -> Result<NonNull<DynPages>, MemoryError> {
         // 先从快速池获取
         let mut pages = self
             .pool_get(count)
@@ -138,7 +137,7 @@ impl VmapNode {
 
     /// 从红黑树中查找并分配满足条件的虚拟页块
     /// 查找策略：优先左子树（smaller but sufficient），精确匹配或分割
-    fn allocate_from_tree(&mut self, count: NonZeroUsize) -> Option<NonNull<VirtPages>> {
+    fn allocate_from_tree(&mut self, count: NonZeroUsize) -> Option<NonNull<DynPages>> {
         #[allow(static_mut_refs)]
         let mut tree = unsafe { FREE_VMAP_TREE.lock() };
         let mut node = tree.root?;
@@ -163,7 +162,7 @@ impl VmapNode {
             // 当前节点满足需求
             let node_count = node_ref.get_key().get_count();
             if node_count >= count.get() {
-                let mut pages = container_of!(node, VirtPages, rb_node);
+                let mut pages = container_of!(node, DynPages, rb_node);
 
                 return if node_count > count.get() {
                     // 需要分割：从 pages 中切出 count 个页，剩余部分重新插入树
@@ -181,14 +180,14 @@ impl VmapNode {
         }
     }
 
-    pub fn search_allocated(&mut self, range: &VmRange) -> Option<NonNull<VirtPages>> {
+    pub fn search_allocated(&mut self, range: &VmRange) -> Option<NonNull<DynPages>> {
         let node = self.allocated.lock().search_exact(range, VmRange::cmp)?;
 
-        let pages = container_of!(node, VirtPages, rb_node);
+        let pages = container_of!(node, DynPages, rb_node);
         Some(pages)
     }
 
-    pub fn deallocate(&mut self, pages: &mut VirtPages) -> Result<(), MemoryError> {
+    pub fn deallocate(&mut self, pages: &mut DynPages) -> Result<(), MemoryError> {
         self.allocated
             .lock()
             .delete_node(NonNull::from(&pages.rb_node));

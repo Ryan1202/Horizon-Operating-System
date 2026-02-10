@@ -2,14 +2,10 @@
 
 use core::{
     marker::{PhantomData, PhantomPinned},
-    mem::transmute,
     ops::{Deref, DerefMut},
     pin::Pin,
     ptr::NonNull,
-    sync::atomic::{AtomicU64, Ordering},
 };
-
-use crate::lib::rust::spinlock::SpinGuard;
 
 #[macro_export]
 macro_rules! list_owner {
