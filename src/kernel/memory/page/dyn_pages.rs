@@ -7,13 +7,10 @@ use core::{
 
 use crate::{
     ConsoleOutput,
-    arch::x86::kernel::page::PAGE_SIZE,
+    arch::{VirtAddr, x86::kernel::page::PAGE_SIZE},
     kernel::memory::{
-        KLINEAR_SIZE, PageCacheType, VIR_BASE,
-        frame::reference::FrameMut,
-        kmalloc::kmalloc,
-        page::{PageNumber, range::VmRange},
-        page_link, page_unlink,
+        KLINEAR_SIZE, KMEMORY_END, PageCacheType, VIR_BASE, frame::reference::FrameMut,
+        kmalloc::kmalloc, page::range::VmRange, page_link, page_unlink,
     },
     lib::rust::rbtree::linked::LinkedRbNodeBase,
 };
@@ -36,18 +33,20 @@ impl DynPages {
 
     #[inline(always)]
     pub fn kernel() -> Self {
-        let (start, end) = (addr_of!(VIR_BASE) as usize + KLINEAR_SIZE, 0xff80_0000);
-        let start = PageNumber::from_addr(start).unwrap();
-        let end = PageNumber::from_addr(end).unwrap();
+        let start = addr_of!(VIR_BASE) as usize + KLINEAR_SIZE;
+        let (start, end) = (VirtAddr::new(start), KMEMORY_END);
+
+        let start = start.to_page_number().unwrap();
+        let end = end.to_page_number().unwrap();
 
         let vm_range = VmRange { start, end };
 
         Self::new(vm_range)
     }
 
-    pub const fn start_addr(&self) -> NonZeroUsize {
+    pub const fn start_addr(&self) -> VirtAddr {
         let addr = self.rb_node.get_key().start.get().get() * PAGE_SIZE;
-        unsafe { NonZeroUsize::new_unchecked(addr) }
+        VirtAddr::new(addr)
     }
 
     /// 从当前 VirtPages 中切出 count 个页
@@ -57,12 +56,11 @@ impl DynPages {
         let old_start = range.start;
 
         // 计算分割点：[old_start, split_point-1] 用于分配，[split_point, old_end] 放回 pool
-        let split_point = old_start.get().get() + count.get();
+        let split_point = old_start + count.get();
 
         // 修改当前节点范围
         unsafe {
-            self.rb_node.get_key_mut().start =
-                PageNumber::new(NonZeroUsize::new_unchecked(split_point));
+            self.rb_node.get_key_mut().start = split_point;
         }
 
         // 分配新节点存储分配部分
@@ -72,7 +70,7 @@ impl DynPages {
         unsafe {
             allocated.write(DynPages::new(VmRange {
                 start: old_start,
-                end: PageNumber::new(NonZeroUsize::new_unchecked(split_point - 1)),
+                end: split_point - 1,
             }));
         }
 
@@ -104,8 +102,8 @@ impl DynPages {
             }
 
             page_link(
-                (range.start + self.frame_count).to_addr(),
-                start_addr,
+                (range.start + self.frame_count).to_addr().as_usize(),
+                start_addr.as_usize(),
                 count as u16,
                 cache_type,
             )
@@ -119,7 +117,7 @@ impl DynPages {
         unsafe {
             let range = self.rb_node.get_key();
 
-            page_unlink(range.start.to_addr(), self.frame_count as u16);
+            page_unlink(range.start.to_addr().as_usize(), self.frame_count as u16);
 
             self.frame_count = 0;
         }

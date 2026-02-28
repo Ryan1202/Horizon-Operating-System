@@ -1,7 +1,6 @@
 use core::{
-    cell::SyncUnsafeCell,
     cmp::Ordering,
-    mem::{self, MaybeUninit, offset_of},
+    mem::{self, offset_of},
     num::NonZeroUsize,
     ops::DerefMut,
     pin::Pin,

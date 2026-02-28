@@ -1,10 +1,12 @@
 use core::{mem::offset_of, num::NonZeroU16, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
+    arch::{PhyAddr, VirtAddr},
     kernel::memory::{
-        frame::{Frame, FrameNumber, FrameTag, frame_align_down},
+        frame::{Frame, FrameTag},
         page::options::PageAllocOptions,
         slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
+        vir_base_addr,
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
 };
@@ -144,7 +146,8 @@ impl MemCacheNode {
 
     pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
         // 先找到所在页的 Frame 结构，再从其中取出 Slub 地址
-        let frame_number = FrameNumber::from_addr(frame_align_down(obj.addr().get()));
+        let vaddr = VirtAddr::new(obj.addr().get());
+        let frame_number = PhyAddr::new(vaddr.offset_from(vir_base_addr())).to_frame_number();
         let mut frame = Frame::get_mut(frame_number)?;
 
         if let FrameTag::Slub = frame.get_tag() {

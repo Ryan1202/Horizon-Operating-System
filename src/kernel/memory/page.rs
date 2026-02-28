@@ -3,15 +3,14 @@ use core::{
     mem::ManuallyDrop,
     num::NonZeroUsize,
     ops::{Add, Sub},
-    ptr::with_exposed_provenance_mut,
 };
 
 use crate::{
-    arch::x86::kernel::page::PAGE_SIZE,
+    arch::{PhyAddr, VirtAddr, x86::kernel::page::PAGE_SIZE},
     kernel::memory::{
         KLINEAR_SIZE, MemoryError,
         frame::{
-            Frame, FrameNumber, FrameTag,
+            Frame, FrameTag,
             buddy::FrameOrder,
             options::FrameAllocOptions,
             reference::{FrameMut, FrameRef},
@@ -28,17 +27,15 @@ pub(super) mod range;
 pub(super) mod vmap;
 
 pub trait PageTableEntry {
-    type PhyAddr;
-
     const MAX: usize;
 
     fn new_absent() -> Self;
 
-    fn new_present(phy_addr: Self::PhyAddr) -> Self;
+    fn new_present(phy_addr: PhyAddr) -> Self;
 
     fn is_present(&self) -> bool;
 
-    fn phy_addr(&self) -> Self::PhyAddr;
+    fn phy_addr(&self) -> PhyAddr;
 }
 
 #[derive(Clone, Copy)]
@@ -50,19 +47,12 @@ impl PageNumber {
         PageNumber(num)
     }
 
-    pub const fn from_addr(addr: usize) -> Option<Self> {
-        match NonZeroUsize::new(addr / PAGE_SIZE) {
-            Some(pn) => Some(PageNumber(pn)),
-            None => None,
-        }
-    }
-
     pub const fn get(&self) -> NonZeroUsize {
         self.0
     }
 
-    pub const fn to_addr(&self) -> usize {
-        self.0.get() * PAGE_SIZE
+    pub const fn to_addr(&self) -> VirtAddr {
+        VirtAddr::new(self.0.get() * PAGE_SIZE)
     }
 }
 
@@ -88,21 +78,15 @@ pub enum Pages<'a> {
 }
 
 impl<'a> Pages<'a> {
-    pub fn start_addr(&self) -> NonZeroUsize {
+    pub fn start_addr(&self) -> VirtAddr {
         match self {
-            Pages::Fixed((frame, _)) => unsafe {
-                NonZeroUsize::new_unchecked(vir_base_addr() + frame.start_addr())
-            },
+            Pages::Fixed((frame, _)) => vir_base_addr() + frame.start_addr().as_usize(),
             Pages::Dynamic(vpages) => vpages.start_addr(),
         }
     }
 
     pub fn get_ptr<T>(&mut self) -> *mut T {
-        let addr = match self {
-            Pages::Fixed((frame, _)) => frame.start_addr(),
-            Pages::Dynamic(vpages) => vpages.start_addr().get(),
-        };
-        with_exposed_provenance_mut::<T>(addr)
+        self.start_addr().as_mut_ptr()
     }
 
     pub fn get_frame(&mut self) -> Option<&mut FrameMut> {
@@ -152,20 +136,22 @@ pub fn kernel_alloc_pages_c(count: usize) -> *mut core::ffi::c_void {
     }
 }
 
-pub fn kernel_free_pages<T>(vaddr: usize) -> Result<(), MemoryError> {
+pub fn kernel_free_pages<T>(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let linear_start = vir_base_addr();
     let linear_end = linear_start + KLINEAR_SIZE;
 
     // 如果在内核线性映射区，则无需释放虚拟页
     if vaddr >= linear_start && vaddr < linear_end {
-        let frame = Frame::get_raw(FrameNumber::from_addr(vaddr - linear_start));
+        let phy_addr = PhyAddr::new(vaddr.offset_from(linear_start));
+        let frame = Frame::get_raw(phy_addr.to_frame_number());
+
         match unsafe { frame.as_ref() }.get_tag() {
             FrameTag::Unused | FrameTag::HardwareReserved | FrameTag::SystemReserved => {
                 Err(MemoryError::MultipleFree)
             }
             FrameTag::Free => panic!(
                 "Attempt to free frame with unavailable tag at vaddr: {:#x}",
-                vaddr
+                vaddr.as_usize()
             ),
             _ => unsafe {
                 if FrameMut::try_from_raw(frame).is_none() {
@@ -182,7 +168,7 @@ pub fn kernel_free_pages<T>(vaddr: usize) -> Result<(), MemoryError> {
 
 #[unsafe(export_name = "kernel_free_pages")]
 pub fn kernel_free_pages_c(ptr: usize) -> i32 {
-    match kernel_free_pages::<c_void>(ptr) {
+    match kernel_free_pages::<c_void>(VirtAddr::new(ptr)) {
         Ok(_) => 0,
         Err(e) => {
             e.log_error(format_args!(

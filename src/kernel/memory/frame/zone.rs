@@ -1,3 +1,6 @@
+#[cfg(target_pointer_width = "32")]
+use crate::arch::PhyAddr;
+
 /// 内存区域类型
 /// Zone只决定了系统能管理的物理内存范围，与Page管理的内存范围无关
 #[repr(u8)]
@@ -31,22 +34,22 @@ impl ZoneType {
         }
     }
 
-    pub const fn range(&self) -> (usize, usize) {
+    pub const fn range(&self) -> (PhyAddr, PhyAddr) {
         match self {
-            ZoneType::MEM24 => (0, (1 << 24) - 1), // 16MB
+            ZoneType::MEM24 => (PhyAddr::new(0), PhyAddr::new((1 << 24) - 1)), // 16MB
             #[cfg(target_pointer_width = "32")]
-            ZoneType::LinearMem => (1 << 24, 0x1fffffff), // 512MB
+            ZoneType::LinearMem => (PhyAddr::new(1 << 24), PhyAddr::new(0x1fffffff)), // 512MB
             #[cfg(target_pointer_width = "64")]
-            ZoneType::LinearMem => (1 << 24, 1 << 32), // 4GB
+            ZoneType::LinearMem => (PhyAddr::new(1 << 24), PhyAddr::new(1 << 32)), // 4GB
             #[cfg(target_pointer_width = "32")]
-            ZoneType::HighMem => (0x20000000, usize::MAX), // >512MB
+            ZoneType::HighMem => (PhyAddr::new(0x20000000), PhyAddr::new(usize::MAX)), // >512MB
             #[cfg(target_pointer_width = "64")]
-            ZoneType::HighMem => (1 << 32, usize::MAX), // >4GB
+            ZoneType::HighMem => (PhyAddr::new(1 << 32), PhyAddr::new(usize::MAX)), // >4GB
         }
     }
 
-    pub const fn from_address(addr: usize) -> Self {
-        match (addr | 1).ilog2() {
+    pub const fn from_address(addr: PhyAddr) -> Self {
+        match (addr.as_usize() | 1).ilog2() {
             0..24 => ZoneType::MEM24,
             #[cfg(target_pointer_width = "32")]
             24..29 => ZoneType::LinearMem,

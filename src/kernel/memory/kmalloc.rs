@@ -6,10 +6,13 @@ use core::{
     ptr::{NonNull, null_mut},
 };
 
-use crate::kernel::memory::{
-    frame::{Frame, FrameTag},
-    slub::Slub,
-    vir_base_addr,
+use crate::{
+    arch::{PhyAddr, VirtAddr},
+    kernel::memory::{
+        frame::{Frame, FrameTag},
+        slub::Slub,
+        vir_base_addr,
+    },
 };
 
 use super::slub::config::DEFAULT_CACHES;
@@ -65,7 +68,8 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
 }
 
 pub fn kfree<T>(ptr: NonNull<T>) {
-    let phy_addr = ptr.as_ptr() as usize - vir_base_addr();
+    let vaddr = VirtAddr::new(ptr.as_ptr() as usize);
+    let phy_addr = PhyAddr::new(vaddr.offset_from(vir_base_addr()));
     let frame = Frame::from_addr_mut(phy_addr);
 
     if let Some(mut frame) = frame {

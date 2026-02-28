@@ -1,3 +1,2 @@
 c = ["descriptor.c", "feature.c", "page.c", "platform.c"]
 asm = ["func.asm", "start.asm"]
-rust = ["page/mod.rs"]

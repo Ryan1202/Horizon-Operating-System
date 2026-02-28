@@ -2,14 +2,14 @@ use core::{
     cell::SyncUnsafeCell,
     fmt::Display,
     mem::{self, ManuallyDrop},
-    ops::{Add, Sub},
+    ops::{Add, DerefMut, Sub},
     ptr::{NonNull, addr_of},
     sync::atomic::AtomicUsize,
 };
 
 use crate::{
     CACHELINE_SIZE,
-    arch::x86::kernel::page::{PAGE_SIZE, PageLevelEntry, PhyAddr},
+    arch::{PAGE_SIZE, PageLevelEntry, PhyAddr},
     kernel::memory::{
         frame::{
             buddy::{Buddy, BuddyAllocator, FrameOrder},
@@ -35,7 +35,7 @@ pub struct E820Ards {
 }
 
 #[unsafe(no_mangle)]
-pub static mut PREALLOCATED_END_PHY: usize = 0;
+pub static mut PREALLOCATED_END_PHY: PhyAddr = PhyAddr::new(0);
 
 #[cfg(target_pointer_width = "32")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
@@ -56,10 +56,6 @@ pub struct FrameNumber(usize);
 impl FrameNumber {
     pub const fn new(num: usize) -> Self {
         FrameNumber(num)
-    }
-
-    pub const fn from_addr(addr: PhyAddr) -> Self {
-        FrameNumber(addr / PAGE_SIZE)
     }
 
     pub const fn get(&self) -> usize {
@@ -155,9 +151,10 @@ pub unsafe extern "C" fn page_early_init(
 ) {
     unsafe {
         // 都向后对齐到页
-        PREALLOCATED_END_PHY = frame_align_up(PREALLOCATED_END_PHY.max(kernel_end));
+        PREALLOCATED_END_PHY = PhyAddr::new(kernel_end).max(PREALLOCATED_END_PHY);
 
-        Frame::init(blocks, block_count, (kernel_start, PREALLOCATED_END_PHY));
+        let kernel_range = (PhyAddr::new(kernel_start), PREALLOCATED_END_PHY);
+        Frame::init(blocks, block_count, kernel_range);
     }
 }
 
@@ -172,7 +169,8 @@ pub unsafe extern "C" fn early_allocate_pages(count: u8) -> usize {
     unsafe {
         let addr = PREALLOCATED_END_PHY;
         PREALLOCATED_END_PHY += (count as usize) * 0x1000;
-        addr
+
+        addr.as_usize()
     }
 }
 
@@ -201,10 +199,10 @@ impl Frame {
     }
 
     /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
-    fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (usize, usize)) -> usize {
+    fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (PhyAddr, PhyAddr)) -> usize {
         let (kernel_start, kernel_end) = (
-            FrameNumber::from_addr(kernel_range.0),
-            FrameNumber::from_addr(kernel_range.1),
+            kernel_range.0.to_frame_number(),
+            kernel_range.1.to_frame_number(),
         );
 
         let mut last = FrameNumber::new(0);
@@ -213,11 +211,10 @@ impl Frame {
             let block = unsafe { &*blocks.add(i as usize) };
 
             // 起始地址向后对齐，避免向前越界
-            let start_addr = frame_align_up(block.base_addr as usize);
-            let block_start = FrameNumber::from_addr(start_addr);
+            let start_addr = PhyAddr::new(block.base_addr as usize).page_align_up();
+            let block_start = start_addr.to_frame_number();
 
-            let offset = start_addr - (block.base_addr as usize);
-            let length = frame_align_down(block.length as usize - offset);
+            let length = block.length as usize - start_addr.page_offset();
 
             let block_end = block_start + frame_count(length);
 
@@ -329,20 +326,20 @@ impl Frame {
 
     #[inline(always)]
     pub fn from_addr<'a>(addr: PhyAddr) -> Option<FrameRef> {
-        let page_num = FrameNumber::from_addr(addr);
+        let page_num = addr.to_frame_number();
         Frame::get(page_num)
     }
 
     #[inline(always)]
     pub fn from_addr_mut<'a>(addr: PhyAddr) -> Option<FrameMut> {
-        let page_num = FrameNumber::from_addr(addr);
+        let page_num = addr.to_frame_number();
         Frame::get_mut(page_num)
     }
 
-    pub const fn start_addr(&self) -> usize {
+    pub const fn start_addr(&self) -> PhyAddr {
         let frame_number =
             unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
-        frame_number * PAGE_SIZE
+        PhyAddr::new(frame_number * PAGE_SIZE)
     }
 
     pub fn from_child<'a, T>(child: &'a mut T) -> &'a mut Frame {
@@ -373,14 +370,6 @@ impl Frame {
     }
 }
 
-pub const fn frame_align_up(addr: PhyAddr) -> PhyAddr {
-    (addr + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
-}
-
-pub const fn frame_align_down(addr: PhyAddr) -> PhyAddr {
-    addr & !(PAGE_SIZE - 1)
-}
-
 pub const fn frame_count(size: usize) -> usize {
     size.div_ceil(PAGE_SIZE)
 }
@@ -396,14 +385,16 @@ pub trait FrameAllocator {
 pub extern "C" fn allocate_frames_c(zone_type: ZoneType, order: FrameOrder) -> usize {
     FRAME_MANAGER
         .allocate(zone_type, order)
-        .map_or(0, |v| v.start_addr())
+        .map_or(0, |v| v.start_addr().as_usize())
 }
 
 #[unsafe(export_name = "free_frames")]
 pub extern "C" fn free_frames_c(paddr: usize) -> isize {
-    let frame = unsafe { Frame::get_raw(FrameNumber::from_addr(paddr)).as_mut() };
+    let paddr = PhyAddr::new(paddr);
+    let frame = Frame::get_raw(paddr.to_frame_number());
+    let mut frame = unsafe { FrameMut::try_from_raw(frame).unwrap() };
 
-    match FRAME_MANAGER.free(frame) {
+    match FRAME_MANAGER.free(frame.deref_mut()) {
         Ok(count) => count as isize,
         Err(_) => -1,
     }

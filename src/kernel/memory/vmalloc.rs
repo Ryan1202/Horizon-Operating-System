@@ -6,13 +6,11 @@ use core::{
 };
 
 use crate::{
-    arch::x86::kernel::page::PAGE_SIZE,
+    arch::{PhyAddr, VirtAddr, x86::kernel::page::PAGE_SIZE},
     kernel::memory::{
         MemoryError, PageCacheType,
-        frame::{
-            FrameNumber, buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType,
-        },
-        page::{PageNumber, Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
+        frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType},
+        page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
     },
 };
 
@@ -27,7 +25,7 @@ pub extern "C" fn ioremap_c(
     size: usize,
     cache_type: PageCacheType,
 ) -> *mut core::ffi::c_void {
-    match ioremap(addr, size, cache_type) {
+    match ioremap(PhyAddr::new(addr), size, cache_type) {
         Ok(mut ptr) => ptr.get_ptr(),
         Err(e) => {
             e.log_error(format_args!(
@@ -41,7 +39,7 @@ pub extern "C" fn ioremap_c(
 
 #[unsafe(export_name = "iounmap")]
 pub extern "C" fn iounmap_c(vstart: usize) -> i32 {
-    match iounmap(vstart) {
+    match iounmap(VirtAddr::new(vstart)) {
         Ok(_) => 0,
         Err(e) => {
             e.log_error(format_args!(
@@ -75,11 +73,11 @@ pub extern "C" fn vmalloc_c(size: usize, cache_type: PageCacheType) -> *mut c_vo
 }
 
 pub fn ioremap<'a>(
-    addr: usize,
+    addr: PhyAddr,
     size: usize,
     cache_type: PageCacheType,
 ) -> Result<Pages<'a>, MemoryError> {
-    let start = FrameNumber::from_addr(addr);
+    let start = addr.to_frame_number();
     let count = frame_count(size);
     let non_zero_count = NonZeroUsize::new(count).ok_or(MemoryError::InvalidSize(size))?;
 
@@ -91,11 +89,11 @@ pub fn ioremap<'a>(
     page_options.allocate()
 }
 
-pub fn iounmap(vaddr: usize) -> Result<(), MemoryError> {
+pub fn iounmap(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let mut node = get_vmap_node();
 
     let err = MemoryError::InvalidAddress(vaddr);
-    let page_number = PageNumber::from_addr(vaddr).ok_or(err.clone())?;
+    let page_number = vaddr.to_page_number().ok_or(err.clone())?;
 
     // Vmap的树只使用range.start进行比较，因此只需传入单页范围即可
     let range = VmRange {
@@ -135,11 +133,11 @@ pub fn vmalloc<T>(
         .map(|mut pages| unsafe { NonNull::new_unchecked(pages.get_ptr()) })
 }
 
-pub fn vfree(vaddr: usize) -> Result<(), MemoryError> {
+pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let mut node = get_vmap_node();
     let err = MemoryError::InvalidAddress(vaddr);
 
-    let num = PageNumber::from_addr(vaddr).ok_or(err.clone())?;
+    let num = vaddr.to_page_number().ok_or(err.clone())?;
     let range = VmRange {
         start: num,
         end: num,

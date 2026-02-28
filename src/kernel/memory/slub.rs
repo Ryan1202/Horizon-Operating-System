@@ -3,12 +3,7 @@
 // - 使用从 C 导入的自旋锁（见 src/include/kernel/spinlock.h）
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
-use core::{
-    mem::ManuallyDrop,
-    num::NonZeroU16,
-    ops::DerefMut,
-    ptr::{NonNull, with_exposed_provenance_mut},
-};
+use core::{mem::ManuallyDrop, num::NonZeroU16, ops::DerefMut, ptr::NonNull};
 
 use crate::{
     arch::x86::kernel::page::PAGE_SIZE,
@@ -101,12 +96,8 @@ impl Slub {
         let mut pages = options.allocate()?;
         let page_count = pages.get_count();
 
-        let start_addr = pages.start_addr().get();
-        let free_nodes = unsafe {
-            with_exposed_provenance_mut::<FreeNode>(start_addr)
-                .as_mut()
-                .unwrap()
-        };
+        let start_addr = pages.start_addr();
+        let free_nodes = unsafe { start_addr.as_mut_ptr::<FreeNode>().as_mut().unwrap() };
 
         FreeNode::init(free_nodes, object_num, object_size);
 

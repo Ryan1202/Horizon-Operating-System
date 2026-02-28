@@ -13,6 +13,8 @@ use core::{
     panic::PanicInfo,
 };
 
+pub mod arch;
+
 const CACHELINE_SIZE: usize = 64;
 
 unsafe extern "C" {
@@ -42,13 +44,6 @@ fn panic(_info: &PanicInfo) -> ! {
 // Auto-generated module declarations
 pub mod kernel {
     pub mod memory;
-}
-pub mod arch {
-    pub mod x86 {
-        pub mod kernel {
-            pub mod page;
-        }
-    }
 }
 pub mod lib {
     pub mod rust;

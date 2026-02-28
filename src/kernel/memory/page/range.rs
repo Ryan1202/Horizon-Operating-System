@@ -1,4 +1,4 @@
-use core::ptr::NonNull;
+use core::{cmp::Ordering, ptr::NonNull};
 
 use crate::{
     kernel::memory::page::PageNumber,
@@ -22,25 +22,25 @@ impl PartialEq for VmRange {
 impl Eq for VmRange {}
 
 impl PartialOrd for VmRange {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.start.get().cmp(&other.start.get()))
     }
 }
 
 impl Ord for VmRange {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.start.get().cmp(&other.start.get())
     }
 }
 
 impl VmRange {
-    pub fn cmp_range(&self, other: &Self) -> core::cmp::Ordering {
+    pub fn cmp_range(&self, other: &Self) -> Ordering {
         if self.end.get() < other.start.get() {
-            core::cmp::Ordering::Less
+            Ordering::Less
         } else if self.start.get() > other.end.get() {
-            core::cmp::Ordering::Greater
+            Ordering::Greater
         } else {
-            core::cmp::Ordering::Equal
+            Ordering::Equal
         }
     }
 
@@ -50,7 +50,7 @@ impl VmRange {
 }
 
 impl Augment for LinkedRbNodeBase<VmRange, usize> {
-    fn recalc(&mut self, side: crate::lib::rust::rbtree::augment::ChangeSide) {
+    fn recalc(&mut self, side: ChangeSide) {
         let size = self.get_key().get_count();
         let max_size = &mut linked_augment!(self);
 

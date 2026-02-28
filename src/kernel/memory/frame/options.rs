@@ -1,8 +1,11 @@
 use core::num::NonZeroUsize;
 
-use crate::kernel::memory::frame::{
-    FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
-    reference::FrameMut, zone::ZONE_COUNT,
+use crate::{
+    arch::PhyAddr,
+    kernel::memory::frame::{
+        FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
+        reference::FrameMut, zone::ZONE_COUNT,
+    },
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -47,7 +50,7 @@ impl FrameAllocOptions {
     }
 
     pub const fn fixed(mut self, start: FrameNumber, count: NonZeroUsize) -> Self {
-        self.alloc_type = FrameAllocType::Static { start, count };
+        self.alloc_type = FrameAllocType::Fixed { start, count };
         self
     }
 
@@ -58,7 +61,7 @@ impl FrameAllocOptions {
     pub fn get_count(&self) -> NonZeroUsize {
         match &self.alloc_type {
             FrameAllocType::Dynamic { order } => order.to_count(),
-            FrameAllocType::Static { count, .. } => *count,
+            FrameAllocType::Fixed { count, .. } => *count,
         }
     }
 
@@ -102,7 +105,7 @@ pub enum FrameAllocType {
     Dynamic {
         order: FrameOrder,
     },
-    Static {
+    Fixed {
         start: FrameNumber,
         count: NonZeroUsize,
     },
@@ -115,12 +118,13 @@ impl FrameAllocType {
                 .allocate(zone, *order)
                 .map(|f| (f, zone))
                 .ok_or(FrameError::OutOfFrames),
-            Self::Static { start, count } => {
+
+            Self::Fixed { start, count } => {
                 FRAME_MANAGER.assign(*start, count.get()).and_then(|_| {
-                    Ok((
-                        Frame::get_mut(*start).ok_or(FrameError::Conflict)?,
-                        ZoneType::from_address(start.get()),
-                    ))
+                    let frame = Frame::get_mut(*start).ok_or(FrameError::Conflict)?;
+
+                    let zone_type = ZoneType::from_address(PhyAddr::from_frame_number(*start));
+                    Ok((frame, zone_type))
                 })
             }
         }

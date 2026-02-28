@@ -4,8 +4,9 @@ use core::{
     ptr::addr_of,
 };
 
-use crate::{ConsoleOutput, kernel::memory::frame::FrameError};
+use crate::{ConsoleOutput, arch::VirtAddr, kernel::memory::frame::FrameError};
 
+pub mod addr;
 pub mod frame;
 pub mod kmalloc;
 pub mod page;
@@ -17,11 +18,12 @@ unsafe extern "C" {
 }
 
 #[inline(always)]
-pub fn vir_base_addr() -> usize {
-    addr_of!(VIR_BASE) as usize
+pub fn vir_base_addr() -> VirtAddr {
+    VirtAddr::new(addr_of!(VIR_BASE) as usize)
 }
 
 const KLINEAR_SIZE: usize = 0x2000_0000;
+const KMEMORY_END: VirtAddr = VirtAddr::new(0xff80_0000);
 
 unsafe extern "C" {
     fn page_link(vaddr: usize, paddr: usize, page_count: u16, cache_type: PageCacheType) -> bool;
@@ -43,7 +45,7 @@ pub enum MemoryError {
     OutOfMemory,
     AddressConflict,
     MultipleFree,
-    InvalidAddress(usize),
+    InvalidAddress(VirtAddr),
     InvalidSize(usize),
     FrameError(FrameError),
 }

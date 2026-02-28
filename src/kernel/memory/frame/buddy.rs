@@ -1,5 +1,4 @@
 use core::{
-    fmt,
     mem::{ManuallyDrop, offset_of, zeroed},
     num::NonZeroUsize,
     ops::{Add, DerefMut, Sub},
@@ -98,7 +97,7 @@ impl ZoneState {
         let (_, zone_end) = zone_type.range();
         ZoneState {
             current_index: 0,
-            current_zone_end: FrameNumber::from_addr(zone_end),
+            current_zone_end: zone_end.to_frame_number(),
         }
     }
 
@@ -110,7 +109,7 @@ impl ZoneState {
             // 切换到下一个Zone
             self.current_index += 1;
             zone_type = ZoneType::from_index(self.current_index);
-            zone_end = FrameNumber::from_addr(zone_type.range().1);
+            zone_end = zone_type.range().1.to_frame_number();
         }
         self.current_zone_end = zone_end;
         (zone_type, zone_end)
@@ -165,15 +164,15 @@ impl BuddyAllocator {
     /// 遍历E820内存块，根据Zone和order将Free页加入对应的空闲链表
     fn populate_zones_from_e820(&self) {
         let mut zone_state = ZoneState::new();
-        let mut frame_num = FrameNumber::new(0);
+        let mut frame_number = FrameNumber::new(0);
 
-        while frame_num.get() < FRAME_INFO_COUNT {
-            let frame = Frame::get(frame_num).unwrap();
+        while frame_number.get() < FRAME_INFO_COUNT {
+            let frame = Frame::get(frame_number).unwrap();
             match frame.get_tag() {
                 FrameTag::Free => {
                     // 获取E820块的范围
                     let block_range = unsafe { *frame.get_data().range };
-                    frame_num = block_range.end + 1;
+                    frame_number = block_range.end + 1;
                     drop(frame);
 
                     self.add_free_block(&mut zone_state, block_range.start, block_range.end);
@@ -181,11 +180,11 @@ impl BuddyAllocator {
                 FrameTag::HardwareReserved | FrameTag::SystemReserved => {
                     // 跳过保留区
                     let block_range = unsafe { frame.get_data().range };
-                    frame_num = block_range.end + 1;
+                    frame_number = block_range.end + 1;
                 }
                 FrameTag::Unused => {
                     // 未使用页，可能是跨越了两个不同区域，继续下一个
-                    frame_num = frame_num + 1;
+                    frame_number = frame_number + 1;
                 }
                 _ => panic!("Buddy init: invalid frame tag"),
             }
@@ -287,7 +286,7 @@ impl BuddyAllocator {
 
         let frame = Frame::from_child(right);
         unsafe {
-            *frame.tag.get_mut() = FrameTag::Unused;
+            frame.set_tag(FrameTag::Unused);
 
             let node = Pin::new_unchecked(left.list.get_mut());
             let free = &mut self.get_zone(right.zone_type).free_frames.lock()[new_order as usize];
@@ -300,7 +299,7 @@ impl BuddyAllocator {
     fn merge_once(&self, buddy: &mut Buddy, range: (FrameNumber, FrameNumber)) -> bool {
         let order = buddy.order + 1;
 
-        let frame_number = FrameNumber::from_addr(buddy as *const _ as usize);
+        let frame_number = Frame::from_child(buddy).to_frame_number();
 
         let left = frame_number.get() & !(order.to_count().get() - 1);
         let left = FrameNumber::new(left);
@@ -383,7 +382,7 @@ impl BuddyAllocator {
 
         let zone_type = buddy.zone_type;
         let index = zone_type.index();
-        let zone_end = FrameNumber::from_addr(zone_type.range().1);
+        let zone_end = zone_type.range().1.to_frame_number();
 
         // 5 种情况：
         // 1. 完全覆盖：Buddy块完全在range内 → 标记Unused并移除
@@ -496,12 +495,13 @@ impl FrameAllocator for BuddyAllocator {
         let zone = self.get_zone(zone_type);
         let zone_range = zone_type.range();
         let (zone_start, zone_end) = (
-            FrameNumber::from_addr(zone_range.0),
-            FrameNumber::new(zone_range.1),
+            zone_range.0.to_frame_number(),
+            zone_range.1.to_frame_number(),
         );
 
         if matches!(frame.get_tag(), FrameTag::Allocated) {
             // 仅释放Buddy类型的页
+            frame.set_tag(FrameTag::Buddy);
             let buddy = Buddy::from_frame(frame);
             let order = buddy.order;
             let count = order.to_count().get();

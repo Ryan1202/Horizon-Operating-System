@@ -142,7 +142,7 @@ void setup_page(void) {
 		}
 	}
 
-	// 将页表所在的页设置为只读，这样只能通过映射到最后4MB的页修改页表
+	// 将页表所在的页设置为不存在，这样只能通过映射到最后4MB的页修改页表
 	// 避免代码bug导致意外修改
 	for (int i = 0; i < 1024; i++) {
 		if (pdt[i] & SIGN_P && pdt[i] & 0xfffff000) {
@@ -150,7 +150,7 @@ void setup_page(void) {
 			size_t vir_addr = (size_t)VIR_BASE + phy_addr;
 
 			size_t *pte = pte_ptr(vir_addr);
-			(*pte) &= ~SIGN_RW;
+			(*pte) &= ~SIGN_P;
 		}
 	}
 }

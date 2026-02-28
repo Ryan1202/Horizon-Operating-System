@@ -9,6 +9,8 @@ use core::{
     panic::PanicInfo,
 };
 
+pub mod arch;
+
 const CACHELINE_SIZE: usize = 64;
 
 unsafe extern "C" {

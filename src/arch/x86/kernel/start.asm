@@ -20,8 +20,9 @@ kernel_early_start:
 	call page_early_setup
 	mov cr3, eax
 
+	; 启用分页和写保护
 	mov	eax,	cr0
-	or	eax,	0x80000000
+	or	eax,	0x80008000
 	mov cr0,	eax
 
 	jmp kernel_start
