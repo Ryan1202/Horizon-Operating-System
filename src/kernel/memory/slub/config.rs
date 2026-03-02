@@ -3,7 +3,12 @@
 //! 提供一组默认的 kmalloc 缓存配置（kmalloc-8 .. kmalloc-4k），
 //! 每项包含 name、object_size。
 
-use core::{num::NonZeroU16, ptr::NonNull};
+use core::{
+    cell::SyncUnsafeCell,
+    num::NonZeroU16,
+    ptr::{NonNull, null_mut},
+    sync::atomic::{AtomicPtr, Ordering},
+};
 
 use crate::kernel::memory::slub::mem_cache::MemCache;
 
@@ -58,7 +63,23 @@ pub const DEFAULT_CACHE_CONFIGS: &'static [CacheConfig] = &[
         object_size: NonZeroU16::new(4096).unwrap(),
     },
 ];
-const DEFAULT_CACHE_COUNT: usize = DEFAULT_CACHE_CONFIGS.len();
+pub const DEFAULT_CACHE_COUNT: usize = DEFAULT_CACHE_CONFIGS.len();
 
-pub static mut DEFAULT_CACHES: [NonNull<MemCache>; DEFAULT_CACHE_COUNT] =
-    [NonNull::dangling(); DEFAULT_CACHE_COUNT];
+pub static DEFAULT_CACHES: SyncUnsafeCell<[AtomicPtr<MemCache>; DEFAULT_CACHE_COUNT]> =
+    SyncUnsafeCell::new([const { AtomicPtr::new(null_mut()) }; DEFAULT_CACHE_COUNT]);
+
+pub fn get_cache(index: usize) -> Option<NonNull<MemCache>> {
+    if index >= DEFAULT_CACHE_COUNT {
+        return None;
+    }
+
+    let cache_ptr = unsafe { (*DEFAULT_CACHES.get())[index].load(Ordering::Acquire) };
+    NonNull::new(cache_ptr)
+}
+
+pub unsafe fn get_cache_unchecked(index: usize) -> NonNull<MemCache> {
+    unsafe {
+        let cache_ptr = (*DEFAULT_CACHES.get())[index].load(Ordering::Acquire);
+        NonNull::new_unchecked(cache_ptr)
+    }
+}

@@ -10,12 +10,10 @@ use crate::{
     arch::{PhyAddr, VirtAddr},
     kernel::memory::{
         frame::{Frame, FrameTag},
-        slub::Slub,
+        slub::{Slub, config::get_cache_unchecked},
         vir_base_addr,
     },
 };
-
-use super::slub::config::DEFAULT_CACHES;
 
 #[unsafe(export_name = "kmalloc")]
 pub extern "C" fn kmalloc_c(size: usize) -> *mut c_void {
@@ -51,8 +49,7 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
         return None;
     }
 
-    #[allow(static_mut_refs)]
-    let cache = unsafe { DEFAULT_CACHES.get_unchecked(ilog - 3).clone().as_mut() };
+    let cache = unsafe { get_cache_unchecked(ilog - 3).clone().as_mut() };
     cache.alloc::<T>()
 }
 

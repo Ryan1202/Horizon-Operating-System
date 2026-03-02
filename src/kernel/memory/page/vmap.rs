@@ -38,7 +38,7 @@ pub struct VmapNode {
 }
 
 static VMAP_NODE: Spinlock<VmapNode> = Spinlock::new(unsafe { mem::zeroed() });
-static mut FREE_VMAP_TREE: Spinlock<LinkedRbTreeBase<VmRange, (), usize>> =
+static FREE_VMAP_TREE: Spinlock<LinkedRbTreeBase<VmRange, (), usize>> =
     Spinlock::new(LinkedRbTreeBase::empty());
 
 pub fn get_vmap_node<'a>() -> SpinGuard<'a, VmapNode> {
@@ -47,7 +47,6 @@ pub fn get_vmap_node<'a>() -> SpinGuard<'a, VmapNode> {
 
 impl VmapNode {
     pub fn init(&mut self) {
-        #[allow(static_mut_refs)]
         unsafe {
             FREE_VMAP_TREE.init_with(|rbtree| {
                 rbtree.init();
@@ -137,8 +136,7 @@ impl VmapNode {
     /// 从红黑树中查找并分配满足条件的虚拟页块
     /// 查找策略：优先左子树（smaller but sufficient），精确匹配或分割
     fn allocate_from_tree(&mut self, count: NonZeroUsize) -> Option<NonNull<DynPages>> {
-        #[allow(static_mut_refs)]
-        let mut tree = unsafe { FREE_VMAP_TREE.lock() };
+        let mut tree = FREE_VMAP_TREE.lock();
         let mut node = tree.root?;
 
         // 根节点不满足要求，整棵树都不够大
@@ -194,10 +192,7 @@ impl VmapNode {
         let node = &mut pages.rb_node;
 
         if node.get_key().get_count() >= MAX_VMAP_POOL_PAGES {
-            #[allow(static_mut_refs)]
-            unsafe {
-                FREE_VMAP_TREE.lock().insert(node);
-            }
+            FREE_VMAP_TREE.lock().insert(node);
         } else {
             self.pool_put(pages);
         }

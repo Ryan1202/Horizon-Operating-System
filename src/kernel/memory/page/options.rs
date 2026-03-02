@@ -112,7 +112,7 @@ impl PageAllocOptions {
         let count = self.frame.get_count();
 
         if self.contiguous {
-            let (frame, zone) = self.frame.allocate().map_err(MemoryError::FrameError)?;
+            let (frame, zone) = self.frame.allocate()?;
 
             if !matches!(zone, ZoneType::LinearMem) {
                 let mut node = get_vmap_node();
@@ -129,7 +129,6 @@ impl PageAllocOptions {
             let v = unsafe { node.allocate(count)?.as_mut() };
 
             self.alloc_discontiguous(v)
-                .map_err(MemoryError::FrameError)
                 .inspect_err(|_| node.deallocate(v).unwrap())?;
 
             Ok(Pages::Dynamic(v))

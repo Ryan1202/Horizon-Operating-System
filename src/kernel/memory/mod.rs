@@ -56,3 +56,9 @@ impl MemoryError {
         writeln!(output, "{}: MemoryError: {:?}", args, self).ok();
     }
 }
+
+impl From<FrameError> for MemoryError {
+    fn from(value: FrameError) -> Self {
+        MemoryError::FrameError(value)
+    }
+}

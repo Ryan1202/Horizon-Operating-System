@@ -13,7 +13,7 @@ use crate::{
         page::options::PageAllocOptions,
         slub::{
             ALIGN, MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError, calculate_sizes,
-            config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHES},
+            config::{DEFAULT_CACHE_CONFIGS, DEFAULT_CACHE_COUNT, DEFAULT_CACHES, get_cache},
             mem_cache_node::MemCacheNode,
         },
     },
@@ -58,12 +58,20 @@ impl MemCaches {
             let mem_cache = caches.mem_cache.as_mut();
 
             for (i, cache) in DEFAULT_CACHE_CONFIGS.iter().enumerate() {
-                DEFAULT_CACHES[i] = mem_cache.new_boot(
-                    cache.name.as_ptr(),
-                    mem_cache_node,
-                    cache.object_size,
-                    options,
-                );
+                unsafe {
+                    let cache_ptr = &mut *DEFAULT_CACHES.get();
+                    cache_ptr[i].store(
+                        mem_cache
+                            .new_boot(
+                                cache.name.as_ptr(),
+                                mem_cache_node,
+                                cache.object_size,
+                                options,
+                            )
+                            .as_ptr(),
+                        Ordering::Release,
+                    );
+                }
             }
 
             caches.list_head.init_with(|v| {
@@ -73,8 +81,10 @@ impl MemCaches {
                 head.add_head(Pin::new_unchecked(&mut mem_cache_node.list));
                 head.add_head(Pin::new_unchecked(&mut mem_cache.list));
 
-                for mut cache in DEFAULT_CACHES {
-                    head.add_tail(Pin::new_unchecked(&mut cache.as_mut().list));
+                for cache in 0..DEFAULT_CACHE_COUNT {
+                    head.add_tail(Pin::new_unchecked(
+                        &mut get_cache(cache).unwrap().as_mut().list,
+                    ));
                 }
             });
         }
