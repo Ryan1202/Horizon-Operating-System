@@ -2,7 +2,7 @@
 macro_rules! impl_page_addr {
     ($name:ident, $size:expr) => {
         impl $name {
-            pub const fn is_page_aligned(&self, _align: usize) -> bool {
+            pub const fn is_page_aligned(&self) -> bool {
                 self.0.is_multiple_of($size)
             }
 
@@ -31,14 +31,6 @@ macro_rules! impl_page_addr {
             }
         }
 
-        impl core::ops::Add for $name {
-            type Output = Self;
-
-            fn add(self, rhs: Self) -> Self::Output {
-                Self(self.0 + rhs.0)
-            }
-        }
-
         impl core::ops::AddAssign<usize> for $name {
             fn add_assign(&mut self, rhs: usize) {
                 self.0 += rhs;
@@ -54,10 +46,10 @@ macro_rules! impl_page_addr {
         }
 
         impl core::ops::Sub for $name {
-            type Output = Self;
+            type Output = usize;
 
             fn sub(self, rhs: Self) -> Self::Output {
-                Self(self.0 - rhs.0)
+                self.0 - rhs.0
             }
         }
 

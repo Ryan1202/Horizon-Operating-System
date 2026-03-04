@@ -7,10 +7,13 @@ use core::{
 
 use crate::{
     ConsoleOutput,
-    arch::{VirtAddr, x86::kernel::page::PAGE_SIZE},
+    arch::{ArchPageTable, VirtAddr},
     kernel::memory::{
-        KLINEAR_SIZE, KMEMORY_END, PageCacheType, VIR_BASE, frame::reference::FrameMut,
-        kmalloc::kmalloc, page::range::VmRange, page_link, page_unlink,
+        KLINEAR_SIZE, KMEMORY_END, MemoryError, PageCacheType, VIR_BASE,
+        arch::ArchMemory,
+        frame::reference::FrameMut,
+        kmalloc::kmalloc,
+        page::{PageFlags, PageTableError, PageTableWalker, range::VmRange},
     },
     lib::rust::rbtree::linked::LinkedRbNodeBase,
 };
@@ -45,7 +48,7 @@ impl DynPages {
     }
 
     pub const fn start_addr(&self) -> VirtAddr {
-        let addr = self.rb_node.get_key().start.get().get() * PAGE_SIZE;
+        let addr = self.rb_node.get_key().start.get().get() * ArchPageTable::PAGE_SIZE;
         VirtAddr::new(addr)
     }
 
@@ -77,12 +80,17 @@ impl DynPages {
         Some(allocated)
     }
 
-    pub fn link(&mut self, frame: FrameMut, count: usize, cache_type: PageCacheType) -> Option<()> {
-        unsafe {
-            // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
-            let range = self.rb_node.get_key();
+    pub fn link<W: PageTableWalker>(
+        &mut self,
+        frame: FrameMut,
+        count: usize,
+        cache_type: PageCacheType,
+    ) -> Result<(), MemoryError> {
+        // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
+        let frame_number = frame.to_frame_number();
 
-            let start_addr = frame.start_addr();
+        {
+            let range = self.rb_node.get_key();
 
             if self.first_frame.is_none() {
                 self.first_frame = Some(frame);
@@ -94,32 +102,29 @@ impl DynPages {
                 let mut output = ConsoleOutput;
                 writeln!(
                     output,
-                    "VirtPages range insufficient: required {}, available {}",
+                    "DynPages range insufficient: required {}, available {}",
                     self.frame_count + count,
                     range.get_count()
                 )
                 .unwrap();
             }
-
-            page_link(
-                (range.start + self.frame_count).to_addr().as_usize(),
-                start_addr.as_usize(),
-                count as u16,
-                cache_type,
-            )
-            .then_some({
-                self.frame_count += count;
-            })
         }
+
+        W::map_range(
+            self,
+            frame_number,
+            self.frame_count,
+            count,
+            PageFlags::new().cache_type(cache_type),
+        )?;
+        self.frame_count += count;
+        Ok(())
     }
 
-    pub fn unlink(&mut self) {
-        unsafe {
-            let range = self.rb_node.get_key();
+    pub fn unlink<W: PageTableWalker>(&mut self) -> Result<(), PageTableError> {
+        W::unmap_range(self, 0, self.frame_count)?;
 
-            page_unlink(range.start.to_addr().as_usize(), self.frame_count as u16);
-
-            self.frame_count = 0;
-        }
+        self.frame_count = 0;
+        Ok(())
     }
 }

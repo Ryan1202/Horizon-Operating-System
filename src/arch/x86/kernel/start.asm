@@ -25,6 +25,11 @@ kernel_early_start:
 	or	eax,	0x80008000
 	mov cr0,	eax
 
+	; 启用全局页和页大小扩展
+	mov eax,	cr4
+	or	eax,	0x00000050
+	mov cr4,	eax
+
 	jmp kernel_start
 
 [section .text]

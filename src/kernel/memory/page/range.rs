@@ -23,7 +23,7 @@ impl Eq for VmRange {}
 
 impl PartialOrd for VmRange {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.start.get().cmp(&other.start.get()))
+        Some(self.cmp(other))
     }
 }
 

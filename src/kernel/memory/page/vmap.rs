@@ -149,11 +149,11 @@ impl VmapNode {
             let node_ref = unsafe { node.as_mut() };
 
             // 如果左子树存在且最大值满足需求，优先搜索左子树
-            if let Some(left) = node_ref.left {
-                if linked_augment!(unsafe { left.as_ref() }) >= count.get() {
-                    node = left;
-                    continue;
-                }
+            if let Some(left) = node_ref.left
+                && linked_augment!(unsafe { left.as_ref() }) >= count.get()
+            {
+                node = left;
+                continue;
             }
 
             // 当前节点满足需求

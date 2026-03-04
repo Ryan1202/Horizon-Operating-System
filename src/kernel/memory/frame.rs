@@ -2,21 +2,21 @@ use core::{
     cell::SyncUnsafeCell,
     fmt::Display,
     mem::{self, ManuallyDrop},
-    ops::{Add, DerefMut, Sub},
+    ops::{Add, Sub},
     ptr::{NonNull, addr_of},
     sync::atomic::AtomicUsize,
 };
 
 use crate::{
     CACHELINE_SIZE,
-    arch::{PAGE_SIZE, PageLevelEntry, PhyAddr},
+    arch::{ArchPageTable, PhysAddr},
     kernel::memory::{
+        arch::ArchMemory,
         frame::{
             buddy::{Buddy, BuddyAllocator, FrameOrder},
             reference::{FrameMut, FrameRc, FrameRef},
             zone::ZoneType,
         },
-        page::PageTableEntry,
         slub::Slub,
     },
     lib::rust::list::ListNode,
@@ -35,7 +35,7 @@ pub struct E820Ards {
 }
 
 #[unsafe(no_mangle)]
-pub static mut PREALLOCATED_END_PHY: PhyAddr = PhyAddr::new(0);
+pub static mut PREALLOCATED_END_PHY: PhysAddr = PhysAddr::new(0);
 
 #[cfg(target_pointer_width = "32")]
 const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
@@ -151,9 +151,9 @@ pub unsafe extern "C" fn page_early_init(
 ) {
     unsafe {
         // 都向后对齐到页
-        PREALLOCATED_END_PHY = PhyAddr::new(kernel_end).max(PREALLOCATED_END_PHY);
+        PREALLOCATED_END_PHY = PhysAddr::new(kernel_end).max(PREALLOCATED_END_PHY);
 
-        let kernel_range = (PhyAddr::new(kernel_start), PREALLOCATED_END_PHY);
+        let kernel_range = (PhysAddr::new(kernel_start), PREALLOCATED_END_PHY);
         Frame::init(blocks, block_count, kernel_range);
     }
 }
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn early_allocate_pages(count: u8) -> usize {
     }
 }
 
-pub static FRAMES: [Frame; PageLevelEntry::MAX + 1] = unsafe { mem::zeroed() };
+pub static FRAMES: [Frame; ArchPageTable::TOTAL_ENTRIES] = unsafe { mem::zeroed() };
 
 /// 启动阶段的初始化函数，仅可在单线程环境使用
 impl Frame {
@@ -199,7 +199,7 @@ impl Frame {
     }
 
     /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
-    fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (PhyAddr, PhyAddr)) -> usize {
+    fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (PhysAddr, PhysAddr)) -> usize {
         let (kernel_start, kernel_end) = (
             kernel_range.0.to_frame_number(),
             kernel_range.1.to_frame_number(),
@@ -211,7 +211,7 @@ impl Frame {
             let block = unsafe { &*blocks.add(i as usize) };
 
             // 起始地址向后对齐，避免向前越界
-            let start_addr = PhyAddr::new(block.base_addr as usize).page_align_up();
+            let start_addr = PhysAddr::new(block.base_addr as usize).page_align_up();
             let block_start = start_addr.to_frame_number();
 
             let length = block.length as usize - start_addr.page_offset();
@@ -305,7 +305,7 @@ impl Frame {
 /// 工具函数实现
 impl Frame {
     pub fn get_tag_relaxed(frame_number: FrameNumber) -> FrameTag {
-        assert!(frame_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
+        assert!(frame_number.0 <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
         FRAMES[frame_number.0].get_tag()
     }
 
@@ -320,32 +320,32 @@ impl Frame {
     }
 
     pub const fn get_raw(frame_number: FrameNumber) -> NonNull<Frame> {
-        assert!(frame_number.0 <= usize::MAX as usize / PAGE_SIZE + 1);
+        assert!(frame_number.0 <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
         NonNull::from_ref(&FRAMES[frame_number.0])
     }
 
     #[inline(always)]
-    pub fn from_addr<'a>(addr: PhyAddr) -> Option<FrameRef> {
+    pub fn from_addr(addr: PhysAddr) -> Option<FrameRef> {
         let page_num = addr.to_frame_number();
         Frame::get(page_num)
     }
 
     #[inline(always)]
-    pub fn from_addr_mut<'a>(addr: PhyAddr) -> Option<FrameMut> {
+    pub fn from_addr_mut(addr: PhysAddr) -> Option<FrameMut> {
         let page_num = addr.to_frame_number();
         Frame::get_mut(page_num)
     }
 
-    pub const fn start_addr(&self) -> PhyAddr {
+    pub const fn start_addr(&self) -> PhysAddr {
         let frame_number =
             unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
-        PhyAddr::new(frame_number * PAGE_SIZE)
+        PhysAddr::new(frame_number * ArchPageTable::PAGE_SIZE)
     }
 
-    pub fn from_child<'a, T>(child: &'a mut T) -> &'a mut Frame {
+    pub fn from_child<T>(child: &mut T) -> &mut Frame {
         let addr = child as *mut T;
         assert!(addr.addr() >= addr_of!(FRAMES).addr());
-        let max = addr_of!(FRAMES[PageLevelEntry::MAX]).addr();
+        let max = addr_of!(FRAMES[ArchPageTable::TOTAL_ENTRIES - 1]).addr();
         assert!(addr.addr() < max + size_of::<Frame>());
         unsafe {
             addr.map_addr(|v| v & !(align_of::<Self>() - 1))
@@ -371,7 +371,7 @@ impl Frame {
 }
 
 pub const fn frame_count(size: usize) -> usize {
-    size.div_ceil(PAGE_SIZE)
+    size.div_ceil(ArchPageTable::PAGE_SIZE)
 }
 
 pub trait FrameAllocator {
@@ -379,23 +379,4 @@ pub trait FrameAllocator {
     fn free(&self, page: &mut Frame) -> Result<usize, FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     fn assign(&self, start: FrameNumber, len: usize) -> Result<(), FrameError>;
-}
-
-#[unsafe(export_name = "allocate_frames")]
-pub extern "C" fn allocate_frames_c(zone_type: ZoneType, order: FrameOrder) -> usize {
-    FRAME_MANAGER
-        .allocate(zone_type, order)
-        .map_or(0, |v| v.start_addr().as_usize())
-}
-
-#[unsafe(export_name = "free_frames")]
-pub extern "C" fn free_frames_c(paddr: usize) -> isize {
-    let paddr = PhyAddr::new(paddr);
-    let frame = Frame::get_raw(paddr.to_frame_number());
-    let mut frame = unsafe { FrameMut::try_from_raw(frame).unwrap() };
-
-    match FRAME_MANAGER.free(frame.deref_mut()) {
-        Ok(count) => count as isize,
-        Err(_) => -1,
-    }
 }

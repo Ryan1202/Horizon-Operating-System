@@ -7,6 +7,8 @@ pub mod x86 {
 
 #[cfg(target_arch = "x86")]
 pub use x86::kernel::page::{
-    PAGE_SIZE, PageLevelEntry,
-    addr::{PhyAddr, VirtAddr},
+    addr::{PhysAddr, VirtAddr},
+    entry::X86PageEntry as ArchPageEntry,
+    table::X86PageTable as ArchPageTable,
+    tlb::X86FlushTlb as ArchFlushTlb,
 };

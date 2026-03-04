@@ -7,7 +7,7 @@ use core::{
 };
 
 use crate::{
-    arch::{PhyAddr, VirtAddr},
+    arch::{PhysAddr, VirtAddr},
     kernel::memory::{
         frame::{Frame, FrameTag},
         slub::{Slub, config::get_cache_unchecked},
@@ -37,7 +37,7 @@ pub extern "C" fn kzalloc_c(size: usize) -> *mut c_void {
             unsafe { ptr.write_bytes(0, size.get()) };
             ptr.as_ptr()
         }
-        None => return null_mut(),
+        None => null_mut(),
     }
 }
 
@@ -65,8 +65,13 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
 }
 
 pub fn kfree<T>(ptr: NonNull<T>) {
+    assert!(
+        ptr.as_ptr() as usize >= vir_base_addr().as_usize(),
+        "Attempt to free non-kernel memory"
+    );
+
     let vaddr = VirtAddr::new(ptr.as_ptr() as usize);
-    let phy_addr = PhyAddr::new(vaddr.offset_from(vir_base_addr()));
+    let phy_addr = PhysAddr::new(vaddr.offset_from(vir_base_addr()));
     let frame = Frame::from_addr_mut(phy_addr);
 
     if let Some(mut frame) = frame {

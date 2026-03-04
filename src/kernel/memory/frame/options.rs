@@ -1,7 +1,7 @@
 use core::num::NonZeroUsize;
 
 use crate::{
-    arch::PhyAddr,
+    arch::PhysAddr,
     kernel::memory::frame::{
         FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
         reference::FrameMut, zone::ZONE_COUNT,
@@ -89,6 +89,12 @@ impl FrameAllocOptions {
     }
 }
 
+impl Default for FrameAllocOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FallbackChain {
     chain: [Option<ZoneType>; ZONE_COUNT],
@@ -123,7 +129,7 @@ impl FrameAllocType {
                 FRAME_MANAGER.assign(*start, count.get()).and_then(|_| {
                     let frame = Frame::get_mut(*start).ok_or(FrameError::Conflict)?;
 
-                    let zone_type = ZoneType::from_address(PhyAddr::from_frame_number(*start));
+                    let zone_type = ZoneType::from_address(PhysAddr::from_frame_number(*start));
                     Ok((frame, zone_type))
                 })
             }

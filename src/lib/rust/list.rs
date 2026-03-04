@@ -62,7 +62,7 @@ impl<Owner> ListHead<Owner> {
     }
 
     #[inline(always)]
-    pub fn is_empty(self: &Self) -> bool {
+    pub fn is_empty(&self) -> bool {
         (self
             .head
             .is_some_and(|ptr| ptr == unsafe { Pin::new_unchecked(self) }.into_node()))
@@ -168,11 +168,11 @@ impl<Owner> AtomicListNode<Owner> {
             use core::mem::transmute;
             use core::sync::atomic::AtomicU64;
 
-            let ptr: *mut AtomicU64 = unsafe { transmute(self.deref_mut()) };
+            let ptr: *mut AtomicU64 = self.deref_mut() as *mut ListNode<Owner> as *mut AtomicU64;
 
             let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
 
-            return unsafe { transmute::<u64, ListNode<Owner>>(v) };
+            unsafe { transmute::<u64, ListNode<Owner>>(v) }
         }
     }
 
@@ -196,10 +196,9 @@ impl<Owner> AtomicListNode<Owner> {
             use core::mem::transmute;
             use core::sync::atomic::{AtomicU64, Ordering};
 
-            let ptr: *mut AtomicU64 = unsafe { transmute(self.deref_mut()) };
+            let ptr: *mut AtomicU64 = self.deref_mut() as *mut ListNode<Owner> as *mut AtomicU64;
             let new: u64 = unsafe { transmute(new) };
             unsafe { &*ptr }.store(new, Ordering::Release);
-            return;
         }
     }
 }

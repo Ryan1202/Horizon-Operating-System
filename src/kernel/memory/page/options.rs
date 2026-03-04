@@ -1,13 +1,14 @@
 use crate::{
-    arch::x86::kernel::page::PAGE_SIZE,
+    arch::{ArchFlushTlb, ArchPageTable},
     kernel::memory::{
         MemoryError, PageCacheType,
+        arch::ArchMemory,
         frame::{
-            FrameError, FrameTag,
+            FrameTag,
             options::{FrameAllocOptions, FrameAllocType, RetryPolicy},
             zone::ZoneType,
         },
-        page::{Pages, dyn_pages::DynPages, vmap::get_vmap_node},
+        page::{FlushTlb, Pages, dyn_pages::DynPages, vmap::get_vmap_node},
     },
 };
 
@@ -57,7 +58,7 @@ impl PageAllocOptions {
 }
 
 impl PageAllocOptions {
-    fn alloc_discontiguous<'a>(&self, pages: &'a mut DynPages) -> Result<(), FrameError> {
+    fn alloc_discontiguous(&self, pages: &mut DynPages) -> Result<(), MemoryError> {
         let mut order = if let FrameAllocType::Dynamic { order } = *self.frame.get_type() {
             order
         } else {
@@ -68,14 +69,18 @@ impl PageAllocOptions {
         let mut first = None;
 
         while remaining > 0 {
-            let option = self.clone().frame.dynamic(order);
+            let option = self.frame.dynamic(order);
             let result = option.allocate();
 
             match result {
                 Ok((mut _frames, _zone)) => {
                     debug_assert!(matches!(_frames.get_tag(), FrameTag::Allocated));
 
-                    pages.link(_frames, order.to_count().get(), self.cache_type);
+                    pages.link::<ArchPageTable>(
+                        _frames,
+                        order.to_count().get(),
+                        self.cache_type,
+                    )?;
 
                     if first.is_none() {
                         first = Some(());
@@ -97,14 +102,17 @@ impl PageAllocOptions {
         // 分配结果判断
         if remaining == 0 {
             // 完全满足需求
+            let start = pages.start_addr().to_page_number().unwrap();
+            let end = start + pages.frame_count - 1;
+            ArchFlushTlb::flush_range(start, end);
             Ok(())
         } else if first.is_some() {
             // 部分成功但未满足需求，返回错误（避免返回残留的链表）
-            pages.unlink();
-            Err(FrameError::OutOfFrames)
+            pages.unlink::<ArchPageTable>()?;
+            Err(MemoryError::OutOfMemory)
         } else {
             // 完全失败
-            Err(FrameError::OutOfFrames)
+            Err(MemoryError::OutOfMemory)
         }
     }
 
@@ -115,21 +123,23 @@ impl PageAllocOptions {
             let (frame, zone) = self.frame.allocate()?;
 
             if !matches!(zone, ZoneType::LinearMem) {
-                let mut node = get_vmap_node();
-                let v = unsafe { node.allocate(count)?.as_mut() };
+                let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
 
-                v.link(frame, count.get(), self.cache_type);
+                v.link::<ArchPageTable>(frame, count.get(), self.cache_type)?;
+
+                let start = v.start_addr().to_page_number().unwrap();
+                let end = start + v.frame_count - 1;
+                ArchFlushTlb::flush_range(start, end);
 
                 Ok(Pages::Dynamic(v))
             } else {
                 Ok(Pages::Fixed((frame, count.get())))
             }
         } else {
-            let mut node = get_vmap_node();
-            let v = unsafe { node.allocate(count)?.as_mut() };
+            let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
 
             self.alloc_discontiguous(v)
-                .inspect_err(|_| node.deallocate(v).unwrap())?;
+                .inspect_err(|_| get_vmap_node().deallocate(v).unwrap())?;
 
             Ok(Pages::Dynamic(v))
         }
@@ -154,7 +164,7 @@ impl PageAllocOptions {
             unsafe {
                 pages
                     .get_ptr::<u8>()
-                    .write_bytes(0, self.frame.get_count().get() * PAGE_SIZE)
+                    .write_bytes(0, self.frame.get_count().get() * ArchPageTable::PAGE_SIZE)
             };
         }
 

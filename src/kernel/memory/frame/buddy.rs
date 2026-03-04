@@ -6,11 +6,15 @@ use core::{
 };
 
 use crate::{
-    kernel::memory::frame::{
-        FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError, FrameNumber, FrameRange,
-        FrameTag, PAGE_SIZE, frame_count,
-        reference::FrameMut,
-        zone::{ZONE_COUNT, ZoneType},
+    arch::ArchPageTable,
+    kernel::memory::{
+        arch::ArchMemory,
+        frame::{
+            FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError, FrameNumber,
+            FrameRange, FrameTag, frame_count,
+            reference::FrameMut,
+            zone::{ZONE_COUNT, ZoneType},
+        },
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
 };
@@ -64,7 +68,7 @@ impl FrameOrder {
     }
 
     pub const fn to_size(&self) -> usize {
-        PAGE_SIZE << self.0
+        ArchPageTable::PAGE_SIZE << self.0
     }
 }
 
@@ -76,7 +80,7 @@ pub struct Buddy {
 }
 
 impl Buddy {
-    pub fn from_frame<'a>(frame: &'a mut Frame) -> &'a mut Self {
+    pub fn from_frame(frame: &mut Frame) -> &mut Self {
         unsafe { frame.get_data_mut().buddy.deref_mut() }
     }
 }
@@ -126,7 +130,7 @@ impl BuddyAllocator {
         unsafe { zeroed() }
     }
 
-    fn get_zone<'a>(&self, zone_type: ZoneType) -> &Zone {
+    fn get_zone(&self, zone_type: ZoneType) -> &Zone {
         &self.zones[zone_type.index()]
     }
 

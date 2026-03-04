@@ -6,9 +6,10 @@ use core::{
 };
 
 use crate::{
-    arch::{PhyAddr, VirtAddr, x86::kernel::page::PAGE_SIZE},
+    arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
         MemoryError, PageCacheType,
+        arch::ArchMemory,
         frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType},
         page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
     },
@@ -25,7 +26,7 @@ pub extern "C" fn ioremap_c(
     size: usize,
     cache_type: PageCacheType,
 ) -> *mut core::ffi::c_void {
-    match ioremap(PhyAddr::new(addr), size, cache_type) {
+    match ioremap(PhysAddr::new(addr), size, cache_type) {
         Ok(mut ptr) => ptr.get_ptr(),
         Err(e) => {
             e.log_error(format_args!(
@@ -39,7 +40,7 @@ pub extern "C" fn ioremap_c(
 
 #[unsafe(export_name = "iounmap")]
 pub extern "C" fn iounmap_c(vstart: usize) -> i32 {
-    match iounmap(VirtAddr::new(vstart)) {
+    match vfree(VirtAddr::new(vstart)) {
         Ok(_) => 0,
         Err(e) => {
             e.log_error(format_args!(
@@ -73,7 +74,7 @@ pub extern "C" fn vmalloc_c(size: usize, cache_type: PageCacheType) -> *mut c_vo
 }
 
 pub fn ioremap<'a>(
-    addr: PhyAddr,
+    addr: PhysAddr,
     size: usize,
     cache_type: PageCacheType,
 ) -> Result<Pages<'a>, MemoryError> {
@@ -89,24 +90,6 @@ pub fn ioremap<'a>(
     page_options.allocate()
 }
 
-pub fn iounmap(vaddr: VirtAddr) -> Result<(), MemoryError> {
-    let mut node = get_vmap_node();
-
-    let err = MemoryError::InvalidAddress(vaddr);
-    let page_number = vaddr.to_page_number().ok_or(err.clone())?;
-
-    // Vmap的树只使用range.start进行比较，因此只需传入单页范围即可
-    let range = VmRange {
-        start: page_number,
-        end: page_number,
-    };
-    let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
-
-    pages.unlink();
-
-    node.deallocate(pages)
-}
-
 static VMALLOC_FALLBACK_CHAIN: [ZoneType; 3] =
     [ZoneType::HighMem, ZoneType::LinearMem, ZoneType::MEM24];
 
@@ -114,7 +97,7 @@ pub fn vmalloc<T>(
     size: NonZeroUsize,
     cache_type: PageCacheType,
 ) -> Result<NonNull<T>, MemoryError> {
-    let count = NonZeroUsize::new(size.get().div_ceil(PAGE_SIZE))
+    let count = NonZeroUsize::new(size.get().div_ceil(ArchPageTable::PAGE_SIZE))
         .ok_or(MemoryError::InvalidSize(size.get()))?;
 
     let order = FrameOrder::new(count.ilog2() as u8);
@@ -129,12 +112,11 @@ pub fn vmalloc<T>(
 
     page_options
         .allocate()
-        .map(|pages| ManuallyDrop::new(pages))
+        .map(ManuallyDrop::new)
         .map(|mut pages| unsafe { NonNull::new_unchecked(pages.get_ptr()) })
 }
 
 pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
-    let mut node = get_vmap_node();
     let err = MemoryError::InvalidAddress(vaddr);
 
     let num = vaddr.to_page_number().ok_or(err.clone())?;
@@ -142,9 +124,11 @@ pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
         start: num,
         end: num,
     };
+
+    let mut node = get_vmap_node();
     let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
 
-    pages.unlink();
+    pages.unlink::<ArchPageTable>()?;
 
     node.deallocate(pages)
 }

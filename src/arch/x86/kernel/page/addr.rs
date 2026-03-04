@@ -3,16 +3,16 @@ use core::{
     ptr::{with_exposed_provenance, with_exposed_provenance_mut},
 };
 
-use super::PAGE_SIZE;
 use crate::{
+    arch::ArchPageTable,
     impl_page_addr,
-    kernel::memory::{frame::FrameNumber, page::PageNumber},
+    kernel::memory::{arch::ArchMemory, frame::FrameNumber, page::PageNumber},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PhyAddr(usize);
+pub struct PhysAddr(usize);
 
-impl PhyAddr {
+impl PhysAddr {
     pub const MAX: usize = usize::MAX;
 
     pub const fn new(addr: usize) -> Self {
@@ -23,16 +23,16 @@ impl PhyAddr {
         self.0
     }
 
-    pub const fn to_frame_number(self) -> FrameNumber {
-        FrameNumber::new(self.0 / PAGE_SIZE)
+    pub const fn to_frame_number(&self) -> FrameNumber {
+        FrameNumber::new(self.0 / ArchPageTable::PAGE_SIZE)
     }
 
     pub const fn from_frame_number(frame_num: FrameNumber) -> Self {
-        Self(frame_num.get() * PAGE_SIZE)
+        Self(frame_num.get() * ArchPageTable::PAGE_SIZE)
     }
 }
 
-impl_page_addr!(PhyAddr, PAGE_SIZE);
+impl_page_addr!(PhysAddr, ArchPageTable::PAGE_SIZE);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtAddr(usize);
@@ -46,8 +46,8 @@ impl VirtAddr {
         self.0
     }
 
-    pub const fn to_page_number(self) -> Option<PageNumber> {
-        match NonZeroUsize::new(self.0 / PAGE_SIZE) {
+    pub const fn to_page_number(&self) -> Option<PageNumber> {
+        match NonZeroUsize::new(self.0 / ArchPageTable::PAGE_SIZE) {
             Some(x) => Some(PageNumber::new(x)),
             None => None,
         }
@@ -62,4 +62,4 @@ impl VirtAddr {
     }
 }
 
-impl_page_addr!(VirtAddr, PAGE_SIZE);
+impl_page_addr!(VirtAddr, ArchPageTable::PAGE_SIZE);

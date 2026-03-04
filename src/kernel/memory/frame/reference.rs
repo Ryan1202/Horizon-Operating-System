@@ -1,5 +1,6 @@
 use core::{
     fmt::Write,
+    mem,
     ops::{Deref, DerefMut},
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
@@ -59,6 +60,12 @@ impl FrameRc {
 
     pub fn is_exclusive(&self) -> bool {
         self.get() == Self::EXCLUSIVE
+    }
+}
+
+impl Default for FrameRc {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -122,7 +129,11 @@ impl FrameMut {
                 .count
                 .store(1, Ordering::Relaxed)
         };
-        FrameRef { frame: self.frame }
+
+        let frame_ref = FrameRef { frame: self.frame };
+        mem::forget(self);
+
+        frame_ref
     }
 }
 

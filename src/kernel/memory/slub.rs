@@ -6,9 +6,10 @@
 use core::{mem::ManuallyDrop, num::NonZeroU16, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    arch::x86::kernel::page::PAGE_SIZE,
+    arch::ArchPageTable,
     kernel::memory::{
         MemoryError,
+        arch::ArchMemory,
         frame::{
             Frame, FrameData, FrameError, FrameTag,
             buddy::{Buddy, FrameOrder},
@@ -25,13 +26,13 @@ pub(super) mod config;
 mod mem_cache;
 mod mem_cache_node;
 
-pub(self) const MIN_OBJECT_SIZE: usize = 8;
-pub(self) const MAX_OBJECT_SIZE: usize = 4096;
-pub(self) const MAX_FRAME_ORDER: FrameOrder = FrameOrder::new(3); // 最大 8 页
-pub(self) const MIN_PARTIAL: u8 = 5;
-pub(self) const MAX_PARTIAL: u8 = 10;
+pub(super) const MIN_OBJECT_SIZE: usize = 8;
+pub(super) const MAX_OBJECT_SIZE: usize = 4096;
+pub(super) const MAX_FRAME_ORDER: FrameOrder = FrameOrder::new(3); // 最大 8 页
+pub(super) const MIN_PARTIAL: u8 = 5;
+pub(super) const MAX_PARTIAL: u8 = 10;
 
-pub(self) const ALIGN: usize = core::mem::size_of::<usize>();
+pub(super) const ALIGN: usize = core::mem::size_of::<usize>();
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -44,7 +45,7 @@ pub enum Slub {
 }
 
 /// Slub 内部数据结构
-#[repr(packed)]
+#[repr(C, packed)]
 pub struct SlubInner {
     /// 空闲对象头
     freelist: Option<NonNull<FreeNode>>,
@@ -87,7 +88,7 @@ pub enum SlubError {
 
 impl Slub {
     // 通用初始化逻辑
-    fn init_slab<'a>(
+    fn init_slab(
         options: PageAllocOptions,
         object_num: NonZeroU16,
         object_size: NonZeroU16,
@@ -187,9 +188,8 @@ impl Slub {
 }
 
 impl SlubInner {
-    pub fn get_inuse_relaxed(&self) -> u16 {
-        let inuse = self.inuse;
-        inuse
+    pub const fn get_inuse_relaxed(&self) -> u16 {
+        self.inuse
     }
 
     /// 返回一个类型为`T`的对象的指针，内存大小在创建`Slub`时已确定
@@ -242,7 +242,7 @@ fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
 
     for fraction in [16, 8, 4, 2] {
         for _order in 0..MAX_FRAME_ORDER.get() {
-            let slab_size = PAGE_SIZE << _order;
+            let slab_size = ArchPageTable::PAGE_SIZE << _order;
 
             let remain = slab_size % (size as usize);
             if remain < (slab_size / fraction) {
@@ -258,7 +258,7 @@ fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
 
     if size <= MAX_OBJECT_SIZE as u16 {
         Err(SlubError::TooMuchWaste(
-            (PAGE_SIZE << order) % (size as usize),
+            (ArchPageTable::PAGE_SIZE << order) % (size as usize),
             size as usize,
         ))
     } else {
@@ -272,7 +272,7 @@ fn calculate_sizes(size: NonZeroU16) -> Result<(ObjectSize, NonZeroU16, FrameOrd
     let object_size = ObjectSize(object_size);
     let order = calculate_order(object_size)?;
 
-    let slab_size = PAGE_SIZE << order.get();
+    let slab_size = ArchPageTable::PAGE_SIZE << order.get();
 
     let object_num = (slab_size / object_size.0.get() as usize) as u16;
 

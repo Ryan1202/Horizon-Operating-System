@@ -42,9 +42,9 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
-pub mod kernel {
-    pub mod memory;
-}
 pub mod lib {
     pub mod rust;
+}
+pub mod kernel {
+    pub mod memory;
 }

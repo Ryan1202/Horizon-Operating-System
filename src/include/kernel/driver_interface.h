@@ -23,8 +23,8 @@
 #define io_stream_out_word(port, buffer, nr)  io_stream_out16(port, buffer, nr)
 #define io_stream_out_dword(port, buffer, nr) io_stream_out32(port, buffer, nr)
 
-#define read_msr(msr, l, h)	 cpu_RDMSR(msr, l, h)
-#define write_msr(msr, l, h) cpu_WRMSR(msr, l, h)
+#define read_msr(msr, l, h)	 cpu_rdmsr(msr, l, h)
+#define write_msr(msr, l, h) cpu_wrmsr(msr, l, h)
 
 #define enable_interrupt()	io_sti()
 #define disable_interrupt() io_cli()

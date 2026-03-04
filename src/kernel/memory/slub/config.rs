@@ -21,7 +21,7 @@ pub struct CacheConfig {
 }
 
 /// 默认缓存列表（从 8 到 4096 bytes）
-pub const DEFAULT_CACHE_CONFIGS: &'static [CacheConfig] = &[
+pub const DEFAULT_CACHE_CONFIGS: &[CacheConfig] = &[
     CacheConfig {
         name: "kmalloc-8",
         object_size: NonZeroU16::new(8).unwrap(),

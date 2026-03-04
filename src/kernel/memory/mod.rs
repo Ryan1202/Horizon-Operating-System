@@ -4,9 +4,14 @@ use core::{
     ptr::addr_of,
 };
 
-use crate::{ConsoleOutput, arch::VirtAddr, kernel::memory::frame::FrameError};
+use crate::{
+    ConsoleOutput,
+    arch::VirtAddr,
+    kernel::memory::{frame::FrameError, page::PageTableError},
+};
 
 pub mod addr;
+pub mod arch;
 pub mod frame;
 pub mod kmalloc;
 pub mod page;
@@ -24,11 +29,6 @@ pub fn vir_base_addr() -> VirtAddr {
 
 const KLINEAR_SIZE: usize = 0x2000_0000;
 const KMEMORY_END: VirtAddr = VirtAddr::new(0xff80_0000);
-
-unsafe extern "C" {
-    fn page_link(vaddr: usize, paddr: usize, page_count: u16, cache_type: PageCacheType) -> bool;
-    fn page_unlink(vaddr: usize, page_count: u16);
-}
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -48,6 +48,7 @@ pub enum MemoryError {
     InvalidAddress(VirtAddr),
     InvalidSize(usize),
     FrameError(FrameError),
+    PageTableError(PageTableError),
 }
 
 impl MemoryError {
@@ -60,5 +61,11 @@ impl MemoryError {
 impl From<FrameError> for MemoryError {
     fn from(value: FrameError) -> Self {
         MemoryError::FrameError(value)
+    }
+}
+
+impl From<PageTableError> for MemoryError {
+    fn from(value: PageTableError) -> Self {
+        MemoryError::PageTableError(value)
     }
 }
