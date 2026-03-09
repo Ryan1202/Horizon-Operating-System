@@ -174,17 +174,17 @@ impl Slub {
     }
 
     #[inline]
-    pub fn free(&mut self, obj: NonNull<u8>) -> Result<(), MemoryError> {
+    pub fn deallocate(&mut self, obj: NonNull<u8>) -> Result<(), MemoryError> {
         let frame = Frame::from_child(unsafe { (self as *mut Self).as_mut().unwrap() });
         match self {
-            Slub::Head(head) => Ok(head.free(obj)),
+            Slub::Head(head) => Ok(head.deallocate(obj)),
             Slub::Body { offset } => {
                 let mut head = frame.prev_frame(*offset as usize).unwrap();
 
                 let head = head.deref_mut().try_into()?;
 
                 if let &mut Slub::Head(ref mut head) = head {
-                    Ok(head.free(obj))
+                    Ok(head.deallocate(obj))
                 } else {
                     unreachable!("Slub body does not point to a head!");
                 }
@@ -220,7 +220,7 @@ impl SlubInner {
         Some(node.cast())
     }
 
-    pub fn free<T>(&mut self, obj: NonNull<T>) {
+    pub fn deallocate<T>(&mut self, obj: NonNull<T>) {
         let node = obj.cast::<FreeNode>();
 
         unsafe {

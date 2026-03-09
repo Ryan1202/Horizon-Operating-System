@@ -56,7 +56,7 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
         Some(unsafe { NonNull::new_unchecked(pages.get_ptr()) })
     } else {
         let cache = unsafe { get_cache_unchecked(ilog - 3).clone().as_mut() };
-        cache.alloc::<T>()
+        cache.allocate::<T>()
     }
 }
 
@@ -84,7 +84,7 @@ pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
     match frame.get_tag() {
         FrameTag::Slub => {
             let slub: &mut Slub = frame.deref_mut().try_into().unwrap();
-            slub.free(ptr.cast())
+            slub.deallocate(ptr.cast())
         }
         FrameTag::Allocated => kfree_pages(vaddr),
         _ => Err(MemoryError::InvalidAddress(vaddr)),

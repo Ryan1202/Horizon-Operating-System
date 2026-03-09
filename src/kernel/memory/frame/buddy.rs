@@ -505,7 +505,7 @@ impl FrameAllocator for BuddyAllocator {
         None
     }
 
-    fn free(&self, frame: &mut Frame) -> Result<usize, FrameError> {
+    fn deallocate(&self, frame: &mut Frame) -> Result<usize, FrameError> {
         let addr = frame.start_addr();
 
         let zone_type = ZoneType::from_address(addr);

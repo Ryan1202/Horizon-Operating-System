@@ -252,7 +252,7 @@ impl MemCache {
         let mem_cache_node = MemCacheNode::new(unsafe { caches.node_mem_cache.as_mut() }, options)?;
 
         Some(unsafe {
-            let result = caches.mem_cache.as_mut().alloc::<Self>();
+            let result = caches.mem_cache.as_mut().allocate::<Self>();
 
             if let Some(mut mem_cache) = result {
                 let ptr = mem_cache.clone();
@@ -279,7 +279,7 @@ impl MemCache {
     ///
     /// 以下情况下会返回`None`：
     /// - `Node`中没有可用的对象，且尝试创建新`Slub`失败
-    pub fn alloc<T>(&mut self) -> Option<NonNull<T>> {
+    pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
         // 交换出 Slub 指针并用空指针替代，防止并发分配冲突
         let slub_ptr = self.slub.swap(null_mut(), Ordering::AcqRel);
 
@@ -369,7 +369,10 @@ pub extern "C" fn mem_cache_destroy_c(ptr: *mut MemCache) -> i32 {
 pub extern "C" fn mem_cache_alloc_c(ptr: *mut MemCache) -> *mut c_void {
     if let Some(mut ptr) = NonNull::new(ptr) {
         let mem_cache = unsafe { ptr.as_mut() };
-        mem_cache.alloc().map(|p| p.as_ptr()).unwrap_or(null_mut())
+        mem_cache
+            .allocate()
+            .map(|p| p.as_ptr())
+            .unwrap_or(null_mut())
     } else {
         null_mut()
     }

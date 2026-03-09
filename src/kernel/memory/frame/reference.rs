@@ -167,7 +167,7 @@ fn auto_free(mut frame: NonNull<Frame>) {
             let frame_ref = unsafe { frame.as_mut() };
             let frame_number = frame_ref.to_frame_number();
 
-            if let Err(e) = FRAME_MANAGER.free(frame_ref) {
+            if let Err(e) = FRAME_MANAGER.deallocate(frame_ref) {
                 // 不 panic，仅记录错误。
                 // 内存会泄漏，但系统继续运行。
                 // 比 panic 导致整个系统停机要好。

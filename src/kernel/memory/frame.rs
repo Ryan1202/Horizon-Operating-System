@@ -391,7 +391,7 @@ pub const fn frame_count(size: usize) -> usize {
 
 pub trait FrameAllocator {
     fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<FrameMut>;
-    fn free(&self, page: &mut Frame) -> Result<usize, FrameError>;
+    fn deallocate(&self, page: &mut Frame) -> Result<usize, FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     fn assign(&self, start: FrameNumber, len: usize) -> Result<(), FrameError>;
 }

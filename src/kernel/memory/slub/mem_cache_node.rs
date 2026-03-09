@@ -110,7 +110,7 @@ impl MemCacheNode {
         let (object_size, object_num, order) = calculate_sizes(Self::OBJECT_SIZE).unwrap();
         options.frame = options.frame.dynamic(order);
 
-        let mut result = node_cache.alloc::<MemCacheNode>()?;
+        let mut result = node_cache.allocate::<MemCacheNode>()?;
 
         unsafe {
             let slub = Slub::new(options, object_size, object_num).ok()?;
