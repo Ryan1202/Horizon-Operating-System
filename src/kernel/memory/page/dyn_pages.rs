@@ -80,7 +80,7 @@ impl DynPages {
         Some(allocated)
     }
 
-    pub fn link<W: PageTableWalker>(
+    pub fn map<W: PageTableWalker>(
         &mut self,
         frame: FrameMut,
         count: usize,

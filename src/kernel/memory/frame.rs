@@ -4,7 +4,7 @@ use core::{
     mem::{self, ManuallyDrop},
     ops::{Add, Sub},
     ptr::{NonNull, addr_of},
-    sync::atomic::AtomicUsize,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use crate::{
@@ -26,6 +26,11 @@ pub mod buddy;
 pub mod options;
 pub mod reference;
 pub mod zone;
+
+#[unsafe(export_name = "total_pages")]
+pub static TOTAL_PAGES: AtomicUsize = AtomicUsize::new(0);
+#[unsafe(export_name = "allocated_pages")]
+pub static ALLOCATED_PAGES: AtomicUsize = AtomicUsize::new(0);
 
 #[repr(C)]
 pub struct E820Ards {
@@ -121,8 +126,8 @@ pub union FrameData {
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FrameTag {
-    /// 暂未使用
-    Unused = 0,
+    /// 不可使用（比如为一组页中非首个页）
+    Unavailable = 0,
     HardwareReserved = 1,
     SystemReserved = 2,
     /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
@@ -131,7 +136,6 @@ pub enum FrameTag {
     Allocated = 4,
     Buddy = 5,
     Slub = 6,
-    Io = 7,
 }
 
 const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
@@ -193,6 +197,18 @@ impl Frame {
             1 => FrameTag::Free,
             _ => FrameTag::HardwareReserved,
         };
+
+        let count = end.count_from(start);
+        match tag {
+            FrameTag::Free => {
+                TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
+            }
+            FrameTag::SystemReserved => {
+                TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
+                ALLOCATED_PAGES.fetch_add(count, Ordering::Relaxed);
+            }
+            _ => {}
+        }
 
         // 写入首个 page 描述
         unsafe { frame.replace(tag, data) };
@@ -284,7 +300,6 @@ impl Frame {
                     ManuallyDrop::drop(&mut _data.buddy);
                 }
                 FrameTag::Free
-                | FrameTag::Io
                 | FrameTag::SystemReserved
                 | FrameTag::HardwareReserved
                 | FrameTag::Allocated => {
@@ -293,7 +308,7 @@ impl Frame {
                 FrameTag::Slub => {
                     ManuallyDrop::drop(&mut _data.slub);
                 }
-                FrameTag::Unused => {}
+                FrameTag::Unavailable => {}
             }
         }
 
@@ -379,4 +394,9 @@ pub trait FrameAllocator {
     fn free(&self, page: &mut Frame) -> Result<usize, FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     fn assign(&self, start: FrameNumber, len: usize) -> Result<(), FrameError>;
+}
+
+#[unsafe(export_name = "assign_frames")]
+fn assign_frames_c(paddr: usize, count: usize) -> Result<(), FrameError> {
+    FRAME_MANAGER.assign(PhysAddr::new(paddr).to_frame_number(), count)
 }

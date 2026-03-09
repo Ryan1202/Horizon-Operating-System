@@ -58,17 +58,24 @@ struct memory_manage {
 	struct memory_block free_blocks[MEMORY_BLOCKS];
 };
 
-void		 memory_early_init(void);
-void		 init_memory(void);
-int			 get_memory_usable_size(void);
-int			 get_memory_total_size(void);
-int			 mmap_search(struct mmap *btmp, unsigned int cnt);
-void		 mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
-int			 mmap_get(struct mmap *btmp, uint32_t bit_index);
-MemoryResult alloc_vaddr(size_t in_size, uint32_t *out_vaddr);
-void		*kmalloc(size_t size);
-void		*kzalloc(uint32_t size);
-int			 kfree(void *address);
+struct mem_cache;
+
+void memory_early_init(void);
+void init_memory(void);
+int	 get_memory_usable_mib(void);
+int	 get_memory_total_mib(void);
+
+int	 mmap_search(struct mmap *btmp, unsigned int cnt);
+void mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
+int	 mmap_get(struct mmap *btmp, uint32_t bit_index);
+
+void *kmalloc(size_t size);
+void *kzalloc(uint32_t size);
+int	  kfree(void *address);
+
+struct mem_cache *mem_cache_create(const char *name, size_t object_size);
+int				  mem_cache_destroy(struct mem_cache *cache);
+void			 *mem_cache_alloc(struct mem_cache *cache);
 
 void print_memory_result(
 	MemoryResult result, char *file, int line, char *func_with_args);

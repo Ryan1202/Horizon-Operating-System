@@ -130,7 +130,7 @@ void test_large_page_allocs(void) {
 
 	for (int i = 0; i < TEST_ITERATIONS; i++) {
 		uint32_t start = rdtsc();
-		void	*ptr   = kernel_alloc_pages(HUGE_PAGE_CNT);
+		void	*ptr   = kmalloc_pages(HUGE_PAGE_CNT);
 		uint32_t end   = rdtsc();
 
 		if (!ptr) {
@@ -147,8 +147,7 @@ void test_large_page_allocs(void) {
 		if (i >= HUGE_PAGE_CNT) {
 			struct mem_record *old = &pages[i % HUGE_PAGE_CNT];
 			if (old->ptr) {
-				kernel_free_pages(
-					(int)old->ptr /*, old->page_cnt*/); // 关键修改点
+				kfree_pages((int)old->ptr /*, old->page_cnt*/); // 关键修改点
 				old->ptr = NULL;
 			}
 		}
@@ -157,7 +156,7 @@ void test_large_page_allocs(void) {
 	// 清理残留页
 	for (int i = 0; i < HUGE_PAGE_CNT; i++) {
 		if (pages[i].ptr) {
-			kernel_free_pages((int)pages[i].ptr /*, pages[i].page_cnt*/);
+			kfree_pages((int)pages[i].ptr /*, pages[i].page_cnt*/);
 		}
 	}
 

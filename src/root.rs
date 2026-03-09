@@ -7,6 +7,9 @@
 #![feature(sync_unsafe_cell)]
 #![feature(offset_of_enum)]
 #![feature(pattern_type_range_trait)]
+#![feature(const_cmp)]
+#![feature(const_trait_impl)]
+#![feature(const_try)]
 
 use core::{
     fmt::{self, Write},

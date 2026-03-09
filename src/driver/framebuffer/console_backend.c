@@ -1,5 +1,3 @@
-#include "kernel/page.h"
-#include "kernel/platform.h"
 #include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb.h>
 #include <driver/framebuffer/fb_dm.h>
@@ -27,8 +25,7 @@ void fb_console_backend_init(void *context) {
 
 	backend->buffer_size = backend->width * backend->height;
 
-	int page_count		 = DIV_ROUND_UP(backend->buffer_size, PAGE_SIZE);
-	backend->text_buffer = kernel_alloc_pages(page_count);
+	backend->text_buffer = kmalloc(backend->buffer_size);
 	backend->current	 = backend->text_buffer;
 	backend->last_update = backend->text_buffer;
 	backend->line_ends	 = kmalloc(backend->height * sizeof(char *));

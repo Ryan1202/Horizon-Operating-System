@@ -3,6 +3,7 @@ use core::{
     num::NonZeroUsize,
     ops::{Add, DerefMut, Sub},
     pin::Pin,
+    sync::atomic::Ordering,
 };
 
 use crate::{
@@ -10,8 +11,8 @@ use crate::{
     kernel::memory::{
         arch::ArchMemory,
         frame::{
-            FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError, FrameNumber,
-            FrameRange, FrameTag, frame_count,
+            ALLOCATED_PAGES, FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError,
+            FrameNumber, FrameRange, FrameTag, frame_count,
             reference::FrameMut,
             zone::{ZONE_COUNT, ZoneType},
         },
@@ -79,9 +80,16 @@ pub struct Buddy {
     pub zone_type: ZoneType,
 }
 
-impl Buddy {
-    pub fn from_frame(frame: &mut Frame) -> &mut Self {
-        unsafe { frame.get_data_mut().buddy.deref_mut() }
+impl<'a> TryFrom<&'a mut Frame> for &'a mut Buddy {
+    type Error = FrameError;
+
+    fn try_from(value: &'a mut Frame) -> Result<Self, Self::Error> {
+        match value.get_tag() {
+            FrameTag::Buddy | FrameTag::Allocated => {
+                Ok(unsafe { value.get_data_mut().buddy.deref_mut() })
+            }
+            _ => Err(FrameError::IncorrectFrameType),
+        }
     }
 }
 
@@ -186,8 +194,8 @@ impl BuddyAllocator {
                     let block_range = unsafe { frame.get_data().range };
                     frame_number = block_range.end + 1;
                 }
-                FrameTag::Unused => {
-                    // 未使用页，可能是跨越了两个不同区域，继续下一个
+                FrameTag::Unavailable => {
+                    // 不可用页，可能是跨越了两个不同区域，继续下一个
                     frame_number = frame_number + 1;
                 }
                 _ => panic!("Buddy init: invalid frame tag"),
@@ -252,7 +260,7 @@ impl BuddyAllocator {
 
         while split_order.0 > target_order.0 {
             match next_frame.get_tag() {
-                FrameTag::Unused => {
+                FrameTag::Unavailable => {
                     let buddy = ManuallyDrop::new(Buddy {
                         order: split_order,
                         zone_type,
@@ -279,31 +287,35 @@ impl BuddyAllocator {
             next_frame = frame.next_frame(1 << split_order.get()).unwrap();
         }
 
-        let buddy = Buddy::from_frame(frame);
+        let buddy: &mut Buddy = frame.deref_mut().try_into().unwrap();
         buddy.order = target_order;
     }
 
-    fn merge_exact(&self, left: &mut FrameMut, right: &mut Buddy) {
-        let new_order = right.order.0 + 1;
-        let buddy = Buddy::from_frame(left);
+    fn merge_exact(&self, left: &mut FrameMut, right: &mut Frame) {
+        let buddy: &mut Buddy = left.deref_mut().try_into().unwrap();
+
+        let new_order = buddy.order.0 + 1;
         buddy.order = FrameOrder(new_order);
 
-        let frame = Frame::from_child(right);
+        let zone_type = buddy.zone_type;
+
+        let frame = right;
         unsafe {
-            frame.set_tag(FrameTag::Unused);
+            frame.set_tag(FrameTag::Unavailable);
 
             let node = Pin::new_unchecked(left.list.get_mut());
-            let free = &mut self.get_zone(right.zone_type).free_frames.lock()[new_order as usize];
+            let free = &mut self.get_zone(zone_type).free_frames.lock()[new_order as usize];
             let mut head = Pin::new_unchecked(free);
 
             head.add_head(node);
         }
     }
 
-    fn merge_once(&self, buddy: &mut Buddy, range: (FrameNumber, FrameNumber)) -> bool {
-        let order = buddy.order + 1;
+    fn merge_once(&self, frame: &mut Frame, range: (FrameNumber, FrameNumber)) -> bool {
+        let frame_number = frame.to_frame_number();
 
-        let frame_number = Frame::from_child(buddy).to_frame_number();
+        let buddy: &mut Buddy = frame.try_into().unwrap();
+        let order = buddy.order + 1;
 
         let left = frame_number.get() & !(order.to_count().get() - 1);
         let left = FrameNumber::new(left);
@@ -323,7 +335,7 @@ impl BuddyAllocator {
                 }
             };
 
-            self.merge_exact(&mut left, Buddy::from_frame(&mut right));
+            self.merge_exact(&mut left, &mut right);
             true
         } else {
             false
@@ -373,14 +385,14 @@ impl BuddyAllocator {
         let mut frame = Frame::get_mut(frame_number).ok_or(FrameError::Conflict)?;
 
         // 检查是否为 Head Frame
-        debug_assert!(!matches!(frame.get_tag(), FrameTag::Unused));
+        debug_assert!(!matches!(frame.get_tag(), FrameTag::Unavailable));
         // 检查是否已经被分配
         if !matches!(frame.get_tag(), FrameTag::Buddy) {
             debug_assert!(false, "Exclude frames error: not a buddy frame");
             return Err(FrameError::IncorrectFrameType);
         }
 
-        let buddy = Buddy::from_frame(&mut frame);
+        let buddy: &mut Buddy = frame.deref_mut().try_into()?;
         let order = buddy.order;
         let buddy_count = order.to_count().get();
 
@@ -415,8 +427,8 @@ impl BuddyAllocator {
 
         // 情况 1：完全覆盖 - Buddy 块完全在 range 内
         if range.0 <= left && right <= range.1 {
-            // 标记为未使用
-            frame.set_tag(FrameTag::Unused);
+            // 标记为不可使用
+            frame.set_tag(FrameTag::Unavailable);
             return Ok(Some(order));
         }
 
@@ -485,6 +497,7 @@ impl FrameAllocator for BuddyAllocator {
 
                 frame.set_tag(FrameTag::Allocated);
 
+                ALLOCATED_PAGES.fetch_add(order.to_count().get(), Ordering::Relaxed);
                 return Some(frame);
             }
             order.0 += 1;
@@ -503,21 +516,19 @@ impl FrameAllocator for BuddyAllocator {
             zone_range.1.to_frame_number(),
         );
 
-        if matches!(frame.get_tag(), FrameTag::Allocated) {
-            // 仅释放Buddy类型的页
-            frame.set_tag(FrameTag::Buddy);
-            let buddy = Buddy::from_frame(frame);
-            let order = buddy.order;
-            let count = order.to_count().get();
+        let buddy: &mut Buddy = frame.try_into()?;
+        let order = buddy.order;
+        let count = order.to_count().get();
 
-            // 尝试合并相邻的伙伴块，如果无法合并则添加回空闲链表
-            if order < MAX_ORDER - 1 && self.merge_once(buddy, (zone_start, zone_end)) {
-                Ok(count)
-            } else {
-                self.add_to_free_list(frame, order, zone).map(|_| count)
-            }
+        frame.set_tag(FrameTag::Buddy);
+
+        ALLOCATED_PAGES.fetch_sub(count, Ordering::Relaxed);
+
+        // 尝试合并相邻的伙伴块，如果无法合并则添加回空闲链表
+        if order < MAX_ORDER - 1 && self.merge_once(frame, (zone_start, zone_end)) {
+            Ok(count)
         } else {
-            Err(FrameError::IncorrectFrameType)
+            self.add_to_free_list(frame, order, zone).map(|_| count)
         }
     }
 

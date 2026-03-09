@@ -44,7 +44,7 @@ pub enum PageCacheType {
 pub enum MemoryError {
     OutOfMemory,
     AddressConflict,
-    MultipleFree,
+    UnavailableFrame,
     InvalidAddress(VirtAddr),
     InvalidSize(usize),
     FrameError(FrameError),

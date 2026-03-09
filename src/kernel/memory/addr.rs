@@ -58,5 +58,11 @@ macro_rules! impl_page_addr {
                 self.0 -= rhs;
             }
         }
+
+        impl core::fmt::Display for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                write!(f, "0x{:016x}", self.0)
+            }
+        }
     };
 }

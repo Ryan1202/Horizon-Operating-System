@@ -1,5 +1,4 @@
 use core::{
-    ffi::c_void,
     mem::ManuallyDrop,
     num::NonZeroUsize,
     ops::{Add, Sub},
@@ -13,7 +12,6 @@ use crate::{
         frame::{
             Frame, FrameNumber, FrameTag,
             buddy::FrameOrder,
-            options::FrameAllocOptions,
             reference::{FrameMut, FrameRef},
         },
         page::{dyn_pages::DynPages, options::PageAllocOptions},
@@ -207,22 +205,21 @@ impl<'a> Pages<'a> {
     }
 }
 
-pub fn kernel_alloc_pages<'a>(count: NonZeroUsize) -> Result<Pages<'a>, MemoryError> {
+pub fn kmalloc_pages<'a>(count: NonZeroUsize) -> Result<Pages<'a>, MemoryError> {
     let order = FrameOrder::new(count.get().next_power_of_two().ilog2() as u8);
 
-    let frame_options = FrameAllocOptions::new().dynamic(order);
-    let page_options = PageAllocOptions::new(frame_options);
+    let page_options = PageAllocOptions::kernel(order);
 
     let pages = page_options.allocate()?;
 
     Ok(pages)
 }
 
-#[unsafe(export_name = "kernel_alloc_pages")]
-pub fn kernel_alloc_pages_c(count: usize) -> *mut core::ffi::c_void {
+#[unsafe(export_name = "kmalloc_pages")]
+pub fn kmalloc_pages_c(count: usize) -> *mut core::ffi::c_void {
     let result = NonZeroUsize::new(count)
         .ok_or(MemoryError::InvalidSize(count))
-        .and_then(kernel_alloc_pages);
+        .and_then(kmalloc_pages);
 
     match result {
         Ok(pages) => {
@@ -231,7 +228,7 @@ pub fn kernel_alloc_pages_c(count: usize) -> *mut core::ffi::c_void {
         }
         Err(e) => {
             e.log_error(format_args!(
-                "WARNING: calling kernel_alloc_pages_c failed: count = {:#x}",
+                "WARNING: calling kmalloc_pages_c failed: count = {:#x}",
                 count
             ));
             core::ptr::null_mut()
@@ -239,7 +236,7 @@ pub fn kernel_alloc_pages_c(count: usize) -> *mut core::ffi::c_void {
     }
 }
 
-pub fn kernel_free_pages<T>(vaddr: VirtAddr) -> Result<(), MemoryError> {
+pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let linear_start = vir_base_addr();
     let linear_end = linear_start + KLINEAR_SIZE;
 
@@ -249,8 +246,8 @@ pub fn kernel_free_pages<T>(vaddr: VirtAddr) -> Result<(), MemoryError> {
         let frame = Frame::get_raw(phy_addr.to_frame_number());
 
         match unsafe { frame.as_ref() }.get_tag() {
-            FrameTag::Unused | FrameTag::HardwareReserved | FrameTag::SystemReserved => {
-                Err(MemoryError::MultipleFree)
+            FrameTag::Unavailable | FrameTag::HardwareReserved | FrameTag::SystemReserved => {
+                Err(MemoryError::UnavailableFrame)
             }
             FrameTag::Free => panic!(
                 "Attempt to free frame with unavailable tag at vaddr: {:#x}",
@@ -258,7 +255,7 @@ pub fn kernel_free_pages<T>(vaddr: VirtAddr) -> Result<(), MemoryError> {
             ),
             _ => unsafe {
                 if FrameMut::try_from_raw(frame).is_none() {
-                    let _ = FrameRef::from_raw(frame).ok_or(MemoryError::MultipleFree)?;
+                    let _ = FrameRef::from_raw(frame).ok_or(MemoryError::UnavailableFrame)?;
                 }
 
                 Ok(())
@@ -269,13 +266,13 @@ pub fn kernel_free_pages<T>(vaddr: VirtAddr) -> Result<(), MemoryError> {
     }
 }
 
-#[unsafe(export_name = "kernel_free_pages")]
-pub fn kernel_free_pages_c(ptr: usize) -> i32 {
-    match kernel_free_pages::<c_void>(VirtAddr::new(ptr)) {
+#[unsafe(export_name = "kfree_pages")]
+pub fn kfree_pages_c(ptr: usize) -> i32 {
+    match kfree_pages(VirtAddr::new(ptr)) {
         Ok(_) => 0,
         Err(e) => {
             e.log_error(format_args!(
-                "WARNING: calling kernel_free_pages from C failed: vaddr = {:#x}",
+                "WARNING: calling kfree_pages from C failed: vaddr = {:#x}",
                 ptr
             ));
             -1

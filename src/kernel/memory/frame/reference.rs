@@ -158,24 +158,39 @@ impl Drop for FrameMut {
 }
 
 fn auto_free(mut frame: NonNull<Frame>) {
-    unsafe {
-        let count = frame.as_ref().refcount.release().unwrap();
-        if count == 0 {
-            let frame = frame.as_mut();
+    // 1. 释放引用计数
+    let count = unsafe { frame.as_ref().refcount.release() };
 
-            FRAME_MANAGER
-                .free(frame)
-                .inspect_err(|e| {
-                    let mut output = ConsoleOutput;
-                    writeln!(
-                        output,
-                        "Warning: Failed to free frame ({}). Error {:?}",
-                        frame.to_frame_number(),
-                        e
-                    )
-                    .unwrap();
-                })
-                .unwrap();
+    match count {
+        Some(0) => {
+            // 最后一个引用被释放——归还给分配器
+            let frame_ref = unsafe { frame.as_mut() };
+            let frame_number = frame_ref.to_frame_number();
+
+            if let Err(e) = FRAME_MANAGER.free(frame_ref) {
+                // 不 panic，仅记录错误。
+                // 内存会泄漏，但系统继续运行。
+                // 比 panic 导致整个系统停机要好。
+                let mut output = ConsoleOutput;
+                let _ = writeln!(
+                    output,
+                    "ERROR: failed to free frame {}: {:?} (memory leaked)",
+                    frame_number, e
+                );
+            }
+        }
+        Some(_) => {
+            // 还有其他引用存在，不释放
+        }
+        None => {
+            // double-free 或引用计数已经为 0
+            // 记录错误但不 panic
+            let mut output = ConsoleOutput;
+            let _ = writeln!(
+                output,
+                "ERROR: double-free detected for frame at {:p}",
+                frame.as_ptr()
+            );
         }
     }
 }

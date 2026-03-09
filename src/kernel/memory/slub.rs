@@ -14,7 +14,6 @@ use crate::{
             Frame, FrameData, FrameError, FrameTag,
             buddy::{Buddy, FrameOrder},
             options::{FrameAllocOptions, FrameAllocType},
-            reference::FrameMut,
             zone::ZoneType,
         },
         page::options::PageAllocOptions,
@@ -117,7 +116,9 @@ impl Slub {
             unsafe { first_frame.replace(FrameTag::Slub, data) };
 
             first_frame.list.get_mut().init();
-            NonNull::from(Self::from_frame(first_frame.deref_mut()))
+
+            let slub: &mut Self = first_frame.deref_mut().try_into()?;
+            NonNull::from(slub)
         };
 
         // 填写 Frame 中的 Slub
@@ -147,8 +148,12 @@ impl Slub {
         Self::init_slab(options, object_num, object_size.0)
     }
 
-    pub fn destroy(mut frame: FrameMut, cache_info: &MemCache) {
-        assert!(matches!(frame.get_tag(), FrameTag::Slub));
+    pub fn try_destroy(&mut self, cache_info: &MemCache) -> Option<()> {
+        if let Slub::Head(head) = self {
+            head.is_destroyable()?;
+        } else {
+            unreachable!("Only Slub heads can be destroyed!");
+        }
 
         let alloc_type = cache_info.options.frame.get_type();
         let order = if let FrameAllocType::Dynamic { order } = alloc_type {
@@ -158,32 +163,43 @@ impl Slub {
         };
 
         unsafe {
+            let frame = Frame::from_child(self);
+
             let zone_type = ZoneType::from_address(frame.start_addr());
             let buddy = ManuallyDrop::new(Buddy { order, zone_type });
 
             frame.replace(FrameTag::Allocated, FrameData { buddy });
         }
+        Some(())
     }
 
     #[inline]
-    pub fn free(&mut self, obj: NonNull<u8>) {
+    pub fn free(&mut self, obj: NonNull<u8>) -> Result<(), MemoryError> {
         let frame = Frame::from_child(unsafe { (self as *mut Self).as_mut().unwrap() });
         match self {
-            Slub::Head(head) => head.free(obj),
+            Slub::Head(head) => Ok(head.free(obj)),
             Slub::Body { offset } => {
                 let mut head = frame.prev_frame(*offset as usize).unwrap();
-                let head = Self::from_frame(head.deref_mut());
-                if let Slub::Head(head) = head {
-                    head.free(obj);
+
+                let head = head.deref_mut().try_into()?;
+
+                if let &mut Slub::Head(ref mut head) = head {
+                    Ok(head.free(obj))
                 } else {
                     unreachable!("Slub body does not point to a head!");
                 }
             }
         }
     }
+}
 
-    pub fn from_frame(frame: &mut Frame) -> &mut Self {
-        unsafe { frame.get_data_mut().slub.deref_mut() }
+impl<'a> TryFrom<&'a mut Frame> for &'a mut Slub {
+    type Error = FrameError;
+
+    fn try_from(value: &'a mut Frame) -> Result<Self, Self::Error> {
+        (value.get_tag() == FrameTag::Slub)
+            .then(|| unsafe { value.get_data_mut().slub.deref_mut() })
+            .ok_or(FrameError::IncorrectFrameType)
     }
 }
 
@@ -216,6 +232,10 @@ impl SlubInner {
         self.freelist = Some(node);
         self.inuse -= 1;
     }
+
+    pub const fn is_destroyable(&self) -> Option<()> {
+        if self.inuse == 0 { Some(()) } else { None }
+    }
 }
 
 impl FreeNode {
@@ -234,14 +254,20 @@ impl FreeNode {
     }
 }
 
-fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
+const fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
     let mut size = size.0.get().next_multiple_of(size_of::<usize>() as u16);
     size = size.min(MAX_OBJECT_SIZE as u16).max(MIN_OBJECT_SIZE as u16);
 
     let mut order = 0;
+    let fractions = [16, 8, 4, 2];
+    let mut i = 0;
 
-    for fraction in [16, 8, 4, 2] {
-        for _order in 0..MAX_FRAME_ORDER.get() {
+    while i < fractions.len() {
+        let fraction = fractions[i];
+        i += 1;
+
+        let mut _order = 0;
+        while _order < MAX_FRAME_ORDER.get() {
             let slab_size = ArchPageTable::PAGE_SIZE << _order;
 
             let remain = slab_size % (size as usize);
@@ -249,6 +275,7 @@ fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
                 order = _order;
                 break;
             }
+            _order += 1;
         }
 
         if order < MAX_FRAME_ORDER.get() {
@@ -266,7 +293,9 @@ fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
     }
 }
 
-fn calculate_sizes(size: NonZeroU16) -> Result<(ObjectSize, NonZeroU16, FrameOrder), SlubError> {
+const fn calculate_sizes(
+    size: NonZeroU16,
+) -> Result<(ObjectSize, NonZeroU16, FrameOrder), SlubError> {
     let object_size = NonZeroU16::new(size.get().next_multiple_of(size_of::<usize>() as u16))
         .expect("`object_size` should be non zero after alignment!");
     let object_size = ObjectSize(object_size);

@@ -1,12 +1,10 @@
 use core::{mem::offset_of, num::NonZeroU16, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
-    arch::{PhysAddr, VirtAddr},
     kernel::memory::{
-        frame::{Frame, FrameTag},
+        frame::Frame,
         page::options::PageAllocOptions,
         slub::{ObjectSize, Slub, calculate_sizes, mem_cache::MemCache},
-        vir_base_addr,
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
 };
@@ -85,7 +83,7 @@ impl MemCacheNode {
     }
 
     // 从分配 MemCacheNode 的 Node 中分配用于其他类型的 MemCacheNode 对象
-    pub fn new_self(
+    pub fn new_from_node(
         &mut self,
         object_size: NonZeroU16,
         options: &mut PageAllocOptions,
@@ -106,6 +104,23 @@ impl MemCacheNode {
         Some(result)
     }
 
+    pub fn new(node_cache: &mut MemCache, mut options: PageAllocOptions) -> Option<NonNull<Self>> {
+        assert!(node_cache.original_size == Self::OBJECT_SIZE);
+
+        let (object_size, object_num, order) = calculate_sizes(Self::OBJECT_SIZE).unwrap();
+        options.frame = options.frame.dynamic(order);
+
+        let mut result = node_cache.alloc::<MemCacheNode>()?;
+
+        unsafe {
+            let slub = Slub::new(options, object_size, object_num).ok()?;
+
+            result.as_mut().init(object_size, object_num, Some(slub));
+        }
+
+        Some(result)
+    }
+
     /// 从`Node`中分配对象
     ///
     /// 默认从`partial_list`中分配对象，若未分配到则尝试创建一个新的`Slub`并从中分配
@@ -116,7 +131,7 @@ impl MemCacheNode {
             let mut partial_list = self.partial_list.lock();
 
             for mut frame in partial_list.iter(offset_of!(Frame, list)) {
-                if let Slub::Head(head) = Slub::from_frame(unsafe { frame.as_mut() }) {
+                if let &mut Slub::Head(ref mut head) = unsafe { frame.as_mut().try_into().ok()? } {
                     if let Some(obj) = head.allocate::<T>() {
                         return Some(obj);
                     }
@@ -144,27 +159,14 @@ impl MemCacheNode {
         }
     }
 
-    pub fn free<T>(&mut self, obj: NonNull<T>) -> Option<()> {
-        // 先找到所在页的 Frame 结构，再从其中取出 Slub 地址
-        let vaddr = VirtAddr::new(obj.addr().get());
-        let frame_number = PhysAddr::new(vaddr.offset_from(vir_base_addr())).to_frame_number();
-        let mut frame = Frame::get_mut(frame_number)?;
+    pub fn try_destroy(&mut self, cache_info: &MemCache) -> Option<()> {
+        let mut list = self.partial_list.lock();
 
-        if let FrameTag::Slub = frame.get_tag() {
-            let slub = Slub::from_frame(frame.deref_mut());
-            match slub {
-                Slub::Body { offset } => {
-                    // 如果是Body就重新定位到Head
-                    let mut head = Frame::get_mut(frame_number - *offset as usize)?;
-                    let head = Slub::from_frame(head.deref_mut());
-                    if let Slub::Head(head) = head {
-                        head.free(obj);
-                    } else {
-                        unreachable!("Slub body does not point to a head!");
-                    }
-                }
-                Slub::Head(head) => head.free(obj),
-            };
+        for mut frame in list.iter(offset_of!(Frame, list)) {
+            let slub: &mut Slub = unsafe { frame.as_mut() }.try_into().unwrap();
+            slub.try_destroy(cache_info)?;
+
+            unsafe { Pin::new_unchecked(&mut *frame.as_mut().list.get()).del() };
         }
 
         Some(())

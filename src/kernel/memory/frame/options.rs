@@ -32,9 +32,11 @@ impl FrameAllocOptions {
         }
     }
 
-    pub fn fallback(mut self, zone_types: &[ZoneType]) -> Self {
-        for (i, &zone_type) in zone_types.iter().take(3).enumerate() {
-            self.fallback.chain[i] = Some(zone_type);
+    pub const fn fallback(mut self, zone_types: &[ZoneType]) -> Self {
+        let mut i = 0;
+        while i < zone_types.len() && i < ZONE_COUNT {
+            self.fallback.chain[i] = Some(zone_types[i]);
+            i += 1;
         }
         self
     }
@@ -86,6 +88,36 @@ impl FrameAllocOptions {
                 Err(FrameError::OutOfFrames)
             }
         })
+    }
+
+    /// 类似 GFP_KERNEL：通用内核分配
+    ///
+    /// - 优先 LinearMem，fallback 到 MEM24
+    /// - 允许重试
+    /// - 适用于大多数内核路径
+    pub const fn kernel(order: FrameOrder) -> Self {
+        Self::new().dynamic(order).retry(RetryPolicy::Retry(3))
+    }
+
+    /// 类似 GFP_ATOMIC：原子上下文分配
+    ///
+    /// - 优先 LinearMem，fallback 到 MEM24
+    /// - 不允许重试（FailFast）
+    /// - 适用于中断处理、持锁上下文等不能睡眠的场景
+    pub const fn atomic(order: FrameOrder) -> Self {
+        Self::new().dynamic(order).retry(RetryPolicy::FastFail)
+    }
+
+    /// 类似 GFP_HIGHUSER：高端内存优先
+    ///
+    /// - 优先 HighMem，fallback 到 LinearMem
+    /// - 适用于用户空间页（不需要内核线性映射）
+    pub const fn highmem() -> Self {
+        const HIGHMEM_FALLBACK: [ZoneType; 3] =
+            [ZoneType::HighMem, ZoneType::LinearMem, ZoneType::MEM24];
+        Self::new()
+            .fallback(&HIGHMEM_FALLBACK)
+            .retry(RetryPolicy::Retry(3))
     }
 }
 

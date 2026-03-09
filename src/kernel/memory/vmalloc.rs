@@ -10,7 +10,7 @@ use crate::{
     kernel::memory::{
         MemoryError, PageCacheType,
         arch::ArchMemory,
-        frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType},
+        frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions},
         page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
     },
 };
@@ -82,16 +82,10 @@ pub fn ioremap<'a>(
     let count = frame_count(size);
     let non_zero_count = NonZeroUsize::new(count).ok_or(MemoryError::InvalidSize(size))?;
 
-    let frame_options = FrameAllocOptions::new().fixed(start, non_zero_count);
-    let page_options = PageAllocOptions::new(frame_options)
-        .contiguous(true)
-        .cache_type(cache_type);
+    let page_options = PageAllocOptions::mmio(start, non_zero_count, cache_type);
 
     page_options.allocate()
 }
-
-static VMALLOC_FALLBACK_CHAIN: [ZoneType; 3] =
-    [ZoneType::HighMem, ZoneType::LinearMem, ZoneType::MEM24];
 
 pub fn vmalloc<T>(
     size: NonZeroUsize,
@@ -102,9 +96,7 @@ pub fn vmalloc<T>(
 
     let order = FrameOrder::new(count.ilog2() as u8);
 
-    let frame_options = FrameAllocOptions::new()
-        .fallback(&VMALLOC_FALLBACK_CHAIN)
-        .dynamic(order);
+    let frame_options = FrameAllocOptions::highmem().dynamic(order);
 
     let page_options = PageAllocOptions::new(frame_options)
         .contiguous(false)

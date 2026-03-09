@@ -77,7 +77,7 @@ void process_activate(struct task_s *thread) {
 //  * @return uint32_t* 创建的页目录表地址
 //  */
 // uint32_t *create_page_dir(void) {
-// 	uint32_t *page_dir_vaddr = kernel_alloc_pages(1);
+// 	uint32_t *page_dir_vaddr = kmalloc_pages(1);
 // 	if (page_dir_vaddr == NULL) { return NULL; }
 // 	// 复制第0~511个与创建第1023个页目录表项
 // 	memcpy(
@@ -95,7 +95,7 @@ void process_activate(struct task_s *thread) {
 // void create_user_vaddr_mmap(struct task_s *user_prog) {
 // 	uint32_t pg_cnt =
 // 		DIV_ROUND_UP((0xffcfffff - USER_START_ADDR) / PAGE_SIZE / 8, PAGE_SIZE);
-// 	user_prog->vir_page_mmap.bits = kernel_alloc_pages(pg_cnt);
+// 	user_prog->vir_page_mmap.bits = kmalloc_pages(pg_cnt);
 // 	user_prog->vir_page_mmap.len =
 // 		(0xffcfffff - USER_START_ADDR) / PAGE_SIZE / 8;
 // 	memset(user_prog->vir_page_mmap.bits, 0, user_prog->vir_page_mmap.len);
@@ -109,7 +109,7 @@ void process_activate(struct task_s *thread) {
  */
 // void process_excute(void *entry, struct program_struct *prog) {
 // 	struct task_s		*thread		= kmalloc(sizeof(struct task_s));
-// 	void				*stack_page = kernel_alloc_pages(1);
+// 	void				*stack_page = kmalloc_pages(1);
 // 	struct prog_segment *p;
 // 	init_thread(thread, stack_page, prog->name.text, THREAD_DEFAULT_PRIO);
 // 	create_user_vaddr_mmap(thread);
@@ -150,7 +150,7 @@ void process_activate(struct task_s *thread) {
 // 	unsigned long page_num = 1;
 // 	if (memsz > size0) { page_num += DIV_ROUND_UP(memsz - size0, PAGE_SIZE); }
 
-// 	uint32_t *addr = kernel_alloc_pages(page_num);
+// 	uint32_t *addr = kmalloc_pages(page_num);
 // 	MEMORY_RESULT_DELIVER_CALL(
 // 		thread_use_page, thread, vaddr, vir2phy((uint32_t)addr), page_num);
 

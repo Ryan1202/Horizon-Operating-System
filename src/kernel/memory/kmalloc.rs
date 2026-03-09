@@ -7,9 +7,12 @@ use core::{
 };
 
 use crate::{
-    arch::{PhysAddr, VirtAddr},
+    arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
-        frame::{Frame, FrameTag},
+        MemoryError,
+        arch::ArchMemory,
+        frame::{Frame, FrameTag, buddy::FrameOrder},
+        page::{kfree_pages, options::PageAllocOptions},
         slub::{Slub, config::get_cache_unchecked},
         vir_base_addr,
     },
@@ -45,12 +48,16 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
     let ilog = size.get().max(8).next_power_of_two().ilog2() as usize;
 
     if ilog > 12 {
-        // 超过 4096 bytes，暂不支持大对象分配
-        return None;
-    }
+        let order = FrameOrder::from_frame_count(ilog - ArchPageTable::PAGE_BITS);
 
-    let cache = unsafe { get_cache_unchecked(ilog - 3).clone().as_mut() };
-    cache.alloc::<T>()
+        let page_options = PageAllocOptions::kernel(order);
+        let mut pages = page_options.allocate().ok()?;
+
+        Some(unsafe { NonNull::new_unchecked(pages.get_ptr()) })
+    } else {
+        let cache = unsafe { get_cache_unchecked(ilog - 3).clone().as_mut() };
+        cache.alloc::<T>()
+    }
 }
 
 #[unsafe(export_name = "kfree")]
@@ -61,10 +68,10 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
             return;
         }
     };
-    kfree(ptr);
+    let _ = kfree(ptr);
 }
 
-pub fn kfree<T>(ptr: NonNull<T>) {
+pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
     assert!(
         ptr.as_ptr() as usize >= vir_base_addr().as_usize(),
         "Attempt to free non-kernel memory"
@@ -72,14 +79,14 @@ pub fn kfree<T>(ptr: NonNull<T>) {
 
     let vaddr = VirtAddr::new(ptr.as_ptr() as usize);
     let phy_addr = PhysAddr::new(vaddr.offset_from(vir_base_addr()));
-    let frame = Frame::from_addr_mut(phy_addr);
+    let mut frame = Frame::from_addr_mut(phy_addr).ok_or(MemoryError::InvalidAddress(vaddr))?;
 
-    if let Some(mut frame) = frame {
-        if let FrameTag::Slub = frame.get_tag() {
-            Slub::from_frame(frame.deref_mut()).free(ptr.cast());
-        } else {
-            // 非 Slub 分配的内存，不支持释放
-            panic!("Attempt to free non-Slub allocated memory");
+    match frame.get_tag() {
+        FrameTag::Slub => {
+            let slub: &mut Slub = frame.deref_mut().try_into().unwrap();
+            slub.free(ptr.cast())
         }
+        FrameTag::Allocated => kfree_pages(vaddr),
+        _ => Err(MemoryError::InvalidAddress(vaddr)),
     }
 }

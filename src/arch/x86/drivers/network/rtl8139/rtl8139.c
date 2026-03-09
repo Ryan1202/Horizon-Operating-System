@@ -275,7 +275,7 @@ DriverResult rtl8139_start(void *_device) {
 	io_out_byte(rtl_device->io_base + REG_CR, CR_RE | CR_TE);
 
 	// 配置接收缓冲区
-	rtl_device->rx_buffer	  = kernel_alloc_pages(2 << RECV_BUF_LEN);
+	rtl_device->rx_buffer	  = kmalloc_pages(2 << RECV_BUF_LEN);
 	rtl_device->rx_buffer_phy = vir2phy((size_t)rtl_device->rx_buffer);
 	io_out_dword(rtl_device->io_base + REG_RBSTART, rtl_device->rx_buffer_phy);
 	io_out_dword(

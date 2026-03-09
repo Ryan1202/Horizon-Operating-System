@@ -1,10 +1,13 @@
+use core::num::NonZeroUsize;
+
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable},
     kernel::memory::{
         MemoryError, PageCacheType,
         arch::ArchMemory,
         frame::{
-            FrameTag,
+            FrameNumber, FrameTag,
+            buddy::FrameOrder,
             options::{FrameAllocOptions, FrameAllocType, RetryPolicy},
             zone::ZoneType,
         },
@@ -25,7 +28,7 @@ impl PageAllocOptions {
     pub const fn new(frame_options: FrameAllocOptions) -> Self {
         PageAllocOptions {
             frame: frame_options,
-            contiguous: false,
+            contiguous: true,
             cache_type: PageCacheType::WriteBack,
             zeroed: false,
             retry: RetryPolicy::FastFail,
@@ -55,6 +58,21 @@ impl PageAllocOptions {
     pub fn get_frame_options(&self) -> &FrameAllocOptions {
         &self.frame
     }
+
+    /// 预设选项：适用于内核常规分配
+    pub const fn kernel(order: FrameOrder) -> Self {
+        Self::new(FrameAllocOptions::atomic(order)).retry(RetryPolicy::Retry(3))
+    }
+
+    /// 预设选项：适用于原子上下文分配
+    pub const fn atomic(order: FrameOrder) -> Self {
+        Self::new(FrameAllocOptions::atomic(order)).retry(RetryPolicy::FastFail)
+    }
+
+    /// 预设选项: IO 内存分配
+    pub const fn mmio(start: FrameNumber, count: NonZeroUsize, cache: PageCacheType) -> Self {
+        Self::new(FrameAllocOptions::new().fixed(start, count)).cache_type(cache)
+    }
 }
 
 impl PageAllocOptions {
@@ -76,11 +94,7 @@ impl PageAllocOptions {
                 Ok((mut _frames, _zone)) => {
                     debug_assert!(matches!(_frames.get_tag(), FrameTag::Allocated));
 
-                    pages.link::<ArchPageTable>(
-                        _frames,
-                        order.to_count().get(),
-                        self.cache_type,
-                    )?;
+                    pages.map::<ArchPageTable>(_frames, order.to_count().get(), self.cache_type)?;
 
                     if first.is_none() {
                         first = Some(());
@@ -125,7 +139,7 @@ impl PageAllocOptions {
             if !matches!(zone, ZoneType::LinearMem) {
                 let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
 
-                v.link::<ArchPageTable>(frame, count.get(), self.cache_type)?;
+                v.map::<ArchPageTable>(frame, count.get(), self.cache_type)?;
 
                 let start = v.start_addr().to_page_number().unwrap();
                 let end = start + v.frame_count - 1;
@@ -138,8 +152,18 @@ impl PageAllocOptions {
         } else {
             let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
 
-            self.alloc_discontiguous(v)
-                .inspect_err(|_| get_vmap_node().deallocate(v).unwrap())?;
+            let result = self.alloc_discontiguous(v);
+
+            if result.is_err() {
+                let _ = get_vmap_node().deallocate(v).inspect_err(|e| {
+                    e.log_error(format_args!(
+                        "Failed to free virtual memory since {}",
+                        v.start_addr()
+                    ))
+                });
+
+                result?;
+            }
 
             Ok(Pages::Dynamic(v))
         }

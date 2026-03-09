@@ -5,7 +5,7 @@ cc = "x86_64-elf-gcc"
 as = "nasm"
 ld = "x86_64-elf-ld"
 cflags = [
-    "-march=i486",
+    "-march=i686",
     "-std=gnu11",
     "-nostdinc",
     "-nostdlib",
