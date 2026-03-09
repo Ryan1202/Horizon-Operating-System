@@ -41,16 +41,11 @@ uint32_t	*pde_ptr(uint32_t vaddr);
 uint32_t	 vir2phy(uint32_t vaddr);
 MemoryResult remap(uint32_t in_paddr, size_t in_size, uint32_t *out_vaddr);
 void		 unmap(uint32_t vaddr, size_t size);
-int			 alloc_vir_pages(int count);
-int			 free_vir_page(int vir_addr);
-void		*kernel_alloc_pages(int pages);
-void		*kernel_alloc_continuous_pages(int pages);
-int			 kernel_free_pages(int vaddr);
-void		 fill_vir_page_table(uint32_t vaddr, uint32_t paddr, uint8_t sign);
-void		 clean_vir_page_table(uint32_t vaddr);
-uint32_t	 alloc_mem_page(void);
-uint32_t	 alloc_mem_pages(int pages);
-uint32_t	 free_mem_page(int address);
+void		*kmalloc_pages(int pages);
+int			 kfree_pages(int vaddr);
+
+void assign_frames(size_t paddr, size_t page_cnt);
+
 void		*thread_get_page(struct task_s *thread, uint32_t vaddr);
 uint32_t	 thread_alloc_vir_page(struct task_s *thread);
 uint32_t	 thread_free_vir_page(struct task_s *thread, uint32_t addr);

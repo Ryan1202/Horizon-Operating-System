@@ -1,4 +1,4 @@
-use core::{cmp, marker::PhantomData, ptr::NonNull};
+use core::{cmp, marker::PhantomData, mem, ptr::NonNull};
 
 use {
     augment::{Augment, AugmentLink},
@@ -126,6 +126,12 @@ impl<K: Sized> RbTreeBase<K, (), (), ()> {
     }
 }
 
+impl<K: Sized> Default for RbTreeBase<K, (), (), ()> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
     const fn _new(augment: TA) -> Self {
         RbTreeBase {
@@ -215,7 +221,7 @@ impl<K: Sized, I, NA> RbNodeBase<K, I, NA> {
     }
 
     #[inline(always)]
-    fn get_parent_and_color(&self) -> (Option<NonNull<RbNodeBase<K, I, NA>>>, RbColor) {
+    fn get_parent_and_color(&self) -> (Option<NonNull<Self>>, RbColor) {
         let color = self.parent.get_color();
         (NonNull::new(self.parent.get_node_ptr()), color)
     }
@@ -258,13 +264,13 @@ impl<K: Sized, I, NA> RbNodeBase<K, I, NA> {
     ///
     /// 只交换数据，不修改父节点的指针和Key
     unsafe fn swap(&mut self, other: &mut RbNodeBase<K, I, NA>) {
-        core::mem::swap(&mut self.parent, &mut other.parent);
-        core::mem::swap(&mut self.left, &mut other.left);
-        core::mem::swap(&mut self.right, &mut other.right);
-        core::mem::swap(&mut self.augment, &mut other.augment);
+        mem::swap(&mut self.parent, &mut other.parent);
+        mem::swap(&mut self.left, &mut other.left);
+        mem::swap(&mut self.right, &mut other.right);
+        mem::swap(&mut self.augment, &mut other.augment);
     }
 
-    pub fn insert<'a, TA>(
+    pub fn insert<TA>(
         &mut self,
         tree: &mut RbTreeBase<K, I, TA, NA>,
         mut new_node: NonNull<RbNodeBase<K, I, NA>>,
@@ -307,7 +313,7 @@ impl<K: Sized, I, A> RbNodeBase<K, I, A> {
 
     /// 将`new_node`连接为当前节点的子节点，依据`order`指定左右位置
     /// - `order`: `Less`/`Equal` 表示作为左子节点，`Greater` 表示作为右子节点
-    pub fn link_node(&mut self, new_node: &mut RbNodeBase<K, I, A>, order: cmp::Ordering) {
+    pub fn link_node(&mut self, new_node: &mut Self, order: cmp::Ordering) {
         match order {
             cmp::Ordering::Less | cmp::Ordering::Equal => {
                 self.left = Some(NonNull::from_mut(new_node));
@@ -323,7 +329,7 @@ impl<K: Sized, I, A> RbNodeBase<K, I, A> {
         &self,
         key: &K,
         cmp: Compare,
-    ) -> Option<(NonNull<RbNodeBase<K, I, A>>, cmp::Ordering)>
+    ) -> Option<(NonNull<Self>, cmp::Ordering)>
     where
         Compare: Fn(&K, &K) -> cmp::Ordering,
         A: 'a,
@@ -336,7 +342,7 @@ impl<K: Sized, I, A> RbNodeBase<K, I, A> {
         while let Some(mut node_ptr) = current {
             unsafe {
                 let node = node_ptr.as_mut();
-                let ordering = cmp(&key, &node.key);
+                let ordering = cmp(key, &node.key);
                 result = Some((node_ptr, ordering));
 
                 match ordering {
@@ -365,11 +371,7 @@ impl<K: Sized, I, A, Compare: Fn(&K, &K) -> cmp::Ordering> RbSearch<K, RbNodeBas
     /// - 如果找到完全相等的节点，返回`Ordering::Equal`
     /// - 如果未找到完全相等的节点，返回最后访问节点及其与`key`的比较结果
     /// - 如果是无法比较的类型，则视为`Greater`
-    fn search_closest(
-        &self,
-        key: &K,
-        cmp: Compare,
-    ) -> Option<(NonNull<RbNodeBase<K, I, A>>, cmp::Ordering)> {
+    fn search_closest(&self, key: &K, cmp: Compare) -> Option<(NonNull<Self>, cmp::Ordering)> {
         self.search_closest_and_recalc(key, cmp)
     }
 }

@@ -1,35 +1,18 @@
-use crate::kernel::memory::page::PageTableEntry;
+use crate::{
+    arch::x86::kernel::page::{entry::X86PageEntry, table::X86PageTable},
+    kernel::memory::arch::ArchMemory,
+};
 
-pub type VirAddr = usize;
-pub type PhyAddr = usize;
+pub mod addr;
+pub mod entry;
+pub mod table;
+pub mod tlb;
 
-pub const PAGE_SIZE: usize = 4096;
+impl ArchMemory for X86PageTable {
+    type Entry = X86PageEntry;
 
-type EntryType = usize;
-
-#[repr(transparent)]
-pub struct PageLevelEntry(EntryType);
-
-impl PageTableEntry for PageLevelEntry {
-    type PhyAddr = PhyAddr;
-
-    const MAX: usize = PhyAddr::MAX.div_ceil(PAGE_SIZE);
-
-    fn new_absent() -> Self {
-        PageLevelEntry(0)
-    }
-
-    fn new_present(phy_addr: Self::PhyAddr) -> Self {
-        PageLevelEntry(phy_addr as PhyAddr | 0x1)
-    }
-
-    fn is_present(&self) -> bool {
-        (self.0 & 0x1) == 1
-    }
-
-    fn phy_addr(&self) -> Self::PhyAddr {
-        ((self.0 as usize) & !(PAGE_SIZE - 1)) as PhyAddr
-    }
+    const PAGE_BITS: usize = 12;
+    const PAGE_TABLE_LEVELS: usize = 2;
+    const PHYS_ADDR_BITS: usize = 32;
+    const VIRT_ADDR_BITS: usize = 32;
 }
-
-pub const ENTRY_PER_PAGE: usize = PAGE_SIZE / size_of::<EntryType>();

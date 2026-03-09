@@ -138,7 +138,7 @@ struct task_s *thread_start(
 	char *name, int priority, thread_func function, void *func_arg,
 	struct task_s *parent) {
 	struct task_s *thread	  = kzalloc(sizeof(struct task_s));
-	void		  *stack_page = kernel_alloc_pages(1);
+	void		  *stack_page = kmalloc_pages(1);
 
 	init_thread(thread, stack_page, name, priority);
 
@@ -368,7 +368,7 @@ void schedule(void) {
 	// 从其他线程切回来之后，检查上一个线程是否已经结束
 	if (dead_task != NULL) {
 		size_t stack_page = (size_t)dead_task->kstack & ~(PAGE_SIZE - 1);
-		if (dead_task != main_thread && kernel_free_pages(stack_page) < 0) {
+		if (dead_task != main_thread && kfree_pages(stack_page) < 0) {
 			printk(
 				"[Memory Error] Free dead task stack page failed! "
 				"Task name:%s, pid:%d\n",
@@ -392,7 +392,7 @@ void init_thread_memory_manage(struct task_s *thread) {
 	int		 i;
 	uint32_t pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
 
-	thread->memory_manage = (struct memory_manage *)kernel_alloc_pages(pages);
+	thread->memory_manage = (struct memory_manage *)kmalloc_pages(pages);
 	memset(thread->memory_manage, 0, sizeof(struct memory_manage));
 	for (i = 0; i < MEMORY_BLOCKS; i++) {
 		thread->memory_manage->free_blocks[i].size	= 0;

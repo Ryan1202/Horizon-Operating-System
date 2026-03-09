@@ -4,28 +4,31 @@ use core::{
     ptr::addr_of,
 };
 
-use crate::{ConsoleOutput, kernel::memory::phy::frame::FrameError};
+use crate::{
+    ConsoleOutput,
+    arch::VirtAddr,
+    kernel::memory::{frame::FrameError, page::PageTableError},
+};
 
+pub mod addr;
+pub mod arch;
+pub mod frame;
+pub mod kmalloc;
 pub mod page;
-pub mod phy;
-pub mod vir;
+pub mod slub;
+pub mod vmalloc;
 
 unsafe extern "C" {
     static VIR_BASE: *const c_void;
 }
 
 #[inline(always)]
-pub fn vir_base_addr() -> usize {
-    addr_of!(VIR_BASE) as usize
+pub fn vir_base_addr() -> VirtAddr {
+    VirtAddr::new(addr_of!(VIR_BASE) as usize)
 }
 
 const KLINEAR_SIZE: usize = 0x2000_0000;
-
-unsafe extern "C" {
-    fn page_link(vaddr: usize, paddr: usize, page_count: u16, cache_type: PageCacheType) -> bool;
-    fn page_unlink(vaddr: usize, page_count: u16);
-    fn vir2phys(vaddr: usize) -> usize;
-}
+const KMEMORY_END: VirtAddr = VirtAddr::new(0xff80_0000);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
@@ -41,15 +44,28 @@ pub enum PageCacheType {
 pub enum MemoryError {
     OutOfMemory,
     AddressConflict,
-    MultipleFree,
-    InvalidAddress(usize),
+    UnavailableFrame,
+    InvalidAddress(VirtAddr),
     InvalidSize(usize),
     FrameError(FrameError),
+    PageTableError(PageTableError),
 }
 
 impl MemoryError {
     pub fn log_error(&self, args: Arguments) {
         let mut output = ConsoleOutput;
         writeln!(output, "{}: MemoryError: {:?}", args, self).ok();
+    }
+}
+
+impl From<FrameError> for MemoryError {
+    fn from(value: FrameError) -> Self {
+        MemoryError::FrameError(value)
+    }
+}
+
+impl From<PageTableError> for MemoryError {
+    fn from(value: PageTableError) -> Self {
+        MemoryError::PageTableError(value)
     }
 }

@@ -355,7 +355,7 @@ void uhci_probe(Uhci *uhci) {
 DriverResult uhci_start(void *_device) {
 	PhysicalDevice *device = _device;
 	Uhci		   *uhci   = device->private_data;
-	uhci->fl.frames_vir	   = (uint32_t *)kernel_alloc_pages(1);
+	uhci->fl.frames_vir	   = (uint32_t *)kmalloc_pages(1);
 	uhci->fl.frames_phy	   = (uint32_t *)vir2phy((uint32_t)uhci->fl.frames_vir);
 	uhci_skel_init(uhci);
 

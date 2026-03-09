@@ -1,17 +1,22 @@
 // Auto-generated root file for this crate
 // Target: /Users/a15922/Horizon-Operating-System/src/arch/x86/i686-none.json
-// Based on: lib.template.rs
+// Based on: "/Users/a15922/Horizon-Operating-System/src/root.template.rs"
 
 #![no_std]
 #![no_main]
 #![feature(sync_unsafe_cell)]
 #![feature(offset_of_enum)]
 #![feature(pattern_type_range_trait)]
+#![feature(const_cmp)]
+#![feature(const_trait_impl)]
+#![feature(const_try)]
 
 use core::{
     fmt::{self, Write},
     panic::PanicInfo,
 };
+
+pub mod arch;
 
 const CACHELINE_SIZE: usize = 64;
 
@@ -40,16 +45,9 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
-pub mod arch {
-    pub mod x86 {
-        pub mod kernel {
-            pub mod page;
-        }
-    }
+pub mod lib {
+    pub mod rust;
 }
 pub mod kernel {
     pub mod memory;
-}
-pub mod lib {
-    pub mod rust;
 }

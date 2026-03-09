@@ -262,7 +262,7 @@ where
         let (left, right) = (self.left, self.right);
 
         // 先把 parent 字段替换为空表示我们将把 parent 信息暂存到 parent_copy
-        let parent_copy = mem::replace(&mut self.parent, RbNodeWithColor::null_node());
+        let parent_copy = mem::take(&mut self.parent);
 
         let old = NonNull::from_mut(self);
         let (new, balance) = match (left, right) {
@@ -397,8 +397,8 @@ where
             }
         }
 
-        if let Some((mut parent, is_left)) = balance {
-            self.rebalance_black_height(tree, &mut parent, is_left);
+        if let Some((parent, is_left)) = balance {
+            self.rebalance_black_height(tree, parent, is_left);
         }
 
         #[cfg(debug_assertions)]

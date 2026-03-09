@@ -1,3 +1,4 @@
+#include "drivers/msr.h"
 #include <bios_emu/bios_emu.h>
 #include <driver/framebuffer/fb_dm.h>
 #include <driver/interrupt/interrupt_dm.h>
@@ -82,6 +83,12 @@ DriverResult platform_init() {
 	// dma_init();
 
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
+	if (cpu_check_feature(CPUID_FEAT_PAT)) {
+		uint32_t lo, hi;
+		cpu_rdmsr(IA32_PAT, &lo, &hi);
+		hi = (hi & ~0x7) | 0x1; // 把 PAT4 设为 WriteCombining
+		cpu_wrmsr(IA32_PAT, lo, hi);
+	}
 
 	return DRIVER_OK;
 }

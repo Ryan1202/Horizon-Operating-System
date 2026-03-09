@@ -214,14 +214,6 @@ write_cr0:
 	mov	cr0,	eax
 	ret
 	
-enable_paging:
-	mov	eax,	cr0
-	or	eax,	0x80000000
-	mov	cr0,	eax
-	pop	eax
-	add	eax,	0x80000000
-	push		eax
-	
 load_gdtr:	;void load_gdtr(int limit, int addr);
 	mov ax, [esp + 4]
 	mov	[esp+6],ax		

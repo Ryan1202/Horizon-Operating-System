@@ -29,11 +29,11 @@ impl<'a, K: Ord + Sized, A> Iterator for RbNodeIter<'a, K, (), A> {
                 let mut result = None;
                 while let Some(parent) = child.as_ref().get_parent() {
                     // 如果 child 是 parent 的左子节点，parent 就是后继
-                    if let Some(left) = parent.as_ref().left {
-                        if left == child {
-                            result = Some(parent);
-                            break;
-                        }
+                    if let Some(left) = parent.as_ref().left
+                        && left == child
+                    {
+                        result = Some(parent);
+                        break;
                     }
                     child = parent;
                 }
@@ -67,7 +67,7 @@ impl<'a, K: Ord + Sized, A> IntoIterator for &'a mut RbNodeBase<K, (), A> {
     }
 }
 
-impl<'a, K: Ord + Sized, TA, NA> RbTreeBase<K, (), TA, NA> {
+impl<K: Ord + Sized, TA, NA> RbTreeBase<K, (), TA, NA> {
     pub fn iter(&mut self) -> RbNodeIter<'_, K, (), NA> {
         let mut root = match self.root {
             Some(root) => root,
