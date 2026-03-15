@@ -3,9 +3,17 @@
 // - 使用从 C 导入的自旋锁（见 src/include/kernel/spinlock.h）
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
-use core::{mem::ManuallyDrop, num::NonZeroU16, ops::DerefMut, ptr::NonNull};
+use core::{
+    cell::SyncUnsafeCell,
+    mem::{ManuallyDrop, offset_of},
+    num::NonZeroU16,
+    ops::DerefMut,
+    pin::Pin,
+    ptr::NonNull,
+};
 
 use crate::{
+    CACHELINE_SIZE,
     arch::ArchPageTable,
     kernel::memory::{
         MemoryError,
@@ -17,30 +25,38 @@ use crate::{
             zone::ZoneType,
         },
         page::options::PageAllocOptions,
-        slub::mem_cache::{MemCache, MemCaches},
+        slub::{
+            config::CacheConfig,
+            mem_cache::{MemCache, MemCaches},
+        },
     },
+    lib::rust::{list::ListNode, spinlock::Spinlock},
 };
 
 pub(super) mod config;
+#[cfg(feature = "slub_debug")]
+mod debug;
 mod mem_cache;
 mod mem_cache_node;
 
 pub(super) const MIN_OBJECT_SIZE: usize = 8;
+#[cfg(feature = "slub_debug")]
+pub(super) const MAX_OBJECT_SIZE: usize = 4096 + CACHELINE_SIZE + debug::RED_ZONE_SIZE;
+#[cfg(not(feature = "slub_debug"))]
 pub(super) const MAX_OBJECT_SIZE: usize = 4096;
 pub(super) const MAX_FRAME_ORDER: FrameOrder = FrameOrder::new(3); // 最大 8 页
 pub(super) const MIN_PARTIAL: u8 = 5;
 pub(super) const MAX_PARTIAL: u8 = 10;
 
-pub(super) const ALIGN: usize = core::mem::size_of::<usize>();
+pub(super) const MIN_ALIGN: usize = core::mem::size_of::<usize>() * 2;
 
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ObjectSize(pub NonZeroU16);
 
-#[repr(u8)]
-pub enum Slub {
-    Head(SlubInner),
-    Body { offset: u8 },
+pub struct Slub {
+    list: SyncUnsafeCell<ListNode<Self>>,
+    inner: Spinlock<SlubInner>,
 }
 
 /// Slub 内部数据结构
@@ -50,10 +66,9 @@ pub struct SlubInner {
     freelist: Option<NonNull<FreeNode>>,
     /// 正在使用的对象数量
     inuse: u16,
-    /// object总数量
-    object_size: NonZeroU16,
-    // /// 所属内存区域类型
-    // zone_type: ZoneType,
+    #[cfg(feature = "slub_debug")]
+    /// 到用户数据的起始位置的偏移量
+    user_offset: u8,
 }
 
 #[repr(C)]
@@ -88,72 +103,60 @@ pub enum SlubError {
 impl Slub {
     // 通用初始化逻辑
     fn init_slab(
+        config: &CacheConfig,
         options: PageAllocOptions,
-        object_num: NonZeroU16,
-        object_size: NonZeroU16,
     ) -> Result<NonNull<Self>, MemoryError> {
         // 分配页
         let mut pages = options.allocate()?;
-        let page_count = pages.get_count();
 
         let start_addr = pages.start_addr();
         let free_nodes = unsafe { start_addr.as_mut_ptr::<FreeNode>().as_mut().unwrap() };
 
-        FreeNode::init(free_nodes, object_num, object_size);
+        FreeNode::init(free_nodes, config);
+
+        let freelist = NonNull::from(free_nodes);
+        #[cfg(feature = "slub_debug")]
+        let freelist = unsafe {
+            use crate::kernel::memory::slub::debug::user_ptr_offset;
+            freelist.byte_add(user_ptr_offset(config.align))
+        };
 
         let first_frame = pages.get_frame().unwrap();
 
-        let data = FrameData {
-            slub: ManuallyDrop::new(Slub::Head(SlubInner {
-                freelist: Some(NonNull::from(free_nodes)),
+        let slub_info = Slub {
+            list: SyncUnsafeCell::new(ListNode::new()),
+            inner: Spinlock::new(SlubInner {
+                freelist: Some(freelist),
                 inuse: 0,
-                object_size,
-                // ZoneType::from_address(first_frame.start_addr()),
-            })),
+                #[cfg(feature = "slub_debug")]
+                user_offset: config.user_offset as u8,
+            }),
         };
 
         let slub = {
-            unsafe { first_frame.replace(FrameTag::Slub, data) };
-
-            first_frame.list.get_mut().init();
+            set_slub(first_frame, slub_info);
 
             let slub: &mut Self = first_frame.deref_mut().try_into()?;
-            NonNull::from(slub)
+            NonNull::from_ref(slub)
         };
-
-        // 填写 Frame 中的 Slub
-        for i in 1..page_count {
-            let mut frame = first_frame.next_frame(i).unwrap();
-
-            let slub_info = Slub::Body { offset: i as u8 };
-
-            unsafe {
-                frame.replace(
-                    FrameTag::Slub,
-                    FrameData {
-                        slub: ManuallyDrop::new(slub_info),
-                    },
-                )
-            };
-        }
 
         Ok(slub)
     }
 
     pub fn new(
+        config: &CacheConfig,
         options: PageAllocOptions,
-        object_size: ObjectSize,
-        object_num: NonZeroU16,
     ) -> Result<NonNull<Self>, MemoryError> {
-        Self::init_slab(options, object_num, object_size.0)
+        Self::init_slab(config, options)
     }
 
+    /// 销毁当前 `Slub`
     pub fn try_destroy(&mut self, cache_info: &MemCache) -> Option<()> {
-        if let Slub::Head(head) = self {
-            head.is_destroyable()?;
-        } else {
-            unreachable!("Only Slub heads can be destroyed!");
+        if unsafe { self.list.get().as_ref()? }.is_linked() {
+            return None;
         }
+
+        self.inner.lock().is_destroyable()?;
 
         let alloc_type = cache_info.options.frame.get_type();
         let order = if let FrameAllocType::Dynamic { order } = alloc_type {
@@ -162,34 +165,31 @@ impl Slub {
             unreachable!("Slub cache should always use dynamic frame allocation!");
         };
 
-        unsafe {
-            let frame = Frame::from_child(self);
+        let frame = unsafe { Frame::from_child(self) };
 
-            let zone_type = ZoneType::from_address(frame.start_addr());
-            let buddy = ManuallyDrop::new(Buddy { order, zone_type });
+        let zone_type = ZoneType::from_address(frame.start_addr());
+        let buddy = ManuallyDrop::new(Buddy::new(order, zone_type));
 
-            frame.replace(FrameTag::Allocated, FrameData { buddy });
-        }
+        unsafe { frame.replace(FrameTag::Allocated, FrameData { buddy }) };
         Some(())
     }
 
     #[inline]
-    pub fn deallocate(&mut self, obj: NonNull<u8>) -> Result<(), MemoryError> {
-        let frame = Frame::from_child(unsafe { (self as *mut Self).as_mut().unwrap() });
-        match self {
-            Slub::Head(head) => Ok(head.deallocate(obj)),
-            Slub::Body { offset } => {
-                let mut head = frame.prev_frame(*offset as usize).unwrap();
+    pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
+        self.inner.lock().allocate()
+    }
 
-                let head = head.deref_mut().try_into()?;
+    #[inline]
+    pub fn deallocate(&mut self, obj: NonNull<u8>) {
+        self.inner.lock().deallocate(obj);
+    }
 
-                if let &mut Slub::Head(ref mut head) = head {
-                    Ok(head.deallocate(obj))
-                } else {
-                    unreachable!("Slub body does not point to a head!");
-                }
-            }
-        }
+    fn get_list(&mut self) -> Pin<&mut ListNode<Self>> {
+        unsafe { Pin::new_unchecked(self.list.get_mut()) }
+    }
+
+    const fn list_offset() -> usize {
+        offset_of!(Self, list)
     }
 }
 
@@ -217,11 +217,43 @@ impl SlubInner {
         let node = freelist;
         self.freelist = unsafe { node.read() }.next;
         self.inuse += 1;
+
+        #[cfg(feature = "slub_debug")]
+        unsafe {
+            use crate::kernel::memory::slub::debug::{
+                RED_ZONE_SIZE, check_poison, check_red_zones, poison_on_alloc, user_ptr_offset,
+            };
+
+            let user_ptr = freelist.as_ptr() as *mut u8;
+            let user_offset = user_ptr_offset(self.user_offset as usize);
+            let ptr = user_ptr.byte_sub(user_offset);
+            let user_size = self.object_size.get() as usize - user_offset - RED_ZONE_SIZE;
+
+            check_poison(user_ptr, user_size);
+            check_red_zones(ptr, user_offset, user_size);
+            poison_on_alloc(user_ptr, user_size);
+        }
+
         Some(node.cast())
     }
 
     pub fn deallocate<T>(&mut self, obj: NonNull<T>) {
         let node = obj.cast::<FreeNode>();
+
+        #[cfg(feature = "slub_debug")]
+        unsafe {
+            use crate::kernel::memory::slub::debug::{
+                RED_ZONE_SIZE, check_red_zones, poison_on_free, user_ptr_offset,
+            };
+
+            let user_ptr = node.as_ptr() as *mut u8;
+            let user_offset = user_ptr_offset(self.user_offset as usize);
+            let ptr = user_ptr.byte_sub(user_offset);
+            let user_size = self.object_size.get() as usize - user_offset - RED_ZONE_SIZE;
+
+            check_red_zones(ptr, user_offset, user_size);
+            poison_on_free(user_ptr, user_size);
+        }
 
         unsafe {
             node.write(FreeNode {
@@ -230,6 +262,7 @@ impl SlubInner {
         }
 
         self.freelist = Some(node);
+
         self.inuse -= 1;
     }
 
@@ -238,17 +271,64 @@ impl SlubInner {
     }
 }
 
+fn set_slub(frame: &mut Frame, slub_info: Slub) {
+    unsafe {
+        frame.replace(
+            FrameTag::Slub,
+            FrameData {
+                slub: ManuallyDrop::new(slub_info),
+            },
+        )
+    };
+}
+
 impl FreeNode {
-    pub fn init(&mut self, object_num: NonZeroU16, object_size: NonZeroU16) {
+    pub fn init(&mut self, config: &CacheConfig) {
         let mut current = NonNull::from(self);
 
+        #[cfg(feature = "slub_debug")]
+        let user_offset = debug::user_ptr_offset(config.align);
+
+        #[cfg(feature = "slub_debug")]
         unsafe {
-            for _ in 0..(object_num.get() - 1) {
-                let next = current.byte_add(object_size.get() as usize);
+            current = current.byte_add(user_offset)
+        };
+
+        unsafe {
+            for _ in 0..(config.object_num.get() - 1) {
+                #[cfg(feature = "slub_debug")]
+                {
+                    use crate::kernel::memory::slub::debug::{
+                        RED_ZONE_SIZE, init_red_zones, poison_on_free,
+                    };
+
+                    let user_ptr = current.as_ptr() as *mut u8;
+                    let user_size =
+                        config.object_size.0.get() as usize - user_offset - RED_ZONE_SIZE;
+
+                    let slab_obj_start = user_ptr.byte_sub(user_offset);
+                    init_red_zones(slab_obj_start, user_offset, user_size);
+                    poison_on_free(user_ptr, user_size);
+                }
+                let next = current.byte_add(config.object_size.0.get() as usize);
+
                 current.write(FreeNode { next: Some(next) });
                 current = next;
             }
 
+            #[cfg(feature = "slub_debug")]
+            {
+                use crate::kernel::memory::slub::debug::{
+                    RED_ZONE_SIZE, init_red_zones, poison_on_free,
+                };
+
+                let user_ptr = current.as_ptr() as *mut u8;
+                let user_size = config.object_size.0.get() as usize - user_offset - RED_ZONE_SIZE;
+
+                let slab_obj_start = user_ptr.byte_sub(user_offset);
+                init_red_zones(slab_obj_start, user_offset, user_size);
+                poison_on_free(user_ptr, user_size);
+            }
             current.write(FreeNode { next: None });
         }
     }
@@ -256,9 +336,9 @@ impl FreeNode {
 
 const fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
     let mut size = size.0.get().next_multiple_of(size_of::<usize>() as u16);
-    size = size.min(MAX_OBJECT_SIZE as u16).max(MIN_OBJECT_SIZE as u16);
+    size = size.clamp(MIN_OBJECT_SIZE as u16, MAX_OBJECT_SIZE as u16);
 
-    let mut order = 0;
+    let mut order = MAX_FRAME_ORDER.get();
     let fractions = [16, 8, 4, 2];
     let mut i = 0;
 
@@ -295,9 +375,18 @@ const fn calculate_order(size: ObjectSize) -> Result<FrameOrder, SlubError> {
 
 const fn calculate_sizes(
     size: NonZeroU16,
-) -> Result<(ObjectSize, NonZeroU16, FrameOrder), SlubError> {
-    let object_size = NonZeroU16::new(size.get().next_multiple_of(size_of::<usize>() as u16))
+    align: usize,
+) -> Result<(ObjectSize, NonZeroU16, FrameOrder, usize), SlubError> {
+    let align = calculate_alignment(size.get() as usize, align);
+
+    let size = size.get() as usize;
+
+    #[cfg(feature = "slub_debug")]
+    let size = size + (debug::user_ptr_offset(align) + debug::RED_ZONE_SIZE);
+
+    let object_size = NonZeroU16::new((size - 1).next_multiple_of(align) as u16)
         .expect("`object_size` should be non zero after alignment!");
+
     let object_size = ObjectSize(object_size);
     let order = calculate_order(object_size)?;
 
@@ -309,7 +398,14 @@ const fn calculate_sizes(
         object_size,
         NonZeroU16::new(object_num).expect("`object_num` should be non zero after calculation!"),
         order,
+        align,
     ))
+}
+
+const fn calculate_alignment(size: usize, align: usize) -> usize {
+    let mut align = (align - 1).next_power_of_two();
+    align = align.max(1 << size.trailing_zeros());
+    align.clamp(MIN_ALIGN, CACHELINE_SIZE)
 }
 
 #[unsafe(no_mangle)]

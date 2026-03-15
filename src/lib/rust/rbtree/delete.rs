@@ -36,27 +36,27 @@ fn replace_child<K: Ord + Sized, I, TA, NA>(
     }
 }
 
-impl<'a, K: Ord + Sized, I, A> RbNodeBase<K, I, A>
+impl<'a, K: Ord + Sized, I, NA> RbNodeBase<K, I, NA>
 where
-    &'a mut RbNodeBase<K, I, A>: IntoIterator<Item = &'a mut RbNodeBase<K, I, A>>,
-    RbNodeIter<'a, K, I, A>: Iterator<Item = &'a mut RbNodeBase<K, I, A>>,
+    &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
+    RbNodeIter<'a, K, I, NA>: Iterator<Item = &'a mut RbNodeBase<K, I, NA>>,
     K: 'a,
     I: 'a,
-    A: 'a,
+    NA: 'a,
 {
     /// 删除节点与父节点都是黑节点时调用，进行重新平衡
     fn rebalance_black_height<TA>(
         &mut self,
-        tree: &mut RbTreeBase<K, I, TA, A>,
-        parent: &mut RbNodeBase<K, I, A>,
+        tree: &mut RbTreeBase<K, I, TA, NA>,
+        parent: &mut RbNodeBase<K, I, NA>,
         is_left: bool,
     ) where
-        RbNodeBase<K, I, A>: Augment,
+        RbNodeBase<K, I, NA>: Augment,
     {
         let mut parent = parent;
         let mut is_left = is_left;
 
-        let f = |mut v: NonNull<RbNodeBase<K, I, A>>| {
+        let f = |mut v: NonNull<RbNodeBase<K, I, NA>>| {
             let tmp = unsafe { v.as_mut() };
             let color = tmp.get_color();
             (tmp, color)
@@ -254,9 +254,9 @@ where
         }
     }
 
-    pub fn delete<TA>(&mut self, tree: &mut RbTreeBase<K, I, TA, A>)
+    pub fn delete<TA>(&mut self, tree: &mut RbTreeBase<K, I, TA, NA>)
     where
-        RbNodeBase<K, I, A>: Augment + AugmentLink<K, I, A>,
+        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
     {
         let (parent, color) = self.get_parent_and_color();
         let (left, right) = (self.left, self.right);
@@ -407,7 +407,7 @@ where
         }
 
         // 清理当前节点
-        self.unlink_ext();
+        self.unlink_ext(tree);
         self.update(None, None);
     }
 }

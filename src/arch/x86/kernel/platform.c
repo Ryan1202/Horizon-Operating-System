@@ -80,7 +80,7 @@ DriverResult platform_init() {
 	result = register_pit();
 	result = register_cmos();
 
-	// dma_init();
+	dma_init();
 
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
 	if (cpu_check_feature(CPUID_FEAT_PAT)) {

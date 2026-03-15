@@ -29,10 +29,12 @@ pub extern "C" fn ioremap_c(
     match ioremap(PhysAddr::new(addr), size, cache_type) {
         Ok(mut ptr) => ptr.get_ptr(),
         Err(e) => {
-            e.log_error(format_args!(
-                "WARNING: calling ioremap from C failed: addr = {:#x}, size = {:#x}",
-                addr, size
-            ));
+            printk!(
+                "WARNING: calling ioremap from C failed: addr = {:#x}, size = {:#x}, error = {:?}\n",
+                addr,
+                size,
+                e
+            );
             null_mut()
         }
     }
@@ -43,10 +45,11 @@ pub extern "C" fn iounmap_c(vstart: usize) -> i32 {
     match vfree(VirtAddr::new(vstart)) {
         Ok(_) => 0,
         Err(e) => {
-            e.log_error(format_args!(
-                "WARNING: calling iounmap from C failed: vstart: {:#x}",
-                vstart
-            ));
+            printk!(
+                "WARNING: calling iounmap from C failed: vstart: {:#x}, error = {:?}\n",
+                vstart,
+                e
+            );
             -1
         }
     }
@@ -64,10 +67,11 @@ pub extern "C" fn vmalloc_c(size: usize, cache_type: PageCacheType) -> *mut c_vo
     match vmalloc::<c_void>(size, cache_type) {
         Ok(ptr) => ptr.as_ptr(),
         Err(e) => {
-            e.log_error(format_args!(
-                "WARNING: calling vmalloc from C failed: size = {:#x}",
-                size
-            ));
+            printk!(
+                "WARNING: calling vmalloc from C failed: size = {:#x}, error = {:?}\n",
+                size,
+                e
+            );
             null_mut()
         }
     }

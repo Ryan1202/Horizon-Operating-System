@@ -73,7 +73,8 @@ void *kmalloc(size_t size);
 void *kzalloc(uint32_t size);
 int	  kfree(void *address);
 
-struct mem_cache *mem_cache_create(const char *name, size_t object_size);
+struct mem_cache *mem_cache_create(
+	const char *name, size_t object_size, size_t align);
 int				  mem_cache_destroy(struct mem_cache *cache);
 void			 *mem_cache_alloc(struct mem_cache *cache);
 

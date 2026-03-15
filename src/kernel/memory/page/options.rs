@@ -156,10 +156,11 @@ impl PageAllocOptions {
 
             if result.is_err() {
                 let _ = get_vmap_node().deallocate(v).inspect_err(|e| {
-                    e.log_error(format_args!(
-                        "Failed to free virtual memory since {}",
-                        v.start_addr()
-                    ))
+                    printk!(
+                        "Failed to free virtual memory since {}, error: {:?} (memory leaked)",
+                        v.start_addr(),
+                        e
+                    )
                 });
 
                 result?;

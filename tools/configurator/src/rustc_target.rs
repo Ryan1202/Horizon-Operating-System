@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
+use toml::Value;
 
 use crate::config::DebugLevel;
 use crate::dependency;
@@ -199,7 +200,8 @@ impl RustConfig {
         )?;
         write!(file, "rustflags = [")?;
         for flag in self.rust_flags.iter() {
-            write!(file, "\"{}\",", flag)?;
+            // Let toml::Value handle escaping for quotes/backslashes in each flag.
+            write!(file, "{},", Value::String(flag.clone()))?;
         }
         writeln!(file, "]")?;
 

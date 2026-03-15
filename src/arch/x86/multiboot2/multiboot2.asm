@@ -103,9 +103,20 @@ start:
     lgdt [GDTR]
     jmp 0x08:flush
 flush:
+	mov ax, 0x10
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax
+
     mov ecx, LOADER_STACK_TOP
     mov esp, ecx
+	cld
+
     push ebx
     push eax
     call multiboot2_loader
+	add esp, 8
+
     jmp kernel_early_start

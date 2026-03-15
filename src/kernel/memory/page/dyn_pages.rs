@@ -1,17 +1,15 @@
 use core::{
-    fmt::Write,
     mem::ManuallyDrop,
     num::NonZeroUsize,
     ptr::{NonNull, addr_of},
 };
 
 use crate::{
-    ConsoleOutput,
     arch::{ArchPageTable, VirtAddr},
     kernel::memory::{
         KLINEAR_SIZE, KMEMORY_END, MemoryError, PageCacheType, VIR_BASE,
         arch::ArchMemory,
-        frame::reference::FrameMut,
+        frame::reference::UniqueFrames,
         kmalloc::kmalloc,
         page::{PageFlags, PageTableError, PageTableWalker, range::VmRange},
     },
@@ -21,7 +19,7 @@ use crate::{
 pub struct DynPages {
     pub(super) rb_node: LinkedRbNodeBase<VmRange, usize>,
     pub(super) frame_count: usize,
-    pub(super) first_frame: Option<FrameMut>,
+    pub(super) first_frame: Option<UniqueFrames>,
 }
 
 impl DynPages {
@@ -82,7 +80,7 @@ impl DynPages {
 
     pub fn map<W: PageTableWalker>(
         &mut self,
-        frame: FrameMut,
+        frame: UniqueFrames,
         count: usize,
         cache_type: PageCacheType,
     ) -> Result<(), MemoryError> {
@@ -99,14 +97,12 @@ impl DynPages {
             }
 
             if self.frame_count + count > range.get_count() {
-                let mut output = ConsoleOutput;
-                writeln!(
-                    output,
+                printk!(
                     "DynPages range insufficient: required {}, available {}",
                     self.frame_count + count,
                     range.get_count()
-                )
-                .unwrap();
+                );
+                return Err(MemoryError::OutOfMemory);
             }
         }
 

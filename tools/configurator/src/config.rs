@@ -176,7 +176,7 @@ impl Config {
                         .map(String::from)
                         .collect();
                 }
-                "rust_flags" => {
+                "rustflags" => {
                     // 解析 Rust 编译器标志
                     rust_flags = tool_config
                         .as_array()
@@ -206,9 +206,7 @@ impl Config {
             .get("debug")
             .and_then(Value::as_table)
             .ok_or("Missing or invalid 'debug' field")?;
-        let debug_level = debug_table
-            .get("level")
-            .and_then(Value::as_str);
+        let debug_level = debug_table.get("level").and_then(Value::as_str);
         let debug_level = if let Some(debug_level) = debug_level {
             match debug_level {
                 "release" => DebugLevel::Release,
@@ -218,45 +216,59 @@ impl Config {
         } else {
             DebugLevel::Debug
         };
-        
+
         if debug_level != DebugLevel::Release {
             for (name, value) in debug_table {
                 match name.as_str() {
                     "cflags" => {
-                        cflags.extend(value
-                        .as_array()
-                        .ok_or("Invalid 'cflags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from));
+                        cflags.extend(
+                            value
+                                .as_array()
+                                .ok_or("Invalid 'cflags' field")?
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(String::from),
+                        );
                     }
                     "asflags" => {
-                        asflags.extend(value
-                        .as_array()
-                        .ok_or("Invalid 'asflags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from));
+                        asflags.extend(
+                            value
+                                .as_array()
+                                .ok_or("Invalid 'asflags' field")?
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(String::from),
+                        );
                     }
                     "ldflags" => {
-                        ldflags.extend(value
-                        .as_array()
-                        .ok_or("Invalid 'ldflags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from));
+                        ldflags.extend(
+                            value
+                                .as_array()
+                                .ok_or("Invalid 'ldflags' field")?
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(String::from),
+                        );
                     }
                     _ => {}
                 }
             }
         }
 
-        tools = Tools::new(cc_path, cflags, as_path, asflags, ld_path, ldflags, rust_config);
+        tools = Tools::new(
+            cc_path,
+            cflags,
+            as_path,
+            asflags,
+            ld_path,
+            ldflags,
+            rust_config,
+        );
 
         Ok(Config {
             arch: arch,
             tools,
-            debug_level
+            debug_level,
         })
     }
 }

@@ -3,8 +3,8 @@ use core::num::NonZeroUsize;
 use crate::{
     arch::PhysAddr,
     kernel::memory::frame::{
-        FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
-        reference::FrameMut, zone::ZONE_COUNT,
+        FRAME_MANAGER, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
+        reference::UniqueFrames, zone::ZONE_COUNT,
     },
 };
 
@@ -67,7 +67,7 @@ impl FrameAllocOptions {
         }
     }
 
-    pub fn try_alloc(&self) -> Result<(FrameMut, ZoneType), FrameError> {
+    pub fn try_alloc(&self) -> Result<(UniqueFrames, ZoneType), FrameError> {
         for &zone_type in self.fallback.chain.iter().flatten() {
             if let Ok(frame) = self.alloc_type.allocate(zone_type) {
                 return Ok(frame);
@@ -76,7 +76,7 @@ impl FrameAllocOptions {
         Err(FrameError::OutOfFrames)
     }
 
-    pub fn allocate(&self) -> Result<(FrameMut, ZoneType), FrameError> {
+    pub fn allocate(&self) -> Result<(UniqueFrames, ZoneType), FrameError> {
         self.try_alloc().or_else(|e| match self.retry {
             RetryPolicy::FastFail => Err(e),
             RetryPolicy::Retry(n) => {
@@ -150,7 +150,7 @@ pub enum FrameAllocType {
 }
 
 impl FrameAllocType {
-    fn allocate(&self, zone: ZoneType) -> Result<(FrameMut, ZoneType), FrameError> {
+    fn allocate(&self, zone: ZoneType) -> Result<(UniqueFrames, ZoneType), FrameError> {
         match self {
             Self::Dynamic { order } => FRAME_MANAGER
                 .allocate(zone, *order)
@@ -158,11 +158,11 @@ impl FrameAllocType {
                 .ok_or(FrameError::OutOfFrames),
 
             Self::Fixed { start, count } => {
-                FRAME_MANAGER.assign(*start, count.get()).and_then(|_| {
-                    let frame = Frame::get_mut(*start).ok_or(FrameError::Conflict)?;
+                FRAME_MANAGER.assign(*start, count.get()).map(|frames| {
+                    let paddr = PhysAddr::from_frame_number(*start);
+                    let zone_type = ZoneType::from_address(paddr);
 
-                    let zone_type = ZoneType::from_address(PhysAddr::from_frame_number(*start));
-                    Ok((frame, zone_type))
+                    (frames, zone_type)
                 })
             }
         }

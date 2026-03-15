@@ -24,4 +24,15 @@
         "--completion-style=detailed",
     ],
     "makefile.configureOnOpen": false,
+    "rust-analyzer.checkOnSave": true,
+    "rust-analyzer.linkedProjects": [
+        "src/build/Cargo.toml"
+    ],
+    "rust-analyzer.cargo.extraArgs": [
+        "-Zunstable-options",
+        "-Zjson-target-spec"
+    ],
+    "rust-analyzer.cargo.extraEnv": {
+        "CARGO_UNSTABLE_JSON_TARGET_SPEC": "true",
+    },
 }

@@ -4,8 +4,6 @@
  * @brief 内核主程序
  * @date 2020-03
  */
-#include "kernel/ards.h"
-#include "kernel/memory/block.h"
 #include "objects/transfer.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
@@ -114,8 +112,6 @@ void kernel_early_init(void) {
 extern size_t page_info[];
 
 int main() {
-	uint8_t *zero = 0;
-
 	init_memory();
 	init_object_tree();
 	init_device_managers();
@@ -130,8 +126,8 @@ int main() {
 	task_idle = thread_start("Idle", 1, idle, 0, NULL);
 	io_sti();
 	printk(
-		"Memory Size: Total %dKiB, Usable %dKiB\n", get_memory_total_size(),
-		get_memory_usable_size());
+		"Memory Size: Total %dMiB, Usable %dMiB\n", get_memory_total_mib(),
+		get_memory_usable_mib());
 	thread_start(
 		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL,
 		NULL);

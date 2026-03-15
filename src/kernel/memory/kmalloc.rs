@@ -2,14 +2,13 @@ use core::{
     ffi::c_void,
     mem::transmute,
     num::NonZeroUsize,
-    ops::DerefMut,
     ptr::{NonNull, null_mut},
 };
 
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
-        MemoryError,
+        KLINEAR_SIZE, MemoryError,
         arch::ArchMemory,
         frame::{Frame, FrameTag, buddy::FrameOrder},
         page::{kfree_pages, options::PageAllocOptions},
@@ -35,13 +34,7 @@ pub extern "C" fn kzalloc_c(size: usize) -> *mut c_void {
         None => return null_mut(),
     };
 
-    match kmalloc::<c_void>(size) {
-        Some(ptr) => {
-            unsafe { ptr.write_bytes(0, size.get()) };
-            ptr.as_ptr()
-        }
-        None => null_mut(),
-    }
+    unsafe { transmute(kzalloc::<c_void>(size)) }
 }
 
 pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
@@ -60,6 +53,12 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
     }
 }
 
+pub fn kzalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
+    let ptr = kmalloc(size)?;
+    unsafe { ptr.cast::<u8>().as_ptr().write_bytes(0, size.get()) };
+    Some(ptr)
+}
+
 #[unsafe(export_name = "kfree")]
 pub extern "C" fn kfree_c(ptr: *mut c_void) {
     let ptr = match NonNull::new(ptr) {
@@ -72,19 +71,29 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
 }
 
 pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
+    let addr = ptr.as_ptr() as usize;
     assert!(
-        ptr.as_ptr() as usize >= vir_base_addr().as_usize(),
+        vir_base_addr().as_usize() <= addr && addr <= vir_base_addr().as_usize() + KLINEAR_SIZE,
         "Attempt to free non-kernel memory"
     );
 
-    let vaddr = VirtAddr::new(ptr.as_ptr() as usize);
+    let vaddr = VirtAddr::new(addr);
     let phy_addr = PhysAddr::new(vaddr.offset_from(vir_base_addr()));
-    let mut frame = Frame::from_addr_mut(phy_addr).ok_or(MemoryError::InvalidAddress(vaddr))?;
+    let frame_number = phy_addr.to_frame_number();
 
-    match frame.get_tag() {
+    match Frame::get_tag_relaxed(frame_number) {
         FrameTag::Slub => {
-            let slub: &mut Slub = frame.deref_mut().try_into().unwrap();
-            slub.deallocate(ptr.cast())
+            let frame = unsafe { Frame::get_raw(frame_number).as_mut() };
+            let slub: &mut Slub = frame.try_into().unwrap();
+            slub.deallocate(ptr.cast());
+            Ok(())
+        }
+        FrameTag::Tail => {
+            let head = unsafe { Frame::get_raw(frame_number).as_ref().get_data().range.start };
+            let head_frame = unsafe { Frame::get_raw(head).as_mut() };
+            let slub: &mut Slub = head_frame.try_into().unwrap();
+            slub.deallocate(ptr.cast());
+            Ok(())
         }
         FrameTag::Allocated => kfree_pages(vaddr),
         _ => Err(MemoryError::InvalidAddress(vaddr)),
