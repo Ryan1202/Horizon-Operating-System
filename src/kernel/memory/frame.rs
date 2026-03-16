@@ -129,13 +129,12 @@ impl Frame {
         let _data = self.data.get_mut();
         unsafe {
             match _tag {
-                FrameTag::Buddy => {
+                FrameTag::Buddy | FrameTag::Allocated => {
                     ManuallyDrop::drop(&mut _data.buddy);
                 }
                 FrameTag::Free
                 | FrameTag::SystemReserved
                 | FrameTag::HardwareReserved
-                | FrameTag::Allocated
                 | FrameTag::Tail => {
                     ManuallyDrop::drop(&mut _data.range);
                 }

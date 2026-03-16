@@ -264,7 +264,8 @@ pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
             ),
             _ => unsafe {
                 if UniqueFrames::try_from_raw(frame).is_none() {
-                    let _ = SharedFrames::from_raw(frame).ok_or(MemoryError::UnavailableFrame)?;
+                    let _ = SharedFrames::from_raw(frame, FrameOrder::new(0))
+                        .ok_or(MemoryError::UnavailableFrame)?;
                 }
 
                 Ok(())

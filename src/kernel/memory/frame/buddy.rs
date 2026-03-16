@@ -561,8 +561,11 @@ impl FrameAllocator for BuddyAllocator {
         let order = buddy.order;
         let count = order.to_count().get();
 
-        let mut frame = UniqueFrames::from_allocator(NonNull::from(frame), order, self).unwrap();
+        if !matches!(frame.get_tag(), FrameTag::Allocated) {
+            return Err(FrameError::IncorrectFrameType);
+        }
         frame.set_tag(FrameTag::Buddy);
+        let frame = UniqueFrames::from_allocator(NonNull::from(frame), order, self).unwrap();
 
         ALLOCATED_PAGES.fetch_sub(count, Ordering::Relaxed);
 
