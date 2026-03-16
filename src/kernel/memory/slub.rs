@@ -20,9 +20,9 @@ use crate::{
         arch::ArchMemory,
         frame::{
             Frame, FrameData, FrameError, FrameTag,
-            buddy::{Buddy, FrameOrder},
+            anonymous::Anonymous,
+            buddy::FrameOrder,
             options::{FrameAllocOptions, FrameAllocType},
-            zone::ZoneType,
         },
         page::options::PageAllocOptions,
         slub::{
@@ -58,6 +58,8 @@ pub struct Slub {
     list: SyncUnsafeCell<ListNode<Self>>,
     inner: Spinlock<SlubInner>,
 }
+
+unsafe impl Sync for Slub {}
 
 /// Slub 内部数据结构
 #[repr(C, packed)]
@@ -158,19 +160,18 @@ impl Slub {
 
         self.inner.lock().is_destroyable()?;
 
-        let alloc_type = cache_info.options.frame.get_type();
+        let alloc_type = cache_info.options.get_frame_options().get_type();
         let order = if let FrameAllocType::Dynamic { order } = alloc_type {
-            *order
+            order
         } else {
             unreachable!("Slub cache should always use dynamic frame allocation!");
         };
 
         let frame = unsafe { Frame::from_child(self) };
 
-        let zone_type = ZoneType::from_address(frame.start_addr());
-        let buddy = ManuallyDrop::new(Buddy::new(order, zone_type));
+        let anonymous = ManuallyDrop::new(Anonymous::new(order));
+        unsafe { frame.replace(FrameTag::Anonymous, FrameData { anonymous }) };
 
-        unsafe { frame.replace(FrameTag::Allocated, FrameData { buddy }) };
         Some(())
     }
 

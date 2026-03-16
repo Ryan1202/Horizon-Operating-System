@@ -11,6 +11,7 @@ use crate::{
     kernel::memory::{
         arch::ArchMemory,
         frame::{
+            anonymous::Anonymous,
             buddy::{Buddy, BuddyAllocator, FrameOrder},
             reference::{FrameRc, SharedFrames, UniqueFrames},
             zone::ZoneType,
@@ -19,6 +20,7 @@ use crate::{
     },
 };
 
+pub mod anonymous;
 pub mod buddy;
 mod early;
 pub mod number;
@@ -37,9 +39,9 @@ pub static ALLOCATED_PAGES: AtomicUsize = AtomicUsize::new(0);
 pub static PREALLOCATED_END_PHY: SyncUnsafeCell<PhysAddr> = SyncUnsafeCell::new(PhysAddr::new(0));
 
 #[cfg(target_pointer_width = "32")]
-const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
+const MAX_METADATA_SIZE: usize = CACHELINE_SIZE / 2;
 #[cfg(target_pointer_width = "64")]
-const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
+const MAX_METADATA_SIZE: usize = CACHELINE_SIZE;
 
 #[derive(Debug, Clone)]
 pub enum FrameError {
@@ -60,19 +62,17 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
     refcount: FrameRc,
-    mapcount: AtomicUsize,
     // 其他字段在后
     data: SyncUnsafeCell<FrameData>,
     tag: AtomicU8,
 }
 
-unsafe impl Sync for Frame {}
-
 pub union FrameData {
     pub unused: (),
-    pub range: ManuallyDrop<FrameRange>,
+    pub range: FrameRange,
     pub buddy: ManuallyDrop<Buddy>,
-    pub slub: ManuallyDrop<Slub>,
+    pub(super) slub: ManuallyDrop<Slub>,
+    pub anonymous: ManuallyDrop<Anonymous>,
 }
 
 #[repr(u8)]
@@ -84,15 +84,15 @@ pub enum FrameTag {
     SystemReserved = 2,
     /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
     Free = 3,
-    /// `Allocated` 用于标识该组页已被分配，但没有标识类型，仍使用 buddy 数据
-    Allocated = 4,
+    /// `Anonymous` 用于标识该组页已被分配，但没有标识类型
+    Anonymous = 4,
     Buddy = 5,
     Slub = 6,
     /// 跨越单个物理页的大页中，使用头一个页存放元数据，其余页使用 `Tail` 标记
     Tail = 7,
 }
 
-const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
+const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
 
 pub const FRAME_INFO_COUNT: usize = 1 << 20;
 const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
@@ -129,15 +129,16 @@ impl Frame {
         let _data = self.data.get_mut();
         unsafe {
             match _tag {
-                FrameTag::Buddy | FrameTag::Allocated => {
+                FrameTag::Anonymous => {
+                    ManuallyDrop::drop(&mut _data.anonymous);
+                }
+                FrameTag::Buddy => {
                     ManuallyDrop::drop(&mut _data.buddy);
                 }
                 FrameTag::Free
                 | FrameTag::SystemReserved
                 | FrameTag::HardwareReserved
-                | FrameTag::Tail => {
-                    ManuallyDrop::drop(&mut _data.range);
-                }
+                | FrameTag::Tail => {}
                 FrameTag::Slub => {
                     ManuallyDrop::drop(&mut _data.slub);
                 }
@@ -220,20 +221,40 @@ pub trait FrameAllocator {
     fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames>;
     fn deallocate(&self, page: &mut Frame) -> Result<usize, FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
-    fn assign(&self, start: FrameNumber, len: usize) -> Result<UniqueFrames, FrameError>;
+    ///
+    /// 需要注意：`start` 须对齐到 `order`
+    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, FrameError>;
 }
 
 #[unsafe(export_name = "assign_frames")]
 fn assign_frames_c(paddr: usize, count: usize) {
-    let _ = FRAME_MANAGER
-        .assign(PhysAddr::new(paddr).to_frame_number(), count)
-        .map(|frame| mem::forget(frame))
-        .inspect_err(|e| {
-            printk!(
-                "Assign frame error! error:{:?}, paddr:{}, count:{}",
-                e,
-                paddr,
-                count
-            )
-        });
+    let paddr = PhysAddr::new(paddr);
+    if !paddr.is_page_aligned() {
+        printk!(
+            "assign_frames(): WARNING: paddr is not page aligned! paddr: {}",
+            paddr.as_usize()
+        );
+    }
+
+    let frame_number = paddr.to_frame_number();
+
+    let mut start = frame_number;
+    let end = start + count;
+    while start < end {
+        let order = FrameOrder::new(start.get().trailing_zeros() as u8);
+
+        let _ = FRAME_MANAGER
+            .assign(start, order)
+            .map(|frame| mem::forget(frame))
+            .inspect_err(|e| {
+                printk!(
+                    "Assign frame error! error:{:?}, paddr:{}, count:{}",
+                    e,
+                    paddr,
+                    count
+                )
+            });
+
+        start = start + order.to_count().get();
+    }
 }

@@ -103,6 +103,7 @@ start:
     lgdt [GDTR]
     jmp 0x08:flush
 flush:
+	mov edx, eax
 	mov ax, 0x10
 	mov ds, ax
 	mov es, ax
@@ -114,6 +115,8 @@ flush:
     mov esp, ecx
 	cld
 
+	mov eax, edx
+	
     push ebx
     push eax
     call multiboot2_loader

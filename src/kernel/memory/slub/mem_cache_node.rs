@@ -43,7 +43,7 @@ impl MemCacheNode {
     pub(super) fn bootstrap(mut options: PageAllocOptions) -> NonNull<Self> {
         let config = &Self::CONFIG;
 
-        options.frame = options.frame.dynamic(config.frame_order);
+        options = options.order(config.frame_order);
 
         let mut slub = Slub::new(config, options).unwrap();
 
@@ -82,7 +82,7 @@ impl MemCacheNode {
 
         let config = &Self::CONFIG;
 
-        options.frame = options.frame.dynamic(config.frame_order);
+        options = options.order(config.frame_order);
 
         let mut result = node_cache.allocate::<MemCacheNode>()?;
 

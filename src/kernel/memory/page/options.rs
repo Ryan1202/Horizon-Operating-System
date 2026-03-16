@@ -7,7 +7,7 @@ use crate::{
         arch::ArchMemory,
         frame::{
             FrameNumber, FrameTag,
-            buddy::FrameOrder,
+            buddy::{FrameOrder, MAX_ORDER},
             options::{FrameAllocOptions, FrameAllocType, RetryPolicy},
             zone::ZoneType,
         },
@@ -17,11 +17,13 @@ use crate::{
 
 #[derive(Debug, Clone, Copy)]
 pub struct PageAllocOptions {
-    pub frame: FrameAllocOptions,
+    frame: FrameAllocOptions,
     contiguous: bool,
     cache_type: PageCacheType,
     zeroed: bool,
     retry: RetryPolicy,
+
+    count: Option<NonZeroUsize>,
 }
 
 impl PageAllocOptions {
@@ -32,6 +34,7 @@ impl PageAllocOptions {
             cache_type: PageCacheType::WriteBack,
             zeroed: false,
             retry: RetryPolicy::FastFail,
+            count: None,
         }
     }
 
@@ -71,35 +74,60 @@ impl PageAllocOptions {
 
     /// 预设选项: IO 内存分配
     pub const fn mmio(start: FrameNumber, count: NonZeroUsize, cache: PageCacheType) -> Self {
-        Self::new(FrameAllocOptions::new().fixed(start, count)).cache_type(cache)
+        Self::new(FrameAllocOptions::new().fixed(start, FrameOrder::new(0)))
+            .contiguous(false) // 由于是固定地址，走非连续分配路径可以减少对齐到order造成的浪费
+            .count(count)
+            .cache_type(cache)
+    }
+
+    pub const fn order(mut self, order: FrameOrder) -> Self {
+        self.count = None;
+        self.frame = match self.frame.get_type() {
+            FrameAllocType::Dynamic { order } => self.frame.dynamic(order),
+            FrameAllocType::Fixed { start, .. } => self.frame.fixed(start, order),
+        };
+        self
+    }
+
+    /// 使用 `count` 覆盖 `FrameAllocOptions` 的 `order`
+    pub const fn count(mut self, count: NonZeroUsize) -> Self {
+        self.count = Some(count);
+        self
+    }
+
+    pub const fn get_count(&self) -> NonZeroUsize {
+        match self.count {
+            Some(count) => count,
+            None => self.frame.get_order().to_count(),
+        }
     }
 }
 
 impl PageAllocOptions {
     fn alloc_discontiguous(&self, pages: &mut DynPages) -> Result<(), MemoryError> {
-        let mut order = if let FrameAllocType::Dynamic { order } = *self.frame.get_type() {
-            order
-        } else {
-            panic!("Discontiguous allocation only support dynamic frame allocation!")
-        };
-
-        let mut remaining = order.to_count().get();
+        let mut remaining = self.get_count().get();
         let mut first = None;
 
+        let mut order = MAX_ORDER;
+        let mut option = *self;
         while remaining > 0 {
-            let option = self.frame.dynamic(order);
-            let result = option.allocate();
+            order = order.min(FrameOrder::new(remaining.ilog2() as u8));
+            option = option.order(order);
+            let result = option.frame.allocate();
 
             match result {
                 Ok((mut _frames, _zone)) => {
-                    debug_assert!(matches!(_frames.get_tag(), FrameTag::Allocated));
+                    debug_assert!(matches!(_frames.get_tag(), FrameTag::Anonymous));
 
-                    pages.map::<ArchPageTable>(_frames, order.to_count().get(), self.cache_type)?;
+                    pages.map::<ArchPageTable>(_frames, self.cache_type)?;
 
                     if first.is_none() {
                         first = Some(());
                     }
 
+                    if let FrameAllocType::Fixed { start, order } = option.frame.get_type() {
+                        option.frame = option.frame.fixed(start + order.to_count().get(), order);
+                    }
                     remaining -= order.to_count().get();
                 }
                 Err(_) => {
@@ -131,15 +159,21 @@ impl PageAllocOptions {
     }
 
     fn try_alloc<'a>(&self) -> Result<Pages<'a>, MemoryError> {
-        let count = self.frame.get_count();
+        let count = self.get_count();
 
         if self.contiguous {
-            let (frame, zone) = self.frame.allocate()?;
+            let (frame, zone) = if let Some(count) = self.count {
+                let order = FrameOrder::new(count.get().next_power_of_two().ilog2() as u8);
+                let options = self.order(order);
+                options.frame.allocate()?
+            } else {
+                self.frame.allocate()?
+            };
 
             if !matches!(zone, ZoneType::LinearMem) {
                 let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
 
-                v.map::<ArchPageTable>(frame, count.get(), self.cache_type)?;
+                v.map::<ArchPageTable>(frame, self.cache_type)?;
 
                 let start = v.start_addr().to_page_number().unwrap();
                 let end = start + v.frame_count - 1;
@@ -147,7 +181,8 @@ impl PageAllocOptions {
 
                 Ok(Pages::Dynamic(v))
             } else {
-                Ok(Pages::Fixed((frame, count.get())))
+                let order = frame.get_order();
+                Ok(Pages::Fixed((frame, order)))
             }
         } else {
             let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
@@ -189,7 +224,7 @@ impl PageAllocOptions {
             unsafe {
                 pages
                     .get_ptr::<u8>()
-                    .write_bytes(0, self.frame.get_count().get() * ArchPageTable::PAGE_SIZE)
+                    .write_bytes(0, self.get_count().get() * ArchPageTable::PAGE_SIZE)
             };
         }
 

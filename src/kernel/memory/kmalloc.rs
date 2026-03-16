@@ -95,7 +95,7 @@ pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
             slub.deallocate(ptr.cast());
             Ok(())
         }
-        FrameTag::Allocated => kfree_pages(vaddr),
+        FrameTag::Anonymous => kfree_pages(vaddr),
         _ => Err(MemoryError::InvalidAddress(vaddr)),
     }
 }

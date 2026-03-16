@@ -130,7 +130,7 @@ impl MemCache {
         mut node: NonNull<MemCacheNode>,
         mut options: PageAllocOptions,
     ) -> Result<(), SlubError> {
-        options.frame = options.frame.dynamic(config.frame_order);
+        options = options.order(config.frame_order);
 
         let min_partial = (config.object_size.0.ilog2() as u8 / 2).clamp(MIN_PARTIAL, MAX_PARTIAL);
 
@@ -171,7 +171,7 @@ impl MemCache {
                 .as_mut()
                 .new_self(&Self::CONFIG, options)
                 .unwrap();
-            options.frame = options.frame.dynamic(Self::CONFIG.frame_order);
+            options = options.order(Self::CONFIG.frame_order);
 
             let slub = Slub::new(&Self::CONFIG, options).unwrap();
             node.as_mut().init(&Self::CONFIG, Some(slub));
@@ -220,7 +220,7 @@ impl MemCache {
     ) -> Option<NonNull<Self>> {
         let node_cache_node = unsafe { node_cache.node.as_mut() };
 
-        options.frame = options.frame.dynamic(config.frame_order);
+        options = options.order(config.frame_order);
 
         let mut mem_cache_node =
             node_cache_node.new_self(&node_cache.config, node_cache.options)?;

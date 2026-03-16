@@ -180,7 +180,7 @@ impl Sub<usize> for PageNumber {
 }
 
 pub enum Pages<'a> {
-    Fixed((UniqueFrames, usize)),
+    Fixed((UniqueFrames, FrameOrder)),
     Dynamic(&'a mut DynPages),
 }
 
@@ -205,7 +205,7 @@ impl<'a> Pages<'a> {
 
     pub fn get_count(&self) -> usize {
         match self {
-            Pages::Fixed((_, count)) => *count,
+            Pages::Fixed((_, order)) => order.to_count().get(),
             Pages::Dynamic(vpages) => vpages.frame_count,
         }
     }

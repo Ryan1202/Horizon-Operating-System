@@ -1,5 +1,5 @@
 use core::{
-    mem::ManuallyDrop,
+    mem::{self},
     num::NonZeroUsize,
     ptr::{NonNull, addr_of},
 };
@@ -9,7 +9,7 @@ use crate::{
     kernel::memory::{
         KLINEAR_SIZE, KMEMORY_END, MemoryError, PageCacheType, VIR_BASE,
         arch::ArchMemory,
-        frame::reference::UniqueFrames,
+        frame::{FrameTag, reference::UniqueFrames},
         kmalloc::kmalloc,
         page::{PageFlags, PageTableError, PageTableWalker, range::VmRange},
     },
@@ -80,31 +80,18 @@ impl DynPages {
 
     pub fn map<W: PageTableWalker>(
         &mut self,
-        frame: UniqueFrames,
-        count: usize,
+        mut frame: UniqueFrames,
         cache_type: PageCacheType,
     ) -> Result<(), MemoryError> {
         // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
         let frame_number = frame.to_frame_number();
 
-        {
-            let range = self.rb_node.get_key();
+        if !matches!(frame.get_tag(), FrameTag::Anonymous) {
+            return Err(MemoryError::UnavailableFrame);
+        };
+        let count = frame.get_order().to_count().get();
 
-            if self.first_frame.is_none() {
-                self.first_frame = Some(frame);
-            } else {
-                let _ = ManuallyDrop::new(frame);
-            }
-
-            if self.frame_count + count > range.get_count() {
-                printk!(
-                    "DynPages range insufficient: required {}, available {}",
-                    self.frame_count + count,
-                    range.get_count()
-                );
-                return Err(MemoryError::OutOfMemory);
-            }
-        }
+        unsafe { frame.get_data_mut().anonymous.acquire() };
 
         W::map_range(
             self,
@@ -112,8 +99,30 @@ impl DynPages {
             self.frame_count,
             count,
             PageFlags::new().cache_type(cache_type),
-        )?;
+        )
+        .inspect_err(|_| unsafe {
+            frame.get_data().anonymous.release();
+        })?;
+        {
+            let range = self.rb_node.get_key();
+
+            if self.first_frame.is_none() {
+                self.first_frame = Some(frame);
+            } else {
+                mem::forget(frame);
+            }
+
+            if self.frame_count + count > range.get_count() {
+                printk!(
+                    "WARNING: DynPages range insufficient: required {}, available {}",
+                    self.frame_count + count,
+                    range.get_count()
+                );
+            }
+        }
+
         self.frame_count += count;
+
         Ok(())
     }
 

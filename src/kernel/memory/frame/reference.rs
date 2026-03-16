@@ -237,14 +237,13 @@ impl UniqueFrames {
             for i in 1..count {
                 let frame = Frame::get_raw(start + i).as_mut();
 
-                frame.replace(
-                    FrameTag::Tail,
-                    FrameData {
-                        range: ManuallyDrop::new(range),
-                    },
-                );
+                frame.replace(FrameTag::Tail, FrameData { range });
             }
         }
+    }
+
+    pub fn get_order(&self) -> FrameOrder {
+        self.order
     }
 }
 
@@ -272,9 +271,11 @@ fn auto_free(mut frame: NonNull<Frame>) {
     // 释放引用计数
     let frame_ref = unsafe { frame.as_ref() };
     let count = frame_ref.refcount.release();
-    if frame_ref.mapcount.load(Ordering::Relaxed) > 0 {
+    if let FrameTag::Anonymous = frame_ref.get_tag() {
         // 如果还有映射存在，不立即释放帧资源，等待最后一个映射解除时再释放
-        return;
+        if unsafe { frame_ref.get_data().anonymous.release() } > 0 {
+            return;
+        }
     }
 
     match count {

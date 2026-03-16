@@ -1,4 +1,4 @@
-use core::{mem::ManuallyDrop, sync::atomic::Ordering};
+use core::sync::atomic::Ordering;
 
 use crate::arch::PhysAddr;
 
@@ -55,7 +55,7 @@ impl Frame {
         debug_assert!(start <= end);
 
         let frame = unsafe { Self::get_raw(start).as_mut() };
-        let range = ManuallyDrop::new(FrameRange { start, end });
+        let range = FrameRange { start, end };
         let data = FrameData { range };
 
         let tag = match e820_type {

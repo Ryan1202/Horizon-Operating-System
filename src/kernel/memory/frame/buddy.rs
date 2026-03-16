@@ -14,7 +14,9 @@ use crate::{
         arch::ArchMemory,
         frame::{
             ALLOCATED_PAGES, FRAME_INFO_COUNT, Frame, FrameAllocator, FrameData, FrameError,
-            FrameNumber, FrameRange, FrameTag, frame_count,
+            FrameNumber, FrameTag,
+            anonymous::Anonymous,
+            frame_count,
             reference::UniqueFrames,
             zone::{ZONE_COUNT, ZoneType},
         },
@@ -85,6 +87,8 @@ pub struct Buddy {
     pub zone_type: ZoneType,
 }
 
+unsafe impl Sync for Buddy {}
+
 impl Buddy {
     pub const fn new(order: FrameOrder, zone_type: ZoneType) -> Self {
         Self {
@@ -109,9 +113,7 @@ impl<'a> TryFrom<&'a mut Frame> for &'a mut Buddy {
 
     fn try_from(value: &'a mut Frame) -> Result<Self, Self::Error> {
         match value.get_tag() {
-            FrameTag::Buddy | FrameTag::Allocated => {
-                Ok(unsafe { value.get_data_mut().buddy.deref_mut() })
-            }
+            FrameTag::Buddy => Ok(unsafe { value.get_data_mut().buddy.deref_mut() }),
             _ => Err(FrameError::IncorrectFrameType),
         }
     }
@@ -202,7 +204,7 @@ impl BuddyAllocator {
                     // 获取E820块的范围
                     let frame = UniqueFrames::from_allocator(frame, FrameOrder(0), self).unwrap();
 
-                    let block_range = unsafe { *frame.get_data().range };
+                    let block_range = unsafe { frame.get_data().range };
                     frame_number = block_range.end + 1;
 
                     self.add_free_block(&mut zone_state, block_range.start, block_range.end);
@@ -395,112 +397,106 @@ impl BuddyAllocator {
         Ok(())
     }
 
-    fn derive_head_frame(frame_number: FrameNumber) -> Option<FrameNumber> {
-        let max_order =
-            FrameOrder::new((frame_number.get().ilog2() as u8).min(MAX_ORDER.get() as u8 - 1));
+    fn derive_head_frame(
+        frame_number: FrameNumber,
+        current_order: FrameOrder,
+    ) -> Option<FrameNumber> {
+        debug_assert!(frame_number.align_down(current_order) == frame_number);
         let frame_number = frame_number;
-        let mut tag;
 
-        for order in 0..=max_order.get() {
-            let order = FrameOrder::new(order as u8);
-            tag = Frame::get_tag_relaxed(frame_number.align_down(order));
+        let order = current_order;
+        let mut frame = Frame::get_raw((frame_number - 1).align_down(order));
 
-            if let FrameTag::Buddy = tag {
-                return Some(frame_number);
+        let frame = unsafe { frame.as_mut() };
+        match frame.get_tag() {
+            FrameTag::Buddy => Some(frame_number),
+            FrameTag::Tail => {
+                let frame_number = unsafe { frame.get_data().range }.start;
+                if matches!(Frame::get_tag_relaxed(frame_number), FrameTag::Buddy) {
+                    Some(frame_number)
+                } else {
+                    None
+                }
             }
+            FrameTag::Unavailable => {
+                for i in 1..(MAX_ORDER - order.0).get() {
+                    let order = order + i as u8;
+                    let start = (frame_number - 1).align_down(order);
+                    if matches!(Frame::get_tag_relaxed(start), FrameTag::Buddy) {
+                        return Some(start);
+                    }
+                }
+                None
+            }
+            _ => None,
         }
-        None
     }
 
     /// 从 Buddy 块中剔除 range 覆盖的页
     fn exclude_from_buddy(
         &self,
-        frame_number: FrameNumber,
-        range: (FrameNumber, FrameNumber),
+        head: FrameNumber,
+        current: FrameNumber,
+        current_order: FrameOrder,
     ) -> Result<Option<FrameOrder>, FrameError> {
-        let mut frame =
-            UniqueFrames::from_allocator(Frame::get_raw(frame_number), FrameOrder(0), self)
-                .ok_or(FrameError::Conflict)?;
+        let mut frame = UniqueFrames::from_allocator(Frame::get_raw(head), FrameOrder(0), self)
+            .ok_or(FrameError::Conflict)?;
 
         // 检查是否为 Head Frame
-        debug_assert!(!matches!(
-            frame.get_tag(),
-            FrameTag::Unavailable | FrameTag::Tail
-        ));
+        debug_assert!(!matches!(frame.get_tag(), FrameTag::Tail));
         // 检查是否已经被分配
         if !matches!(frame.get_tag(), FrameTag::Buddy) {
-            debug_assert!(false, "Exclude frames error: not a buddy frame");
             return Err(FrameError::IncorrectFrameType);
         }
 
         let buddy: &mut Buddy = (*frame).deref_mut().try_into()?;
         let order = buddy.order;
-        let buddy_count = order.to_count().get();
-
         let zone_type = buddy.zone_type;
-        let index = zone_type.index();
-        let zone_end = zone_type.range().1.to_frame_number();
 
-        // 5 种情况：
-        // 1. 完全覆盖：Buddy块完全在range内 → 标记Unused并移除
-        // 2. 左半覆盖：range覆盖左半部分 → 将当前Buddy块分割
-        // 3. 右半覆盖：range覆盖右半部分 → 将当前Buddy块分割
-        // 4. 中间穿过：range跨越Buddy块中点 → 将当前Buddy块前后两部分分割
-        // 5. 无交集：range与Buddy块无重叠 → 不处理
+        // 2 种情况：
+        // 1. 被覆盖:   head.end > current.end
+        // 2. 未被覆盖: head.end <= current.start
 
-        // 计算 Buddy 块的左右边界（对齐到块大小）
-        let left = frame_number.align_down(order);
-        let right = left + buddy_count;
+        // 情况 1：覆盖
+        if order > current_order {
+            debug_assert!(head + order.to_count().get() > current);
 
-        // 情况 5：无交集 - range 与 Buddy 块完全不重叠
-        if range.1 <= left || range.0 >= right {
-            return Ok(None);
+            let zone = &self.get_zone(zone_type).free_frames;
+            let end = head + order.to_count().get();
+
+            // 从链表中移除
+            buddy.get_list().del(&mut zone.lock()[order.get()]);
+
+            // 先处理左半部分
+            let mut start = head;
+            let mut order_ = order - 1;
+            while start < current {
+                let frame = Frame::get_raw(start);
+                let mut frame = UniqueFrames::from_allocator(frame, order_, self).unwrap();
+                let buddy: &mut Buddy = (*frame).deref_mut().try_into()?;
+
+                buddy.get_list().del(&mut zone.lock()[order_.get()]);
+
+                start = start + order_.to_count().get();
+                order_ = order - 1;
+            }
+
+            // 再处理右半部分
+            let mut start = current + current_order.to_count().get();
+            while start < end {
+                let order = start.get().trailing_zeros() as u8;
+                let order = FrameOrder::new(order);
+                let frame = Frame::get_raw(start);
+                let mut frame = UniqueFrames::from_allocator(frame, order, self).unwrap();
+
+                let buddy: &mut Buddy = (*frame).deref_mut().try_into()?;
+                buddy.get_list().del(&mut zone.lock()[order.get()]);
+
+                start = start + order.to_count().get();
+            }
         }
 
-        // 从链表中移除
-        {
-            let mut zone = self.get_zone(zone_type).free_frames.lock();
-
-            Buddy::get_list((*frame).deref_mut().try_into()?).del(&mut zone[order.get()]);
-        }
-
-        // 情况 1：完全覆盖 - Buddy 块完全在 range 内
-        if range.0 <= left && right <= range.1 {
-            // 标记为不可使用
-            frame.set_tag(FrameTag::Unavailable);
-            return Ok(Some(order));
-        }
-
-        // 情况 2, 3, 4：部分覆盖 - 将不在 range 内的部分重新加入 Buddy 系统
-        let mut zone_state = ZoneState {
-            current_index: index,
-            current_zone_end: zone_end,
-        };
-
-        // 左侧未覆盖部分 [left, range.0)
-        if left < range.0 {
-            let _range = ManuallyDrop::new(FrameRange {
-                start: left,
-                end: range.0,
-            });
-            unsafe { frame.replace(FrameTag::Free, FrameData { range: _range }) };
-
-            self.add_free_block(&mut zone_state, left, range.0 - 1);
-        }
-
-        // 右侧未覆盖部分 [range.1, right)
-        if range.1 < right {
-            let _range = ManuallyDrop::new(FrameRange {
-                start: range.1,
-                end: right,
-            });
-            unsafe { frame.replace(FrameTag::Free, FrameData { range: _range }) };
-
-            self.add_free_block(&mut zone_state, range.1, right - 1);
-        }
-
-        // range 内的部分不加入 Buddy 系统（已从链表移除，保持 Unused 或由调用者处理）
-        assert!(zone_state.current_index == index);
+        // 情况2: 未覆盖，不用处理
 
         Ok(Some(order))
     }
@@ -534,7 +530,8 @@ impl FrameAllocator for BuddyAllocator {
                     self.split(zone_type, order, target_order, &mut frame);
                 }
 
-                frame.set_tag(FrameTag::Allocated);
+                let anonymous = ManuallyDrop::new(Anonymous::new(order));
+                unsafe { frame.replace(FrameTag::Anonymous, FrameData { anonymous }) };
 
                 frame.set_tail_frames();
 
@@ -557,14 +554,14 @@ impl FrameAllocator for BuddyAllocator {
             zone_range.1.to_frame_number(),
         );
 
-        let buddy: &mut Buddy = frame.try_into()?;
-        let order = buddy.order;
-        let count = order.to_count().get();
-
-        if !matches!(frame.get_tag(), FrameTag::Allocated) {
+        if !matches!(frame.get_tag(), FrameTag::Anonymous) {
             return Err(FrameError::IncorrectFrameType);
         }
-        frame.set_tag(FrameTag::Buddy);
+        let order = unsafe { frame.get_data().anonymous.get_order() };
+        let count = order.to_count().get();
+
+        let buddy = ManuallyDrop::new(Buddy::new(order, zone_type));
+        unsafe { frame.replace(FrameTag::Buddy, FrameData { buddy }) };
         let frame = UniqueFrames::from_allocator(NonNull::from(frame), order, self).unwrap();
 
         ALLOCATED_PAGES.fetch_sub(count, Ordering::Relaxed);
@@ -584,45 +581,32 @@ impl FrameAllocator for BuddyAllocator {
         .map(|_| count)
     }
 
-    fn assign(&self, start: FrameNumber, count: usize) -> Result<UniqueFrames, FrameError> {
-        let max_order_count = (MAX_ORDER - 1).to_count().get();
-        let mut current = start;
-        let end = start + count;
-        let range = (start, end);
+    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, FrameError> {
+        debug_assert!(
+            start.get() % order.to_count().get() == 0,
+            "Assigned frame range must be aligned to its size"
+        );
 
-        while current < end {
-            // 查找包含 current 的 Buddy 块头部
-            let mut head_frame = Self::derive_head_frame(current);
+        let frame = Frame::get_raw(start);
+        let mut frame =
+            UniqueFrames::from_allocator(frame, order, self).ok_or(FrameError::Conflict)?;
 
-            // 如果找不到 Buddy 块，跳到下一个可能的对齐位置
-            while head_frame.is_none() && current < end {
-                current = FrameNumber::new((current.get() + 1).next_multiple_of(max_order_count));
-                if current >= end {
-                    break;
-                }
-                head_frame = Self::derive_head_frame(current);
-            }
+        if order < MAX_ORDER - 1 {
+            // 查找 Buddy 块头部
+            let head = Self::derive_head_frame(start, order);
 
-            if let Some(head) = head_frame {
+            if let Some(head) = head {
                 // 处理这个 Buddy 块
-                let result = self.exclude_from_buddy(head, range)?;
-
-                if let Some(order) = result {
-                    // 推进到该 Buddy 块的末尾
-                    let buddy_count = order.to_count().get();
-                    current = head + buddy_count;
-                } else {
-                    // 无交集，推进到下一个可能的位置
-                    current = current + 1;
-                }
-            } else {
-                // 没找到更多 Buddy 块，结束
-                break;
+                self.exclude_from_buddy(head, start, order)?;
             }
         }
-
-        let mut frame = UniqueFrames::from_allocator(Frame::get_raw(start), FrameOrder(0), self)
-            .ok_or(FrameError::Conflict)?;
+        // 如果已经是最大 order 了或者找不到，则无需往前找
+        if matches!(frame.get_tag(), FrameTag::Unavailable) {
+            let anonymous = ManuallyDrop::new(Anonymous::new(order));
+            unsafe { frame.replace(FrameTag::Anonymous, FrameData { anonymous }) };
+        } else {
+            return Err(FrameError::Conflict);
+        }
 
         frame.set_tail_frames();
 

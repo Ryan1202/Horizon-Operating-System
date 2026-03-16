@@ -1,5 +1,3 @@
-use core::num::NonZeroUsize;
-
 use crate::{
     arch::PhysAddr,
     kernel::memory::frame::{
@@ -51,19 +49,19 @@ impl FrameAllocOptions {
         self
     }
 
-    pub const fn fixed(mut self, start: FrameNumber, count: NonZeroUsize) -> Self {
-        self.alloc_type = FrameAllocType::Fixed { start, count };
+    pub const fn fixed(mut self, start: FrameNumber, order: FrameOrder) -> Self {
+        self.alloc_type = FrameAllocType::Fixed { start, order };
         self
     }
 
-    pub fn get_type(&self) -> &FrameAllocType {
-        &self.alloc_type
+    pub const fn get_type(&self) -> FrameAllocType {
+        self.alloc_type
     }
 
-    pub fn get_count(&self) -> NonZeroUsize {
-        match &self.alloc_type {
-            FrameAllocType::Dynamic { order } => order.to_count(),
-            FrameAllocType::Fixed { count, .. } => *count,
+    pub const fn get_order(&self) -> FrameOrder {
+        match self.alloc_type {
+            FrameAllocType::Dynamic { order } => order,
+            FrameAllocType::Fixed { order, .. } => order,
         }
     }
 
@@ -145,7 +143,7 @@ pub enum FrameAllocType {
     },
     Fixed {
         start: FrameNumber,
-        count: NonZeroUsize,
+        order: FrameOrder,
     },
 }
 
@@ -157,14 +155,12 @@ impl FrameAllocType {
                 .map(|f| (f, zone))
                 .ok_or(FrameError::OutOfFrames),
 
-            Self::Fixed { start, count } => {
-                FRAME_MANAGER.assign(*start, count.get()).map(|frames| {
-                    let paddr = PhysAddr::from_frame_number(*start);
-                    let zone_type = ZoneType::from_address(paddr);
+            Self::Fixed { start, order } => FRAME_MANAGER.assign(*start, *order).map(|frames| {
+                let paddr = PhysAddr::from_frame_number(*start);
+                let zone_type = ZoneType::from_address(paddr);
 
-                    (frames, zone_type)
-                })
-            }
+                (frames, zone_type)
+            }),
         }
     }
 }
