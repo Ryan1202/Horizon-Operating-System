@@ -105,8 +105,8 @@ void thread_play(void *arg) {
 void network_timer_init(void);
 
 void kernel_early_init(void) {
-	memory_early_init();
 	platform_early_init();
+	memory_early_init();
 }
 
 extern size_t page_info[];

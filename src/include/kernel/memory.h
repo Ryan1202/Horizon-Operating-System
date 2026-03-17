@@ -75,8 +75,8 @@ int	  kfree(void *address);
 
 struct mem_cache *mem_cache_create(
 	const char *name, size_t object_size, size_t align);
-int				  mem_cache_destroy(struct mem_cache *cache);
-void			 *mem_cache_alloc(struct mem_cache *cache);
+int	  mem_cache_destroy(struct mem_cache *cache);
+void *mem_cache_alloc(struct mem_cache *cache);
 
 void print_memory_result(
 	MemoryResult result, char *file, int line, char *func_with_args);
@@ -98,9 +98,8 @@ void print_memory_result(
 
 // Rust bindings
 typedef enum ZoneType {
-	ZONE_MEM24	  = 0,
-	ZONE_LINEAR	  = 1,
-	ZONE_HIGH_MEM = 2,
+	ZONE_LINEAR = 0,
+	ZONE_MEM32	= 1,
 } ZoneType;
 
 void mem_caches_init();

@@ -143,7 +143,7 @@ impl ZoneState {
     fn get_zone_for_frame(&mut self, frame_number: FrameNumber) -> (ZoneType, FrameNumber) {
         let mut zone_type = ZoneType::from_index(self.current_index);
         let mut zone_end = self.current_zone_end;
-        while frame_number > zone_end {
+        while frame_number >= zone_end {
             // 切换到下一个Zone
             self.current_index += 1;
             zone_type = ZoneType::from_index(self.current_index);
@@ -205,7 +205,7 @@ impl BuddyAllocator {
                     let frame = UniqueFrames::from_allocator(frame, FrameOrder(0), self).unwrap();
 
                     let block_range = unsafe { frame.get_data().range };
-                    frame_number = block_range.end + 1;
+                    frame_number = block_range.end;
 
                     self.add_free_block(&mut zone_state, block_range.start, block_range.end);
                 }
@@ -213,7 +213,7 @@ impl BuddyAllocator {
                     // 跳过保留区
                     let range = unsafe { frame.as_ref().get_data().range };
 
-                    frame_number = range.end + 1;
+                    frame_number = range.end;
                 }
                 FrameTag::Unavailable => {
                     // 不可用页，可能是跨越了两个不同区域，继续下一个
@@ -226,7 +226,7 @@ impl BuddyAllocator {
 
     /// 将一个E820内存块按Zone和Order分割加入Buddy系统
     fn add_free_block(&self, zone_state: &mut ZoneState, mut start: FrameNumber, end: FrameNumber) {
-        while start <= end {
+        while start < end {
             // 找到当前地址对应的Zone并获取其范围
             let (zone_type, zone_boundary) = zone_state.get_zone_for_frame(start);
             let zone = self.get_zone(zone_type);
@@ -241,7 +241,7 @@ impl BuddyAllocator {
             // 计算在当前Zone内能分割的最大范围
             // 受限于：E820块末尾、Zone边界、最大Order大小
             let chunk_end = end
-                .min(start + max_order.to_count().get() - 1)
+                .min(start + max_order.to_count().get())
                 .min(zone_boundary);
 
             let order = FrameOrder::from_frame_count(chunk_end.count_from(start));
@@ -269,7 +269,7 @@ impl BuddyAllocator {
                 head.add_tail(node);
             }
 
-            start = chunk_end + 1;
+            start = chunk_end;
         }
     }
 }
@@ -357,7 +357,7 @@ impl BuddyAllocator {
         let low = frame_number.align_down(new_order);
         let high = low + count;
 
-        if range.0 >= low || high >= range.1 {
+        if low < range.0 || high > range.1 {
             return Err(frame);
         }
 

@@ -25,7 +25,7 @@ impl FrameNumber {
     }
 
     pub const fn count_from(self, other: FrameNumber) -> usize {
-        self.0.abs_diff(other.0) + 1
+        self.0.abs_diff(other.0)
     }
 
     pub const fn align_down(self, order: FrameOrder) -> FrameNumber {

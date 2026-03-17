@@ -100,7 +100,7 @@ pub fn vmalloc<T>(
 
     let order = FrameOrder::new(count.ilog2() as u8);
 
-    let frame_options = FrameAllocOptions::highmem().dynamic(order);
+    let frame_options = FrameAllocOptions::linear_preferred().dynamic(order);
 
     let page_options = PageAllocOptions::new(frame_options)
         .contiguous(false)

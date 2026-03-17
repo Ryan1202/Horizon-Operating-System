@@ -49,13 +49,13 @@ PhysicalDevice *platform_device;
 void platform_early_init() {
 	// 初始化段描述符和中断描述符
 	init_descriptor();
-
-	// 读取CPU特性
-	read_features();
 }
 
 DriverResult platform_init() {
 	DriverResult result;
+
+	// 读取CPU特性
+	read_features();
 
 	// 因为platform_bus是虚拟的，所以不需要注册device
 	ObjectAttr attr = driver_object_attr;

@@ -43,11 +43,8 @@ impl FrameRc {
         self.update(|value| {
             if value == Self::EXCLUSIVE {
                 Some(value) // 已经是独占状态，不修改
-            } else if value != Self::EXCLUSIVE + 1 {
-                // 防止释放时意外落入独占状态
-                Some(value - 1)
             } else {
-                None
+                Some(value - 1)
             }
         })
     }

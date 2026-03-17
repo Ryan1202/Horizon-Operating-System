@@ -48,11 +48,11 @@ pub extern "C" fn early_allocate_pages(count: u8) -> usize {
 
 /// 启动阶段的初始化函数，仅可在单线程环境使用
 impl Frame {
-    /// 填充 [start, end] 范围的 `Frame`
+    /// 填充 [start, end) 范围的 `Frame`
     ///
     /// 实际上只填写 start 一个 `Frame`
     fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
-        debug_assert!(start <= end);
+        debug_assert!(start < end);
 
         let frame = unsafe { Self::get_raw(start).as_mut() };
         let range = FrameRange { start, end };
@@ -106,15 +106,15 @@ impl Frame {
 
             if last < block_start {
                 // 填充上一个块和当前块之间的空洞为保留
-                Self::fill_range(last, block_start - 1, 2);
+                Self::fill_range(last, block_start, 2);
             }
-            last = block_end + 1;
+            last = block_end;
 
-            if block_start > block_end {
+            if block_start >= block_end {
                 continue;
             }
 
-            // 填充 [block_start, block_end] 范围
+            // 填充 [block_start, block_end) 范围
             if block_end <= kernel_start || block_start >= kernel_end {
                 Self::fill_range(block_start, block_end, block.block_type);
             } else {
@@ -123,14 +123,14 @@ impl Frame {
 
                 // 前半部分可用
                 if block_start < kernel_start {
-                    Self::fill_range(block_start, kernel_start - 1, e820_type);
+                    Self::fill_range(block_start, kernel_start, e820_type);
                 }
 
                 Self::fill_range(kernel_start, kernel_end, 0);
 
                 // 后半部分可用
                 if block_end > kernel_end {
-                    Self::fill_range(kernel_end + 1, block_end, e820_type);
+                    Self::fill_range(kernel_end, block_end, e820_type);
                 }
             }
         }
