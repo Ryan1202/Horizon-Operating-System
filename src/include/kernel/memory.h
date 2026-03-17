@@ -96,4 +96,13 @@ void print_memory_result(
 		result;                                          \
 	})
 
+// Rust bindings
+typedef enum ZoneType {
+	ZONE_LINEAR = 0,
+	ZONE_MEM32	= 1,
+} ZoneType;
+
+void mem_caches_init();
+void vmalloc_init();
+
 #endif

@@ -17,7 +17,7 @@ pub mod arch;
 const CACHELINE_SIZE: usize = 64;
 
 unsafe extern "C" {
-    fn printk(fmt: *const u8, va_args: ...) -> i32;
+    fn printk(fmt: *const u8) -> i32;
 }
 
 pub struct ConsoleOutput;
@@ -50,9 +50,9 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
-pub mod kernel {
-    pub mod memory;
-}
 pub mod lib {
     pub mod rust;
+}
+pub mod kernel {
+    pub mod memory;
 }

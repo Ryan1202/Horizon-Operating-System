@@ -13,7 +13,7 @@ pub mod arch;
 const CACHELINE_SIZE: usize = 64;
 
 unsafe extern "C" {
-    fn printk(fmt: *const u8) -> i32;
+    fn printk(fmt: *const u8, va_args: ...) -> i32;
 }
 
 pub struct ConsoleOutput;

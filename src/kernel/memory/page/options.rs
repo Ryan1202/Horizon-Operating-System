@@ -74,10 +74,14 @@ impl PageAllocOptions {
 
     /// 预设选项: IO 内存分配
     pub const fn mmio(start: FrameNumber, count: NonZeroUsize, cache: PageCacheType) -> Self {
-        Self::new(FrameAllocOptions::new().fixed(start, FrameOrder::new(0)))
-            .contiguous(false) // 由于是固定地址，走非连续分配路径可以减少对齐到order造成的浪费
-            .count(count)
-            .cache_type(cache)
+        Self::new(
+            FrameAllocOptions::new()
+                .fallback(&[ZoneType::MEM32])
+                .fixed(start, FrameOrder::new(0)),
+        )
+        .contiguous(false) // 由于是固定地址，走非连续分配路径可以减少对齐到order造成的浪费
+        .count(count)
+        .cache_type(cache)
     }
 
     pub const fn order(mut self, order: FrameOrder) -> Self {

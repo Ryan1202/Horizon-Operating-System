@@ -10,7 +10,7 @@ use crate::{
     kernel::memory::{
         MemoryError, PageCacheType,
         arch::ArchMemory,
-        frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions},
+        frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType},
         page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
     },
 };
@@ -100,7 +100,9 @@ pub fn vmalloc<T>(
 
     let order = FrameOrder::new(count.ilog2() as u8);
 
-    let frame_options = FrameAllocOptions::linear_preferred().dynamic(order);
+    let frame_options = FrameAllocOptions::new()
+        .fallback(&[ZoneType::MEM32])
+        .dynamic(order);
 
     let page_options = PageAllocOptions::new(frame_options)
         .contiguous(false)

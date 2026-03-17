@@ -101,17 +101,6 @@ impl FrameAllocOptions {
     pub const fn atomic(order: FrameOrder) -> Self {
         Self::new().dynamic(order).retry(RetryPolicy::FastFail)
     }
-
-    /// 线性映射区优先（用户页场景）
-    ///
-    /// - 优先 LinearMem，fallback 到 MEM32
-    /// - 适用于用户空间页（不需要内核线性映射）
-    pub const fn linear_preferred() -> Self {
-        const LINEAR_FALLBACK: [ZoneType; 2] = [ZoneType::LinearMem, ZoneType::MEM32];
-        Self::new()
-            .fallback(&LINEAR_FALLBACK)
-            .retry(RetryPolicy::Retry(3))
-    }
 }
 
 impl Default for FrameAllocOptions {

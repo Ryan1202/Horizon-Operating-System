@@ -208,6 +208,7 @@ impl RustConfig {
         if let RustcTargetType::Custom = self.target_type {
             writeln!(file, "\n[unstable]")?;
             writeln!(file, "build-std = [\"core\", \"compiler_builtins\"]")?;
+            writeln!(file, "json-target-spec = true")?;
         }
 
         Ok(())
