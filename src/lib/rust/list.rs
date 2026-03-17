@@ -1,5 +1,9 @@
 // no external imports required
 
+#[cfg(any(
+    all(target_has_atomic = "128", target_pointer_width = "64"),
+    all(target_has_atomic = "64", target_pointer_width = "32")
+))]
 use core::{
     marker::{PhantomData, PhantomPinned},
     ops::{Deref, DerefMut},
@@ -122,7 +126,7 @@ impl<Owner> Iterator for ListIterator<Owner> {
     repr(align(8))
 )]
 pub struct AtomicListNode<Owner> {
-    pub inner: ListNode<Owner>,
+    inner: ListNode<Owner>,
 }
 
 impl<Owner> Deref for AtomicListNode<Owner> {
@@ -220,9 +224,11 @@ impl<Owner> ListNode<Owner> {
         }
     }
 
-    pub fn init(&mut self) {
-        self.prev = None;
-        self.next = None;
+    pub fn init(self: Pin<&mut Self>) {
+        // SAFETY: 只改链表指针，不移动节点
+        let this = unsafe { self.get_unchecked_mut() };
+        this.prev = None;
+        this.next = None;
     }
 
     #[inline(always)]
@@ -269,7 +275,7 @@ impl<Owner> ListNode<Owner> {
     }
 
     #[inline(always)]
-    pub fn del(self: Pin<&mut Self>) {
+    pub fn del(self: Pin<&mut Self>, _head: &mut ListHead<Owner>) {
         let this = unsafe { self.get_unchecked_mut() };
         let prev = unsafe { this.prev.expect("prev node is null!").as_mut() };
         let next = unsafe { this.next.expect("next node is null!").as_mut() };

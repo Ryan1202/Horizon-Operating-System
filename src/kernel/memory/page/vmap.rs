@@ -1,11 +1,4 @@
-use core::{
-    cmp::Ordering,
-    mem::{self, offset_of},
-    num::NonZeroUsize,
-    ops::DerefMut,
-    pin::Pin,
-    ptr::NonNull,
-};
+use core::{cmp::Ordering, mem, num::NonZeroUsize, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
     container_of,
@@ -18,7 +11,7 @@ use crate::{
         list::ListHead,
         rbtree::{
             RbSearch,
-            linked::{Linked, LinkedRbNodeBase, LinkedRbTreeBase},
+            linked::{LinkedRbNodeBase, LinkedRbTreeBase},
         },
         spinlock::{SpinGuard, Spinlock},
     },
@@ -27,19 +20,21 @@ use crate::{
 
 const MAX_VMAP_POOL_PAGES: usize = 256;
 
+type RbTree = LinkedRbTreeBase<VmRange, (), usize>;
+type RbNode = LinkedRbNodeBase<VmRange, usize>;
+
 pub(super) struct VmapPool {
-    pub(super) list_head: Spinlock<ListHead<LinkedRbNodeBase<VmRange, usize>>>,
+    pub(super) list_head: Spinlock<ListHead<RbNode>>,
 }
 
 pub struct VmapNode {
     pub(super) pools: [VmapPool; MAX_VMAP_POOL_PAGES],
 
-    pub(super) allocated: Spinlock<LinkedRbTreeBase<VmRange, (), usize>>,
+    pub(super) allocated: Spinlock<RbTree>,
 }
 
 static VMAP_NODE: Spinlock<VmapNode> = Spinlock::new(unsafe { mem::zeroed() });
-static FREE_VMAP_TREE: Spinlock<LinkedRbTreeBase<VmRange, (), usize>> =
-    Spinlock::new(LinkedRbTreeBase::empty());
+static FREE_VMAP_TREE: Spinlock<RbTree> = Spinlock::new(LinkedRbTreeBase::empty());
 
 pub fn get_vmap_node<'a>() -> SpinGuard<'a, VmapNode> {
     VMAP_NODE.lock()
@@ -78,7 +73,7 @@ impl VmapNode {
 
         let mut list_head = pool.list_head.lock();
         let mut list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
-        let node = unsafe { Pin::new_unchecked(&mut pages.rb_node.augment.list_node) };
+        let node = pages.rb_node.augment.get_list();
 
         list_head.add_tail(node);
     }
@@ -97,7 +92,7 @@ impl VmapNode {
         let mut list_head = pool.list_head.lock();
 
         let mut rb_node = list_head
-            .iter(offset_of!(Linked<VmRange, ()>, list_node))
+            .iter(RbTree::linked_offset())
             .next()
             .expect("List is empty after checked!");
 
@@ -108,7 +103,7 @@ impl VmapNode {
         match actual_count.cmp(&count.get()) {
             Ordering::Less => None,
             Ordering::Equal => {
-                unsafe { Pin::new_unchecked(&mut rb_node.as_mut().augment.list_node) }.del();
+                unsafe { rb_node.as_mut().augment.get_list() }.del(&mut list_head);
                 Some(pages)
             }
             Ordering::Greater => {

@@ -54,6 +54,7 @@ extern struct gate_descriptor	 *idt;
 
 #define NR_IRQ 16
 
+#define GDT_BASE 0x1000
 #define GDT_SIZE 0x7ff
 
 #define IDT_SIZE 0x7ff

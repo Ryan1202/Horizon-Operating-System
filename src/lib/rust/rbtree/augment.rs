@@ -1,5 +1,7 @@
 use core::{cmp, ptr::NonNull};
 
+use crate::lib::rust::rbtree::RbTreeBase;
+
 use super::RbNodeBase;
 
 pub enum ChangeSide {
@@ -17,7 +19,19 @@ pub trait Augment {
 }
 
 #[allow(unused_variables)]
-pub trait AugmentLink<K: Sized, I, NA> {
-    fn link_ext(&mut self, new_node: &mut RbNodeBase<K, I, NA>, order: cmp::Ordering) {}
-    fn unlink_ext(&mut self) {}
+pub trait AugmentLink<K: Sized, I, TA, NA> {
+    fn link_ext(
+        &mut self,
+        tree: &mut RbTreeBase<K, I, TA, NA>,
+        new_node: &mut RbNodeBase<K, I, NA>,
+        order: cmp::Ordering,
+    ) {
+    }
+    fn unlink_ext(&mut self, tree: &mut RbTreeBase<K, I, TA, NA>) {}
+}
+
+#[allow(unused_variables)]
+pub trait AugmentLinkHead<K: Sized, I, TA, NA> {
+    fn init(&mut self, node: &mut RbNodeBase<K, I, NA>) {}
+    fn clear(&mut self) {}
 }

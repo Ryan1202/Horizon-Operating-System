@@ -1,16 +1,12 @@
 #![no_std]
 #![no_main]
 #![feature(sync_unsafe_cell)]
-#![feature(offset_of_enum)]
-#![feature(pattern_type_range_trait)]
 #![feature(const_cmp)]
 #![feature(const_trait_impl)]
 #![feature(const_try)]
+#![feature(const_result_trait_fn)]
 
-use core::{
-    fmt::{self, Write},
-    panic::PanicInfo,
-};
+use core::{fmt, panic::PanicInfo};
 
 pub mod arch;
 
@@ -33,9 +29,18 @@ impl fmt::Write for ConsoleOutput {
     }
 }
 
+#[macro_export]
+macro_rules! printk {
+    ($($arg:tt)*) => {{
+        use core::fmt::Write;
+
+        let mut output = crate::ConsoleOutput;
+        let _ = write!(output, $($arg)*);
+    }};
+}
+
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    let mut panic_output = ConsoleOutput;
-    let _ = writeln!(panic_output, "Kernel Panic: {}", _info);
+    printk!("Kernel Panic: {}\n", _info);
     loop {}
 }

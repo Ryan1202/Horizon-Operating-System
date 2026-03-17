@@ -56,17 +56,13 @@ impl Augment for LinkedRbNodeBase<VmRange, usize> {
 
         *max_size = size;
         match side {
-            ChangeSide::Left => {
-                if let Some(left) = self.left {
-                    let left_ref = unsafe { left.as_ref() };
-                    *max_size = (*max_size).max(linked_augment!(left_ref));
-                }
+            ChangeSide::Left if let Some(left) = self.left => {
+                let left_ref = unsafe { left.as_ref() };
+                *max_size = (*max_size).max(linked_augment!(left_ref));
             }
-            ChangeSide::Right => {
-                if let Some(right) = self.right {
-                    let right_ref = unsafe { right.as_ref() };
-                    *max_size = (*max_size).max(linked_augment!(right_ref));
-                }
+            ChangeSide::Right if let Some(right) = self.right => {
+                let right_ref = unsafe { right.as_ref() };
+                *max_size = (*max_size).max(linked_augment!(right_ref));
             }
             ChangeSide::Both => {
                 if let Some(left) = self.left {
@@ -78,6 +74,7 @@ impl Augment for LinkedRbNodeBase<VmRange, usize> {
                     *max_size = (*max_size).max(linked_augment!(right_ref));
                 }
             }
+            _ => {}
         }
     }
 

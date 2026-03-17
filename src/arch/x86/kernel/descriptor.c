@@ -46,7 +46,7 @@ void update_tss_esp(struct task_s *pthread) {
  *
  */
 void init_descriptor(void) {
-	size_t page_addr = (size_t)VIR_BASE + early_allocate_pages(1);
+	size_t page_addr = (size_t)VIR_BASE + GDT_BASE;
 	gdt				 = (struct segment_descriptor *)page_addr;
 	idt				 = (struct gate_descriptor *)(page_addr + GDT_SIZE + 1);
 	memset(&tss, 0, sizeof(struct tss_s));

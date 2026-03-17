@@ -1,10 +1,8 @@
 use core::{
     cell::SyncUnsafeCell,
-    fmt::Display,
-    mem::{self, ManuallyDrop},
-    ops::{Add, Sub},
+    mem::{self, ManuallyDrop, transmute},
     ptr::{NonNull, addr_of},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 
 use crate::{
@@ -13,85 +11,43 @@ use crate::{
     kernel::memory::{
         arch::ArchMemory,
         frame::{
+            anonymous::Anonymous,
             buddy::{Buddy, BuddyAllocator, FrameOrder},
-            reference::{FrameMut, FrameRc, FrameRef},
+            reference::{FrameRc, SharedFrames, UniqueFrames},
             zone::ZoneType,
         },
         slub::Slub,
     },
-    lib::rust::list::ListNode,
 };
 
+pub mod anonymous;
 pub mod buddy;
+mod early;
+pub mod number;
 pub mod options;
 pub mod reference;
 pub mod zone;
+
+pub use number::FrameNumber;
 
 #[unsafe(export_name = "total_pages")]
 pub static TOTAL_PAGES: AtomicUsize = AtomicUsize::new(0);
 #[unsafe(export_name = "allocated_pages")]
 pub static ALLOCATED_PAGES: AtomicUsize = AtomicUsize::new(0);
 
-#[repr(C)]
-pub struct E820Ards {
-    pub base_addr: u64,
-    pub length: u64,
-    pub block_type: u32,
-}
-
 #[unsafe(no_mangle)]
-pub static mut PREALLOCATED_END_PHY: PhysAddr = PhysAddr::new(0);
+pub static PREALLOCATED_END_PHY: SyncUnsafeCell<PhysAddr> = SyncUnsafeCell::new(PhysAddr::new(0));
 
 #[cfg(target_pointer_width = "32")]
-const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE / 2;
+const MAX_METADATA_SIZE: usize = CACHELINE_SIZE / 2;
 #[cfg(target_pointer_width = "64")]
-const MAX_PAGE_STRUCT_SIZE: usize = CACHELINE_SIZE;
+const MAX_METADATA_SIZE: usize = CACHELINE_SIZE;
 
 #[derive(Debug, Clone)]
 pub enum FrameError {
     IncorrectFrameType,
     OutOfFrames,
     Conflict,
-}
-
-#[repr(transparent)]
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
-pub struct FrameNumber(usize);
-
-impl FrameNumber {
-    pub const fn new(num: usize) -> Self {
-        FrameNumber(num)
-    }
-
-    pub const fn get(&self) -> usize {
-        self.0
-    }
-
-    pub const fn count_from(self, other: FrameNumber) -> usize {
-        self.0.abs_diff(other.0) + 1
-    }
-}
-
-impl Display for FrameNumber {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "FrameNumber {}", self.0)
-    }
-}
-
-impl Add<usize> for FrameNumber {
-    type Output = FrameNumber;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        FrameNumber(self.0 + rhs)
-    }
-}
-
-impl Sub<usize> for FrameNumber {
-    type Output = FrameNumber;
-
-    fn sub(self, rhs: usize) -> Self::Output {
-        FrameNumber(self.0 - rhs)
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -105,22 +61,18 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "32", repr(align(32)))]
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
-    // list 和 xxcount 在前，方便对齐
-    pub list: SyncUnsafeCell<ListNode<Frame>>,
     refcount: FrameRc,
-    mapcount: AtomicUsize,
     // 其他字段在后
     data: SyncUnsafeCell<FrameData>,
-    tag: SyncUnsafeCell<FrameTag>,
+    tag: AtomicU8,
 }
-
-unsafe impl Sync for Frame {}
 
 pub union FrameData {
     pub unused: (),
-    pub range: ManuallyDrop<FrameRange>,
+    pub range: FrameRange,
     pub buddy: ManuallyDrop<Buddy>,
-    pub slub: ManuallyDrop<Slub>,
+    pub(super) slub: ManuallyDrop<Slub>,
+    pub anonymous: ManuallyDrop<Anonymous>,
 }
 
 #[repr(u8)]
@@ -132,13 +84,15 @@ pub enum FrameTag {
     SystemReserved = 2,
     /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
     Free = 3,
-    /// `Allocated` 用于标识该组页已被分配，但没有标识类型，仍使用 buddy 数据
-    Allocated = 4,
+    /// `Anonymous` 用于标识该组页已被分配，但没有标识类型
+    Anonymous = 4,
     Buddy = 5,
     Slub = 6,
+    /// 跨越单个物理页的大页中，使用头一个页存放元数据，其余页使用 `Tail` 标记
+    Tail = 7,
 }
 
-const _: () = assert!(size_of::<Frame>() <= MAX_PAGE_STRUCT_SIZE);
+const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
 
 pub const FRAME_INFO_COUNT: usize = 1 << 20;
 const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
@@ -146,136 +100,15 @@ const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
 /// Buddy 分配器的虚拟地址存储位置
 pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn page_early_init(
-    blocks: *mut E820Ards,
-    block_count: u16,
-    kernel_start: usize,
-    kernel_end: usize,
-) {
-    unsafe {
-        // 都向后对齐到页
-        PREALLOCATED_END_PHY = PhysAddr::new(kernel_end).max(PREALLOCATED_END_PHY);
-
-        let kernel_range = (PhysAddr::new(kernel_start), PREALLOCATED_END_PHY);
-        Frame::init(blocks, block_count, kernel_range);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn page_init() {
-    FRAME_MANAGER.init();
-}
-
-// 内核启动早期分配的页都是不会释放的，如页表结构等
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn early_allocate_pages(count: u8) -> usize {
-    unsafe {
-        let addr = PREALLOCATED_END_PHY;
-        PREALLOCATED_END_PHY += (count as usize) * 0x1000;
-
-        addr.as_usize()
-    }
-}
-
 pub static FRAMES: [Frame; ArchPageTable::TOTAL_ENTRIES] = unsafe { mem::zeroed() };
-
-/// 启动阶段的初始化函数，仅可在单线程环境使用
-impl Frame {
-    /// 填充 [start, end] 范围的 `Frame`
-    ///
-    /// 实际上只填写 start 一个 `Frame`
-    fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
-        debug_assert!(start <= end);
-
-        let mut frame = Self::get_mut(start).unwrap();
-        let range = ManuallyDrop::new(FrameRange { start, end });
-        let data = FrameData { range };
-
-        let tag = match e820_type {
-            0 => FrameTag::SystemReserved,
-            1 => FrameTag::Free,
-            _ => FrameTag::HardwareReserved,
-        };
-
-        let count = end.count_from(start);
-        match tag {
-            FrameTag::Free => {
-                TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
-            }
-            FrameTag::SystemReserved => {
-                TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
-                ALLOCATED_PAGES.fetch_add(count, Ordering::Relaxed);
-            }
-            _ => {}
-        }
-
-        // 写入首个 page 描述
-        unsafe { frame.replace(tag, data) };
-    }
-
-    /// 初始化页结构体数组，根据E820内存块信息划分内存，返回页结构体数组所需的总字节数
-    fn init(blocks: *mut E820Ards, block_count: u16, kernel_range: (PhysAddr, PhysAddr)) -> usize {
-        let (kernel_start, kernel_end) = (
-            kernel_range.0.to_frame_number(),
-            kernel_range.1.to_frame_number(),
-        );
-
-        let mut last = FrameNumber::new(0);
-        // 将每个可用内存块按Buddy的方式分割成块
-        for i in 0..block_count {
-            let block = unsafe { &*blocks.add(i as usize) };
-
-            // 起始地址向后对齐，避免向前越界
-            let start_addr = PhysAddr::new(block.base_addr as usize).page_align_up();
-            let block_start = start_addr.to_frame_number();
-
-            let length = block.length as usize - start_addr.page_offset();
-
-            let block_end = block_start + frame_count(length);
-
-            if last < block_start {
-                // 填充上一个块和当前块之间的空洞为保留
-                Self::fill_range(last, block_start - 1, 2);
-            }
-            last = block_end + 1;
-
-            if block_start > block_end {
-                continue;
-            }
-
-            // 填充 [block_start, block_end] 范围
-            if block_end <= kernel_start || block_start >= kernel_end {
-                Self::fill_range(block_start, block_end, block.block_type);
-            } else {
-                // 内存块和内核有重叠部分
-                let e820_type = block.block_type;
-
-                // 前半部分可用
-                if block_start < kernel_start {
-                    Self::fill_range(block_start, kernel_start - 1, e820_type);
-                }
-
-                Self::fill_range(kernel_start, kernel_end, 0);
-
-                // 后半部分可用
-                if block_end > kernel_end {
-                    Self::fill_range(kernel_end + 1, block_end, e820_type);
-                }
-            }
-        }
-
-        PAGE_INFO_SIZE
-    }
-}
 
 impl Frame {
     pub fn get_tag(&self) -> FrameTag {
-        unsafe { *self.tag.get() }
+        unsafe { transmute(self.tag.load(Ordering::Acquire)) }
     }
 
     pub fn set_tag(&mut self, tag: FrameTag) {
-        *self.tag.get_mut() = tag;
+        self.tag.store(unsafe { transmute(tag) }, Ordering::Release);
     }
 
     pub fn get_data(&self) -> &FrameData {
@@ -292,19 +125,20 @@ impl Frame {
     ///
     /// 调用者必须确保 Frame 当前的 tag 和 data 是匹配且有效的
     pub unsafe fn replace(&mut self, tag: FrameTag, data: FrameData) {
-        let _tag = self.tag.get_mut();
+        let _tag = self.get_tag();
         let _data = self.data.get_mut();
         unsafe {
-            match *_tag {
+            match _tag {
+                FrameTag::Anonymous => {
+                    ManuallyDrop::drop(&mut _data.anonymous);
+                }
                 FrameTag::Buddy => {
                     ManuallyDrop::drop(&mut _data.buddy);
                 }
                 FrameTag::Free
                 | FrameTag::SystemReserved
                 | FrameTag::HardwareReserved
-                | FrameTag::Allocated => {
-                    ManuallyDrop::drop(&mut _data.range);
-                }
+                | FrameTag::Tail => {}
                 FrameTag::Slub => {
                     ManuallyDrop::drop(&mut _data.slub);
                 }
@@ -312,43 +146,32 @@ impl Frame {
             }
         }
 
-        *_tag = tag;
         *_data = data;
+        self.set_tag(tag);
     }
 }
 
 /// 工具函数实现
 impl Frame {
     pub fn get_tag_relaxed(frame_number: FrameNumber) -> FrameTag {
-        assert!(frame_number.0 <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
-        FRAMES[frame_number.0].get_tag()
+        assert!(frame_number.get() <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
+        unsafe { transmute(FRAMES[frame_number.get()].tag.load(Ordering::Relaxed)) }
     }
 
     #[inline(always)]
-    pub fn get(frame_number: FrameNumber) -> Option<FrameRef> {
-        FrameRef::new(Self::get_raw(frame_number))
-    }
-
-    #[inline(always)]
-    pub fn get_mut(frame_number: FrameNumber) -> Option<FrameMut> {
-        FrameMut::new(Self::get_raw(frame_number))
+    pub fn get(frame_number: FrameNumber) -> Option<SharedFrames> {
+        SharedFrames::new(Self::get_raw(frame_number))
     }
 
     pub const fn get_raw(frame_number: FrameNumber) -> NonNull<Frame> {
-        assert!(frame_number.0 <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
-        NonNull::from_ref(&FRAMES[frame_number.0])
+        assert!(frame_number.get() <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
+        NonNull::from_ref(&FRAMES[frame_number.get()])
     }
 
     #[inline(always)]
-    pub fn from_addr(addr: PhysAddr) -> Option<FrameRef> {
+    pub fn from_addr(addr: PhysAddr) -> Option<SharedFrames> {
         let page_num = addr.to_frame_number();
         Frame::get(page_num)
-    }
-
-    #[inline(always)]
-    pub fn from_addr_mut(addr: PhysAddr) -> Option<FrameMut> {
-        let page_num = addr.to_frame_number();
-        Frame::get_mut(page_num)
     }
 
     pub const fn start_addr(&self) -> PhysAddr {
@@ -357,7 +180,12 @@ impl Frame {
         PhysAddr::new(frame_number * ArchPageTable::PAGE_SIZE)
     }
 
-    pub fn from_child<T>(child: &mut T) -> &mut Frame {
+    /// 从子对象指针获取父对象指针
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保 `child` 确实是 `Frame` 内部某个字段的指针
+    pub unsafe fn from_child<T>(child: &mut T) -> &mut Frame {
         let addr = child as *mut T;
         assert!(addr.addr() >= addr_of!(FRAMES).addr());
         let max = addr_of!(FRAMES[ArchPageTable::TOTAL_ENTRIES - 1]).addr();
@@ -376,12 +204,12 @@ impl Frame {
         FrameNumber::new(frame_number)
     }
 
-    pub fn prev_frame(&mut self, count: usize) -> Option<FrameMut> {
-        Frame::get_mut(self.to_frame_number() - count)
+    pub fn prev_frame(&mut self, count: usize) -> NonNull<Frame> {
+        Frame::get_raw(self.to_frame_number() - count)
     }
 
-    pub fn next_frame(&mut self, count: usize) -> Option<FrameMut> {
-        Frame::get_mut(self.to_frame_number() + count)
+    pub fn next_frame(&mut self, count: usize) -> NonNull<Frame> {
+        Frame::get_raw(self.to_frame_number() + count)
     }
 }
 
@@ -390,13 +218,43 @@ pub const fn frame_count(size: usize) -> usize {
 }
 
 pub trait FrameAllocator {
-    fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<FrameMut>;
+    fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames>;
     fn deallocate(&self, page: &mut Frame) -> Result<usize, FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
-    fn assign(&self, start: FrameNumber, len: usize) -> Result<(), FrameError>;
+    ///
+    /// 需要注意：`start` 须对齐到 `order`
+    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, FrameError>;
 }
 
 #[unsafe(export_name = "assign_frames")]
-fn assign_frames_c(paddr: usize, count: usize) -> Result<(), FrameError> {
-    FRAME_MANAGER.assign(PhysAddr::new(paddr).to_frame_number(), count)
+fn assign_frames_c(paddr: usize, count: usize) {
+    let paddr = PhysAddr::new(paddr);
+    if !paddr.is_page_aligned() {
+        printk!(
+            "assign_frames(): WARNING: paddr is not page aligned! paddr: {}",
+            paddr.as_usize()
+        );
+    }
+
+    let frame_number = paddr.to_frame_number();
+
+    let mut start = frame_number;
+    let end = start + count;
+    while start < end {
+        let order = FrameOrder::new(start.get().trailing_zeros() as u8);
+
+        let _ = FRAME_MANAGER
+            .assign(start, order)
+            .map(|frame| mem::forget(frame))
+            .inspect_err(|e| {
+                printk!(
+                    "Assign frame error! error:{:?}, paddr:{}, count:{}",
+                    e,
+                    paddr,
+                    count
+                )
+            });
+
+        start = start + order.to_count().get();
+    }
 }

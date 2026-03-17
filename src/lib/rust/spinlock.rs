@@ -23,6 +23,10 @@ pub struct CSpinlock {
 }
 
 impl CSpinlock {
+    /// 从原始指针创建 `CSpinlock`，如果指针为 null 则返回 None。
+    ///
+    /// # Safety
+    /// 调用者必须确保传入的指针有效且指向一个 `SpinlockRaw` 结构，否则行为未定义。
     pub unsafe fn from_ptr(ptr: *mut SpinlockRaw) -> Option<Self> {
         NonNull::new(ptr).map(|ptr| CSpinlock { ptr })
     }
@@ -42,7 +46,6 @@ impl Deref for CSpinlock {
 /// struct whose first field is the lock word will be compatible.
 #[repr(transparent)]
 pub struct SpinlockRaw {
-    // lock word must be first to preserve C compatibility
     lock: AtomicU32,
 }
 

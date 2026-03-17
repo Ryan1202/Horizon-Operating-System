@@ -57,6 +57,9 @@ void platform_early_init() {
 DriverResult platform_init() {
 	DriverResult result;
 
+	// 读取CPU特性
+	read_features();
+
 	// 因为platform_bus是虚拟的，所以不需要注册device
 	ObjectAttr attr = driver_object_attr;
 	register_driver(&platform_driver);

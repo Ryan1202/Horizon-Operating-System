@@ -12,7 +12,7 @@ use crate::{
         frame::{
             Frame, FrameNumber, FrameTag,
             buddy::FrameOrder,
-            reference::{FrameMut, FrameRef},
+            reference::{SharedFrames, UniqueFrames},
         },
         page::{dyn_pages::DynPages, options::PageAllocOptions},
         vir_base_addr,
@@ -161,7 +161,11 @@ impl Add<usize> for PageNumber {
     type Output = Self;
 
     fn add(self, rhs: usize) -> Self::Output {
-        PageNumber(unsafe { NonZeroUsize::new_unchecked(self.0.get() + rhs) })
+        PageNumber(
+            self.0
+                .checked_add(rhs)
+                .expect("PageNumber addition overflow"),
+        )
     }
 }
 
@@ -169,12 +173,14 @@ impl Sub<usize> for PageNumber {
     type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
-        PageNumber(unsafe { NonZeroUsize::new_unchecked(self.0.get() - rhs) })
+        PageNumber(
+            NonZeroUsize::new(self.0.get() - rhs).expect("PageNumber substraction underflow"),
+        )
     }
 }
 
 pub enum Pages<'a> {
-    Fixed((FrameMut, usize)),
+    Fixed((UniqueFrames, FrameOrder)),
     Dynamic(&'a mut DynPages),
 }
 
@@ -190,7 +196,7 @@ impl<'a> Pages<'a> {
         self.start_addr().as_mut_ptr()
     }
 
-    pub fn get_frame(&mut self) -> Option<&mut FrameMut> {
+    pub fn get_frame(&mut self) -> Option<&mut UniqueFrames> {
         match self {
             Pages::Fixed((frame, _)) => Some(frame),
             Pages::Dynamic(vpages) => vpages.first_frame.as_mut(),
@@ -199,7 +205,7 @@ impl<'a> Pages<'a> {
 
     pub fn get_count(&self) -> usize {
         match self {
-            Pages::Fixed((_, count)) => *count,
+            Pages::Fixed((_, order)) => order.to_count().get(),
             Pages::Dynamic(vpages) => vpages.frame_count,
         }
     }
@@ -227,10 +233,11 @@ pub fn kmalloc_pages_c(count: usize) -> *mut core::ffi::c_void {
             pages.get_ptr()
         }
         Err(e) => {
-            e.log_error(format_args!(
-                "WARNING: calling kmalloc_pages_c failed: count = {:#x}",
-                count
-            ));
+            printk!(
+                "WARNING: calling kmalloc_pages_c failed: count = {:#x}, error = {:?}\n",
+                count,
+                e
+            );
             core::ptr::null_mut()
         }
     }
@@ -243,19 +250,22 @@ pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
     // 如果在内核线性映射区，则无需释放虚拟页
     if vaddr >= linear_start && vaddr < linear_end {
         let phy_addr = PhysAddr::new(vaddr.offset_from(linear_start));
-        let frame = Frame::get_raw(phy_addr.to_frame_number());
+        let frame_number = phy_addr.to_frame_number();
+        let frame = Frame::get_raw(frame_number);
 
-        match unsafe { frame.as_ref() }.get_tag() {
-            FrameTag::Unavailable | FrameTag::HardwareReserved | FrameTag::SystemReserved => {
-                Err(MemoryError::UnavailableFrame)
-            }
+        match Frame::get_tag_relaxed(frame_number) {
+            FrameTag::Unavailable
+            | FrameTag::HardwareReserved
+            | FrameTag::SystemReserved
+            | FrameTag::Tail => Err(MemoryError::UnavailableFrame),
             FrameTag::Free => panic!(
                 "Attempt to free frame with unavailable tag at vaddr: {:#x}",
                 vaddr.as_usize()
             ),
             _ => unsafe {
-                if FrameMut::try_from_raw(frame).is_none() {
-                    let _ = FrameRef::from_raw(frame).ok_or(MemoryError::UnavailableFrame)?;
+                if UniqueFrames::try_from_raw(frame).is_none() {
+                    let _ = SharedFrames::from_raw(frame, FrameOrder::new(0))
+                        .ok_or(MemoryError::UnavailableFrame)?;
                 }
 
                 Ok(())
@@ -271,10 +281,11 @@ pub fn kfree_pages_c(ptr: usize) -> i32 {
     match kfree_pages(VirtAddr::new(ptr)) {
         Ok(_) => 0,
         Err(e) => {
-            e.log_error(format_args!(
-                "WARNING: calling kfree_pages from C failed: vaddr = {:#x}",
-                ptr
-            ));
+            printk!(
+                "WARNING: calling kfree_pages from C failed: vaddr = {:#x}, error = {:?}\n",
+                ptr,
+                e
+            );
             -1
         }
     }

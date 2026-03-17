@@ -1,11 +1,6 @@
-use core::{
-    ffi::c_void,
-    fmt::{Arguments, Write},
-    ptr::addr_of,
-};
+use core::{ffi::c_void, ptr::addr_of};
 
 use crate::{
-    ConsoleOutput,
     arch::VirtAddr,
     kernel::memory::{frame::FrameError, page::PageTableError},
 };
@@ -49,13 +44,6 @@ pub enum MemoryError {
     InvalidSize(usize),
     FrameError(FrameError),
     PageTableError(PageTableError),
-}
-
-impl MemoryError {
-    pub fn log_error(&self, args: Arguments) {
-        let mut output = ConsoleOutput;
-        writeln!(output, "{}: MemoryError: {:?}", args, self).ok();
-    }
 }
 
 impl From<FrameError> for MemoryError {

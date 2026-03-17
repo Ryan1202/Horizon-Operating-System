@@ -1,5 +1,7 @@
 use core::{cmp, marker::PhantomData, mem, ptr::NonNull};
 
+use crate::lib::rust::rbtree::augment::AugmentLinkHead;
+
 use {
     augment::{Augment, AugmentLink},
     iter::RbNodeIter,
@@ -38,8 +40,9 @@ pub struct RbNodeBase<K: Sized, I, A> {
 }
 
 impl<K: Sized, I> Augment for RbNodeBase<K, I, ()> {}
-impl<K: Sized, A> AugmentLink<K, (), A> for RbNodeBase<K, (), A> {}
-impl<K: Sized, A, NA> AugmentLink<K, (), NA> for RbTreeBase<K, (), A, NA> {}
+impl<K: Sized, A, NA> AugmentLink<K, (), A, NA> for RbNodeBase<K, (), NA> {}
+
+impl<K: Sized, A, NA> AugmentLinkHead<K, (), A, NA> for RbTreeBase<K, (), A, NA> {}
 
 /// 红黑树结构体
 /// 对齐4字节以确保节点指针的最低位可用作颜色标志
@@ -147,8 +150,8 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
     pub fn insert(&mut self, new_node: &mut RbNodeBase<K, I, NA>)
     where
         K: Ord + Sized,
-        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
-        RbTreeBase<K, I, TA, NA>: AugmentLink<K, I, NA>,
+        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
+        RbTreeBase<K, I, TA, NA>: AugmentLinkHead<K, I, TA, NA>,
     {
         debug_assert!(
             new_node.get_parent().is_none() && new_node.left.is_none() && new_node.right.is_none(),
@@ -167,7 +170,7 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
                 parent_ref.link_node(new_node, ordering);
                 new_node.insert_fixup(self);
 
-                parent_ref.link_ext(new_node, ordering);
+                parent_ref.link_ext(self, new_node, ordering);
 
                 new_node.propagate(self.root.unwrap());
             }
@@ -176,7 +179,7 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
                 new_node.parent = RbNodeWithColor::null_node();
                 self.root = Some(NonNull::from_mut(new_node));
 
-                self.link_ext(new_node, cmp::Ordering::Equal);
+                self.init(new_node);
             }
         }
     }
@@ -184,7 +187,7 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
     pub fn delete<'a>(&mut self, key: &K) -> Option<NonNull<RbNodeBase<K, I, NA>>>
     where
         &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
-        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
+        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
         RbNodeIter<'a, K, I, NA>: Iterator<Item = &'a mut RbNodeBase<K, I, NA>>,
         K: 'a + Ord + Sized,
         I: 'a,
@@ -198,7 +201,7 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
     pub fn delete_node<'a>(&mut self, mut target: NonNull<RbNodeBase<K, I, NA>>)
     where
         &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
-        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
+        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
         RbNodeIter<'a, K, I, NA>: Iterator<Item = &'a mut RbNodeBase<K, I, NA>>,
         K: 'a + Ord + Sized,
         I: 'a,
@@ -276,7 +279,7 @@ impl<K: Sized, I, NA> RbNodeBase<K, I, NA> {
         mut new_node: NonNull<RbNodeBase<K, I, NA>>,
     ) where
         K: Ord + Sized,
-        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, NA>,
+        RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
     {
         let key = unsafe { &new_node.as_ref().key };
         let (mut parent, ordering) = self
@@ -289,7 +292,7 @@ impl<K: Sized, I, NA> RbNodeBase<K, I, NA> {
         parent_ref.link_node(new_node, ordering);
         new_node.insert_fixup(tree);
 
-        parent_ref.link_ext(new_node, ordering);
+        parent_ref.link_ext(tree, new_node, ordering);
     }
 }
 

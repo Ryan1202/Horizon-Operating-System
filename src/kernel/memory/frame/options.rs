@@ -1,10 +1,8 @@
-use core::num::NonZeroUsize;
-
 use crate::{
     arch::PhysAddr,
     kernel::memory::frame::{
-        FRAME_MANAGER, Frame, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
-        reference::FrameMut, zone::ZONE_COUNT,
+        FRAME_MANAGER, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
+        reference::UniqueFrames, zone::ZONE_COUNT,
     },
 };
 
@@ -22,11 +20,7 @@ impl FrameAllocOptions {
                 order: FrameOrder::new(0),
             },
             fallback: FallbackChain {
-                chain: [
-                    Some(ZoneType::LinearMem),
-                    Some(ZoneType::HighMem),
-                    Some(ZoneType::MEM24),
-                ],
+                chain: [Some(ZoneType::LinearMem), Some(ZoneType::MEM32)],
             },
             retry: RetryPolicy::FastFail,
         }
@@ -51,23 +45,23 @@ impl FrameAllocOptions {
         self
     }
 
-    pub const fn fixed(mut self, start: FrameNumber, count: NonZeroUsize) -> Self {
-        self.alloc_type = FrameAllocType::Fixed { start, count };
+    pub const fn fixed(mut self, start: FrameNumber, order: FrameOrder) -> Self {
+        self.alloc_type = FrameAllocType::Fixed { start, order };
         self
     }
 
-    pub fn get_type(&self) -> &FrameAllocType {
-        &self.alloc_type
+    pub const fn get_type(&self) -> FrameAllocType {
+        self.alloc_type
     }
 
-    pub fn get_count(&self) -> NonZeroUsize {
-        match &self.alloc_type {
-            FrameAllocType::Dynamic { order } => order.to_count(),
-            FrameAllocType::Fixed { count, .. } => *count,
+    pub const fn get_order(&self) -> FrameOrder {
+        match self.alloc_type {
+            FrameAllocType::Dynamic { order } => order,
+            FrameAllocType::Fixed { order, .. } => order,
         }
     }
 
-    pub fn try_alloc(&self) -> Result<(FrameMut, ZoneType), FrameError> {
+    pub fn try_alloc(&self) -> Result<(UniqueFrames, ZoneType), FrameError> {
         for &zone_type in self.fallback.chain.iter().flatten() {
             if let Ok(frame) = self.alloc_type.allocate(zone_type) {
                 return Ok(frame);
@@ -76,12 +70,12 @@ impl FrameAllocOptions {
         Err(FrameError::OutOfFrames)
     }
 
-    pub fn allocate(&self) -> Result<(FrameMut, ZoneType), FrameError> {
+    pub fn allocate(&self) -> Result<(UniqueFrames, ZoneType), FrameError> {
         self.try_alloc().or_else(|e| match self.retry {
             RetryPolicy::FastFail => Err(e),
             RetryPolicy::Retry(n) => {
                 for _ in 0..n {
-                    if let Ok(frame) = self.allocate() {
+                    if let Ok(frame) = self.try_alloc() {
                         return Ok(frame);
                     }
                 }
@@ -92,7 +86,7 @@ impl FrameAllocOptions {
 
     /// 类似 GFP_KERNEL：通用内核分配
     ///
-    /// - 优先 LinearMem，fallback 到 MEM24
+    /// - 优先 LinearMem，fallback 到 MEM32
     /// - 允许重试
     /// - 适用于大多数内核路径
     pub const fn kernel(order: FrameOrder) -> Self {
@@ -101,22 +95,21 @@ impl FrameAllocOptions {
 
     /// 类似 GFP_ATOMIC：原子上下文分配
     ///
-    /// - 优先 LinearMem，fallback 到 MEM24
+    /// - 优先 LinearMem，fallback 到 MEM32
     /// - 不允许重试（FailFast）
     /// - 适用于中断处理、持锁上下文等不能睡眠的场景
     pub const fn atomic(order: FrameOrder) -> Self {
         Self::new().dynamic(order).retry(RetryPolicy::FastFail)
     }
 
-    /// 类似 GFP_HIGHUSER：高端内存优先
+    /// 线性映射区优先（用户页场景）
     ///
-    /// - 优先 HighMem，fallback 到 LinearMem
+    /// - 优先 LinearMem，fallback 到 MEM32
     /// - 适用于用户空间页（不需要内核线性映射）
-    pub const fn highmem() -> Self {
-        const HIGHMEM_FALLBACK: [ZoneType; 3] =
-            [ZoneType::HighMem, ZoneType::LinearMem, ZoneType::MEM24];
+    pub const fn linear_preferred() -> Self {
+        const LINEAR_FALLBACK: [ZoneType; 2] = [ZoneType::LinearMem, ZoneType::MEM32];
         Self::new()
-            .fallback(&HIGHMEM_FALLBACK)
+            .fallback(&LINEAR_FALLBACK)
             .retry(RetryPolicy::Retry(3))
     }
 }
@@ -145,26 +138,24 @@ pub enum FrameAllocType {
     },
     Fixed {
         start: FrameNumber,
-        count: NonZeroUsize,
+        order: FrameOrder,
     },
 }
 
 impl FrameAllocType {
-    fn allocate(&self, zone: ZoneType) -> Result<(FrameMut, ZoneType), FrameError> {
+    fn allocate(&self, zone: ZoneType) -> Result<(UniqueFrames, ZoneType), FrameError> {
         match self {
             Self::Dynamic { order } => FRAME_MANAGER
                 .allocate(zone, *order)
                 .map(|f| (f, zone))
                 .ok_or(FrameError::OutOfFrames),
 
-            Self::Fixed { start, count } => {
-                FRAME_MANAGER.assign(*start, count.get()).and_then(|_| {
-                    let frame = Frame::get_mut(*start).ok_or(FrameError::Conflict)?;
+            Self::Fixed { start, order } => FRAME_MANAGER.assign(*start, *order).map(|frames| {
+                let paddr = PhysAddr::from_frame_number(*start);
+                let zone_type = ZoneType::from_address(paddr);
 
-                    let zone_type = ZoneType::from_address(PhysAddr::from_frame_number(*start));
-                    Ok((frame, zone_type))
-                })
-            }
+                (frames, zone_type)
+            }),
         }
     }
 }
