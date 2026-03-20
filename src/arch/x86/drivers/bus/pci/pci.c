@@ -512,15 +512,14 @@ DriverResult pci_register_driver(Driver *driver, PciDriver *new_pci_driver) {
 				return DRIVER_ERROR_CONFLICT;
 			}
 			break;
-		} else if (
+	} else if (
 			new_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF &&
 			old_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
+			/* new 是 subclass+progif，old 只有 subclass，比较前两个字段 */
 			if (new_pci_driver->class_subclass_progif.classcode ==
-					old_pci_driver->class_subclass_progif.classcode &&
+					old_pci_driver->class_subclass.classcode &&
 				new_pci_driver->class_subclass_progif.subclass ==
-					old_pci_driver->class_subclass_progif.subclass &&
-				new_pci_driver->class_subclass_progif.progif ==
-					old_pci_driver->class_subclass_progif.progif) {
+					old_pci_driver->class_subclass.subclass) {
 				list_del(&old_pci_driver->pci_driver_list);
 				break;
 			}
