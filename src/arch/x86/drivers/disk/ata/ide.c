@@ -48,17 +48,28 @@ DeviceOps ide_device_ops = {
 DeviceDriver ide_device_driver;
 
 void ide_handle_interrupt(IdeChannel *channel) {
-	int status = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
-	if (!(status & IDE_BMSTATUS_INT)) return;
-	io_out_byte(channel->bmide + IDE_REG_BM_STATUS, IDE_BMSTATUS_INT);
+	IdeDevice *ide_device = channel->ide_devices[channel->selected_device];
 
-	status = io_in_byte(channel->io_base + ATA_REG_STATUS);
-	if (status & ATA_STATUS_ERR) {
+	// DMA 模式检查 BM 状态
+	if (channel->bmide && ide_device && ide_device->mode == TRANSFER_MODE_DMA) {
+		int bm_status = io_in_byte(channel->bmide + IDE_REG_BM_STATUS);
+		// 检查是否有 DMA 中断或错误
+		if (!(bm_status & (IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR))) {
+			// 可能是共享中断，读取 ATA 状态后返回
+			io_in_byte(channel->io_base + ATA_REG_STATUS);
+			return;
+		}
+		// 清除 BM 状态
+		io_out_byte(channel->bmide + IDE_REG_BM_STATUS, bm_status);
+	}
+
+	// 读取 ATA 状态清除中断
+	int ata_status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+	if (ata_status & ATA_STATUS_ERR) {
 		print_error("IDE", "IDE device error!");
 		ide_print_error(channel);
 	}
 
-	IdeDevice *ide_device = channel->ide_devices[channel->selected_device];
 	if (ide_device == NULL) { return; }
 
 	int				flags		= spin_lock_irqsave(&ide_device->request_lock);
@@ -66,14 +77,15 @@ void ide_handle_interrupt(IdeChannel *channel) {
 	ide_device->current_request = NULL;
 	spin_unlock_irqrestore(&ide_device->request_lock, flags);
 
-	if (ide_device->mode == TRANSFER_MODE_DMA) {
+	if (request == NULL) { return; }
+
+	if (channel->bmide && ide_device->mode == TRANSFER_MODE_DMA) {
 		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
 		io_out_byte(
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
 		if (request->rw == 0) { storage_solve_read_request(request); }
-		// if (request->buf != request->real_buf) { kfree(request->real_buf); }
 		ata_bmdma_unmap_buffer(
 			channel->dma, request->buf, request->count * SECTOR_SIZE);
 	}
@@ -376,6 +388,7 @@ DriverResult ide_device_write_sectors(
 	if (ide_device->mode == TRANSFER_MODE_PIO) {
 		ide_device_send_pio(
 			ide_device, (uint32_t *)request->buf, request->count);
+		ide_device->current_request = NULL;
 	} else {
 		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
 		io_out_byte(

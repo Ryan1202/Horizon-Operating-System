@@ -226,7 +226,7 @@ PciDevice *pci_alloc_device(void) {
 uint32_t pci_get_device_connected(void) {
 	int		   i;
 	PciDevice *device;
-	for (i = 0; i < PCI_MAX_BAR; i++) {
+	for (i = 0; i < PCI_MAX_DEVICE; i++) {
 		device = &pci_devices[i];
 		if (device->status != PCI_DEVICE_STATUS_USING) { break; }
 	}
@@ -431,14 +431,15 @@ DriverResult pci_scan_device(
 				break;
 			}
 		} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
-			if (pci_driver->class_subclass.classcode == classcode &&
+			if (pci_driver->class_subclass.classcode == pci_device->classcode &&
 				pci_driver->class_subclass.subclass == pci_device->subclass) {
 				pci_device->pci_driver = pci_driver;
 				pci_driver->pci_device = pci_device;
 				break;
 			}
 		} else if (pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF) {
-			if (pci_driver->class_subclass_progif.classcode == classcode &&
+			if (pci_driver->class_subclass_progif.classcode ==
+					pci_device->classcode &&
 				pci_driver->class_subclass_progif.subclass ==
 					pci_device->subclass &&
 				pci_driver->class_subclass_progif.progif ==
@@ -512,7 +513,7 @@ DriverResult pci_register_driver(Driver *driver, PciDriver *new_pci_driver) {
 				return DRIVER_ERROR_CONFLICT;
 			}
 			break;
-	} else if (
+		} else if (
 			new_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS_PROGIF &&
 			old_pci_driver->find_type == FIND_BY_CLASSCODE_SUBCLASS) {
 			/* new 是 subclass+progif，old 只有 subclass，比较前两个字段 */

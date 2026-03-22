@@ -141,7 +141,7 @@ void rtl8139_net_rx_handler(void *data) {
 				int first_len = RTL8139_RECV_BUF_SIZE - i;
 				memcpy(buffer, device->rx_buffer + i, first_len);
 				memcpy(
-					buffer + first_len, device->rx_buffer + i,
+					buffer + first_len, device->rx_buffer,
 					packet_len - first_len);
 			} else {
 				memcpy(buffer, device->rx_buffer + i, packet_len);
@@ -254,7 +254,7 @@ DriverResult rtl8139_start(void *_device) {
 	} else {
 		uint8_t data = io_in_byte(rtl_device->io_base + REG_CONFIG1);
 		data &= ~(CFG1_SLEEP | CFG1_PWRDN);
-		io_out_byte(rtl_device->chipset, data);
+		io_out_byte(rtl_device->io_base + REG_CONFIG1, data);
 	}
 
 	rtl8139_reset(rtl_device);
@@ -336,6 +336,7 @@ DriverResult rtl8139_pci_probe(
 	if (chipset == RTL_UNKNOWN) { return DRIVER_ERROR_UNSUPPORT_DEVICE; }
 
 	Rtl8139Device *rtl_device = kzalloc(sizeof(Rtl8139Device));
+	if (rtl_device == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 	rtl_device->pci_device	  = pci_device;
 	rtl_device->chipset		  = chipset;
 
