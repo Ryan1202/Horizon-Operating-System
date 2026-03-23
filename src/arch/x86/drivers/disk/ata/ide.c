@@ -59,8 +59,8 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			io_in_byte(channel->io_base + ATA_REG_STATUS);
 			return;
 		}
-		// 清除 BM 状态
-		io_out_byte(channel->bmide + IDE_REG_BM_STATUS, bm_status);
+		// 清除 BM 状态 (W1C: 只写入要清除的位)
+		io_out_byte(channel->bmide + IDE_REG_BM_STATUS, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR);
 	}
 
 	// 读取 ATA 状态清除中断
