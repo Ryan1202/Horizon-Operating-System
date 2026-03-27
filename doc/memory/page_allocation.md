@@ -53,7 +53,7 @@
 ```text
 ZoneType:
 - Linear     // 内核线性映射区（低地址）
-- HighMem    // 高端物理内存
+- MEM32      // 32位可寻址物理内存
 - DMA        // DMA 受限内存
 ```
 
@@ -143,7 +143,7 @@ FallbackChain {
 示例：
 
 ```text
-[Some(Linear), Some(HighMem), Some(DMA)]
+[Some(Linear), Some(MEM32), Some(DMA)]
 ```
 
 ---
