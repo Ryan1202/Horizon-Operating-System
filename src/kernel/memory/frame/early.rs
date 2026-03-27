@@ -1,6 +1,9 @@
 use core::sync::atomic::Ordering;
 
-use crate::arch::PhysAddr;
+use crate::{
+    arch::{ArchPageTable, PhysAddr},
+    kernel::memory::{arch::ArchMemory, frame::zone::RESERVED_END},
+};
 
 use super::{
     ALLOCATED_PAGES, FRAME_MANAGER, Frame, FrameData, FrameNumber, FrameRange, FrameTag,
@@ -15,23 +18,22 @@ pub struct E820Ards {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn page_early_init(
-    blocks: *const E820Ards,
-    block_count: u16,
-    kernel_start: usize,
-    kernel_end: usize,
-) {
+pub extern "C" fn page_early_init(kernel_end: usize) {
     unsafe {
         // 都向后对齐到页
-        *PREALLOCATED_END_PHY.get() = PhysAddr::new(kernel_end).max(*PREALLOCATED_END_PHY.get());
-
-        let kernel_range = (PhysAddr::new(kernel_start), *PREALLOCATED_END_PHY.get());
-        Frame::init(blocks, block_count, kernel_range);
+        *PREALLOCATED_END_PHY.get() = PhysAddr::new(kernel_end)
+            .max(*PREALLOCATED_END_PHY.get())
+            .page_align_up();
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn page_init() {
+pub extern "C" fn page_init(blocks: *const E820Ards, block_count: u16, kernel_start: usize) {
+    let kernel_range = (PhysAddr::new(kernel_start), unsafe {
+        *PREALLOCATED_END_PHY.get()
+    });
+    Frame::init(blocks, block_count, kernel_range);
+
     FRAME_MANAGER.init();
 }
 
@@ -40,7 +42,7 @@ pub extern "C" fn page_init() {
 pub extern "C" fn early_allocate_pages(count: u8) -> usize {
     unsafe {
         let addr = *PREALLOCATED_END_PHY.get();
-        *PREALLOCATED_END_PHY.get() += (count as usize) * 0x1000;
+        *PREALLOCATED_END_PHY.get() += (count as usize) * ArchPageTable::PAGE_SIZE;
 
         addr.as_usize()
     }
@@ -55,14 +57,24 @@ impl Frame {
         debug_assert!(start < end);
 
         let frame = unsafe { Self::get_raw(start).as_mut() };
-        let range = FrameRange { start, end };
-        let data = FrameData { range };
+        let mut range = FrameRange { start, end };
+        let mut data = FrameData { range };
 
         let tag = match e820_type {
             0 => FrameTag::SystemReserved,
             1 => FrameTag::Free,
-            _ => FrameTag::HardwareReserved,
+            2 | 3 | 4 => FrameTag::HardwareReserved,
+            _ => FrameTag::BadMemory,
         };
+
+        if range.end < RESERVED_END {
+            // 跳过保留区的可用内存
+            return;
+        } else if range.start < RESERVED_END {
+            // 跨越边界则调整起始地址
+            range.start = RESERVED_END;
+            data = FrameData { range };
+        }
 
         let count = end.count_from(start);
         match tag {

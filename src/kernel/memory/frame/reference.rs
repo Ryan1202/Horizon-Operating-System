@@ -18,12 +18,6 @@ pub struct FrameRc {
 impl FrameRc {
     const EXCLUSIVE: usize = 0;
 
-    pub(super) const fn new() -> Self {
-        Self {
-            count: AtomicUsize::new(Self::EXCLUSIVE), // 初始引用计数为 0，视作被 Buddy 独占
-        }
-    }
-
     fn update(&self, f: impl Fn(usize) -> Option<usize>) -> Option<usize> {
         self.count
             .fetch_update(Ordering::Release, Ordering::Acquire, f)
@@ -33,10 +27,6 @@ impl FrameRc {
     fn acquire(&self) -> Option<()> {
         self.update(|value| (value != Self::EXCLUSIVE).then_some(value + 1))
             .map(|_| ())
-    }
-
-    fn acquire_exclusive(&self, frame: &Frame) -> Option<()> {
-        self.is_exclusive(frame).then_some(())
     }
 
     fn release(&self) -> Option<usize> {
@@ -58,15 +48,9 @@ impl FrameRc {
     }
 }
 
-impl Default for FrameRc {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct SharedFrames {
     frame: NonNull<Frame>,
-    order: FrameOrder,
+    _order: FrameOrder,
 }
 
 impl SharedFrames {
@@ -74,11 +58,13 @@ impl SharedFrames {
         unsafe { frame.as_ref().refcount.acquire()? };
         Some(SharedFrames {
             frame,
-            order: FrameOrder::new(0),
+            _order: FrameOrder::new(0),
         })
     }
 
-    /// 尝试从原始指针创建 `SharedFrames` 而不增加引用计数
+    /// 尝试从指针创建 `SharedFrames` 而不增加引用计数
+    ///
+    /// 如果为独占引用则返回None
     ///
     /// # Safety
     ///
@@ -86,7 +72,10 @@ impl SharedFrames {
     pub unsafe fn from_raw(frame: NonNull<Frame>, order: FrameOrder) -> Option<Self> {
         let refcount = unsafe { frame.as_ref().refcount.get() };
         if refcount != FrameRc::EXCLUSIVE {
-            Some(SharedFrames { frame, order })
+            Some(SharedFrames {
+                frame,
+                _order: order,
+            })
         } else {
             None
         }
@@ -113,7 +102,7 @@ pub struct UniqueFrames {
 }
 
 impl UniqueFrames {
-    /// 尝试从原始指针创建 `UniqueFrames` 而不增加引用计数
+    /// 尝试从原始指针创建 `UniqueFrames` 而不验证引用计数
     ///
     /// # Safety
     ///
@@ -147,7 +136,7 @@ impl UniqueFrames {
         debug_assert_eq!(frame_ref.refcount.get(), FrameRc::EXCLUSIVE);
 
         match frame_ref.get_tag() {
-            FrameTag::Buddy | FrameTag::Free | FrameTag::Unavailable => {
+            FrameTag::Buddy | FrameTag::Free | FrameTag::Uninited => {
                 Some(ManuallyDrop::new(UniqueFrames { start, order }))
             }
             FrameTag::Tail => {
@@ -158,7 +147,7 @@ impl UniqueFrames {
                 let head_ref = unsafe { head_frame.as_ref() };
                 if matches!(
                     head_ref.get_tag(),
-                    FrameTag::Buddy | FrameTag::Free | FrameTag::Unavailable
+                    FrameTag::Buddy | FrameTag::Free | FrameTag::Uninited
                 ) && frame_number + order.to_count().get() <= range.end
                 {
                     Some(ManuallyDrop::new(UniqueFrames { start, order }))
@@ -175,7 +164,7 @@ impl UniqueFrames {
 
         let frame_ref = SharedFrames {
             frame: self.start,
-            order: self.order,
+            _order: self.order,
         };
         mem::forget(self);
 
@@ -202,10 +191,10 @@ impl UniqueFrames {
         mut high: ManuallyDrop<Self>,
         allocator: &A,
         f: F,
-    ) -> Result<(), (ManuallyDrop<Self>, ManuallyDrop<Self>)>
+    ) -> Result<ManuallyDrop<Self>, (ManuallyDrop<Self>, ManuallyDrop<Self>)>
     where
         A: FrameAllocator,
-        F: FnOnce(&A, ManuallyDrop<Self>, ManuallyDrop<Self>),
+        F: FnOnce(&A, &mut Self, ManuallyDrop<Self>),
     {
         let low_ = low.deref_mut();
         let high_ = high.deref_mut();
@@ -219,8 +208,8 @@ impl UniqueFrames {
             return Err((low, high));
         }
 
-        f(allocator, low, high);
-        Ok(())
+        f(allocator, low_, high);
+        Ok(low)
     }
 
     pub(super) fn set_tail_frames(&mut self) {
@@ -314,5 +303,14 @@ fn last_free(frame: &mut Frame) {
             frame_number,
             e
         );
+    }
+}
+
+pub unsafe fn try_free(frame: NonNull<Frame>) {
+    unsafe {
+        if UniqueFrames::try_from_raw(frame).is_none() {
+            SharedFrames::from_raw(frame, FrameOrder::new(0))
+                .expect("Not unique or shared frames!");
+        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::arch::PhysAddr;
+use crate::{arch::PhysAddr, kernel::memory::frame::FrameNumber};
 
 /// 内存区域类型
 /// Zone只决定了系统能管理的物理内存范围，与Page管理的内存范围无关
@@ -13,6 +13,7 @@ pub enum ZoneType {
 }
 
 pub const ZONE_COUNT: usize = 2;
+pub const RESERVED_END: FrameNumber = FrameNumber::new(0x100);
 
 impl ZoneType {
     pub const fn index(&self) -> usize {
@@ -64,13 +65,12 @@ impl ZoneType {
     }
 
     pub const fn from_address(addr: PhysAddr) -> Self {
-        assert!(
-            addr.to_frame_number().get() >= 0x100,
-            "Low 1MiB memory is reserved"
-        );
+        let frame_number = addr.to_frame_number().get();
+        assert!(frame_number >= 0x100, "Low 1MiB memory is reserved");
+
         #[cfg(target_pointer_width = "32")]
         {
-            if addr.to_frame_number().get() < 0x30000 {
+            if frame_number < 0x30000 {
                 ZoneType::LinearMem
             } else {
                 ZoneType::MEM32
@@ -79,7 +79,7 @@ impl ZoneType {
 
         #[cfg(target_pointer_width = "64")]
         {
-            if addr.to_frame_number().get() < 0x100000 {
+            if frame_number < 0x100000 {
                 ZoneType::MEM32
             } else {
                 ZoneType::LinearMem

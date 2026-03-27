@@ -76,9 +76,6 @@ struct task_s {
 	struct semaphore child_sem;	  // 子线程完成信号量（初始为0）
 	struct task_s	*parent;
 
-	struct mmap			  vir_page_mmap;
-	struct memory_manage *memory_manage;
-
 	list_t wait_queue_tag;
 	list_t general_tag;
 	list_t all_list_tag;
@@ -154,7 +151,6 @@ void thread_wait();
 void thread_unblock(struct task_s *pthread);
 void init_task(void);
 void schedule(void);
-void init_thread_memory_manage(struct task_s *thread);
 void thread_wait_children(struct task_s *parent);
 
 #endif

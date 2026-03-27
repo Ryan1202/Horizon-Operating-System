@@ -1,4 +1,4 @@
-use core::{cmp::Ordering, mem, num::NonZeroUsize, ops::DerefMut, pin::Pin, ptr::NonNull};
+use core::{mem, num::NonZeroUsize, ops::DerefMut, pin::Pin, ptr::NonNull};
 
 use crate::{
     container_of,
@@ -27,20 +27,20 @@ pub(super) struct VmapPool {
     pub(super) list_head: Spinlock<ListHead<RbNode>>,
 }
 
-pub struct VmapNode {
+pub struct Vmap {
     pub(super) pools: [VmapPool; MAX_VMAP_POOL_PAGES],
 
     pub(super) allocated: Spinlock<RbTree>,
 }
 
-static VMAP_NODE: Spinlock<VmapNode> = Spinlock::new(unsafe { mem::zeroed() });
+static VMAP: Spinlock<Vmap> = Spinlock::new(unsafe { mem::zeroed() });
 static FREE_VMAP_TREE: Spinlock<RbTree> = Spinlock::new(LinkedRbTreeBase::empty());
 
-pub fn get_vmap_node<'a>() -> SpinGuard<'a, VmapNode> {
-    VMAP_NODE.lock()
+pub fn get_vmap<'a>() -> SpinGuard<'a, Vmap> {
+    VMAP.lock()
 }
 
-impl VmapNode {
+impl Vmap {
     pub fn init(&mut self) {
         unsafe {
             FREE_VMAP_TREE.init_with(|rbtree| {
@@ -97,21 +97,10 @@ impl VmapNode {
             .expect("List is empty after checked!");
 
         // 通过 linked_node -> rbnode -> pages 的层级关系获取 pages
-        let mut pages = container_of!(rb_node, DynPages, rb_node);
+        let pages = container_of!(rb_node, DynPages, rb_node);
 
-        let actual_count = unsafe { rb_node.as_ref() }.get_key().get_count();
-        match actual_count.cmp(&count.get()) {
-            Ordering::Less => None,
-            Ordering::Equal => {
-                unsafe { rb_node.as_mut().augment.get_list() }.del(&mut list_head);
-                Some(pages)
-            }
-            Ordering::Greater => {
-                let pages = unsafe { pages.as_mut().split(count) }
-                    .expect("Allocate slub memory failed in VmapNode::pool_get()!");
-                Some(pages)
-            }
-        }
+        unsafe { rb_node.as_mut().augment.get_list() }.del(&mut list_head);
+        Some(pages)
     }
 
     pub fn allocate(&mut self, count: NonZeroUsize) -> Result<NonNull<DynPages>, MemoryError> {
@@ -135,7 +124,7 @@ impl VmapNode {
         let mut node = tree.root?;
 
         // 根节点不满足要求，整棵树都不够大
-        if unsafe { node.as_ref() }.get_key().get_count() < count.get() {
+        if linked_augment!(unsafe { node.as_ref() }) < count.get() {
             return None;
         }
 

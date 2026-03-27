@@ -3,6 +3,7 @@ use core::{
     ffi::{CStr, c_char, c_void},
     mem::{MaybeUninit, transmute},
     num::NonZeroU16,
+    ops::DerefMut,
     pin::Pin,
     ptr::{NonNull, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
@@ -14,7 +15,7 @@ use crate::{
         kmalloc::kfree,
         page::options::PageAllocOptions,
         slub::{
-            MAX_PARTIAL, MIN_PARTIAL, Slub, SlubError,
+            Slub, SlubError,
             config::{
                 CacheConfig, DEFAULT_CACHE_CONFIGS, DEFAULT_CACHE_COUNT, DEFAULT_CACHES, get_cache,
             },
@@ -30,11 +31,9 @@ use crate::{
 #[repr(C)]
 pub struct MemCaches {
     pub list_head: Spinlock<ListHead<MemCache>>,
-    pub mem_cache: NonNull<MemCache>,
-    pub node_mem_cache: NonNull<MemCache>,
+    pub mem_cache: &'static MemCache,
+    pub node_mem_cache: &'static MemCache,
 }
-
-unsafe impl Sync for MemCaches {}
 
 impl MemCaches {
     pub fn init() {
@@ -45,11 +44,11 @@ impl MemCaches {
         let mem_cache_node = MemCacheNode::bootstrap(OPTIONS);
 
         // 从 mem_cache_node 创建 "mem_cache" 的 MemCacheNode，再从零创建 "mem_cache" 的 MemCache
-        let mut mem_cache = MemCache::bootstrap(mem_cache_node, OPTIONS);
+        let mut mem_cache = MemCache::bootstrap(unsafe { mem_cache_node.as_ref() }, OPTIONS);
 
         // 将 mem_cache_node 放入 "mem_cache"
-        let mem_cache_node = unsafe {
-            MemCacheNode::bootstrap_cache(mem_cache_node, mem_cache.as_mut(), OPTIONS)
+        let mut mem_cache_node = unsafe {
+            MemCacheNode::bootstrap_cache(mem_cache_node, mem_cache.as_ref(), OPTIONS)
                 .expect("Unexpected error occurred when bootstrapping MemCache")
         };
 
@@ -57,44 +56,45 @@ impl MemCaches {
             let caches_uninit = &mut *CACHES.get();
             let caches = caches_uninit.write(MemCaches {
                 list_head: Spinlock::new(ListHead::empty()),
-                mem_cache,
-                node_mem_cache: mem_cache_node,
+                mem_cache: mem_cache.as_ref(),
+                node_mem_cache: mem_cache_node.as_ref(),
             });
 
-            let mem_cache_node = caches.node_mem_cache.as_mut();
-            let mem_cache = caches.mem_cache.as_mut();
+            {
+                let mem_cache_node = caches.node_mem_cache;
+                let mem_cache = caches.mem_cache;
 
-            for (i, cache) in DEFAULT_CACHE_CONFIGS.iter().enumerate() {
-                let cache_ptr = &mut *DEFAULT_CACHES.get();
-                cache_ptr[i].store(
-                    mem_cache
-                        .new_boot(*cache, mem_cache_node, OPTIONS)
-                        .expect("Unexpected error occurred when creating kmalloc- MemCache")
-                        .as_ptr(),
-                    Ordering::Release,
-                );
+                for (i, cache) in DEFAULT_CACHE_CONFIGS.iter().enumerate() {
+                    let cache_ptr = &mut *DEFAULT_CACHES.get();
+                    cache_ptr[i].store(
+                        MemCache::new_raw(*cache, mem_cache_node, mem_cache, OPTIONS)
+                            .expect("Unexpected error occurred when creating kmalloc- MemCache")
+                            .as_ptr(),
+                        Ordering::Release,
+                    );
+                }
             }
 
             caches.list_head.init_with(|v| {
                 let mut head = Pin::new_unchecked(v);
                 head.init();
 
-                head.add_head(Pin::new_unchecked(&mut mem_cache_node.list));
-                head.add_head(Pin::new_unchecked(&mut mem_cache.list));
+                head.add_head(mem_cache_node.as_mut().get_list());
+                head.add_head(mem_cache.as_mut().get_list());
 
                 for cache in 0..DEFAULT_CACHE_COUNT {
-                    head.add_tail(Pin::new_unchecked(
-                        &mut get_cache(cache).unwrap().as_mut().list,
-                    ));
+                    let mut cache = get_cache(cache).unwrap();
+                    head.add_tail(cache.as_mut().get_list());
                 }
             });
         }
     }
 
-    pub fn add_cache(&mut self, cache: Pin<&mut MemCache>) {
+    pub fn add_cache(&self, cache: Pin<&mut MemCache>) {
         let mut list_head = self.list_head.lock();
         unsafe {
-            Pin::new_unchecked(&mut *list_head).add_head(cache.map_unchecked_mut(|v| &mut v.list))
+            Pin::new_unchecked(&mut *list_head)
+                .add_head(cache.map_unchecked_mut(|v| &mut *v.list.get()))
         };
     }
 }
@@ -104,18 +104,18 @@ static CACHES: SyncUnsafeCell<MaybeUninit<MemCaches>> = SyncUnsafeCell::new(Mayb
 /// 顶层 MemCache
 pub struct MemCache {
     /// 链表节点，连接到 MemCaches 的 list_head
-    list: ListNode<MemCache>,
+    list: SyncUnsafeCell<ListNode<MemCache>>,
     /// 配置
-    pub config: CacheConfig,
+    pub(super) config: CacheConfig,
     /// 指向 Slub 的原子指针
     slub: AtomicPtr<Slub>,
-    /// 最小部分填充数量
-    _min_partial: u8,
     /// 单一节点（忽略 NUMA）
     node: NonNull<MemCacheNode>,
     /// 页分配选项
     pub options: PageAllocOptions,
 }
+
+unsafe impl Sync for MemCache {}
 
 impl MemCache {
     const OBJECT_SIZE: NonZeroU16 = NonZeroU16::new(size_of::<Self>() as u16).unwrap();
@@ -124,36 +124,18 @@ impl MemCache {
         .unwrap();
 
     #[inline]
-    fn init(
+    pub(super) fn init(
         &mut self,
         config: CacheConfig,
-        mut node: NonNull<MemCacheNode>,
+        node: NonNull<MemCacheNode>,
         mut options: PageAllocOptions,
     ) -> Result<(), SlubError> {
         options = options.order(config.frame_order);
 
-        let min_partial = (config.object_size.0.ilog2() as u8 / 2).clamp(MIN_PARTIAL, MAX_PARTIAL);
-
-        let slub = {
-            let mut partial_list = unsafe { node.as_mut() }.partial_list.lock();
-
-            // 从 MemCacheNode 的 partial list 中获取一个 Slub 作为首选 Slub
-            let slub = unsafe {
-                partial_list
-                    .iter(Slub::list_offset())
-                    .next()
-                    .expect("Trying to init Memcache from a node without slub!")
-                    .as_mut()
-            };
-            slub.get_list().del(&mut partial_list);
-            slub
-        };
-
         *self = Self {
-            list: ListNode::new(),
+            list: SyncUnsafeCell::new(ListNode::new()),
             config,
-            slub: AtomicPtr::new(slub as *mut Slub),
-            _min_partial: min_partial,
+            slub: AtomicPtr::null(),
             node,
             options,
         };
@@ -161,26 +143,30 @@ impl MemCache {
         Ok(())
     }
 
-    fn bootstrap(
-        mut mem_cache_node: NonNull<MemCacheNode>,
-        mut options: PageAllocOptions,
-    ) -> NonNull<Self> {
+    fn bootstrap(mem_cache_node: &MemCacheNode, mut options: PageAllocOptions) -> NonNull<Self> {
         unsafe {
+            let config = &Self::CONFIG;
+
             // 申请 "mem_cache" 的 MemCacheNode
-            let mut node = mem_cache_node
-                .as_mut()
-                .new_self(&Self::CONFIG, options)
-                .unwrap();
-            options = options.order(Self::CONFIG.frame_order);
+            let mut node = mem_cache_node.new_self(config, options).unwrap();
+            options = options.order(config.frame_order);
 
             let slub = Slub::new(&Self::CONFIG, options).unwrap();
-            node.as_mut().init(&Self::CONFIG, Some(slub));
+            node.as_mut().init(config, Some(slub));
 
             // 申请 "mem_cache" 的 MemCache
-            let mut mem_cache = node
-                .as_mut()
-                .allocate::<MemCache>(&Self::CONFIG, options)
-                .unwrap();
+            let mut mem_cache = {
+                let node = node.as_ref();
+                let slub = node.get(config, options).unwrap();
+                let result =
+                    slub.as_ref()
+                        .allocate::<MemCache>(NonNull::dangling())
+                        .map(|mem_cache| {
+                            node.put(config, options, slub);
+                            mem_cache
+                        });
+                result.unwrap()
+            };
 
             mem_cache
                 .as_mut()
@@ -191,69 +177,73 @@ impl MemCache {
         }
     }
 
-    pub(super) fn new_boot_from_node(
-        &mut self,
+    fn get_list(&mut self) -> Pin<&mut ListNode<MemCache>> {
+        unsafe { Pin::new_unchecked(self.list.get_mut()) }
+    }
+
+    /// 不依赖全局变量的实现，可以在初始化时简化调用
+    ///
+    /// 默认初始化时不预分配 Slub
+    #[inline]
+    fn new_raw(
         config: CacheConfig,
-        mem_cache_node: NonNull<MemCacheNode>,
+        node_cache: &MemCache,
+        mem_cache: &MemCache,
         options: PageAllocOptions,
     ) -> Option<NonNull<Self>> {
-        // 申请 MemCache
-        let node = unsafe { self.node.as_mut() };
-        let mut mem_cache = node.allocate::<MemCache>(&self.config, self.options)?;
+        let mut node = node_cache.allocate::<MemCacheNode>()?;
 
-        unsafe {
-            mem_cache
-                .as_mut()
-                .init(config, mem_cache_node, options)
-                .ok()?;
-        };
+        mem_cache
+            .allocate::<MemCache>()
+            .and_then(|mut ptr| unsafe {
+                let mem_cache = ptr.as_mut();
 
-        Some(mem_cache)
-    }
+                node.as_mut().init(&config, None);
+                mem_cache
+                    .init(config, node, options.order(config.frame_order))
+                    .ok()?;
 
-    #[inline]
-    fn new_boot(
-        &mut self,
-        config: CacheConfig,
-        node_cache: &mut MemCache,
-        mut options: PageAllocOptions,
-    ) -> Option<NonNull<Self>> {
-        let node_cache_node = unsafe { node_cache.node.as_mut() };
-
-        options = options.order(config.frame_order);
-
-        let mut mem_cache_node =
-            node_cache_node.new_self(&node_cache.config, node_cache.options)?;
-        unsafe {
-            let slub = Slub::new(&config, options).ok();
-            mem_cache_node.as_mut().init(&config, slub);
-        }
-
-        self.new_boot_from_node(config, mem_cache_node, options)
-    }
-
-    pub fn new(config: CacheConfig, options: PageAllocOptions) -> Option<NonNull<Self>> {
-        let caches = unsafe { (&mut *CACHES.get()).assume_init_mut() };
-
-        let mem_cache_node = MemCacheNode::new(unsafe { caches.node_mem_cache.as_mut() }, options)?;
-
-        unsafe {
-            let result = caches.mem_cache.as_mut().allocate::<Self>();
-
-            if let Some(mut mem_cache_ptr) = result {
-                let mem_cache = mem_cache_ptr.as_mut();
-
-                mem_cache.init(config, mem_cache_node, options).ok()?;
-
-                caches.add_cache(Pin::new_unchecked(mem_cache));
-
-                result
-            } else {
-                let _ = kfree(mem_cache_node).inspect_err(|e| {
+                Some(ptr)
+            })
+            .or_else(|| {
+                let _ = kfree(node).inspect_err(|e| {
                     printk!("kfree failed when failed to create MemCache: {:?}", e);
                 });
                 None
-            }
+            })
+    }
+
+    pub fn new(config: CacheConfig, options: PageAllocOptions) -> Option<NonNull<Self>> {
+        let caches = unsafe { (*CACHES.get()).assume_init_ref() };
+
+        unsafe {
+            Self::new_raw(config, caches.node_mem_cache, caches.mem_cache, options).and_then(
+                |mut mem_cache| {
+                    caches.add_cache(Pin::new_unchecked(mem_cache.as_mut()));
+                    Some(mem_cache)
+                },
+            )
+        }
+    }
+
+    /// 将 Slub 保存
+    ///
+    /// 如果 self.slub 为空则写入，否则加入 MemCacheNode 中
+    fn store(&self, slub: &mut Slub) {
+        if slub.inner.get_relaxed().inuse == self.config.object_num.get() {
+            // 如果满了就丢弃
+            return;
+        }
+        if let Err(slub) =
+            self.slub
+                .compare_exchange(null_mut(), slub, Ordering::Release, Ordering::Relaxed)
+        {
+            // 被抢先写入了，放进 node
+            unsafe {
+                self.node
+                    .as_ref()
+                    .put(&self.config, self.options, NonNull::new_unchecked(slub))
+            };
         }
     }
 
@@ -262,50 +252,57 @@ impl MemCache {
     ///
     /// 以下情况下会返回`None`：
     /// - `Node`中没有可用的对象，且尝试创建新`Slub`失败
-    pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
+    pub fn allocate<T>(&self) -> Option<NonNull<T>> {
         // 交换出 Slub 指针并用空指针替代，防止并发分配冲突
         let slub_ptr = self.slub.swap(null_mut(), Ordering::AcqRel);
 
         if !slub_ptr.is_null() {
             // 从 Slub 中分配
             let slub = unsafe { &mut *slub_ptr };
-            let result = slub.allocate();
+            let result = slub.allocate(NonNull::from_ref(self));
 
             // 重新存回 Slub 指针
-            self.slub.store(slub_ptr, Ordering::Release);
-            if let Some(result) = result {
-                return Some(result);
+            self.store(slub);
+
+            if let Some(ptr) = result {
+                return Some(ptr);
             }
         }
 
         // 未初始化或者已被占用，从 Node 中分配
-        let node = unsafe { self.node.as_mut() };
-        Some(node.allocate::<T>(&self.config, self.options).unwrap())
+        unsafe {
+            let node = self.node.as_ref();
+            let slub = node.get(&self.config, self.options)?.as_mut();
+            let result = slub.allocate(NonNull::from_ref(self));
+
+            self.store(slub);
+
+            result
+        }
     }
 
     pub fn try_destory(mut ptr: NonNull<Self>) -> Option<()> {
         let mem_cache = unsafe { ptr.as_mut() };
-        unsafe { mem_cache.node.as_mut().try_destroy(mem_cache)? };
+        unsafe { mem_cache.node.as_mut().try_destroy(&mem_cache.options)? };
 
         // 交换出 Slub 指针并用空指针替代
         let slub_ptr = mem_cache.slub.swap(null_mut(), Ordering::Relaxed);
 
         if !slub_ptr.is_null() {
             // 销毁 Slub
-            let frame = unsafe { &mut *slub_ptr };
+            let frame = unsafe { &mut *slub_ptr }.try_into().ok();
             frame
-                .try_into()
-                .ok()
-                .and_then(|slub: &mut Slub| slub.try_destroy(mem_cache))
+                .and_then(|slub: &mut Slub| slub.try_destroy(&mem_cache.options))
                 .or_else(|| {
                     mem_cache.slub.store(slub_ptr, Ordering::Relaxed);
                     None
                 })?;
         }
 
-        let mut head = unsafe { &mut (*CACHES.get()).assume_init_mut().list_head }.lock();
-        let list = &mut mem_cache.list;
-        unsafe { Pin::new_unchecked(list).del(&mut head) };
+        let mut head = unsafe { (*CACHES.get()).assume_init_ref().list_head.lock() };
+
+        let list = mem_cache.get_list();
+        list.del(head.deref_mut());
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));

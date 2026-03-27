@@ -23,9 +23,11 @@ DmaOps isa_dma_ops = {
 	.dma_free  = dma_free_region,
 };
 
-#define DMA_MEM_BASE_ADDR 0x200000
+#define DMA_MEM_BASE_ADDR 0x20000
 
 LogicalDevice *dma_channels[8]; // 使用DMA通道的设备
+
+uint8_t dma_mbits[DIV_ROUND_UP(DMA_MAX_REGION_COUNT, 8)];
 
 struct mmap dma_mem_mmap;
 spinlock_t	dma_spin_lock;
@@ -43,7 +45,7 @@ void dma_init() {
 
 	assign_frames(DMA_MEM_BASE_ADDR, DMA_MAX_REGION_COUNT * 64 / 4);
 
-	dma_mem_mmap.bits = kmalloc(DMA_MAX_REGION_COUNT / 8);
+	dma_mem_mmap.bits = dma_mbits;
 	dma_mem_mmap.len  = DMA_MAX_REGION_COUNT / 8;
 	memset(dma_mem_mmap.bits, 0, dma_mem_mmap.len);
 }

@@ -36,7 +36,7 @@ struct VesaDisplayInfo {
 	unsigned short			   BitsPerPixel;
 	unsigned char			  *vram_phy;
 	struct VbeModeInfoBlock	   vbe_mode_info;
-	struct VbeControlInfoBlock vbe_conrtol_info;
+	struct VbeControlInfoBlock vbe_control_info;
 };
 
 extern struct LogicalDevice vesa_display_device;

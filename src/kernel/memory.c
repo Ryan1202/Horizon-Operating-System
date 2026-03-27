@@ -28,22 +28,23 @@ extern size_t total_pages;
 extern size_t allocated_pages;
 
 void memory_early_init(void) {
+	page_early_init((size_t)&_kernel_end_phy);
+	setup_page();
+}
+
+void init_memory(void) {
 	uint32_t ards_addr	  = ARDS_ADDR;
 	uint32_t ards_nr_addr = ARDS_NR;
 	uint16_t ards_nr	  = *((uint16_t *)ards_nr_addr); // ards 结构数
 	ards				  = (struct ards *)ards_addr;	 // ards 地址
-	setup_page();
-	page_early_init(
-		ards, ards_nr, (size_t)&_kernel_start_phy, (size_t)&_kernel_end_phy);
-}
 
-void init_memory(void) {
-	page_init();
+	page_init(ards, ards_nr, (size_t)&_kernel_start_phy);
 
 	mem_caches_init();
 
-	vmalloc_init();
+	vmap_init();
 }
+
 int mmap_search(struct mmap *btmp, unsigned int cnt) {
 	int index_byte = 0;
 	int index_bit  = 0;

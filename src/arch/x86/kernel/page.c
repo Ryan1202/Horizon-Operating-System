@@ -63,13 +63,6 @@ size_t __early_init page_early_setup(void) {
 		addr += PAGE_SIZE;
 	}
 
-	// 数学上:
-	// 当 pages <= 1024
-	//    pages                   = size / PAGE_SIZE + pages / PAGE_SIZE + 1
-	// => pages *  PAGE_SIZE      = size + PAGE_SIZE + pages
-	// => pages * (PAGE_SIZE - 1) = size + PAGE_SIZE
-	// => pages                   = (size + PAGE_SIZE) / (PAGE_SIZE - 1)
-
 	int page;
 	int kernel_start_page = (((size_t)&_kernel_start_vir) >> 12) & ~0x3ff;
 	int kernel_end_page	  = (((size_t)&_kernel_end_vir) + PAGE_SIZE - 1) >> 12;

@@ -9,7 +9,11 @@ use crate::{
     kernel::memory::{
         KLINEAR_SIZE, KMEMORY_END, MemoryError, PageCacheType, VIR_BASE,
         arch::ArchMemory,
-        frame::{FrameTag, reference::UniqueFrames},
+        frame::{
+            Frame, FrameTag,
+            buddy::FrameOrder,
+            reference::{UniqueFrames, try_free},
+        },
         kmalloc::kmalloc,
         page::{PageFlags, PageTableError, PageTableWalker, range::VmRange},
     },
@@ -19,7 +23,7 @@ use crate::{
 pub struct DynPages {
     pub(super) rb_node: LinkedRbNodeBase<VmRange, usize>,
     pub(super) frame_count: usize,
-    pub(super) first_frame: Option<UniqueFrames>,
+    pub(super) head_frame: Option<UniqueFrames>,
 }
 
 impl DynPages {
@@ -28,10 +32,11 @@ impl DynPages {
         DynPages {
             rb_node: LinkedRbNodeBase::linked_new(range, count),
             frame_count: 0,
-            first_frame: None,
+            head_frame: None,
         }
     }
 
+    /// 获取内核可用临时虚拟地址空间的范围
     #[inline(always)]
     pub fn kernel() -> Self {
         let start = addr_of!(VIR_BASE) as usize + KLINEAR_SIZE;
@@ -84,8 +89,6 @@ impl DynPages {
         cache_type: PageCacheType,
     ) -> Result<(), MemoryError> {
         // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
-        let frame_number = frame.to_frame_number();
-
         if !matches!(frame.get_tag(), FrameTag::Anonymous) {
             return Err(MemoryError::UnavailableFrame);
         };
@@ -93,11 +96,10 @@ impl DynPages {
 
         unsafe { frame.get_data_mut().anonymous.acquire() };
 
-        W::map_range(
+        W::map(
             self,
-            frame_number,
             self.frame_count,
-            count,
+            &mut frame,
             PageFlags::new().cache_type(cache_type),
         )
         .inspect_err(|_| unsafe {
@@ -106,8 +108,8 @@ impl DynPages {
         {
             let range = self.rb_node.get_key();
 
-            if self.first_frame.is_none() {
-                self.first_frame = Some(frame);
+            if self.head_frame.is_none() {
+                self.head_frame = Some(frame);
             } else {
                 mem::forget(frame);
             }
@@ -126,8 +128,47 @@ impl DynPages {
         Ok(())
     }
 
-    pub fn unlink<W: PageTableWalker>(&mut self) -> Result<(), PageTableError> {
-        W::unmap_range(self, 0, self.frame_count)?;
+    pub fn unmap<W: PageTableWalker>(&mut self) -> Result<(), PageTableError> {
+        let mut page_number = self.start_addr().to_page_number().unwrap();
+        let mut offset = 0;
+
+        while offset < self.frame_count {
+            let vaddr = page_number.to_addr();
+            let paddr = W::translate(vaddr).unwrap();
+            let frame_number = paddr.to_frame_number();
+            let tag = Frame::get_tag_relaxed(frame_number + 1);
+
+            let (next, order) = if let FrameTag::Tail = tag {
+                let frame = unsafe { Frame::get_raw(frame_number + 1).as_ref() };
+
+                let range = unsafe { frame.get_data().range };
+                let count = range.end.count_from(range.start);
+
+                let next = page_number + count;
+                let order = FrameOrder::from_count(count);
+
+                (next, order)
+            } else {
+                (page_number + 1, FrameOrder::new(0))
+            };
+            page_number = next;
+
+            let _ = W::unmap(self, offset, order).inspect_err(|e| {
+                printk!(
+                    "unmap range failed! error: {:?}, start: {}, offset: {}, order: {:?}\n",
+                    e,
+                    self.start_addr(),
+                    offset,
+                    order
+                )
+            });
+
+            // 最后释放
+            unsafe {
+                try_free(Frame::get_raw(frame_number));
+            }
+            offset += order.to_count().get();
+        }
 
         self.frame_count = 0;
         Ok(())

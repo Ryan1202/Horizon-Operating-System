@@ -68,12 +68,14 @@ impl<K: Sized, A, NA> AugmentLinkHead<K, LinkedIter, LinkedHead<K, A, NA>, Linke
 
 impl<K> Augment for LinkedRbNodeBase<K, ()> {}
 
+#[repr(C)]
 #[derive(PartialEq, Debug)]
 pub struct Linked<K, A> {
     list_node: ListNode<LinkedRbNodeBase<K, A>>,
     pub augment: A,
 }
 
+#[repr(C)]
 #[derive(Default, PartialEq, Debug)]
 pub struct LinkedHead<K, A, NA> {
     pub list_head: ListHead<LinkedRbNodeBase<K, NA>>,

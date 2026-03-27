@@ -5,7 +5,6 @@
  * @version 1.2
  * @date 2022-07-31
  */
-#include "kernel/memory/block.h"
 #include "kernel/platform.h"
 #include <driver/interrupt/interrupt_dm.h>
 #include <drivers/8259a.h>

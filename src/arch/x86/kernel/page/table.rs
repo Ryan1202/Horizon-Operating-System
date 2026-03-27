@@ -5,7 +5,9 @@ use crate::{
     kernel::memory::{
         MemoryError,
         arch::ArchMemory,
-        frame::{FrameNumber, options::FrameAllocOptions, zone::ZoneType},
+        frame::{
+            buddy::FrameOrder, options::FrameAllocOptions, reference::UniqueFrames, zone::ZoneType,
+        },
         page::{
             PageEntry, PageFlags, PageTableError, PageTableWalker, dyn_pages::DynPages,
             options::PageAllocOptions,
@@ -17,6 +19,7 @@ pub const PDE_BASE: usize = 0xFFFF_F000;
 pub const PTE_BASE: usize = 0xFFC0_0000;
 
 pub const PDE_SHIFT: usize = 10;
+pub const PAGES_PER_HUGE_PAGE: usize = 1024;
 
 pub struct X86PageTable;
 
@@ -47,14 +50,11 @@ impl X86PageTable {
 
     fn alloc_table_frame(flags: PageFlags) -> Result<X86PageEntry, MemoryError> {
         let frame_options = FrameAllocOptions::new().fallback(&[ZoneType::LinearMem]);
-        let page_options = PageAllocOptions::new(frame_options).contiguous(true);
+        let page_options = PageAllocOptions::new(frame_options)
+            .contiguous(true)
+            .zeroed(true);
 
         let mut page = page_options.allocate()?;
-        unsafe {
-            page.start_addr()
-                .as_mut_ptr::<u8>()
-                .write_bytes(0, page.get_count() * ArchPageTable::PAGE_SIZE)
-        };
 
         let frame = page.get_frame().unwrap();
 
@@ -63,7 +63,7 @@ impl X86PageTable {
         } else {
             PageFlags::new()
         };
-        let new_pde = X86PageEntry::new_mapped(frame.to_frame_number(), pde_flags);
+        let new_pde = X86PageEntry::new_mapped(frame.to_frame_number(), pde_flags, 1);
 
         Ok(new_pde)
     }
@@ -75,31 +75,45 @@ impl PageTableWalker for X86PageTable {
     fn map(
         pages: &mut DynPages,
         offset: usize,
-        frame: FrameNumber,
+        frame: &mut UniqueFrames,
         flags: PageFlags,
     ) -> Result<(), MemoryError> {
-        let page_number = pages.start_addr().to_page_number().unwrap() + offset;
+        let page_number = pages.start_addr().to_page_number().unwrap().get().get() + offset;
 
-        let pde = Self::read_pde_entry(page_number.get().get());
-        if !pde.is_present() {
-            // 需要分配新的页表
-            let new_pde = Self::alloc_table_frame(flags)?;
-
-            Self::write_pde_entry(page_number.get().get(), new_pde);
-
-            if flags.huge_page {
-                // 大页直接映射，无需设置PTE
-                return Ok(());
+        // 尝试使用大页
+        if frame.get_order().get() >= 10 && FrameOrder::from_count(page_number).get() >= 10 {
+            let pde = Self::read_pde_entry(page_number);
+            if pde.is_present() {
+                return Err(PageTableError::EntryAlreadyMapped.into());
             }
+
+            Self::write_pde_entry(
+                page_number,
+                X86PageEntry::new_mapped(frame.to_frame_number(), flags, 1),
+            );
+            return Ok(());
         }
 
-        let pte = Self::read_pte_entry(page_number.get().get());
-        if pte.is_present() {
-            return Err(PageTableError::EntryAlreadyMapped.into());
-        }
+        let frame_number = frame.to_frame_number();
+        for i in 0..frame.get_order().to_count().get() {
+            let page_number = page_number + i;
 
-        let new_pte = X86PageEntry::new_mapped(frame, flags);
-        Self::write_pte_entry(page_number.get().get(), new_pte);
+            let pde = Self::read_pde_entry(page_number);
+            if !pde.is_present() {
+                // 需要分配新的页表
+                let new_pde = Self::alloc_table_frame(flags)?;
+
+                Self::write_pde_entry(page_number, new_pde);
+            }
+
+            let pte = Self::read_pte_entry(page_number);
+            if pte.is_present() {
+                return Err(PageTableError::EntryAlreadyMapped.into());
+            }
+
+            let new_pte = X86PageEntry::new_mapped(frame_number + i, flags, 0);
+            Self::write_pte_entry(page_number, new_pte);
+        }
 
         Ok(())
     }
@@ -110,6 +124,10 @@ impl PageTableWalker for X86PageTable {
         let pde_entry = Self::read_pde_entry(page_number);
         if !pde_entry.is_present() {
             return Err(PageTableError::EntryNotPresent);
+        } else if pde_entry.is_huge(1) {
+            return Ok(PhysAddr::new(
+                (pde_entry.0 as usize & 0xFFC0_0000) + (vaddr.as_usize() & 0x003F_FFFF),
+            ));
         }
 
         let pte_entry = Self::read_pte_entry(page_number);
@@ -121,21 +139,31 @@ impl PageTableWalker for X86PageTable {
         Ok(phys_addr)
     }
 
-    fn unmap(pages: &mut DynPages, offset: usize) -> Result<(), PageTableError> {
+    fn unmap(pages: &mut DynPages, offset: usize, order: FrameOrder) -> Result<(), PageTableError> {
         let vaddr = pages.start_addr() + offset * ArchPageTable::PAGE_SIZE;
+        let page_number = vaddr.to_page_number().unwrap().get().get();
 
-        let pde = Self::read_pde_entry(vaddr.to_page_number().unwrap().get().get());
+        let pde = Self::read_pde_entry(page_number);
         if !pde.is_present() {
             return Err(PageTableError::EntryNotPresent);
+        } else if pde.is_huge(1) {
+            if order.get() >= 10 {
+                let entry = X86PageEntry::new_absent();
+                Self::write_pde_entry(page_number, entry);
+            } else {
+                return Err(PageTableError::InvalidLevel);
+            }
         }
 
-        let pte = Self::read_pte_entry(vaddr.to_page_number().unwrap().get().get());
-        if !pte.is_present() {
-            return Err(PageTableError::EntryNotPresent);
-        }
+        for i in 0..order.to_count().get() {
+            let pte = Self::read_pte_entry(page_number + i);
+            if !pte.is_present() {
+                return Err(PageTableError::EntryNotPresent);
+            }
 
-        let new_pte = X86PageEntry::new_absent();
-        Self::write_pte_entry(vaddr.to_page_number().unwrap().get().get(), new_pte);
+            let entry = X86PageEntry::new_absent();
+            Self::write_pte_entry(page_number, entry);
+        }
 
         Ok(())
     }

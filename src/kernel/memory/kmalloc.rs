@@ -12,7 +12,7 @@ use crate::{
         arch::ArchMemory,
         frame::{Frame, FrameTag, buddy::FrameOrder},
         page::{kfree_pages, options::PageAllocOptions},
-        slub::{Slub, config::get_cache_unchecked},
+        slub::{Slub, config::select_cache},
         vir_base_addr,
     },
 };
@@ -38,18 +38,17 @@ pub extern "C" fn kzalloc_c(size: usize) -> *mut c_void {
 }
 
 pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
-    let ilog = size.get().max(8).next_power_of_two().ilog2() as usize;
+    match select_cache(size) {
+        Some(cache) => cache.allocate(),
+        _ => {
+            let ilog = size.get().next_power_of_two().ilog2() as usize;
+            let order = FrameOrder::from_count(ilog - ArchPageTable::PAGE_BITS);
 
-    if ilog > 12 {
-        let order = FrameOrder::from_frame_count(ilog - ArchPageTable::PAGE_BITS);
+            let page_options = PageAllocOptions::kernel(order);
+            let mut pages = page_options.allocate().ok()?;
 
-        let page_options = PageAllocOptions::kernel(order);
-        let mut pages = page_options.allocate().ok()?;
-
-        Some(unsafe { NonNull::new_unchecked(pages.get_ptr()) })
-    } else {
-        let cache = unsafe { get_cache_unchecked(ilog - 3).clone().as_mut() };
-        cache.allocate::<T>()
+            Some(unsafe { NonNull::new_unchecked(pages.get_ptr()) })
+        }
     }
 }
 

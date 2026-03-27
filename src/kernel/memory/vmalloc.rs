@@ -11,13 +11,13 @@ use crate::{
         MemoryError, PageCacheType,
         arch::ArchMemory,
         frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType},
-        page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap_node},
+        page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap},
     },
 };
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vmalloc_init() {
-    get_vmap_node().init();
+pub extern "C" fn vmap_init() {
+    get_vmap().init();
 }
 
 #[unsafe(export_name = "ioremap")]
@@ -123,10 +123,10 @@ pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
         end: num,
     };
 
-    let mut node = get_vmap_node();
+    let mut node = get_vmap();
     let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
 
-    pages.unlink::<ArchPageTable>()?;
+    pages.unmap::<ArchPageTable>()?;
 
     node.deallocate(pages)
 }

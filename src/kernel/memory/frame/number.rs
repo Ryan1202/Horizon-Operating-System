@@ -19,15 +19,18 @@ impl FrameNumber {
         self.0
     }
 
+    /// 获取当前物理页指针对应的FrameNumber
     pub fn from_frame(frame: NonNull<Frame>) -> Self {
         let frame_number = unsafe { frame.as_ref() }.to_frame_number();
         FrameNumber(frame_number.0)
     }
 
+    /// 计算两个物理页号之间的差
     pub const fn count_from(self, other: FrameNumber) -> usize {
         self.0.abs_diff(other.0)
     }
 
+    /// 向下对齐到 order
     pub const fn align_down(self, order: FrameOrder) -> FrameNumber {
         let mask = (1 << order.get()) - 1;
         FrameNumber(self.0 & !mask)

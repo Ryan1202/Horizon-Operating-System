@@ -1,4 +1,4 @@
-use core::num::NonZeroUsize;
+use core::{mem::ManuallyDrop, num::NonZeroUsize};
 
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable},
@@ -11,7 +11,7 @@ use crate::{
             options::{FrameAllocOptions, FrameAllocType, RetryPolicy},
             zone::ZoneType,
         },
-        page::{FlushTlb, Pages, dyn_pages::DynPages, vmap::get_vmap_node},
+        page::{FlushTlb, Pages, dyn_pages::DynPages, vmap::get_vmap},
     },
 };
 
@@ -87,7 +87,7 @@ impl PageAllocOptions {
     pub const fn order(mut self, order: FrameOrder) -> Self {
         self.count = None;
         self.frame = match self.frame.get_type() {
-            FrameAllocType::Dynamic { order } => self.frame.dynamic(order),
+            FrameAllocType::Dynamic { .. } => self.frame.dynamic(order),
             FrameAllocType::Fixed { start, .. } => self.frame.fixed(start, order),
         };
         self
@@ -154,7 +154,7 @@ impl PageAllocOptions {
             Ok(())
         } else if first.is_some() {
             // 部分成功但未满足需求，返回错误（避免返回残留的链表）
-            pages.unlink::<ArchPageTable>()?;
+            pages.unmap::<ArchPageTable>()?;
             Err(MemoryError::OutOfMemory)
         } else {
             // 完全失败
@@ -175,7 +175,7 @@ impl PageAllocOptions {
             };
 
             if !matches!(zone, ZoneType::LinearMem) {
-                let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
+                let v = unsafe { get_vmap().allocate(count)?.as_mut() };
 
                 v.map::<ArchPageTable>(frame, self.cache_type)?;
 
@@ -185,16 +185,15 @@ impl PageAllocOptions {
 
                 Ok(Pages::Dynamic(v))
             } else {
-                let order = frame.get_order();
-                Ok(Pages::Fixed((frame, order)))
+                Ok(Pages::Linear(ManuallyDrop::new(frame)))
             }
         } else {
-            let v = unsafe { get_vmap_node().allocate(count)?.as_mut() };
+            let v = unsafe { get_vmap().allocate(count)?.as_mut() };
 
             let result = self.alloc_discontiguous(v);
 
             if result.is_err() {
-                let _ = get_vmap_node().deallocate(v).inspect_err(|e| {
+                let _ = get_vmap().deallocate(v).inspect_err(|e| {
                     printk!(
                         "Failed to free virtual memory since {}, error: {:?} (memory leaked)",
                         v.start_addr(),

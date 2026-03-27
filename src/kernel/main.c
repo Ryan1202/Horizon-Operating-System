@@ -109,8 +109,6 @@ void kernel_early_init(void) {
 	memory_early_init();
 }
 
-extern size_t page_info[];
-
 int main() {
 	init_memory();
 	init_object_tree();

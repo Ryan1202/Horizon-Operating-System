@@ -12,7 +12,7 @@ use crate::{
         frame::{
             Frame, FrameNumber, FrameTag,
             buddy::FrameOrder,
-            reference::{SharedFrames, UniqueFrames},
+            reference::{UniqueFrames, try_free},
         },
         page::{dyn_pages::DynPages, options::PageAllocOptions},
         vir_base_addr,
@@ -38,7 +38,7 @@ pub trait PageEntry: Sized {
     fn new_absent() -> Self;
 
     /// 创建一个有效条目，映射到 frame 并设置 flags
-    fn new_mapped(frame: FrameNumber, flags: PageFlags) -> Self;
+    fn new_mapped(frame: FrameNumber, flags: PageFlags, page_level: u8) -> Self;
 
     /// 是否有效
     fn is_present(&self) -> bool;
@@ -47,14 +47,14 @@ pub trait PageEntry: Sized {
     fn frame_number(&self) -> Option<FrameNumber>;
 
     /// 获取当前 flags
-    fn flags(&self) -> PageFlags;
+    fn flags(&self, page_level: u8) -> PageFlags;
 
     /// 修改 flags（保留物理地址不变）
     fn set_flags(&mut self, flags: PageFlags);
 
     /// 是否是大页条目（用于多级页表中跳过下一级）
-    fn is_huge(&self) -> bool {
-        self.flags().huge_page
+    fn is_huge(&self, page_level: u8) -> bool {
+        self.flags(page_level).huge_page
     }
 
     /// 清空条目（设为 absent）
@@ -81,49 +81,20 @@ pub trait PageTableWalker {
     fn map(
         pages: &mut DynPages,
         offset: usize,
-        frame: FrameNumber,
+        frames: &mut UniqueFrames,
         flags: PageFlags,
     ) -> Result<(), MemoryError>;
 
     /// 取消虚拟页的映射
     ///
     /// 返回之前映射的物理页帧。调用者负责调用 TLB flush。
-    fn unmap(pages: &mut DynPages, offset: usize) -> Result<(), PageTableError>;
+    fn unmap(pages: &mut DynPages, offset: usize, order: FrameOrder) -> Result<(), PageTableError>;
 
     /// 翻译虚拟地址到物理地址（不修改页表）
     fn translate(vaddr: VirtAddr) -> Result<PhysAddr, PageTableError>;
 
     /// 修改已有映射的 flags（不改变物理地址）
     fn update_flags(pages: &mut DynPages, flags: PageFlags) -> Result<(), PageTableError>;
-
-    /// 批量映射
-    ///
-    /// 默认实现逐页调用 map()。架构可覆盖以使用大页优化。
-    fn map_range(
-        pages: &mut DynPages,
-        frame_start: FrameNumber,
-        offset: usize,
-        count: usize,
-        flags: PageFlags,
-    ) -> Result<(), MemoryError> {
-        let frame_number = frame_start;
-        for i in 0..count {
-            Self::map(pages, offset + i, frame_number + i, flags)?;
-        }
-        Ok(())
-    }
-
-    /// 批量取消映射
-    fn unmap_range(
-        pages: &mut DynPages,
-        offset: usize,
-        count: usize,
-    ) -> Result<(), PageTableError> {
-        for i in 0..count {
-            Self::unmap(pages, offset + i)?;
-        }
-        Ok(())
-    }
 }
 
 /// 页表操作错误
@@ -180,14 +151,14 @@ impl Sub<usize> for PageNumber {
 }
 
 pub enum Pages<'a> {
-    Fixed((UniqueFrames, FrameOrder)),
+    Linear(ManuallyDrop<UniqueFrames>),
     Dynamic(&'a mut DynPages),
 }
 
 impl<'a> Pages<'a> {
     pub fn start_addr(&self) -> VirtAddr {
         match self {
-            Pages::Fixed((frame, _)) => vir_base_addr() + frame.start_addr().as_usize(),
+            Pages::Linear(frame) => vir_base_addr() + frame.start_addr().as_usize(),
             Pages::Dynamic(vpages) => vpages.start_addr(),
         }
     }
@@ -198,14 +169,14 @@ impl<'a> Pages<'a> {
 
     pub fn get_frame(&mut self) -> Option<&mut UniqueFrames> {
         match self {
-            Pages::Fixed((frame, _)) => Some(frame),
-            Pages::Dynamic(vpages) => vpages.first_frame.as_mut(),
+            Pages::Linear(frame) => Some(frame),
+            Pages::Dynamic(vpages) => vpages.head_frame.as_mut(),
         }
     }
 
     pub fn get_count(&self) -> usize {
         match self {
-            Pages::Fixed((_, order)) => order.to_count().get(),
+            Pages::Linear(frame) => frame.get_order().to_count().get(),
             Pages::Dynamic(vpages) => vpages.frame_count,
         }
     }
@@ -253,20 +224,22 @@ pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
         let frame_number = phy_addr.to_frame_number();
         let frame = Frame::get_raw(frame_number);
 
-        match Frame::get_tag_relaxed(frame_number) {
-            FrameTag::Unavailable
+        let tag = Frame::get_tag_relaxed(frame_number);
+        match tag {
+            FrameTag::Uninited
             | FrameTag::HardwareReserved
             | FrameTag::SystemReserved
-            | FrameTag::Tail => Err(MemoryError::UnavailableFrame),
-            FrameTag::Free => panic!(
-                "Attempt to free frame with unavailable tag at vaddr: {:#x}",
-                vaddr.as_usize()
-            ),
+            | FrameTag::Tail
+            | FrameTag::Free => {
+                printk!(
+                    "Trying to free unavailable frame! vaddr: {:#x}, tag: {:?}",
+                    vaddr.as_usize(),
+                    tag
+                );
+                Err(MemoryError::UnavailableFrame)
+            }
             _ => unsafe {
-                if UniqueFrames::try_from_raw(frame).is_none() {
-                    let _ = SharedFrames::from_raw(frame, FrameOrder::new(0))
-                        .ok_or(MemoryError::UnavailableFrame)?;
-                }
+                try_free(frame);
 
                 Ok(())
             },

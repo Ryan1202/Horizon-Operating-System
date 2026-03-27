@@ -1,15 +1,12 @@
 #ifndef _VIDEO_H
 #define _VIDEO_H
 
-#define VIDEO_INFO_ADDR 0x8000
-
 /**
  * 虚拟地址VRAM_VIR_ADDR =
  * |  0000 0000 01  |  00 0000 0000  |  0000 0000 0000  |
  * |  一级页表索引  |  二级页表索引  |      偏移地址    |
  * 对应*(VIDEO_INFO_ADDR + 6)的地址
  */
-#define VRAM_VIR_ADDR 0x400000
 
 struct vbe_mode_info_block {
 	unsigned char  VbeSignature[4];

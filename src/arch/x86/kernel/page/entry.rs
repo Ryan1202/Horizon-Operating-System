@@ -21,16 +21,22 @@ impl X86PageFlags {
 
     const PWT: u32 = 1 << 3; // Page-level Write-Through
     const PCD: u32 = 1 << 4; // Page-level Cache Disable
-    const PAT: u32 = 1 << 7; // Page Attribute Table (only in PDE)
+    const PAT_PTE: u32 = 1 << 7; // Page Attribute Table (only in PTE)
+    const PAT_PDE: u32 = 1 << 12;
 
     const CACHE_WRITE_BACK: u32 = 0;
-    const CACHE_WRITE_COMBINE: u32 = Self::PAT | Self::PWT;
+    const CACHE_WRITE_COMBINE_PTE: u32 = Self::PAT_PTE | Self::PWT;
+    const CACHE_WRITE_COMBINE_PDE: u32 = Self::PAT_PDE | Self::PWT;
     const CACHE_WRITE_THROUGH: u32 = Self::PWT;
     const CACHE_UNCACHED: u32 = Self::PCD | Self::PWT;
     const CACHE_UNCACHED_MINUS: u32 = Self::PCD;
 
-    const fn as_page_flags(&self) -> PageFlags {
-        let pat = (self.0 & Self::PAT) != 0;
+    const fn as_page_flags(&self, is_pte: bool) -> PageFlags {
+        let pat = if is_pte {
+            (self.0 & Self::PAT_PTE) != 0
+        } else {
+            (self.0 & Self::PAT_PDE) != 0
+        };
         let pwt = (self.0 & Self::PWT) != 0;
         let pcd = (self.0 & Self::PCD) != 0;
 
@@ -71,14 +77,22 @@ impl From<PageFlags> for X86PageFlags {
         }
         // if flags.accessed { x86_flags |= Self::ACCESSED; }
         // if flags.dirty { x86_flags |= Self::DIRTY; }
-        // if flags.huge_page { x86_flags |= Self::PAGE_SIZE; }
+        if flags.huge_page {
+            x86_flags |= Self::PAGE_SIZE;
+        }
         if flags.global {
             x86_flags |= Self::GLOBAL;
         }
 
         x86_flags |= match flags.cache_type {
             PageCacheType::WriteBack => Self::CACHE_WRITE_BACK,
-            PageCacheType::WriteCombine => Self::CACHE_WRITE_COMBINE,
+            PageCacheType::WriteCombine => {
+                if flags.huge_page {
+                    Self::CACHE_WRITE_COMBINE_PDE
+                } else {
+                    Self::CACHE_WRITE_COMBINE_PTE
+                }
+            }
             PageCacheType::WriteThrough => Self::CACHE_WRITE_THROUGH,
             PageCacheType::Uncached => Self::CACHE_UNCACHED,
             PageCacheType::UncachedMinus => Self::CACHE_UNCACHED_MINUS,
@@ -96,8 +110,14 @@ impl PageEntry for X86PageEntry {
         X86PageEntry(0)
     }
 
-    fn new_mapped(frame: FrameNumber, flags: PageFlags) -> Self {
-        let mut entry = X86PageEntry((frame.get() * ArchPageTable::PAGE_SIZE) as u32);
+    fn new_mapped(frame: FrameNumber, flags: PageFlags, page_level: u8) -> Self {
+        let mut entry = Self((frame.get() * ArchPageTable::PAGE_SIZE) as u32);
+
+        let flags = if page_level == 0 {
+            flags.huge_page(false)
+        } else {
+            flags
+        };
         entry.set_flags(flags);
         entry
     }
@@ -114,8 +134,8 @@ impl PageEntry for X86PageEntry {
         }
     }
 
-    fn flags(&self) -> PageFlags {
-        X86PageFlags(self.0 & 0xFFF).as_page_flags()
+    fn flags(&self, page_level: u8) -> PageFlags {
+        X86PageFlags(self.0 & 0xFFF).as_page_flags(page_level == 0)
     }
 
     fn set_flags(&mut self, flags: PageFlags) {

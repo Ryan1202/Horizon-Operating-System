@@ -60,7 +60,9 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			return;
 		}
 		// 清除 BM 状态 (W1C: 只写入要清除的位)
-		io_out_byte(channel->bmide + IDE_REG_BM_STATUS, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR);
+		io_out_byte(
+			channel->bmide + IDE_REG_BM_STATUS,
+			IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR);
 	}
 
 	// 读取 ATA 状态清除中断
@@ -85,9 +87,9 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
-		if (request->rw == 0) { storage_solve_read_request(request); }
 		ata_bmdma_unmap_buffer(
 			channel->dma, request->buf, request->count * SECTOR_SIZE);
+		if (request->rw == 0) { storage_solve_read_request(request); }
 	}
 	storage_finish_request(request);
 }
@@ -309,6 +311,7 @@ DriverResult ide_device_read_sectors(
 	}
 
 	ide_select_device(channel, ide_device->device_num);
+	ide_sync(channel);
 	ide_wait(channel);
 
 	uint8_t cmd;
@@ -367,6 +370,7 @@ DriverResult ide_device_write_sectors(
 	}
 
 	ide_select_device(channel, ide_device->device_num);
+	ide_sync(channel);
 	ide_wait(channel);
 
 	uint8_t cmd;

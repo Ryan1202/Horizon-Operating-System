@@ -34,7 +34,7 @@ pub unsafe fn init_red_zones(slab_obj_start: *mut u8, user_offset: usize, user_s
     // 后 red zone
     unsafe {
         core::ptr::write_bytes(
-            slab_obj_start.add(user_offset + user_size),
+            slab_obj_start.byte_add(user_offset + user_size),
             RED_ZONE_BYTE,
             RED_ZONE_SIZE,
         );
@@ -51,15 +51,15 @@ pub unsafe fn check_red_zones(
 ) -> bool {
     // 检查前 red zone
     for i in 0..user_offset {
-        if unsafe { *slab_obj_start.add(i) } != RED_ZONE_BYTE {
+        if unsafe { *slab_obj_start.byte_add(i) } != RED_ZONE_BYTE {
             report_corruption("front red zone", slab_obj_start, i);
             return false;
         }
     }
     // 检查后 red zone
-    let back_start = unsafe { slab_obj_start.add(user_offset + user_size) };
+    let back_start = unsafe { slab_obj_start.byte_add(user_offset + user_size) };
     for i in 0..RED_ZONE_SIZE {
-        if unsafe { *back_start.add(i) } != RED_ZONE_BYTE {
+        if unsafe { *back_start.byte_add(i) } != RED_ZONE_BYTE {
             report_corruption("back red zone", slab_obj_start, user_offset + user_size + i);
             return false;
         }
@@ -88,7 +88,7 @@ pub unsafe fn check_poison(user_ptr: *mut u8, user_size: usize) -> bool {
         if i < core::mem::size_of::<usize>() {
             continue;
         }
-        if unsafe { *user_ptr.add(i) } != POISON_FREE {
+        if unsafe { *user_ptr.byte_add(i) } != POISON_FREE {
             report_use_after_free(user_ptr, i);
             return false;
         }
@@ -111,6 +111,6 @@ fn report_use_after_free(user_ptr: *mut u8, offset: usize) {
         user_ptr,
         offset,
         POISON_FREE,
-        unsafe { *user_ptr.add(offset) },
+        unsafe { *user_ptr.byte_add(offset) },
     );
 }

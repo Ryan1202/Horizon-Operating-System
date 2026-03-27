@@ -51,7 +51,7 @@ void __multiboot2 multiboot2_loader(uint32_t eax, uint32_t ebx) {
 				&vesa_info->vbe_mode_info, vbe->vbe_mode_info,
 				sizeof(struct VbeModeInfoBlock));
 			multiboot2_memcpy(
-				&vesa_info->vbe_conrtol_info, vbe->vbe_control_info,
+				&vesa_info->vbe_control_info, vbe->vbe_control_info,
 				sizeof(struct VbeControlInfoBlock));
 			break;
 		}

@@ -65,7 +65,7 @@
 #define DMA_MODE_SINGLE 0x40
 #define DMA_MODE_BLOCK	0x80
 
-#define DMA_MAX_REGION_COUNT 8
+#define DMA_MAX_REGION_COUNT 4
 #define DMA_REGION_SIZE		 64 * 1024
 
 #include "kernel/dma.h"

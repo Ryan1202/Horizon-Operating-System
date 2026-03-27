@@ -5,29 +5,10 @@
 #include "result.h"
 #include <stdint.h>
 
-#define PHY_MEM_BASE_ADDR 0x1000000
-#define PHY_MEM_MMAP	  0x210000
-#define PHY_MEM_MMAP_SIZE 0x20000
-#define VIR_MEM_BASE_ADDR 0x1000000
-#define VIR_MEM_MMAP	  0x230000
-#define VIR_MEM_MMAP_SIZE 0x10000
-
-#define KERN_VIR_MEM_BASE_ADDR 0x00000000
-#define USER_VIR_MEM_BASE_ADDR 0x80000000
-
-#define MEMORY_BLOCKS			0x1000
-#define MEMORY_BLOCK_FREE		0 // 内存信息块空闲
-#define MEMORY_BLOCK_USING		1 // 内存信息块使用中
-#define MEMORY_BLOCK_ALLOCATED	2 // 内存信息块已经分配
-#define MEMORY_BLOCK_MODE_SMALL 0 // 小块内存描述1024一下的内存块
-#define MEMORY_BLOCK_MODE_BIG	1 // 大块内存描述4kb为单位的内存块
-
+#define MEMORY_BLOCKS		   0x1000
 #define MEMORY_FREE_LIST_COUNT 7
 
 #define MEMORY_MIN_POW 5
-
-extern struct mmap phy_page_mmap;
-extern struct mmap vir_page_mmap;
 
 typedef enum MemoryResult {
 	MEMORY_RESULT_OK,
@@ -47,15 +28,6 @@ struct memory_block {
 	int			 size;
 	int			 flags;
 	int			 mode;
-};
-
-struct memory_manage {
-	// 32 64 128 256 512 1024 2048
-	list_t free_blocks_list[MEMORY_FREE_LIST_COUNT];
-
-	int last_free_block;
-
-	struct memory_block free_blocks[MEMORY_BLOCKS];
 };
 
 struct mem_cache;
@@ -103,6 +75,6 @@ typedef enum ZoneType {
 } ZoneType;
 
 void mem_caches_init();
-void vmalloc_init();
+void vmap_init();
 
 #endif

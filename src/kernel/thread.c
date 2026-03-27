@@ -17,7 +17,6 @@
 #include <kernel/spinlock.h>
 #include <kernel/sync.h>
 #include <kernel/thread.h>
-#include <math.h>
 #include <objects/permission.h>
 #include <stdint.h>
 #include <string.h>
@@ -381,21 +380,4 @@ void schedule(void) {
 	if (cur->status == TASK_READY) cur->status = TASK_RUNNING;
 
 	store_interrupt_status(old_status);
-}
-
-/**
- * @brief 初始化用户线程的内存管理
- *
- * @param thread 线程结构
- */
-void init_thread_memory_manage(struct task_s *thread) {
-	int		 i;
-	uint32_t pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
-
-	thread->memory_manage = (struct memory_manage *)kmalloc_pages(pages);
-	memset(thread->memory_manage, 0, sizeof(struct memory_manage));
-	for (i = 0; i < MEMORY_BLOCKS; i++) {
-		thread->memory_manage->free_blocks[i].size	= 0;
-		thread->memory_manage->free_blocks[i].flags = MEMORY_BLOCK_FREE;
-	}
 }

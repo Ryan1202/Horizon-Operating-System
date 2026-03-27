@@ -36,7 +36,7 @@ use crate::{
 pub(super) mod config;
 #[cfg(feature = "slub_debug")]
 mod debug;
-mod mem_cache;
+pub mod mem_cache;
 mod mem_cache_node;
 
 pub(super) const MIN_OBJECT_SIZE: usize = 8;
@@ -54,6 +54,7 @@ pub(super) const MIN_ALIGN: usize = core::mem::size_of::<usize>() * 2;
 #[derive(Clone, Copy, Debug)]
 pub struct ObjectSize(pub NonZeroU16);
 
+#[repr(C)]
 pub struct Slub {
     list: SyncUnsafeCell<ListNode<Self>>,
     inner: Spinlock<SlubInner>,
@@ -65,12 +66,19 @@ unsafe impl Sync for Slub {}
 #[repr(C, packed)]
 pub struct SlubInner {
     /// 空闲对象头
-    freelist: Option<NonNull<FreeNode>>,
+    ptr: SlubPtr,
     /// 正在使用的对象数量
     inuse: u16,
     #[cfg(feature = "slub_debug")]
     /// 到用户数据的起始位置的偏移量
     user_offset: u8,
+    #[cfg(feature = "slub_debug")]
+    object_size: NonZeroU16,
+}
+
+union SlubPtr {
+    freelist: Option<NonNull<FreeNode>>,
+    mem_cache: NonNull<MemCache>,
 }
 
 #[repr(C)]
@@ -128,10 +136,14 @@ impl Slub {
         let slub_info = Slub {
             list: SyncUnsafeCell::new(ListNode::new()),
             inner: Spinlock::new(SlubInner {
-                freelist: Some(freelist),
+                ptr: SlubPtr {
+                    freelist: Some(freelist),
+                },
                 inuse: 0,
                 #[cfg(feature = "slub_debug")]
                 user_offset: config.user_offset as u8,
+                #[cfg(feature = "slub_debug")]
+                object_size: config.object_size.0,
             }),
         };
 
@@ -153,14 +165,14 @@ impl Slub {
     }
 
     /// 销毁当前 `Slub`
-    pub fn try_destroy(&mut self, cache_info: &MemCache) -> Option<()> {
+    pub fn try_destroy(&mut self, options: &PageAllocOptions) -> Option<()> {
         if unsafe { self.list.get().as_ref()? }.is_linked() {
             return None;
         }
 
         self.inner.lock().is_destroyable()?;
 
-        let alloc_type = cache_info.options.get_frame_options().get_type();
+        let alloc_type = options.get_frame_options().get_type();
         let order = if let FrameAllocType::Dynamic { order } = alloc_type {
             order
         } else {
@@ -176,12 +188,12 @@ impl Slub {
     }
 
     #[inline]
-    pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
-        self.inner.lock().allocate()
+    pub fn allocate<T>(&self, mem_cache: NonNull<MemCache>) -> Option<NonNull<T>> {
+        self.inner.lock().allocate(mem_cache)
     }
 
     #[inline]
-    pub fn deallocate(&mut self, obj: NonNull<u8>) {
+    pub fn deallocate(&self, obj: NonNull<u8>) {
         self.inner.lock().deallocate(obj);
     }
 
@@ -212,11 +224,21 @@ impl SlubInner {
     /// 返回一个类型为`T`的对象的指针，内存大小在创建`Slub`时已确定
     ///
     /// 如果该`Slub`没有剩余可用对象，则返回`None`
-    pub fn allocate<T>(&mut self) -> Option<NonNull<T>> {
-        let freelist = self.freelist?;
+    pub fn allocate<T>(&mut self, mem_cache: NonNull<MemCache>) -> Option<NonNull<T>> {
+        let freelist = unsafe {
+            if let Some(freelist) = self.ptr.freelist {
+                freelist
+            } else {
+                // 没有可用对象了
+                self.ptr.mem_cache = mem_cache;
+                return None;
+            }
+        };
 
         let node = freelist;
-        self.freelist = unsafe { node.read() }.next;
+        unsafe {
+            self.ptr.freelist = node.read().next;
+        }
         self.inuse += 1;
 
         #[cfg(feature = "slub_debug")]
@@ -258,11 +280,11 @@ impl SlubInner {
 
         unsafe {
             node.write(FreeNode {
-                next: self.freelist,
+                next: self.ptr.freelist,
             });
-        }
 
-        self.freelist = Some(node);
+            self.ptr.freelist = Some(node);
+        }
 
         self.inuse -= 1;
     }
@@ -385,7 +407,7 @@ const fn calculate_sizes(
     #[cfg(feature = "slub_debug")]
     let size = size + (debug::user_ptr_offset(align) + debug::RED_ZONE_SIZE);
 
-    let object_size = NonZeroU16::new((size - 1).next_multiple_of(align) as u16)
+    let object_size = NonZeroU16::new(size.next_multiple_of(align) as u16)
         .expect("`object_size` should be non zero after alignment!");
 
     let object_size = ObjectSize(object_size);

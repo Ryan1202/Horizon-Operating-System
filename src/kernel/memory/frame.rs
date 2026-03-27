@@ -62,7 +62,6 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
     refcount: FrameRc,
-    // 其他字段在后
     data: SyncUnsafeCell<FrameData>,
     tag: AtomicU8,
 }
@@ -70,7 +69,7 @@ pub struct Frame {
 pub union FrameData {
     pub unused: (),
     pub range: FrameRange,
-    pub buddy: ManuallyDrop<Buddy>,
+    pub(super) buddy: ManuallyDrop<Buddy>,
     pub(super) slub: ManuallyDrop<Slub>,
     pub anonymous: ManuallyDrop<Anonymous>,
 }
@@ -78,18 +77,19 @@ pub union FrameData {
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FrameTag {
-    /// 不可使用（比如为一组页中非首个页）
-    Unavailable = 0,
+    /// 未配置（比如为一组页中非首个页）
+    Uninited = 0,
     HardwareReserved = 1,
     SystemReserved = 2,
+    BadMemory = 3,
     /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
-    Free = 3,
+    Free = 4,
     /// `Anonymous` 用于标识该组页已被分配，但没有标识类型
-    Anonymous = 4,
-    Buddy = 5,
-    Slub = 6,
+    Anonymous = 5,
+    Buddy = 6,
+    Slub = 7,
     /// 跨越单个物理页的大页中，使用头一个页存放元数据，其余页使用 `Tail` 标记
-    Tail = 7,
+    Tail = 8,
 }
 
 const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
@@ -138,11 +138,12 @@ impl Frame {
                 FrameTag::Free
                 | FrameTag::SystemReserved
                 | FrameTag::HardwareReserved
+                | FrameTag::BadMemory
                 | FrameTag::Tail => {}
                 FrameTag::Slub => {
                     ManuallyDrop::drop(&mut _data.slub);
                 }
-                FrameTag::Unavailable => {}
+                FrameTag::Uninited => {}
             }
         }
 
@@ -203,14 +204,6 @@ impl Frame {
             unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
         FrameNumber::new(frame_number)
     }
-
-    pub fn prev_frame(&mut self, count: usize) -> NonNull<Frame> {
-        Frame::get_raw(self.to_frame_number() - count)
-    }
-
-    pub fn next_frame(&mut self, count: usize) -> NonNull<Frame> {
-        Frame::get_raw(self.to_frame_number() + count)
-    }
 }
 
 pub const fn frame_count(size: usize) -> usize {
@@ -219,7 +212,7 @@ pub const fn frame_count(size: usize) -> usize {
 
 pub trait FrameAllocator {
     fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames>;
-    fn deallocate(&self, page: &mut Frame) -> Result<usize, FrameError>;
+    fn deallocate(&self, page: &mut Frame) -> Result<(), FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     ///
     /// 需要注意：`start` 须对齐到 `order`

@@ -52,6 +52,12 @@ void platform_early_init() {
 
 	// 读取CPU特性
 	read_features();
+	if (cpu_check_feature(CPUID_FEAT_PAT)) {
+		uint32_t lo, hi;
+		cpu_rdmsr(IA32_PAT, &lo, &hi);
+		hi = (hi & ~0x7) | 0x1; // 把 PAT4 设为 WriteCombining
+		cpu_wrmsr(IA32_PAT, lo, hi);
+	}
 }
 
 DriverResult platform_init() {
@@ -80,15 +86,9 @@ DriverResult platform_init() {
 	result = register_pit();
 	result = register_cmos();
 
-	// dma_init();
+	dma_init();
 
 	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
-	if (cpu_check_feature(CPUID_FEAT_PAT)) {
-		uint32_t lo, hi;
-		cpu_rdmsr(IA32_PAT, &lo, &hi);
-		hi = (hi & ~0x7) | 0x1; // 把 PAT4 设为 WriteCombining
-		cpu_wrmsr(IA32_PAT, lo, hi);
-	}
 
 	return DRIVER_OK;
 }
