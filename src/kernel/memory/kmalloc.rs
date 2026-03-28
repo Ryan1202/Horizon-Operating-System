@@ -42,7 +42,7 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
         Some(cache) => cache.allocate(),
         _ => {
             let ilog = size.get().next_power_of_two().ilog2() as usize;
-            let order = FrameOrder::from_count(ilog - ArchPageTable::PAGE_BITS);
+            let order = FrameOrder::new((ilog - ArchPageTable::PAGE_BITS) as u8);
 
             let page_options = PageAllocOptions::kernel(order);
             let mut pages = page_options.allocate().ok()?;

@@ -127,73 +127,97 @@ impl Config {
         let mut ldflags = Vec::new();
         let mut rust_flags = Vec::new();
         let mut rust_target = String::new();
-        for (name, tool_config) in tools_table {
-            match name.as_str() {
-                "cc" => {
-                    cc = tool_config
-                        .as_str()
-                        .ok_or("Invalid 'cc' field")?
-                        .to_string()
-                }
-                "as" => {
-                    as_ = tool_config
-                        .as_str()
-                        .ok_or("Invalid 'as' field")?
-                        .to_string()
-                }
-                "ld" => {
-                    ld = tool_config
-                        .as_str()
-                        .ok_or("Invalid 'ld' field")?
-                        .to_string()
-                }
-                "cflags" => {
-                    cflags = tool_config
-                        .as_array()
-                        .ok_or("Invalid 'cflags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
-                    continue;
-                }
-                "asflags" => {
-                    asflags = tool_config
-                        .as_array()
-                        .ok_or("Invalid 'asflags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
-                }
-                "ldflags" => {
-                    // 解析链接器标志
-                    ldflags = tool_config
-                        .as_array()
-                        .ok_or("Invalid 'ldflags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
-                }
-                "rustflags" => {
-                    // 解析 Rust 编译器标志
-                    rust_flags = tool_config
-                        .as_array()
-                        .ok_or("Invalid 'rust_flags' field")?
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
-                }
-                "rust_target" => {
-                    rust_target = tool_config
-                        .as_str()
-                        .ok_or("Invalid 'rust_target' field")?
-                        .to_string();
-                }
-                _ => {}
+
+        let mut parse_tool_config =
+            |name: &str, tool_config: &Value| -> Result<(), Box<dyn Error>> {
+                match name {
+                    "cc" => {
+                        cc = tool_config
+                            .as_str()
+                            .ok_or("Invalid 'cc' field")?
+                            .to_string()
+                    }
+                    "as" => {
+                        as_ = tool_config
+                            .as_str()
+                            .ok_or("Invalid 'as' field")?
+                            .to_string()
+                    }
+                    "ld" => {
+                        ld = tool_config
+                            .as_str()
+                            .ok_or("Invalid 'ld' field")?
+                            .to_string()
+                    }
+                    "cflags" => {
+                        cflags = tool_config
+                            .as_array()
+                            .ok_or("Invalid 'cflags' field")?
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(String::from)
+                            .collect();
+                    }
+                    "asflags" => {
+                        asflags = tool_config
+                            .as_array()
+                            .ok_or("Invalid 'asflags' field")?
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(String::from)
+                            .collect();
+                    }
+                    "ldflags" => {
+                        ldflags = tool_config
+                            .as_array()
+                            .ok_or("Invalid 'ldflags' field")?
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(String::from)
+                            .collect();
+                    }
+                    "rustflags" => {
+                        rust_flags = tool_config
+                            .as_array()
+                            .ok_or("Invalid 'rust_flags' field")?
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(String::from)
+                            .collect();
+                    }
+                    "rust_target" => {
+                        rust_target = tool_config
+                            .as_str()
+                            .ok_or("Invalid 'rust_target' field")?
+                            .to_string();
+                    }
+                    _ => {}
+                };
+                Ok(())
             };
+
+        // 解析基础 [tools] 配置
+        for (name, tool_config) in tools_table {
+            parse_tool_config(name, tool_config)?;
+        }
+
+        // 根据当前操作系统，使用 [tools.{os}] 配置覆盖
+        let os = env::consts::OS;
+        let os_key = match os {
+            "macos" => "macos",
+            "linux" => "linux",
+            "windows" => "windows",
+            _ => os,
+        };
+
+        if let Some(tools_os_table) = config
+            .get("tools")
+            .and_then(|t| t.get(os_key))
+            .and_then(Value::as_table)
+        {
+            for (name, tool_config) in tools_os_table {
+                parse_tool_config(name, tool_config)?;
+            }
         }
         // 将可执行文件名解析为实际路径，优先在工作目录查找，然后在 PATH 中查找
         let cc_path = find_executable(&work_dir, &cc).ok_or(format!("C 编译器未找到: {}", cc))?;

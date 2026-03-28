@@ -19,6 +19,54 @@ use crate::kernel::memory::{
     },
 };
 
+/// 唯一数据源：声明所有 kmalloc 缓存的 (名称, 大小) 对。
+/// 从这里派生出 `KMALLOC_SIZES`、`KMALLOC_NAMES` 和 `DEFAULT_CACHE_CONFIGS`。
+macro_rules! kmalloc_caches {
+    ($(($name:expr, $size:expr)),+ $(,)?) => {
+        /// 所有 kmalloc 缓存的原始大小（字节），升序排列。
+        pub const KMALLOC_SIZES: [u16; 0 $(+ { let _: u16 = $size; 1 })+] = [$($size),+];
+
+        /// 所有 kmalloc 缓存的名称。
+        pub const KMALLOC_NAMES: [&CStr; 0 $(+ { let _: &CStr = $name; 1 })+] = [$($name),+];
+
+        /// 默认缓存列表，由 `(name, size)` 对生成。
+        pub const DEFAULT_CACHE_CONFIGS: &[CacheConfig] = &[$(
+            match CacheConfig::new($name, NonZeroU16::new($size).unwrap()) {
+                Ok(c) => c,
+                Err(_) => panic!("failed to create cache config"),
+            }
+        ),+];
+    };
+}
+
+kmalloc_caches!(
+    (c"kmalloc-8", 8),
+    (c"kmalloc-16", 16),
+    (c"kmalloc-32", 32),
+    (c"kmalloc-64", 64),
+    (c"kmalloc-96", 96),
+    (c"kmalloc-128", 128),
+    (c"kmalloc-192", 192),
+    (c"kmalloc-256", 256),
+    (c"kmalloc-512", 512),
+    (c"kmalloc-1k", 1024),
+    (c"kmalloc-2k", 2048),
+    (c"kmalloc-4k", 4096),
+);
+
+/// 给定请求大小，返回应使用的缓存索引。
+/// 找到 `KMALLOC_SIZES` 中第一个 >= `size` 的条目；全部超出则返回 `None`。
+pub const fn size_to_index(size: usize) -> Option<usize> {
+    let mut i = 0;
+    while i < KMALLOC_SIZES.len() {
+        if size <= KMALLOC_SIZES[i] as usize {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CacheConfig {
     /// 缓存名称，例如 "kmalloc-8"
@@ -48,18 +96,6 @@ impl CacheConfig {
             Ok(sizes) => {
                 let min_partial = (sizes.0.0.ilog2() as u8 / 2).clamp(MIN_PARTIAL, MAX_PARTIAL);
 
-                let user_offset = {
-                    #[cfg(not(feature = "slub_debug"))]
-                    {
-                        0
-                    }
-
-                    #[cfg(feature = "slub_debug")]
-                    {
-                        super::debug::user_ptr_offset(sizes.3)
-                    }
-                };
-
                 Ok(Self {
                     name,
                     origin_size,
@@ -68,7 +104,8 @@ impl CacheConfig {
                     object_num: sizes.1,
                     frame_order: sizes.2,
                     min_partial,
-                    user_offset,
+                    #[cfg(feature = "slub_debug")]
+                    user_offset: super::debug::user_ptr_offset(sizes.3),
                 })
             }
             Err(e) => Err(e),
@@ -91,59 +128,10 @@ impl CacheConfig {
     }
 }
 
-/// 默认缓存列表（从 8 到 4096 bytes）
-pub const DEFAULT_CACHE_CONFIGS: &[CacheConfig] = &[
-    CacheConfig::new(c"kmalloc-8", NonZeroU16::new(8).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-16", NonZeroU16::new(16).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-32", NonZeroU16::new(32).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-64", NonZeroU16::new(64).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-96", NonZeroU16::new(96).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-128", NonZeroU16::new(128).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-192", NonZeroU16::new(192).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-256", NonZeroU16::new(256).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-512", NonZeroU16::new(512).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-1k", NonZeroU16::new(1024).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-2k", NonZeroU16::new(2048).unwrap())
-        .ok()
-        .unwrap(),
-    CacheConfig::new(c"kmalloc-4k", NonZeroU16::new(4096).unwrap())
-        .ok()
-        .unwrap(),
-];
-
-pub const DEFAULT_CACHE_COUNT: usize = DEFAULT_CACHE_CONFIGS.len();
+pub const DEFAULT_CACHE_COUNT: usize = KMALLOC_NAMES.len();
 
 pub static DEFAULT_CACHES: SyncUnsafeCell<[AtomicPtr<MemCache>; DEFAULT_CACHE_COUNT]> =
     SyncUnsafeCell::new([const { AtomicPtr::new(null_mut()) }; DEFAULT_CACHE_COUNT]);
-
-pub fn get_cache(index: usize) -> Option<NonNull<MemCache>> {
-    if index >= DEFAULT_CACHE_COUNT {
-        return None;
-    }
-
-    let cache_ptr = unsafe { (*DEFAULT_CACHES.get())[index].load(Ordering::Acquire) };
-    NonNull::new(cache_ptr)
-}
 
 pub unsafe fn get_cache_unchecked(index: usize) -> NonNull<MemCache> {
     unsafe {
@@ -153,14 +141,6 @@ pub unsafe fn get_cache_unchecked(index: usize) -> NonNull<MemCache> {
 }
 
 pub fn select_cache<'a>(size: NonZeroUsize) -> Option<&'a mut MemCache> {
-    let size = size.get().max(8);
-    let ilog = size.next_power_of_two().ilog2() as usize;
-
-    match ilog {
-        0..=6 => unsafe { Some(get_cache_unchecked(ilog - 3).as_mut()) },
-        7 => unsafe { Some(get_cache_unchecked(if size <= 96 { 4 } else { 5 }).as_mut()) },
-        8 => unsafe { Some(get_cache_unchecked(if size <= 196 { 6 } else { 7 }).as_mut()) },
-        8..=12 => unsafe { Some(get_cache_unchecked(ilog - 1).as_mut()) },
-        _ => None,
-    }
+    let index = size_to_index(size.get())?;
+    unsafe { Some(get_cache_unchecked(index).as_mut()) }
 }

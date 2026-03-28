@@ -1,17 +1,19 @@
 arch = "x86"
 
-[tools]
+[tools.macos]
 cc = "x86_64-elf-gcc"
-as = "nasm"
 ld = "x86_64-elf-ld"
+
+[tools]
+cc = "gcc"
+as = "nasm"
+ld = "ld"
 cflags = [
     "-march=i686",
     "-std=gnu11",
     "-nostdinc",
     "-nostdlib",
-    "-O0",
     "-m32",
-    "-g",
     "-ffreestanding",
     "-fno-pie",
     "-fno-stack-protector",
@@ -20,7 +22,7 @@ cflags = [
     "-Wall",
     "-Wunused",
 ]
-asflags = ["-g", "-f", "elf32"]
+asflags = ["-f", "elf32"]
 ldflags = ["-m", "elf_i386", "-nostdlib"]
 rust_target = "src/arch/x86/i686-none.json"
 rustflags = [
@@ -35,8 +37,6 @@ rustflags = [
     "-C",
     "force-frame-pointers=yes",
     "-Cllvm-args=--inline-threshold=0",
-    # "--cfg",
-    # "feature=\\\"slub_debug\\\"",
 ]
 
 [debug]

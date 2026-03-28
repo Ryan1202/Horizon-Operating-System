@@ -17,7 +17,8 @@ use crate::{
         slub::{
             Slub, SlubError,
             config::{
-                CacheConfig, DEFAULT_CACHE_CONFIGS, DEFAULT_CACHE_COUNT, DEFAULT_CACHES, get_cache,
+                CacheConfig, DEFAULT_CACHE_CONFIGS, DEFAULT_CACHE_COUNT, DEFAULT_CACHES,
+                get_cache_unchecked,
             },
             mem_cache_node::MemCacheNode,
         },
@@ -83,7 +84,7 @@ impl MemCaches {
                 head.add_head(mem_cache.as_mut().get_list());
 
                 for cache in 0..DEFAULT_CACHE_COUNT {
-                    let mut cache = get_cache(cache).unwrap();
+                    let mut cache = get_cache_unchecked(cache);
                     head.add_tail(cache.as_mut().get_list());
                 }
             });

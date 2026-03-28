@@ -266,13 +266,13 @@ void fb_console_backend_put_string(
 			if (backend->x >= backend->width) new_line = true;
 		}
 		if (new_line) {
+			if (backend->y >= backend->height - 1) {
+				// 即将超过最大行数，先滚屏
+				fb_console_backend_scroll(backend, 1);
+			}
 			backend->line_ends[backend->y++] = backend->current;
 
 			backend->x = 0;
-			if (backend->y >= backend->height) {
-				// 超过最大行数，滚屏
-				fb_console_backend_scroll(backend, 1);
-			}
 		}
 	}
 	spin_unlock(&backend->lock);
