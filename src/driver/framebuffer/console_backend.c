@@ -1,3 +1,5 @@
+#include "kernel/page.h"
+#include "kernel/platform.h"
 #include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb.h>
 #include <driver/framebuffer/fb_dm.h>
@@ -24,6 +26,7 @@ void fb_console_backend_init(void *context) {
 	backend->height		 = backend->real_height + 1; // 多出4行用于滚屏
 
 	backend->buffer_size = backend->width * backend->height;
+
 	backend->text_buffer = kmalloc(backend->buffer_size);
 	backend->current	 = backend->text_buffer;
 	backend->last_update = backend->text_buffer;
@@ -181,7 +184,9 @@ void fb_console_backend_update(void *arg) {
 		current = backend->last_update;
 	}
 	while (current < backend->current) {
-		if (current == backend->line_ends[backend->last_update_y]) {
+		if (current == backend->line_ends[backend->last_update_y] &&
+			backend->text_buffer !=
+				backend->line_ends[backend->last_update_y]) {
 			backend->last_update_y++;
 			backend->last_update_x = 0;
 			cur_vram = vram + backend->last_update_y * 16 * line_length;
@@ -261,13 +266,13 @@ void fb_console_backend_put_string(
 			if (backend->x >= backend->width) new_line = true;
 		}
 		if (new_line) {
+			if (backend->y >= backend->height - 1) {
+				// 即将超过最大行数，先滚屏
+				fb_console_backend_scroll(backend, 1);
+			}
 			backend->line_ends[backend->y++] = backend->current;
 
 			backend->x = 0;
-			if (backend->y >= backend->height) {
-				// 超过最大行数，滚屏
-				fb_console_backend_scroll(backend, 1);
-			}
 		}
 	}
 	spin_unlock(&backend->lock);

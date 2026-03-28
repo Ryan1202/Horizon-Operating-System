@@ -58,7 +58,7 @@ void ide_detect_channel_mode(
 
 DriverResult ide_controller_probe(
 	PciDevice *pci_device, PhysicalDevice *physical_device) {
-	IdeControllerInfo *info = kmalloc(sizeof(IdeControllerInfo));
+	IdeControllerInfo *info = kzalloc(sizeof(IdeControllerInfo));
 
 	register_physical_device(physical_device, &ide_controller_device_ops);
 

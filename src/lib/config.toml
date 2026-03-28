@@ -8,3 +8,4 @@ c = [
     "hash/fnv.c",
     "hash/md5.c",
 ]
+rust = ["rust/mod.rs"]

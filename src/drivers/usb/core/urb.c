@@ -16,7 +16,7 @@ void usb_softirq_handler(void) {
 UsbRequestBlock *usb_create_urb(
 	UsbEndpoint *ep, void *context, uint8_t *buffer, uint32_t len,
 	void (*complete)(struct UsbRequestBlock *urb)) {
-	UsbRequestBlock *urb = kmalloc(sizeof(UsbRequestBlock));
+	UsbRequestBlock *urb = kzalloc(sizeof(UsbRequestBlock));
 	urb->ep				 = ep;
 	urb->context		 = context;
 	urb->buffer			 = buffer;

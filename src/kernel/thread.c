@@ -17,7 +17,6 @@
 #include <kernel/spinlock.h>
 #include <kernel/sync.h>
 #include <kernel/thread.h>
-#include <math.h>
 #include <objects/permission.h>
 #include <stdint.h>
 #include <string.h>
@@ -103,7 +102,6 @@ void thread_create(
  */
 void init_thread(
 	struct task_s *pthread, void *stack_page, char *name, int priority) {
-	memset(pthread, 0, sizeof(struct task_s));
 	strcpy(pthread->name, name);
 	if (pthread == main_thread) {
 		pthread->status = TASK_RUNNING;
@@ -138,8 +136,8 @@ void init_thread(
 struct task_s *thread_start(
 	char *name, int priority, thread_func function, void *func_arg,
 	struct task_s *parent) {
-	struct task_s *thread	  = kmalloc(sizeof(struct task_s));
-	void		  *stack_page = kernel_alloc_pages(1);
+	struct task_s *thread	  = kzalloc(sizeof(struct task_s));
+	void		  *stack_page = kmalloc_pages(1);
 
 	init_thread(thread, stack_page, name, priority);
 
@@ -282,9 +280,8 @@ void thread_unblock(struct task_s *pthread) {
  *
  */
 static void make_main_thread(void) {
-	main_thread		 = kmalloc(sizeof(struct task_s));
-	void *stack_page = kernel_alloc_pages(1);
-	init_thread(main_thread, stack_page, "System", THREAD_DEFAULT_PRIO);
+	main_thread = kzalloc(sizeof(struct task_s));
+	init_thread(main_thread, NULL, "System", THREAD_DEFAULT_PRIO);
 	current_task	 = main_thread;
 	main_thread->pid = alloc_pid();
 
@@ -370,28 +367,17 @@ void schedule(void) {
 	// 从其他线程切回来之后，检查上一个线程是否已经结束
 	if (dead_task != NULL) {
 		size_t stack_page = (size_t)dead_task->kstack & ~(PAGE_SIZE - 1);
-		kernel_free_page(stack_page, 1);
+		if (dead_task != main_thread && kfree_pages(stack_page) < 0) {
+			printk(
+				"[Memory Error] Free dead task stack page failed! "
+				"Task name:%s, pid:%d\n",
+				dead_task->name, dead_task->pid);
+		}
+
 		kfree(dead_task);
 		dead_task = NULL;
 	}
 	if (cur->status == TASK_READY) cur->status = TASK_RUNNING;
 
 	store_interrupt_status(old_status);
-}
-
-/**
- * @brief 初始化用户线程的内存管理
- *
- * @param thread 线程结构
- */
-void init_thread_memory_manage(struct task_s *thread) {
-	int		 i;
-	uint32_t pages = DIV_ROUND_UP(sizeof(struct memory_manage), PAGE_SIZE);
-
-	thread->memory_manage = (struct memory_manage *)kernel_alloc_pages(pages);
-	memset(thread->memory_manage, 0, sizeof(struct memory_manage));
-	for (i = 0; i < MEMORY_BLOCKS; i++) {
-		thread->memory_manage->free_blocks[i].size	= 0;
-		thread->memory_manage->free_blocks[i].flags = MEMORY_BLOCK_FREE;
-	}
 }

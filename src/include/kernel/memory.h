@@ -5,29 +5,10 @@
 #include "result.h"
 #include <stdint.h>
 
-#define PHY_MEM_BASE_ADDR 0x1000000
-#define PHY_MEM_MMAP	  0x210000
-#define PHY_MEM_MMAP_SIZE 0x20000
-#define VIR_MEM_BASE_ADDR 0x1000000
-#define VIR_MEM_MMAP	  0x230000
-#define VIR_MEM_MMAP_SIZE 0x10000
-
-#define KERN_VIR_MEM_BASE_ADDR 0x00000000
-#define USER_VIR_MEM_BASE_ADDR 0x80000000
-
-#define MEMORY_BLOCKS			0x1000
-#define MEMORY_BLOCK_FREE		0 // 内存信息块空闲
-#define MEMORY_BLOCK_USING		1 // 内存信息块使用中
-#define MEMORY_BLOCK_ALLOCATED	2 // 内存信息块已经分配
-#define MEMORY_BLOCK_MODE_SMALL 0 // 小块内存描述1024一下的内存块
-#define MEMORY_BLOCK_MODE_BIG	1 // 大块内存描述4kb为单位的内存块
-
+#define MEMORY_BLOCKS		   0x1000
 #define MEMORY_FREE_LIST_COUNT 7
 
 #define MEMORY_MIN_POW 5
-
-extern struct mmap phy_page_mmap;
-extern struct mmap vir_page_mmap;
 
 typedef enum MemoryResult {
 	MEMORY_RESULT_OK,
@@ -49,23 +30,25 @@ struct memory_block {
 	int			 mode;
 };
 
-struct memory_manage {
-	// 32 64 128 256 512 1024 2048
-	list_t free_blocks_list[MEMORY_FREE_LIST_COUNT];
+struct mem_cache;
 
-	int last_free_block;
+void memory_early_init(void);
+void init_memory(void);
+int	 get_memory_usable_mib(void);
+int	 get_memory_total_mib(void);
 
-	struct memory_block free_blocks[MEMORY_BLOCKS];
-};
+int	 mmap_search(struct mmap *btmp, unsigned int cnt);
+void mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
+int	 mmap_get(struct mmap *btmp, uint32_t bit_index);
 
-void		 init_memory(void);
-int			 get_memory_size(void);
-int			 mmap_search(struct mmap *btmp, unsigned int cnt);
-void		 mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
-int			 mmap_get(struct mmap *btmp, uint32_t bit_index);
-MemoryResult alloc_vaddr(size_t in_size, uint32_t *out_vaddr);
-void		*kmalloc(uint32_t size);
-int			 kfree(void *address);
+void *kmalloc(size_t size);
+void *kzalloc(uint32_t size);
+int	  kfree(void *address);
+
+struct mem_cache *mem_cache_create(
+	const char *name, size_t object_size, size_t align);
+int	  mem_cache_destroy(struct mem_cache *cache);
+void *mem_cache_alloc(struct mem_cache *cache);
 
 void print_memory_result(
 	MemoryResult result, char *file, int line, char *func_with_args);
@@ -84,5 +67,14 @@ void print_memory_result(
 		}                                                \
 		result;                                          \
 	})
+
+// Rust bindings
+typedef enum ZoneType {
+	ZONE_LINEAR = 0,
+	ZONE_MEM32	= 1,
+} ZoneType;
+
+void mem_caches_init();
+void vmap_init();
 
 #endif

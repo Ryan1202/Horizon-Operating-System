@@ -41,7 +41,7 @@ DriverResult register_device_irq(
 		return DRIVER_ERROR_CONFLICT;
 	}
 
-	device_irq = kmalloc(sizeof(DeviceIrq));
+	device_irq = kzalloc(sizeof(DeviceIrq));
 	if (device_irq == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
 	device_irq->arg				= arg;
 	device_irq->physical_device = physical_device;
@@ -102,18 +102,19 @@ DriverResult driver_remap_memory(
 		}
 	}
 
-	MemoryResult result =
-		MEMORY_RESULT_PRINT_CALL(remap, start, end - start, &tmp);
-	if (result != MEMORY_RESULT_OK) {
-		printk(
-			"Driver Interface: remap memory:0x%08x(size: %d) failed\n",
-			in_physical_address, in_size);
-		return DRIVER_ERROR_OTHER;
-	}
+	tmp = (size_t)ioremap(start, end - start, PAGE_CACHE_WRITE_COMBINE);
+	// MemoryResult result =
+	// 	MEMORY_RESULT_PRINT_CALL(remap, start, end - start, &tmp);
+	// if (result != MEMORY_RESULT_OK) {
+	// 	printk(
+	// 		"Driver Interface: remap memory:0x%08x(size: %d) failed\n",
+	// 		in_physical_address, in_size);
+	// 	return DRIVER_ERROR_OTHER;
+	// }
 	if (virtual_address == 0) { virtual_address = tmp; }
 
 	DriverRemappedMemory *remapped_memory =
-		kmalloc(sizeof(DriverRemappedMemory));
+		kzalloc(sizeof(DriverRemappedMemory));
 	remapped_memory->size	   = end - start;
 	remapped_memory->vir_start = virtual_address;
 	remapped_memory->phy_start = start;

@@ -1,3 +1,4 @@
+#include "drivers/msr.h"
 #include <bios_emu/bios_emu.h>
 #include <driver/framebuffer/fb_dm.h>
 #include <driver/interrupt/interrupt_dm.h>
@@ -48,6 +49,15 @@ PhysicalDevice *platform_device;
 void platform_early_init() {
 	// 初始化段描述符和中断描述符
 	init_descriptor();
+
+	// 读取CPU特性
+	read_features();
+	if (cpu_check_feature(CPUID_FEAT_PAT)) {
+		uint32_t lo, hi;
+		cpu_rdmsr(IA32_PAT, &lo, &hi);
+		hi = (hi & ~0x7) | 0x1; // 把 PAT4 设为 WriteCombining
+		cpu_wrmsr(IA32_PAT, lo, hi);
+	}
 }
 
 DriverResult platform_init() {
@@ -66,8 +76,6 @@ DriverResult platform_init() {
 	result = create_physical_device(&platform_device, platform_bus, &attr);
 	if (result != DRIVER_OK) { return result; }
 	register_physical_device(platform_device, &platform_device_ops);
-
-	read_features();
 
 	bios_emu_init();
 

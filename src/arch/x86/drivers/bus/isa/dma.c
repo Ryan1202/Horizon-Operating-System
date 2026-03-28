@@ -5,6 +5,7 @@
  * @version 0.1
  * @date 2021-7
  */
+#include "kernel/page.h"
 #include <drivers/bus/isa/dma.h>
 #include <kernel/device.h>
 #include <kernel/dma.h>
@@ -17,15 +18,16 @@
 #include <string.h>
 #include <types.h>
 
-
 DmaOps isa_dma_ops = {
 	.dma_alloc = dma_alloc_region,
 	.dma_free  = dma_free_region,
 };
 
-#define DMA_MEM_BASE_ADDR 0x800000
+#define DMA_MEM_BASE_ADDR 0x20000
 
 LogicalDevice *dma_channels[8]; // 使用DMA通道的设备
+
+uint8_t dma_mbits[DIV_ROUND_UP(DMA_MAX_REGION_COUNT, 8)];
 
 struct mmap dma_mem_mmap;
 spinlock_t	dma_spin_lock;
@@ -40,7 +42,10 @@ void dma_unlock(int flags) {
 
 void dma_init() {
 	spinlock_init(&dma_spin_lock);
-	dma_mem_mmap.bits = kmalloc(DMA_MAX_REGION_COUNT / 8);
+
+	assign_frames(DMA_MEM_BASE_ADDR, DMA_MAX_REGION_COUNT * 64 / 4);
+
+	dma_mem_mmap.bits = dma_mbits;
 	dma_mem_mmap.len  = DMA_MAX_REGION_COUNT / 8;
 	memset(dma_mem_mmap.bits, 0, dma_mem_mmap.len);
 }

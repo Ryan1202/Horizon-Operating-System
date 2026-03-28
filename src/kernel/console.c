@@ -43,7 +43,7 @@ void put_string(const char *string, int length) {
  *
  */
 void console_start(void) {
-	put_string("\n>", 2);
+	// put_string("\n>", 2);
 }
 
 /**

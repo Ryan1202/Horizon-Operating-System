@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
+use toml::Value;
 
 use crate::config::DebugLevel;
 use crate::dependency;
@@ -66,16 +67,19 @@ impl RustModules {
         if !cargo_toml.exists() || !cargo_toml.is_file() {
             panic!("Cargo.template.toml不存在!");
         }
-        let path = path.strip_prefix(
-            cargo_toml.parent().unwrap()).expect("路径不在Cargo.template.toml目录下");
-        let components = path.components().map(|v| v.as_os_str().to_string_lossy().to_string());
+        let path = path
+            .strip_prefix(cargo_toml.parent().unwrap())
+            .expect("路径不在Cargo.template.toml目录下");
+        let components = path
+            .components()
+            .map(|v| v.as_os_str().to_string_lossy().to_string());
 
         let mut entry = &mut self.root;
         let mut path = cargo_toml.parent().unwrap().to_path_buf();
         for component in components {
             let tmp_path = path.join(&component);
             let mod_rs = tmp_path.join("mod.rs");
-            let module_type = if mod_rs.exists() {
+            let module_type = if mod_rs.exists() || tmp_path.with_extension("rs").exists() {
                 ModuleType::Exist
             } else {
                 ModuleType::NotExist
@@ -147,19 +151,31 @@ impl RustConfig {
     }
 
     fn write_root_file(&self, work_dir: &PathBuf) -> std::io::Result<()> {
-        let root_file_path = work_dir.canonicalize()?.join("lib.rs");
+        let work_dir = work_dir.canonicalize()?;
+        let template_path = work_dir.join("root.template.rs");
+        let root_file_path = work_dir.join("root.rs");
+
+        // 读取模板文件
+        let template_content = fs::read_to_string(&template_path)?;
+
+        // 创建输出文件
         let mut file = std::fs::File::create(&root_file_path)?;
 
+        // 写入自动生成的开头注释
         writeln!(file, "// Auto-generated root file for this crate")?;
         writeln!(file, "// Target: {}", self.target)?;
-        writeln!(file, "#![no_std]")?;
-        writeln!(file, "#![no_main]")?;
-        writeln!(file, "\nuse core::panic::PanicInfo;\n")?;
-        writeln!(file, "\n#[panic_handler]")?;
-        writeln!(file, "fn panic(_info: &PanicInfo) -> ! {{")?;
-        writeln!(file, "    loop {{}}")?;
-        writeln!(file, "}}\n")?;
+        writeln!(file, "// Based on: {:?}\n", template_path)?;
 
+        // 写入模板内容
+        write!(file, "{}", template_content)?;
+
+        // 确保最后有换行符
+        if !template_content.ends_with('\n') {
+            writeln!(file)?;
+        }
+
+        // 写入结尾的模块声明
+        writeln!(file, "\n// Auto-generated module declarations")?;
         let modules = self.modules.borrow();
         self.write_module_declaration(&mut file, &modules.root, 0)?;
 
@@ -184,20 +200,26 @@ impl RustConfig {
         )?;
         write!(file, "rustflags = [")?;
         for flag in self.rust_flags.iter() {
-            write!(file, "\"{}\",", flag)?;
+            // Let toml::Value handle escaping for quotes/backslashes in each flag.
+            write!(file, "{},", Value::String(flag.clone()))?;
         }
         writeln!(file, "]")?;
 
         if let RustcTargetType::Custom = self.target_type {
             writeln!(file, "\n[unstable]")?;
             writeln!(file, "build-std = [\"core\", \"compiler_builtins\"]")?;
+            writeln!(file, "json-target-spec = true")?;
         }
 
         Ok(())
     }
 
-    fn write_cargo_toml(&self, cargo_toml: &PathBuf, work_dir: &PathBuf, out_dir: &PathBuf) -> std::io::Result<()> {
-        let cargo_toml_path = out_dir.join("Cargo.template.toml");
+    fn write_cargo_toml(
+        &self,
+        cargo_toml: &PathBuf,
+        work_dir: &PathBuf,
+        out_dir: &PathBuf,
+    ) -> std::io::Result<()> {
         let cargo_toml = fs::read_to_string(cargo_toml)?;
 
         let mut lines: Vec<String> = cargo_toml.lines().map(|s| s.to_string()).collect();
@@ -240,14 +262,17 @@ impl RustConfig {
             }
 
             // 在该 section 的末尾插入 path 字段（即在 next_idx 处插入）
-            lines.insert(next_idx, format!("path = \"{}\"", work_dir.join("lib.rs").display()));
+            lines.insert(
+                next_idx,
+                format!("path = \"{}\"", work_dir.join("root.rs").display()),
+            );
         } else {
             // 如果没有 [lib] 节，则追加一个新的 [lib] 节并写入 path
             if !cargo_toml.ends_with('\n') {
                 lines.push(String::new());
             }
             lines.push("[lib]".to_string());
-            lines.push("path = \"./lib.rs\"".to_string());
+            lines.push("path = \"./root.rs\"".to_string());
         }
 
         let new_contents = lines.join("\n");
@@ -260,8 +285,12 @@ impl RustConfig {
     pub fn add_file(&self, file_path: &PathBuf) {
         let mut modules = self.modules.borrow_mut();
         match self.cargo_toml.borrow().as_ref() {
-            Some(cargo_toml) => {modules.add_path(cargo_toml, file_path);},
-            None => {panic!("使用了rust文件但没有定义Cargo.template.toml!");},
+            Some(cargo_toml) => {
+                modules.add_path(cargo_toml, file_path);
+            }
+            None => {
+                panic!("使用了rust文件但没有定义Cargo.template.toml!");
+            }
         }
     }
 
@@ -288,17 +317,29 @@ impl RustConfig {
         }
     }
 
-    pub fn write_configs(&self, work_dir: &PathBuf, out_dir: &PathBuf, debug_level: DebugLevel) -> Option<PathBuf> {
+    pub fn write_configs(
+        &self,
+        work_dir: &PathBuf,
+        out_dir: &PathBuf,
+        debug_level: DebugLevel,
+    ) -> Option<PathBuf> {
         let cargo_toml = work_dir.join("Cargo.template.toml");
         if cargo_toml.exists() && cargo_toml.is_file() {
-            if self.need_update() {
-                self.write_root_file(work_dir)
-                .expect("写入lib.rs失败");
+            let root_file = work_dir.join("root.rs");
+            if self.need_update() || !(root_file.exists() && root_file.is_file()) {
+                self.write_root_file(work_dir).expect("写入root.rs失败");
 
-                let target_name = self.target.split(".").next().unwrap().rsplit('/').next().unwrap();
+                let target_name = self
+                    .target
+                    .split(".")
+                    .next()
+                    .unwrap()
+                    .rsplit('/')
+                    .next()
+                    .unwrap();
                 dependency::do_rust_dependency(
                     &self,
-                    &work_dir.join("lib.rs"),
+                    &work_dir.join("root.rs"),
                     &out_dir,
                     &target_name,
                     debug_level == DebugLevel::Release,

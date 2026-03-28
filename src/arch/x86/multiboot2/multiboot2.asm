@@ -1,8 +1,8 @@
 [bits 32]
 
-[section .text]
+[section .multiboot2]
 
-extern kernel_start, multiboot2_loader
+extern kernel_early_start, multiboot2_loader
 global _start
 
 LOADER_STACK_TOP	equ	0x90000
@@ -103,9 +103,23 @@ start:
     lgdt [GDTR]
     jmp 0x08:flush
 flush:
+	mov edx, eax
+	mov ax, 0x10
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+	mov ss, ax
+
     mov ecx, LOADER_STACK_TOP
     mov esp, ecx
+	cld
+
+	mov eax, edx
+	
     push ebx
     push eax
     call multiboot2_loader
-    jmp kernel_start
+	add esp, 8
+
+    jmp kernel_early_start

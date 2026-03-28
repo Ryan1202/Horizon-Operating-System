@@ -1,0 +1,236 @@
+use core::{mem::ManuallyDrop, num::NonZeroUsize};
+
+use crate::{
+    arch::{ArchFlushTlb, ArchPageTable},
+    kernel::memory::{
+        MemoryError, PageCacheType,
+        arch::ArchMemory,
+        frame::{
+            FrameNumber, FrameTag,
+            buddy::{FrameOrder, MAX_ORDER},
+            options::{FrameAllocOptions, FrameAllocType, RetryPolicy},
+            zone::ZoneType,
+        },
+        page::{FlushTlb, Pages, dyn_pages::DynPages, vmap::get_vmap},
+    },
+};
+
+#[derive(Debug, Clone, Copy)]
+pub struct PageAllocOptions {
+    frame: FrameAllocOptions,
+    contiguous: bool,
+    cache_type: PageCacheType,
+    zeroed: bool,
+    retry: RetryPolicy,
+
+    count: Option<NonZeroUsize>,
+}
+
+impl PageAllocOptions {
+    pub const fn new(frame_options: FrameAllocOptions) -> Self {
+        PageAllocOptions {
+            frame: frame_options,
+            contiguous: true,
+            cache_type: PageCacheType::WriteBack,
+            zeroed: false,
+            retry: RetryPolicy::FastFail,
+            count: None,
+        }
+    }
+
+    pub const fn contiguous(mut self, contiguous: bool) -> Self {
+        self.contiguous = contiguous;
+        self
+    }
+
+    pub const fn cache_type(mut self, cache: PageCacheType) -> Self {
+        self.cache_type = cache;
+        self
+    }
+
+    pub const fn zeroed(mut self, zeroed: bool) -> Self {
+        self.zeroed = zeroed;
+        self
+    }
+
+    pub const fn retry(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
+    }
+
+    pub fn get_frame_options(&self) -> &FrameAllocOptions {
+        &self.frame
+    }
+
+    /// 预设选项：适用于内核常规分配
+    pub const fn kernel(order: FrameOrder) -> Self {
+        Self::new(FrameAllocOptions::atomic(order)).retry(RetryPolicy::Retry(3))
+    }
+
+    /// 预设选项：适用于原子上下文分配
+    pub const fn atomic(order: FrameOrder) -> Self {
+        Self::new(FrameAllocOptions::atomic(order)).retry(RetryPolicy::FastFail)
+    }
+
+    /// 预设选项: IO 内存分配
+    pub const fn mmio(start: FrameNumber, count: NonZeroUsize, cache: PageCacheType) -> Self {
+        Self::new(
+            FrameAllocOptions::new()
+                .fallback(&[ZoneType::MEM32])
+                .fixed(start, FrameOrder::new(0)),
+        )
+        .contiguous(false) // 由于是固定地址，走非连续分配路径可以减少对齐到order造成的浪费
+        .count(count)
+        .cache_type(cache)
+    }
+
+    pub const fn order(mut self, order: FrameOrder) -> Self {
+        self.count = None;
+        self.frame = match self.frame.get_type() {
+            FrameAllocType::Dynamic { .. } => self.frame.dynamic(order),
+            FrameAllocType::Fixed { start, .. } => self.frame.fixed(start, order),
+        };
+        self
+    }
+
+    /// 使用 `count` 覆盖 `FrameAllocOptions` 的 `order`
+    pub const fn count(mut self, count: NonZeroUsize) -> Self {
+        self.count = Some(count);
+        self
+    }
+
+    pub const fn get_count(&self) -> NonZeroUsize {
+        match self.count {
+            Some(count) => count,
+            None => self.frame.get_order().to_count(),
+        }
+    }
+}
+
+impl PageAllocOptions {
+    fn alloc_discontiguous(&self, pages: &mut DynPages) -> Result<(), MemoryError> {
+        let mut remaining = self.get_count().get();
+        let mut first = None;
+
+        let mut order = MAX_ORDER;
+        let mut option = *self;
+        while remaining > 0 {
+            order = order.min(FrameOrder::new(remaining.ilog2() as u8));
+            option = option.order(order);
+            let result = option.frame.allocate();
+
+            match result {
+                Ok((mut _frames, _zone)) => {
+                    debug_assert!(matches!(_frames.get_tag(), FrameTag::Anonymous));
+
+                    pages.map::<ArchPageTable>(_frames, self.cache_type)?;
+
+                    if first.is_none() {
+                        first = Some(());
+                    }
+
+                    if let FrameAllocType::Fixed { start, order } = option.frame.get_type() {
+                        option.frame = option.frame.fixed(start + order.to_count().get(), order);
+                    }
+                    remaining -= order.to_count().get();
+                }
+                Err(_) => {
+                    // 当前 order 失败，尝试更小的 order
+                    if order.get() == 0 {
+                        // order 已是最小，无法继续降低
+                        break;
+                    }
+                    order = order - 1;
+                }
+            }
+        }
+
+        // 分配结果判断
+        if remaining == 0 {
+            // 完全满足需求
+            let start = pages.start_addr().to_page_number().unwrap();
+            let end = start + pages.frame_count - 1;
+            ArchFlushTlb::flush_range(start, end);
+            Ok(())
+        } else if first.is_some() {
+            // 部分成功但未满足需求，返回错误（避免返回残留的链表）
+            pages.unmap::<ArchPageTable>()?;
+            Err(MemoryError::OutOfMemory)
+        } else {
+            // 完全失败
+            Err(MemoryError::OutOfMemory)
+        }
+    }
+
+    fn try_alloc<'a>(&self) -> Result<Pages<'a>, MemoryError> {
+        let count = self.get_count();
+
+        if self.contiguous {
+            let (frame, zone) = if let Some(count) = self.count {
+                let order = FrameOrder::new(count.get().next_power_of_two().ilog2() as u8);
+                let options = self.order(order);
+                options.frame.allocate()?
+            } else {
+                self.frame.allocate()?
+            };
+
+            if !matches!(zone, ZoneType::LinearMem) {
+                let v = unsafe { get_vmap().allocate(count)?.as_mut() };
+
+                v.map::<ArchPageTable>(frame, self.cache_type)?;
+
+                let start = v.start_addr().to_page_number().unwrap();
+                let end = start + v.frame_count - 1;
+                ArchFlushTlb::flush_range(start, end);
+
+                Ok(Pages::Dynamic(v))
+            } else {
+                Ok(Pages::Linear(ManuallyDrop::new(frame)))
+            }
+        } else {
+            let v = unsafe { get_vmap().allocate(count)?.as_mut() };
+
+            let result = self.alloc_discontiguous(v);
+
+            if result.is_err() {
+                let _ = get_vmap().deallocate(v).inspect_err(|e| {
+                    printk!(
+                        "Failed to free virtual memory since {}, error: {:?} (memory leaked)",
+                        v.start_addr(),
+                        e
+                    )
+                });
+
+                result?;
+            }
+
+            Ok(Pages::Dynamic(v))
+        }
+    }
+
+    pub fn allocate<'a>(&self) -> Result<Pages<'a>, MemoryError> {
+        let mut pages = self.try_alloc().or_else(|e| match self.retry {
+            RetryPolicy::FastFail => Err(e),
+            RetryPolicy::Retry(n) => {
+                for _ in 0..n {
+                    if let Ok(addr) = self.try_alloc() {
+                        return Ok(addr);
+                    }
+                }
+                Err(e)
+            }
+        });
+
+        if let Ok(ref mut pages) = pages
+            && self.zeroed
+        {
+            unsafe {
+                pages
+                    .get_ptr::<u8>()
+                    .write_bytes(0, self.get_count().get() * ArchPageTable::PAGE_SIZE)
+            };
+        }
+
+        pages
+    }
+}

@@ -5,7 +5,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb)debug",
+            "name": "(lldb) QEMU Debug",
+            "type": "lldb",
+            "request": "attach",
+            "program": "${workspaceFolder}/src/build/kernel.elf",
+            "processCreateCommands": [
+                "gdb-remote 127.0.0.1:1234"
+            ],
+            "initCommands": [
+                "settings set target.language c",
+                "settings set target.expr-prefix 1"
+            ]
+        },
+        {
+            "name": "(gdb) QEMU Debug",
             "type": "cppdbg",
             "request": "launch",
             "miDebuggerServerAddress": "127.0.0.1:1234",

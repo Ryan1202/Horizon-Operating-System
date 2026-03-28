@@ -8,10 +8,8 @@ void uhci_skel_init(Uhci *uhci) {
 	int		i;
 	UhciQh *qhs;
 
-	uhci->skel = kmalloc(sizeof(UhciSkel));
+	uhci->skel = kzalloc(sizeof(UhciSkel));
 	qhs		   = uhci->skel->qh;
-
-	memset32(uhci->fl.frames_vir, 1, 1024);
 
 	uint32_t phy	   = vir2phy((uint32_t)&qhs[TIME_1MS]);
 	qhs[TIME_1MS].next = &qhs[ASYNC];
@@ -30,8 +28,7 @@ void uhci_skel_init(Uhci *uhci) {
 
 	// 构建结束的QH和TD
 
-	UhciTd *term_td = (UhciTd *)kmalloc(sizeof(UhciTd));
-	memset(term_td, 0, sizeof(UhciTd));
+	UhciTd *term_td = (UhciTd *)kzalloc(sizeof(UhciTd));
 
 	term_td->max_length	 = 0x7ff;
 	term_td->device_addr = 0x7f;

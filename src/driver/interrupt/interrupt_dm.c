@@ -80,7 +80,7 @@ DriverResult create_interrupt_device(
 		DEVICE_TYPE_INTERRUPT_CONTROLLER);
 	if (result != DRIVER_OK) return result;
 
-	*interrupt_device = kmalloc(sizeof(InterruptDevice));
+	*interrupt_device = kzalloc(sizeof(InterruptDevice));
 	if (*interrupt_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

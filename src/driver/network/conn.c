@@ -13,7 +13,7 @@
 
 NetworkConnection *net_create_conn(Object *object) {
 	if (object->attr->type != OBJECT_TYPE_DEVICE) { return NULL; }
-	NetworkConnection *conn = kmalloc(sizeof(NetworkConnection));
+	NetworkConnection *conn = kzalloc(sizeof(NetworkConnection));
 	if (conn == NULL) { return NULL; }
 	conn->object	 = object;
 	conn->handle	 = object_handle_create(object);

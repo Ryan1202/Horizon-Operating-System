@@ -56,9 +56,10 @@ static void update_stats(struct perf_stats *stats, uint32_t cycles) {
 // 打印统计结果
 static void print_stats(
 	const char *test_name, const struct perf_stats *stats, int iter) {
+	int avg_cycles = iter ? (stats->total_cycles / iter) : 0;
 	printk("[%s] Results:\n", test_name);
 	printk("  Total cycles: %u\n", stats->total_cycles);
-	printk("  Avg cycles/op: %u\n", stats->total_cycles / iter);
+	printk("  Avg cycles/op: %u\n", avg_cycles);
 	printk("  Max cycles: %u\n", stats->max_cycles);
 	printk("  Min cycles: %u\n", stats->min_cycles);
 	printk("  Allocation failures: %u\n", stats->alloc_fails);
@@ -98,7 +99,7 @@ void test_long_running(uint32_t minutes) {
 		idx				= (idx + 1) % 10;
 	}
 
-	printk("[Long Running] Ran for %u minutes\n", minutes);
+	// printk("[Long Running] Ran for %u minutes\n", minutes);
 	print_stats("Long Running", &stats, alloc_count);
 }
 void test_small_allocs(void) {
@@ -129,7 +130,7 @@ void test_large_page_allocs(void) {
 
 	for (int i = 0; i < TEST_ITERATIONS; i++) {
 		uint32_t start = rdtsc();
-		void	*ptr   = kernel_alloc_pages(HUGE_PAGE_CNT);
+		void	*ptr   = kmalloc_pages(HUGE_PAGE_CNT);
 		uint32_t end   = rdtsc();
 
 		if (!ptr) {
@@ -146,7 +147,7 @@ void test_large_page_allocs(void) {
 		if (i >= HUGE_PAGE_CNT) {
 			struct mem_record *old = &pages[i % HUGE_PAGE_CNT];
 			if (old->ptr) {
-				kernel_free_page((int)old->ptr, old->page_cnt); // 关键修改点
+				kfree_pages((int)old->ptr /*, old->page_cnt*/); // 关键修改点
 				old->ptr = NULL;
 			}
 		}
@@ -155,7 +156,7 @@ void test_large_page_allocs(void) {
 	// 清理残留页
 	for (int i = 0; i < HUGE_PAGE_CNT; i++) {
 		if (pages[i].ptr) {
-			kernel_free_page((int)pages[i].ptr, pages[i].page_cnt);
+			kfree_pages((int)pages[i].ptr /*, pages[i].page_cnt*/);
 		}
 	}
 

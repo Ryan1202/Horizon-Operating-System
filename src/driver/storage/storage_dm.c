@@ -60,7 +60,7 @@ DriverResult create_storage_device(
 		DEVICE_TYPE_STORAGE);
 	if (result != DRIVER_OK) return result;
 
-	*storage_device = kmalloc(sizeof(StorageDevice));
+	*storage_device = kzalloc(sizeof(StorageDevice));
 	if (*storage_device == NULL) {
 		delete_logical_device(logical_device);
 		return DRIVER_ERROR_OUT_OF_MEMORY;

@@ -5,6 +5,7 @@
  * @version 1.2
  * @date 2022-07-31
  */
+#include "kernel/platform.h"
 #include <driver/interrupt/interrupt_dm.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
@@ -18,6 +19,8 @@
 #include <kernel/softirq.h>
 #include <kernel/thread.h>
 #include <kernel/tss.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 irq_handler_t	irq_table[NR_IRQ];
@@ -42,8 +45,9 @@ void update_tss_esp(struct task_s *pthread) {
  *
  */
 void init_descriptor(void) {
-	gdt = (struct segment_descriptor *)GDT_ADDR;
-	idt = (struct gate_descriptor *)IDT_ADDR;
+	size_t page_addr = (size_t)VIR_BASE + GDT_BASE;
+	gdt				 = (struct segment_descriptor *)page_addr;
+	idt				 = (struct gate_descriptor *)(page_addr + GDT_SIZE + 1);
 	memset(&tss, 0, sizeof(struct tss_s));
 	tss.ss0		= SELECTOR_K_STACK;
 	tss.io_base = sizeof(struct tss_s);
@@ -75,7 +79,7 @@ void init_descriptor(void) {
 		DESC_D | DESC_P | DESC_S_SYS | DESC_TYPE_TSS | DESC_DPL_0);
 
 	// 改变GDTR寄存器使其指向刚配置好的GDT
-	load_gdtr(GDT_SIZE, GDT_ADDR);
+	load_gdtr(GDT_SIZE, (size_t)gdt);
 	__asm__ __volatile__("ltr %w0" ::"r"(SElECTOR_TSS));
 
 	// 配置IDT
@@ -187,7 +191,14 @@ void init_descriptor(void) {
 	set_gate_descriptor(
 		idt + 0x80, (int)syscall_handler, 0x08, DA_386IGate_DPL3);
 
-	load_idtr(IDT_SIZE, IDT_ADDR);
+	load_idtr(IDT_SIZE, (size_t)idt);
+}
+
+uint16_t set_percpu_segment_descriptor(int cpu_id, size_t addr) {
+	set_segment_descriptor(
+		gdt + 5 + cpu_id, 0xffffffff, addr,
+		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_0);
+	return (5 + cpu_id) * 0x8;
 }
 
 /**

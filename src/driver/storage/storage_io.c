@@ -43,7 +43,7 @@ DriverResult storage_generate_request(
 			MIN(remaining_blocks, device->max_block_per_request);
 
 		// 创建新的请求
-		request = kmalloc(sizeof(StorageRequest));
+		request = kzalloc(sizeof(StorageRequest));
 		if (request == NULL && first_request != NULL) {
 			return DRIVER_ERROR_OUT_OF_MEMORY;
 		}
