@@ -59,10 +59,11 @@
 #define USB_BUILD_REQUEST(                                                     \
 	direction, type, recipient, request_id, value_hi, value_lo, index, length) \
 	{                                                                          \
-		.bmRequestType = direction << 7 | type << 5 | recipient,               \
+		.bmRequestType = (direction) << 7 | (type) << 5 | (recipient),         \
 		.bRequest	   = request_id,                                           \
-		.wValue		   = HOST2LE_WORD(value_hi << 8 | value_lo),               \
-		.wIndex = HOST2LE_WORD(index), .wLength = HOST2LE_WORD(length),        \
+		.wValue		   = HOST2LE_WORD((value_hi) << 8 | (value_lo)),           \
+		.wIndex		   = HOST2LE_WORD(index),                                  \
+		.wLength	   = HOST2LE_WORD(length),                                 \
 	}
 
 typedef enum UsbInterfaceType {

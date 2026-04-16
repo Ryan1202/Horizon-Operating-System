@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-void	 rand_seed(uint32_t seed);
-uint32_t rand(void);
-uint32_t splitmix(uint32_t x);
+void	 rand_seed(uint64_t seed);
+uint64_t rand(void);
+uint64_t splitmix(uint64_t x);
 
 #endif

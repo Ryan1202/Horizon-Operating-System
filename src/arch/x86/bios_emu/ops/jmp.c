@@ -11,7 +11,7 @@ void decode_jcc_8(BiosEmuEnvironment *env, int condition) {
 			env->cur_ip += offset;
 			env->regs.eip += offset;
 			env->regs.eip &= 0xffff;
-			env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+			env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 		}
 	} else {
 		if (condition) {
@@ -31,7 +31,7 @@ void decode_jcc(BiosEmuEnvironment *env, int condition) {
 			env->cur_ip += offset;
 			env->regs.eip += offset;
 			env->regs.eip &= 0xffff;
-			env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+			env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 		}
 	} else {
 		int32_t offset = *(int32_t *)env->cur_ip;
@@ -52,7 +52,7 @@ void decode_jmp8(BiosEmuEnvironment *env) {
 	env->regs.eip += offset;
 	if (env->flags.operand_size == 0) {
 		env->regs.eip &= 0xffff;
-		env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+		env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 	}
 	return;
 }
@@ -62,7 +62,7 @@ void decode_jmp_near(BiosEmuEnvironment *env, int32_t offset) {
 		env->cur_ip += offset;
 		env->regs.eip += offset;
 		env->regs.eip &= 0xffff;
-		env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+		env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 	} else {
 		env->cur_ip += offset;
 		env->regs.eip += offset;
@@ -75,10 +75,10 @@ void decode_jmp_far(
 	env->regs.cs = segment;
 	if (env->flags.operand_size == 0) {
 		env->regs.eip = offset & 0xffff;
-		env->cur_ip	  = (void *)((segment << 4) + env->regs.eip);
+		env->cur_ip	  = (void *)(size_t)((segment << 4) + env->regs.eip);
 	} else {
 		env->regs.eip = offset;
-		env->cur_ip	  = (void *)env->regs.eip;
+		env->cur_ip	  = (void *)(size_t)env->regs.eip;
 	}
 	return;
 }
@@ -106,7 +106,7 @@ void decode_long_jmp_ptr16(BiosEmuEnvironment *env) {
 		env->cur_ip += 2;
 		env->regs.eip += 2;
 		env->regs.eip &= 0xffff;
-		env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+		env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 		decode_jmp_far(env, segment, offset);
 	} else {
 		uint32_t offset = *(uint32_t *)env->cur_ip;

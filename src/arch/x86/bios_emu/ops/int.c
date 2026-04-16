@@ -32,7 +32,7 @@ BiosEmuExceptions decode_int(BiosEmuEnvironment *env, uint8_t vector) {
 	env->regs.cs = env->ivt[vector].segment;
 	env->regs.ip = env->ivt[vector].offset;
 
-	env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.ip);
+	env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.ip);
 
 	return NoException;
 }

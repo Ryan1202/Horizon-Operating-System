@@ -8,6 +8,7 @@
 use core::cell::UnsafeCell;
 use core::ffi::c_int;
 use core::hint::spin_loop;
+use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -153,6 +154,47 @@ pub struct SpinIrqGuard<'a, T> {
     status: usize,
 }
 
+/// RwSpinlock 是一个读写自旋锁，允许多个读者或一个写者访问受保护的数据。
+///
+/// 考虑到读写锁一般用于缓冲区，所以不将数据保存在内部
+#[repr(C)]
+pub struct RwSpinlock<T> {
+    state: AtomicU32,
+    _phantom: PhantomData<T>,
+}
+
+unsafe impl<T> Sync for RwSpinlock<T> {}
+
+pub struct RwReadGuard<'a, T> {
+    lock: &'a RwSpinlock<T>,
+    ptr: NonNull<T>,
+}
+
+impl<'a, T> Into<RwWriteGuard<'a, T>> for RwReadGuard<'a, T> {
+    fn into(self) -> RwWriteGuard<'a, T> {
+        // 将读锁升级为写锁（需要先释放读锁再获取写锁）
+        let lock = self.lock;
+        let ptr = self.ptr;
+        drop(self); // 释放读锁
+        lock.write_lock(ptr)
+    }
+}
+
+impl<'a, T> Into<RwReadGuard<'a, T>> for RwWriteGuard<'a, T> {
+    fn into(self) -> RwReadGuard<'a, T> {
+        // 将写锁降级为读锁（需要先释放写锁再获取读锁）
+        let lock = self.lock;
+        let ptr = self.ptr;
+        drop(self);
+        lock.read_lock(ptr)
+    }
+}
+
+pub struct RwWriteGuard<'a, T> {
+    lock: &'a RwSpinlock<T>,
+    ptr: NonNull<T>,
+}
+
 impl<T> Spinlock<T> {
     pub const fn new(inner: T) -> Self {
         Spinlock {
@@ -200,6 +242,51 @@ impl<T> Spinlock<T> {
     }
 }
 
+impl<T> RwSpinlock<T> {
+    const WRITER: u32 = 1 << 31;
+
+    pub const fn new() -> Self {
+        Self {
+            state: AtomicU32::new(0),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn read_lock(&self, ptr: NonNull<T>) -> RwReadGuard<'_, T> {
+        loop {
+            let state = self.state.load(Ordering::Relaxed);
+            if state & Self::WRITER != 0 {
+                spin_loop();
+                continue;
+            }
+
+            if self
+                .state
+                .compare_exchange_weak(state, state + 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                return RwReadGuard { lock: self, ptr };
+            }
+        }
+    }
+
+    pub fn write_lock(&self, ptr: NonNull<T>) -> RwWriteGuard<'_, T> {
+        loop {
+            while self.state.load(Ordering::Relaxed) != 0 {
+                spin_loop();
+            }
+
+            if self
+                .state
+                .compare_exchange_weak(0, Self::WRITER, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                return RwWriteGuard { lock: self, ptr };
+            }
+        }
+    }
+}
+
 impl<'a, T> Deref for SpinGuard<'a, T> {
     type Target = T;
 
@@ -239,5 +326,39 @@ impl<'a, T> Drop for SpinIrqGuard<'a, T> {
     fn drop(&mut self) {
         // 在 Guard 被丢弃时释放锁并恢复中断状态
         self.lock.unlock_irqrestore(self.status as c_int);
+    }
+}
+
+impl<'a, T> Deref for RwReadGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<'a, T> Deref for RwWriteGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<'a, T> DerefMut for RwWriteGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.ptr.as_mut() }
+    }
+}
+
+impl<'a, T> Drop for RwReadGuard<'a, T> {
+    fn drop(&mut self) {
+        self.lock.state.fetch_sub(1, Ordering::Release);
+    }
+}
+
+impl<'a, T> Drop for RwWriteGuard<'a, T> {
+    fn drop(&mut self) {
+        self.lock.state.store(0, Ordering::Release);
     }
 }

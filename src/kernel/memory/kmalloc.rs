@@ -8,12 +8,11 @@ use core::{
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
-        KLINEAR_SIZE, MemoryError,
+        KLINEAR_BASE, KLINEAR_END, MemoryError,
         arch::ArchMemory,
         frame::{Frame, FrameTag, buddy::FrameOrder},
         page::{kfree_pages, options::PageAllocOptions},
         slub::{Slub, config::select_cache},
-        vir_base_addr,
     },
 };
 
@@ -47,7 +46,7 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
             let page_options = PageAllocOptions::kernel(order);
             let mut pages = page_options.allocate().ok()?;
 
-            Some(unsafe { NonNull::new_unchecked(pages.get_ptr()) })
+            Some(pages.get_ptr())
         }
     }
 }
@@ -63,6 +62,7 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
     let ptr = match NonNull::new(ptr) {
         Some(ptr) => ptr,
         None => {
+            printk!("WARNING: Attempt to free a null pointer\n");
             return;
         }
     };
@@ -72,12 +72,12 @@ pub extern "C" fn kfree_c(ptr: *mut c_void) {
 pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
     let addr = ptr.as_ptr() as usize;
     assert!(
-        vir_base_addr().as_usize() <= addr && addr <= vir_base_addr().as_usize() + KLINEAR_SIZE,
+        KLINEAR_BASE.as_usize() <= addr && addr <= KLINEAR_END.as_usize(),
         "Attempt to free non-kernel memory"
     );
 
     let vaddr = VirtAddr::new(addr);
-    let phy_addr = PhysAddr::new(vaddr.offset_from(vir_base_addr()));
+    let phy_addr = PhysAddr::new(vaddr.offset_from(KLINEAR_BASE));
     let frame_number = phy_addr.to_frame_number();
 
     match Frame::get_tag_relaxed(frame_number) {

@@ -117,13 +117,13 @@ UhciTd *uhci_send_token_packet(
 
 	td->error_count = 3;
 
-	if (buffer != NULL) td->buf_addr_phy = vir2phy((uint32_t)buffer);
+	if (buffer != NULL) td->buf_addr_phy = vir2phy((size_t)buffer);
 	else td->buf_addr_phy = 0;
 
 	if (!list_empty(&pipe->pipe_lh)) {
 		UhciTd *last_td = list_last_owner(&pipe->pipe_lh, UhciTd, list);
 		list_add_tail(&td->list, &pipe->pipe_lh);
-		last_td->link = BIN_DIS(vir2phy((uint32_t)td), UHCI_QH_TD_SELECT);
+		last_td->link = BIN_DIS(vir2phy((size_t)td), UHCI_QH_TD_SELECT);
 		last_td->link = BIN_EN(last_td->link, UHCI_VERTICAL_FIRST);
 		last_td->next = td;
 	} else {
@@ -159,26 +159,35 @@ int uhci_wait_transfer(UhciQh *qh) {
 	Timer timer;
 	timer_init(&timer);
 	UhciTd *td = qh->first_td;
-	while (td->active) {
-		if (td->active == 0) { break; }
+
+	while (td != NULL) {
+		if (td->active == 0) {
+			td = td->next;
+			continue;
+		}
+		if (td->bitstuff_Error || td->crc_timeout_Error ||
+			td->databuffer_Error || td->stalled || td->NAK_received) {
+
+			// 发送错误
+			uint32_t *raw = (uint32_t *)td; // TD 在内存首地址
+			printk(
+				"TD raw: w0=%08x w1=%08x w2=%08x w3=%08x\n", raw[0], raw[1],
+				raw[2], raw[3]);
+			printk(
+				" decoded: pid=%02x dev=%u ep=%u toggle=%u maxlen=%u "
+				"active=%u\n",
+				td->packet_id, td->device_addr, td->endpoint, td->data_toggle,
+				td->max_length, td->active);
+			printk(
+				"[UHCI]td %#08x(phy %#08x) timeout.\n", td,
+				vir2phy((size_t)td));
+			return -1;
+		}
 
 		delay_ms(&timer, 1);
 	}
-	if (!(td->crc_timeout_Error | td->bitstuff_Error | td->databuffer_Error |
-		  td->stalled | td->NAK_received))
-		return 0;
 
-	// 发送错误
-	uint32_t *raw = (uint32_t *)td; // TD 在内存首地址
-	printk(
-		"TD raw: w0=%08x w1=%08x w2=%08x w3=%08x\n", raw[0], raw[1], raw[2],
-		raw[3]);
-	printk(
-		" decoded: pid=%02x dev=%u ep=%u toggle=%u maxlen=%u active=%u\n",
-		td->packet_id, td->device_addr, td->endpoint, td->data_toggle,
-		td->max_length, td->active);
-	printk("[UHCI]td %#08x(phy %#08x) timeout.\n", td, vir2phy((uint32_t)td));
-	return -1;
+	return 0;
 }
 
 UsbSetupStatus uhci_ctrl_transfer_in(
@@ -192,10 +201,11 @@ UsbSetupStatus uhci_ctrl_transfer_in(
 	uhci_in_transcation(device, device->ep0, qh, 0, buffer, data_length);
 	UhciTd *last_td = uhci_out_transcation(device, device->ep0, qh, 1, NULL, 0);
 	UhciTd *first_td = qh->first_td;
-	qh->qe_link		 = BIN_DIS(vir2phy((uint32_t)first_td), UHCI_QH_TD_SELECT);
+	qh->qe_link		 = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
 
 	if (uhci_wait_transfer(qh) < 0) {
 		// 超时
+		qh->qh_link = UHCI_TERMINATE;
 		uhci_free_all_td(pipe);
 		return USB_SETUP_CRC_TIMEOUT_ERR;
 	}
@@ -234,7 +244,7 @@ UsbSetupStatus uhci_ctrl_transfer_out(
 	}
 	UhciTd *last_td	 = uhci_in_transcation(device, device->ep0, qh, 1, NULL, 0);
 	UhciTd *first_td = qh->first_td;
-	qh->qe_link		 = BIN_DIS(vir2phy((uint32_t)first_td), UHCI_QH_TD_SELECT);
+	qh->qe_link		 = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
 
 	if (uhci_wait_transfer(qh) < 0) {
 		// 超时
@@ -286,7 +296,7 @@ void uhci_add_interrupt_transfer(
 	}
 
 	UhciTd *first_td = qh->first_td;
-	qh->qe_link		 = BIN_DIS(vir2phy((uint32_t)first_td), UHCI_QH_TD_SELECT);
+	qh->qe_link		 = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
 	td->urb			 = urb;
 	_td->urb		 = urb;
 	td->interrupt_on_complete  = 1; // 传输完成后中断通知
@@ -317,5 +327,5 @@ void uhci_interrupt_transfer(UsbHcd *hcd, UsbEndpoint *ep) {
 	next->active	  = 1;
 
 	// 2. 挂回 QH
-	pipe->qh.qe_link = BIN_DIS(vir2phy((uint32_t)first_td), UHCI_QH_TD_SELECT);
+	pipe->qh.qe_link = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
 }

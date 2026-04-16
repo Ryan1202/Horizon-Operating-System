@@ -1,13 +1,13 @@
 use core::{
     mem::{self},
     num::NonZeroUsize,
-    ptr::{NonNull, addr_of},
+    ptr::NonNull,
 };
 
 use crate::{
     arch::{ArchPageTable, VirtAddr},
     kernel::memory::{
-        KLINEAR_SIZE, KMEMORY_END, MemoryError, PageCacheType, VIR_BASE,
+        MemoryError, PageCacheType, VMALLOC_BASE, VMALLOC_END,
         arch::ArchMemory,
         frame::{
             Frame, FrameTag,
@@ -15,7 +15,11 @@ use crate::{
             reference::{UniqueFrames, try_free},
         },
         kmalloc::kmalloc,
-        page::{PageFlags, PageTableError, PageTableWalker, range::VmRange},
+        page::{
+            PageFlags, PageTable, PageTableError, PageTableOps, current_root_pt,
+            lock::{NormalPtLock, PtRwLock},
+            range::VmRange,
+        },
     },
     lib::rust::rbtree::linked::LinkedRbNodeBase,
 };
@@ -36,14 +40,23 @@ impl DynPages {
         }
     }
 
-    /// 获取内核可用临时虚拟地址空间的范围
-    #[inline(always)]
-    pub fn kernel() -> Self {
-        let start = addr_of!(VIR_BASE) as usize + KLINEAR_SIZE;
-        let (start, end) = (VirtAddr::new(start), KMEMORY_END);
+    pub const fn fixed(
+        start: crate::kernel::memory::page::PageNumber,
+        count: NonZeroUsize,
+    ) -> Self {
+        let range = VmRange {
+            start,
+            end: start + count.get() - 1,
+        };
+        Self::new(range)
+    }
 
-        let start = start.to_page_number().unwrap();
-        let end = end.to_page_number().unwrap();
+    /// 获取内核可用临时虚拟地址空间的范围
+    pub const fn kernel() -> Self {
+        let (start, end) = (VMALLOC_BASE, VMALLOC_END);
+
+        let start = start.to_page_number();
+        let end = end.to_page_number();
 
         let vm_range = VmRange { start, end };
 
@@ -51,7 +64,7 @@ impl DynPages {
     }
 
     pub const fn start_addr(&self) -> VirtAddr {
-        let addr = self.rb_node.get_key().start.get().get() * ArchPageTable::PAGE_SIZE;
+        let addr = self.rb_node.get_key().start.get() * ArchPageTable::PAGE_SIZE;
         VirtAddr::new(addr)
     }
 
@@ -83,27 +96,39 @@ impl DynPages {
         Some(allocated)
     }
 
-    pub fn map<W: PageTableWalker>(
+    pub fn map<W: PageTable>(
         &mut self,
         mut frame: UniqueFrames,
         cache_type: PageCacheType,
-    ) -> Result<(), MemoryError> {
+    ) -> Result<(), MemoryError>
+    where
+        for<'a> NormalPtLock: PtRwLock<'a, W>,
+    {
         // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
-        if !matches!(frame.get_tag(), FrameTag::Anonymous) {
-            return Err(MemoryError::UnavailableFrame);
-        };
+        let tag = frame.get_tag();
         let count = frame.get_order().to_count().get();
 
-        unsafe { frame.get_data_mut().anonymous.acquire() };
+        match tag {
+            FrameTag::Anonymous => unsafe { frame.get_data_mut().anonymous.acquire() },
+            FrameTag::AssignedFixed => unsafe { frame.get_data_mut().assigned.acquire() },
+            _ => return Err(MemoryError::UnavailableFrame),
+        }
 
-        W::map(
+        PageTableOps::<W>::map(
+            current_root_pt(),
             self,
             self.frame_count,
             &mut frame,
             PageFlags::new().cache_type(cache_type),
         )
-        .inspect_err(|_| unsafe {
-            frame.get_data().anonymous.release();
+        .inspect_err(|_| match tag {
+            FrameTag::Anonymous => unsafe {
+                frame.get_data().anonymous.release();
+            },
+            FrameTag::AssignedFixed => unsafe {
+                frame.get_data().assigned.release();
+            },
+            _ => unreachable!(),
         })?;
         {
             let range = self.rb_node.get_key();
@@ -128,40 +153,57 @@ impl DynPages {
         Ok(())
     }
 
-    pub fn unmap<W: PageTableWalker>(&mut self) -> Result<(), PageTableError> {
-        let mut page_number = self.start_addr().to_page_number().unwrap();
+    pub fn unmap<W: PageTable>(&mut self) -> Result<(), PageTableError>
+    where
+        for<'a> NormalPtLock: PtRwLock<'a, W>,
+    {
+        let mut page_number = self.start_addr().to_page_number();
         let mut offset = 0;
 
         while offset < self.frame_count {
             let vaddr = page_number.to_addr();
-            let paddr = W::translate(vaddr).unwrap();
+            let paddr = PageTableOps::<W>::translate(current_root_pt(), vaddr).unwrap();
             let frame_number = paddr.to_frame_number();
-            let tag = Frame::get_tag_relaxed(frame_number + 1);
+            let frame = unsafe { Frame::get_raw(frame_number).as_ref() };
 
-            let (next, order) = if let FrameTag::Tail = tag {
-                let frame = unsafe { Frame::get_raw(frame_number + 1).as_ref() };
+            let (next, order) = match frame.get_tag() {
+                FrameTag::Anonymous => {
+                    let order = unsafe { frame.get_data().anonymous.get_order() };
+                    (page_number + order.to_count().get(), order)
+                }
+                FrameTag::AssignedFixed => {
+                    let order = unsafe { frame.get_data().assigned.get_order() };
+                    (page_number + order.to_count().get(), order)
+                }
+                _ => {
+                    let tag = Frame::get_tag_relaxed(frame_number + 1);
+                    if let FrameTag::Tail = tag {
+                        let frame = unsafe { Frame::get_raw(frame_number + 1).as_ref() };
 
-                let range = unsafe { frame.get_data().range };
-                let count = range.end.count_from(range.start);
+                        let range = unsafe { frame.get_data().range };
+                        let count = range.end.count_from(range.start);
 
-                let next = page_number + count;
-                let order = FrameOrder::from_count(count);
+                        let next = page_number + count;
+                        let order = FrameOrder::from_count(count);
 
-                (next, order)
-            } else {
-                (page_number + 1, FrameOrder::new(0))
+                        (next, order)
+                    } else {
+                        (page_number + 1, FrameOrder::new(0))
+                    }
+                }
             };
             page_number = next;
 
-            let _ = W::unmap(self, offset, order).inspect_err(|e| {
-                printk!(
-                    "unmap range failed! error: {:?}, start: {}, offset: {}, order: {:?}\n",
-                    e,
-                    self.start_addr(),
-                    offset,
-                    order
-                )
-            });
+            let _ =
+                PageTableOps::<W>::unmap(current_root_pt(), self, offset, order).inspect_err(|e| {
+                    printk!(
+                        "unmap range failed! error: {:?}, start: {}, offset: {}, order: {:?}\n",
+                        e,
+                        self.start_addr(),
+                        offset,
+                        order
+                    )
+                });
 
             // 最后释放
             unsafe {

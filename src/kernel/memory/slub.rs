@@ -119,8 +119,7 @@ impl Slub {
         // 分配页
         let mut pages = options.allocate()?;
 
-        let start_addr = pages.start_addr();
-        let free_nodes = unsafe { start_addr.as_mut_ptr::<FreeNode>().as_mut().unwrap() };
+        let free_nodes = unsafe { pages.get_ptr().as_mut() };
 
         FreeNode::init(free_nodes, config);
 
@@ -148,7 +147,7 @@ impl Slub {
         };
 
         let slub = {
-            set_slub(first_frame, slub_info);
+            slub_info.replace_frame(first_frame);
 
             let slub: &mut Self = first_frame.deref_mut().try_into()?;
             NonNull::from_ref(slub)
@@ -162,6 +161,17 @@ impl Slub {
         options: PageAllocOptions,
     ) -> Result<NonNull<Self>, MemoryError> {
         Self::init_slab(config, options)
+    }
+
+    fn replace_frame(self, frame: &mut Frame) {
+        unsafe {
+            frame.replace(
+                FrameTag::Slub,
+                FrameData {
+                    slub: ManuallyDrop::new(self),
+                },
+            )
+        };
     }
 
     /// 销毁当前 `Slub`
@@ -181,8 +191,7 @@ impl Slub {
 
         let frame = unsafe { Frame::from_child(self) };
 
-        let anonymous = ManuallyDrop::new(Anonymous::new(order));
-        unsafe { frame.replace(FrameTag::Anonymous, FrameData { anonymous }) };
+        Anonymous::new(order).replace_frame(frame);
 
         Some(())
     }
@@ -292,17 +301,6 @@ impl SlubInner {
     pub const fn is_destroyable(&self) -> Option<()> {
         if self.inuse == 0 { Some(()) } else { None }
     }
-}
-
-fn set_slub(frame: &mut Frame, slub_info: Slub) {
-    unsafe {
-        frame.replace(
-            FrameTag::Slub,
-            FrameData {
-                slub: ManuallyDrop::new(slub_info),
-            },
-        )
-    };
 }
 
 impl FreeNode {

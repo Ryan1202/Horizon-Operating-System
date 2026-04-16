@@ -88,7 +88,7 @@ DriverResult platform_init() {
 
 	dma_init();
 
-	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed((uint32_t)read_tsc());
+	if (cpu_check_feature(CPUID_FEAT_TSC)) rand_seed(read_tsc());
 
 	return DRIVER_OK;
 }

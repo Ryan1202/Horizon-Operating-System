@@ -28,13 +28,13 @@ extern size_t total_pages;
 extern size_t allocated_pages;
 
 void memory_early_init(void) {
+	page_setup();
 	page_early_init((size_t)&_kernel_end_phy);
-	setup_page();
 }
 
 void init_memory(void) {
-	uint32_t ards_addr	  = ARDS_ADDR;
-	uint32_t ards_nr_addr = ARDS_NR;
+	size_t	 ards_addr	  = ARDS_ADDR_VIR;
+	size_t	 ards_nr_addr = ARDS_NR_VIR;
 	uint16_t ards_nr	  = *((uint16_t *)ards_nr_addr); // ards 结构数
 	ards				  = (struct ards *)ards_addr;	 // ards 地址
 

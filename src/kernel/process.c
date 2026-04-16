@@ -16,6 +16,7 @@
 #include <kernel/page.h>
 #include <kernel/process.h>
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 
 void		  thread_intr_exit(struct intr_stack *proc_stack);
@@ -52,13 +53,13 @@ extern list_t thread_ready;
  * @param thread 线程
  */
 void page_dir_activate(struct task_s *thread) {
-	uint32_t pagedir_phy_addr = pdt_phy_addr;
+	size_t pagedir_phy_addr = read_cr3() & (~0xfff);
 
 	if (thread->pgdir != NULL) {
-		pagedir_phy_addr = vir2phy((uint32_t)thread->pgdir);
+		pagedir_phy_addr = vir2phy((size_t)thread->pgdir);
 	}
 
-	write_cr3((uint32_t *)pagedir_phy_addr);
+	write_cr3((size_t *)pagedir_phy_addr);
 }
 
 /**

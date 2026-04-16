@@ -87,7 +87,7 @@ void	 dma_enable(unsigned int channel);
 void	 dma_disable(unsigned int channel);
 void	 dma_ff_reset(unsigned int channel);
 void	 dma_set_mode(unsigned int channel, char mode);
-void	 dma_set_addr(unsigned int channel, unsigned int addr);
+void	 dma_set_addr(unsigned int channel, size_t addr);
 void	 dma_set_count(unsigned int channel, unsigned int count);
 uint32_t dma_pointer(int channel, unsigned int size);
 

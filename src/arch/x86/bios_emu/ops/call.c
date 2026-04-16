@@ -18,7 +18,7 @@ BiosEmuExceptions decode_call_near(BiosEmuEnvironment *env, uint32_t address) {
 			}
 		}
 		PUSH(env, env->regs.ip, 2);
-		env->cur_ip	  = (void *)((env->regs.cs << 4) + address);
+		env->cur_ip	  = (void *)(size_t)((env->regs.cs << 4) + address);
 		env->regs.eip = address;
 	} else {
 		if (!ptr_within_code_segment_limit(env, address))
@@ -33,7 +33,7 @@ BiosEmuExceptions decode_call_near(BiosEmuEnvironment *env, uint32_t address) {
 			}
 		}
 		PUSH(env, env->regs.eip, 4);
-		env->cur_ip	  = (void *)address;
+		env->cur_ip	  = (void *)(size_t)address;
 		env->regs.eip = address;
 	}
 	return NoException;
@@ -45,7 +45,7 @@ BiosEmuExceptions decode_call(BiosEmuEnvironment *env) {
 		env->cur_ip += 2;
 		env->regs.eip += 2;
 		env->regs.eip &= 0xffff;
-		env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+		env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 		return decode_call_near(env, (env->regs.eip + offset) & 0xffff);
 	} else {
 		uint32_t offset = *(uint32_t *)env->cur_ip;
@@ -73,7 +73,7 @@ BiosEmuExceptions decode_call_far(
 		}
 		env->regs.cs  = segment;
 		env->regs.eip = offset & 0xffff;
-		env->cur_ip	  = (void *)((segment << 4) + env->regs.eip);
+		env->cur_ip	  = (void *)(size_t)((segment << 4) + env->regs.eip);
 	} else {
 		if (offset >> 16 != 0) return GeneralProtection; // 实模式
 		if (env->flags.stack_size == 0) {
@@ -91,7 +91,7 @@ BiosEmuExceptions decode_call_far(
 		}
 		env->regs.cs  = segment;
 		env->regs.eip = offset;
-		env->cur_ip	  = (void *)env->regs.eip;
+		env->cur_ip	  = (void *)(size_t)env->regs.eip;
 	}
 	return NoException;
 }
@@ -103,7 +103,7 @@ BiosEmuExceptions decode_call_ptr(BiosEmuEnvironment *env) {
 		env->cur_ip += 4;
 		env->regs.eip += 4;
 		env->regs.eip &= 0xffff;
-		env->cur_ip = (void *)((env->regs.cs << 4) + env->regs.eip);
+		env->cur_ip = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 		return decode_call_far(env, segment, offset);
 	} else {
 		uint32_t offset = *(uint32_t *)env->cur_ip;
@@ -133,7 +133,7 @@ BiosEmuExceptions decode_ret_near(BiosEmuEnvironment *env, int bytes) {
 		if (!ptr_within_code_segment_limit(env, temp_eip))
 			return GeneralProtection;
 		env->regs.eip = temp_eip;
-		env->cur_ip	  = (void *)((env->regs.cs << 4) + env->regs.eip);
+		env->cur_ip	  = (void *)(size_t)((env->regs.cs << 4) + env->regs.eip);
 	} else {
 		if (env->flags.stack_size == 0) {
 			if (STACK_POINTER16(env) < env->stack_bottom + 4) {
@@ -149,7 +149,7 @@ BiosEmuExceptions decode_ret_near(BiosEmuEnvironment *env, int bytes) {
 			env->regs.esp += bytes;
 		}
 		env->regs.eip = temp_eip;
-		env->cur_ip	  = (void *)env->regs.eip;
+		env->cur_ip	  = (void *)(size_t)env->regs.eip;
 	}
 	return NoException;
 }
@@ -178,7 +178,7 @@ BiosEmuExceptions decode_ret_far(BiosEmuEnvironment *env, int bytes) {
 			return GeneralProtection;
 		env->regs.cs  = segment;
 		env->regs.eip = temp_eip;
-		env->cur_ip	  = (void *)((segment << 4) + env->regs.eip);
+		env->cur_ip	  = (void *)(size_t)((segment << 4) + env->regs.eip);
 	} else {
 		if (env->flags.stack_size == 0) {
 			if (STACK_POINTER16(env) < env->stack_bottom + 8) {
@@ -196,7 +196,7 @@ BiosEmuExceptions decode_ret_far(BiosEmuEnvironment *env, int bytes) {
 			env->regs.esp += bytes;
 		}
 		env->regs.cs = segment;
-		env->cur_ip	 = (void *)env->regs.eip;
+		env->cur_ip	 = (void *)(size_t)env->regs.eip;
 	}
 	return NoException;
 }

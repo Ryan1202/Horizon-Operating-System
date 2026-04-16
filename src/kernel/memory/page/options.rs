@@ -107,6 +107,18 @@ impl PageAllocOptions {
     }
 }
 
+const fn is_linear(zone: ZoneType) -> bool {
+    #[cfg(target_pointer_width = "64")]
+    {
+        matches!(zone, ZoneType::LinearMem | ZoneType::MEM32)
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    {
+        matches!(zone, ZoneType::LinearMem)
+    }
+}
+
 impl PageAllocOptions {
     fn alloc_discontiguous(&self, pages: &mut DynPages) -> Result<(), MemoryError> {
         let mut remaining = self.get_count().get();
@@ -121,7 +133,10 @@ impl PageAllocOptions {
 
             match result {
                 Ok((mut _frames, _zone)) => {
-                    debug_assert!(matches!(_frames.get_tag(), FrameTag::Anonymous));
+                    debug_assert!(matches!(
+                        _frames.get_tag(),
+                        FrameTag::Anonymous | FrameTag::AssignedFixed
+                    ));
 
                     pages.map::<ArchPageTable>(_frames, self.cache_type)?;
 
@@ -148,7 +163,7 @@ impl PageAllocOptions {
         // 分配结果判断
         if remaining == 0 {
             // 完全满足需求
-            let start = pages.start_addr().to_page_number().unwrap();
+            let start = pages.start_addr().to_page_number();
             let end = start + pages.frame_count - 1;
             ArchFlushTlb::flush_range(start, end);
             Ok(())
@@ -174,12 +189,12 @@ impl PageAllocOptions {
                 self.frame.allocate()?
             };
 
-            if !matches!(zone, ZoneType::LinearMem) {
+            if !is_linear(zone) {
                 let v = unsafe { get_vmap().allocate(count)?.as_mut() };
 
                 v.map::<ArchPageTable>(frame, self.cache_type)?;
 
-                let start = v.start_addr().to_page_number().unwrap();
+                let start = v.start_addr().to_page_number();
                 let end = start + v.frame_count - 1;
                 ArchFlushTlb::flush_range(start, end);
 

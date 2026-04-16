@@ -20,6 +20,11 @@ DriverResult ide_controller_probe(
 	PciDevice *pci_device, PhysicalDevice *physical_device);
 DriverResult ide_controller_init(void *device);
 
+static inline void ide_write_control(IdeChannel *channel, uint8_t control) {
+	channel->control = control;
+	io_out_byte(channel->control_base + ATA_REG_CONTROL, control);
+}
+
 DeviceDriver ide_controller_device_driver;
 
 DeviceOps ide_controller_device_ops = {
@@ -88,6 +93,7 @@ void ide_controller_setup_pci_mode(PciDevice *pci_device, IdeChannel *channel) {
 		pci_device->common.bar[channel->channel_num * 2].base_addr;
 	channel->control_base =
 		pci_device->common.bar[channel->channel_num * 2 + 1].base_addr;
+	pci_enable_io_space(pci_device);
 	register_device_irq(
 		&channel->irq, pci_device->device, channel, pci_device->irqline,
 		ide_irq_handler, IRQ_MODE_SHARED);
@@ -103,6 +109,7 @@ DriverResult ide_controller_init(void *_device) {
 		channel->physical_device = device;
 		channel->channel_num	 = i;
 		channel->selected_device = 0;
+		channel->control		 = 0;
 		// 检查是否支持PCI Native模式
 		ide_detect_channel_mode(channel, info->pci_device, i);
 
@@ -119,7 +126,7 @@ DriverResult ide_controller_init(void *_device) {
 		}
 
 		// 禁用并注册IRQ
-		io_out_byte(channel->control_base + ATA_REG_CONTROL, ATA_CONTROL_NIEN);
+		ide_write_control(channel, ATA_CONTROL_NIEN);
 
 		ide_device_probe(channel);
 	}
@@ -157,15 +164,15 @@ void ide_print_error(IdeChannel *channel) {
 }
 
 void ide_reset_drive(IdeChannel *channel) {
-	uint8_t data = io_in_byte(channel->control_base + ATA_REG_CONTROL);
-	io_out_byte(channel->control_base + ATA_REG_CONTROL, BIN_EN(data, BIT(2)));
+	uint8_t data = channel->control;
+	ide_write_control(channel, BIN_EN(data, ATA_CONTROL_SRST));
 
 	// 等待重置
 	int i;
 	for (i = 0; i < 50; i++) {
 		io_in_byte(channel->io_base + ATA_REG_STATUS);
 	}
-	io_out_byte(channel->control_base + ATA_REG_CONTROL, data);
+	ide_write_control(channel, data);
 	channel->selected_device = 0;
 }
 
@@ -179,8 +186,17 @@ void ide_select_device(IdeChannel *channel, int device_num) {
 int ide_wait(IdeChannel *channel) {
 	int status;
 	do {
-		status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+		status = io_in_byte(channel->control_base + ATA_REG_ALTSTATUS);
 	} while (BIN_IS_EN(status, ATA_STATUS_BUSY));
+	return 0;
+}
+
+int ide_wait_cmd_ready(IdeChannel *channel) {
+	int status;
+	do {
+		status = io_in_byte(channel->control_base + ATA_REG_ALTSTATUS);
+	} while (BIN_IS_EN(status, ATA_STATUS_BUSY) ||
+			 BIN_IS_EN(status, ATA_STATUS_DRQ));
 	return 0;
 }
 
@@ -194,7 +210,7 @@ void ide_polling(IdeChannel *channel) {
 
 	int status;
 	do {
-		status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+		status = io_in_byte(channel->control_base + ATA_REG_ALTSTATUS);
 	} while (BIN_IS_EN(status, ATA_STATUS_BUSY));
 
 	if (BIN_IS_EN(status, ATA_STATUS_ERR)) {

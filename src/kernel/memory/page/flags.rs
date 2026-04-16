@@ -24,7 +24,7 @@ impl PageFlags {
             global: false,
             accessed: false,
             dirty: false,
-            huge_page: false,
+            huge_page: true,
 
             cache_type: PageCacheType::WriteBack,
         }

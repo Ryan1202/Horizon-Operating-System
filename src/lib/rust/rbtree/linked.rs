@@ -41,10 +41,10 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
         let cur = self.augment.get_list();
         match order {
             cmp::Ordering::Less => {
-                cur.add_before(new_node.augment.get_list());
+                new_node.augment.get_list().add_before(cur);
             }
             cmp::Ordering::Greater => {
-                cur.add_after(new_node.augment.get_list());
+                new_node.augment.get_list().add_after(cur);
             }
             cmp::Ordering::Equal => {
                 unreachable!("Duplicate keys are not allowed in RbTree");
@@ -53,7 +53,7 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
     }
     fn unlink_ext(&mut self, tree: &mut LinkedRbTreeBase<K, A, NA>) {
         let list_node = self.augment.get_list();
-        list_node.del(&mut tree.augment.list_head);
+        unsafe { Pin::new_unchecked(&mut tree.augment.list_head) }.del(list_node);
     }
 }
 
@@ -76,7 +76,7 @@ pub struct Linked<K, A> {
 }
 
 #[repr(C)]
-#[derive(Default, PartialEq, Debug)]
+#[derive(Default, Debug)]
 pub struct LinkedHead<K, A, NA> {
     pub list_head: ListHead<LinkedRbNodeBase<K, NA>>,
     pub augment: A,
@@ -99,7 +99,7 @@ impl<K, A> Linked<K, A> {
 
 impl<K, A, NA> LinkedHead<K, A, NA> {
     pub fn iter(&mut self) -> ListIterator<LinkedRbNodeBase<K, NA>> {
-        self.list_head
+        unsafe { Pin::new_unchecked(&mut self.list_head) }
             .iter(LinkedRbTreeBase::<K, A, NA>::linked_offset())
     }
 }
@@ -155,11 +155,19 @@ impl<'a, K: Ord + Sized, A> Iterator for RbNodeIter<'a, K, LinkedIter, Linked<K,
     type Item = &'a mut LinkedRbNodeBase<K, A>;
     fn next(&mut self) -> Option<Self::Item> {
         let mut next_node = self.next?;
-        let list_node = unsafe { next_node.as_mut() }.augment.list_node.next?;
+        let link = unsafe { next_node.as_mut() }
+            .augment
+            .list_node
+            .link
+            .as_ref();
 
-        let next = list_owner!(list_node, Linked<K, A>, list_node);
-        let next = container_of!(next, LinkedRbNodeBase<K, A>, augment);
-        self.next = Some(next);
+        let next = link
+            .map(|current| current.next)
+            .map(|next| container_of!(next, ListNode<LinkedRbNodeBase<K, A>>, link))
+            .map(|next| list_owner!(next, Linked<K, A>, list_node))
+            .map(|next| container_of!(next, LinkedRbNodeBase<K, A>, augment));
+
+        self.next = next;
 
         Some(unsafe { next_node.as_mut() })
     }
@@ -202,7 +210,7 @@ impl<'a, K: Ord + Sized, A, NA> LinkedRbTreeBase<K, A, NA> {
             }
         };
 
-        let list_head = &mut self.augment.list_head;
+        let list_head = unsafe { Pin::new_unchecked(&mut self.augment.list_head) };
         let first_node = list_head
             .iter(offset_of!(LinkedHead<K, A, NA>, list_head))
             .next();

@@ -1,7 +1,4 @@
-use core::{
-    num::NonZeroUsize,
-    ptr::{with_exposed_provenance, with_exposed_provenance_mut},
-};
+use core::ptr::{with_exposed_provenance, with_exposed_provenance_mut};
 
 use crate::{
     arch::ArchPageTable,
@@ -46,11 +43,8 @@ impl VirtAddr {
         self.0
     }
 
-    pub const fn to_page_number(&self) -> Option<PageNumber> {
-        match NonZeroUsize::new(self.0 / ArchPageTable::PAGE_SIZE) {
-            Some(x) => Some(PageNumber::new(x)),
-            None => None,
-        }
+    pub const fn to_page_number(&self) -> PageNumber {
+        PageNumber::new(self.0 / ArchPageTable::PAGE_SIZE)
     }
 
     pub const fn as_ptr<T>(self) -> *const T {

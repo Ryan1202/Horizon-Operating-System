@@ -14,14 +14,14 @@ impl FlushTlb for X86FlushTlb {
         unsafe {
             asm!(
                 "invlpg [{}]",
-                in(reg) page_number.get().get() * ArchPageTable::PAGE_SIZE,
+                in(reg) page_number.get() * ArchPageTable::PAGE_SIZE,
                 options(nostack, preserves_flags)
             );
         }
     }
 
     fn flush_range(start: PageNumber, end: PageNumber) {
-        let count = end.get().get() - start.get().get();
+        let count = end.get() - start.get();
         for i in 0..=count {
             Self::flush_page(start + i);
         }

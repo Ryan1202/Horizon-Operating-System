@@ -3,7 +3,6 @@ use core::{
     ffi::{CStr, c_char, c_void},
     mem::{MaybeUninit, transmute},
     num::NonZeroU16,
-    ops::DerefMut,
     pin::Pin,
     ptr::{NonNull, null_mut},
     sync::atomic::{AtomicPtr, Ordering},
@@ -303,7 +302,7 @@ impl MemCache {
         let mut head = unsafe { (*CACHES.get()).assume_init_ref().list_head.lock() };
 
         let list = mem_cache.get_list();
-        list.del(head.deref_mut());
+        unsafe { Pin::new_unchecked(&mut *head) }.del(list);
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));

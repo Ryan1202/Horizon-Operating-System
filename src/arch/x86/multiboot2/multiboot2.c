@@ -2,15 +2,40 @@
 #include <drivers/vesa_display.h>
 #include <kernel/ards.h>
 #include <kernel/font.h>
+#include <kernel/page.h>
 #include <sections.h>
 #include <stdint.h>
 #include <types.h>
 
-extern struct VesaDisplayInfo vesa_display_info;
-extern unsigned char		  VIR_BASE[];
+void __multiboot2 temp_map(uint32_t base_addr) {
+	int		pdpt_i = base_addr >> 30;
+	size_t *pdpt   = (size_t *)PDPT0_BASE;
 
-#define vaddr2paddr(vaddr) ((size_t)(vaddr) - ((size_t)(VIR_BASE)))
-#define paddr2vaddr(paddr) ((size_t)(paddr) + ((size_t)(VIR_BASE)))
+	int		pdt_i = (base_addr >> 21) & 0x1ff;
+	size_t *pdt	  = (size_t *)PDT0_BASE;
+	if (pdpt_i > 0) {
+		pdt = (size_t *)PDPT_KBASE; // 临时借用
+	}
+
+	pdt[pdt_i] =
+		(((size_t)base_addr & ~0x1fffff) | SIGN_HUGE | SIGN_SYS | SIGN_RW |
+		 SIGN_P);
+
+	pdpt[pdpt_i] = ((size_t)pdt & ~0xfff) | SIGN_SYS | SIGN_RW | SIGN_P;
+}
+
+void __multiboot2 temp_unmap(uint32_t base_addr) {
+	int		pdpt_i = base_addr >> 30;
+	size_t *pdpt   = (size_t *)PDPT0_BASE;
+
+	int pdt_i = (base_addr >> 21) & 0x1ff;
+	if (pdpt_i > 0) {
+		pdpt[pdpt_i] = 0;
+	} else if (pdt_i > 0) {
+		size_t *pdt = (size_t *)PDT0_BASE;
+		pdt[pdt_i]	= 0;
+	}
+}
 
 void __multiboot2 multiboot2_memcpy(void *dst, void *src, size_t size) {
 	uint8_t *_dst = dst, *_src = src;
@@ -19,17 +44,19 @@ void __multiboot2 multiboot2_memcpy(void *dst, void *src, size_t size) {
 	}
 }
 
-void __multiboot2 multiboot2_loader(uint32_t eax, uint32_t ebx) {
-	if (eax != 0x36d76289) {
+void __multiboot2 multiboot2_loader(uint32_t magic, uint32_t ptr) {
+	if (magic != 0x36d76289) {
 		while (true)
 			;
 	}
+	temp_map(ptr);
+
 	// 读取multiboot2信息
-	uint32_t *p			 = (uint32_t *)ebx;
+	uint32_t *p			 = (uint32_t *)(size_t)ptr;
 	uint32_t  total_size = *p;
 
 	struct VesaDisplayInfo *vesa_info =
-		(struct VesaDisplayInfo *)vaddr2paddr(&vesa_display_info);
+		(struct VesaDisplayInfo *)VESA_INFO_ADDR;
 
 	int i = 0;
 	p += 2;
@@ -39,10 +66,10 @@ void __multiboot2 multiboot2_loader(uint32_t eax, uint32_t ebx) {
 		switch (type) {
 		case MBIT_FRAMEBUFFER_INFO: {
 			struct framebuffer_tag *fb = (struct framebuffer_tag *)p;
-			vesa_info->vram_phy		   = (uint8_t *)fb->framebuffer_addr[0];
-			vesa_info->width		   = fb->framebuffer_width;
-			vesa_info->height		   = fb->framebuffer_height;
-			vesa_info->BitsPerPixel	   = fb->framebuffer_bpp;
+			vesa_info->vram_phy		= (uint8_t *)(size_t)fb->framebuffer_addr;
+			vesa_info->width		= fb->framebuffer_width;
+			vesa_info->height		= fb->framebuffer_height;
+			vesa_info->BitsPerPixel = fb->framebuffer_bpp;
 			break;
 		}
 		case MBIT_VBE_INFO: {
@@ -62,7 +89,8 @@ void __multiboot2 multiboot2_loader(uint32_t eax, uint32_t ebx) {
 			for (int j = 0; j < entry_count; j++) {
 				multiboot2_memcpy(
 					(void *)ARDS_ADDR + j * sizeof(struct ards),
-					(void *)p + 16 + j * mmap->entry_size, sizeof(struct ards));
+					(void *)((size_t)p + 16 + j * mmap->entry_size),
+					sizeof(struct ards));
 			}
 			*((uint16_t *)ARDS_NR) = entry_count;
 			break;
@@ -80,4 +108,6 @@ void __multiboot2 multiboot2_loader(uint32_t eax, uint32_t ebx) {
 		size >>= 2;
 		p += size;
 	}
+
+	temp_unmap(ptr);
 }

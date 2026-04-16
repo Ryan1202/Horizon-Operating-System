@@ -37,7 +37,7 @@ void read_features(void) {
 		0, 0, &max_basic_func_num, (uint32_t *)&vendor_id[0],
 		(uint32_t *)&vendor_id[8], (uint32_t *)&vendor_id[4]);
 	get_cpuid(1, 0, &a, &b, &c, &d);
-	cpu_family		= (a >> 8) & 0x0f + (a >> 20) & 0xff;
+	cpu_family		= ((a >> 8) & 0x0f) + ((a >> 20) & 0xff);
 	cpu_model		= ((a >> 4) & 0x0f) | (((a >> 16) & 0x0f) << 4);
 	cpu_stepping_id = a & 0x0f;
 	processor_type	= (a >> 12) & 0x03;

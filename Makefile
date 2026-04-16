@@ -11,7 +11,7 @@ ARCH		:= x86
 export ARCH
 
 ifeq ($(ARCH), x86)
-	QEMU		=	qemu-system-i386
+	QEMU		=	qemu-system-x86_64
 	TARGET_PLATFORM	=	i386-pc
 endif
 
@@ -25,7 +25,7 @@ endif
 
 FD_IMG		=	./horizon.img
 HD_IMG		=	./hd0.img
-HD_SIZE		=	64M
+HD_SIZE		=	128M
 RESV_SIZE	=	1M
 
 APP_SRC		=	apps
@@ -68,6 +68,8 @@ run_dbg: kernel libs qemu_dbg
 hd: tool
 	$(PYTHON) $(INSTALL_GRUB_SCRIPT) \
 		--image $(HD_IMG) \
+		--hd-size $(HD_SIZE) \
+		--embed-area-size $(RESV_SIZE) \
 		--fs fat32 \
 		--platform $(TARGET_PLATFORM)
 
@@ -107,6 +109,8 @@ qemu_dbg:
 	$(QEMU) \
 	-no-reboot \
 	-s -S \
+	-D qemu.log \
+	-d trace:*dma* \
 	-serial stdio \
 	-m 1024 \
 	-drive file=$(HD_IMG),if=ide,format=raw \

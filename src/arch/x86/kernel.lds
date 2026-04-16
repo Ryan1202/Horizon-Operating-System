@@ -1,5 +1,4 @@
-OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
-OUTPUT_ARCH(i386)
+OUTPUT_ARCH(x86_64)
 ENTRY(_start) /* _start is at arch/x86/multiboot2/multiboot2.asm */
 
 PHDRS
@@ -9,7 +8,7 @@ PHDRS
     data PT_LOAD FLAGS(6); /* R_W: 可读 + 可写 */
 }
 
-VIR_BASE = 0xC0000000;
+VIR_BASE = 0xffffffff80000000;
 KERNEL_PHY_BASE = 0x00100000;
 
 SECTIONS {
@@ -27,7 +26,7 @@ SECTIONS {
         KEEP(*(.early_init))
     } : text_phy
     
-    . = . + VIR_BASE;
+    . += VIR_BASE;
 
     /* code segment */
     .text : AT(ADDR(.text) - VIR_BASE) {
@@ -70,7 +69,13 @@ SECTIONS {
     /* data segment */
     .data : AT(ADDR(.data) - VIR_BASE) {
         . = ALIGN(4);   /* 4 bytes align */
-        *(.data)
+        *(.data*)
+    } : data
+
+    .got : AT(ADDR(.got) - VIR_BASE) {
+        . = ALIGN(8);
+        *(.got)
+        *(.got.plt)
     } : data
 
     /* bss segement */
@@ -81,4 +86,8 @@ SECTIONS {
 
     _kernel_end_vir = .;
     _kernel_end_phy = _kernel_end_vir - VIR_BASE;
+
+    /DISCARD/ : {
+        *(.eh_frame*)
+    }
 }

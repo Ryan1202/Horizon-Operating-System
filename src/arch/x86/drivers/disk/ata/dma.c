@@ -45,8 +45,11 @@ void ata_bmdma_set_prdt(IdeDevice *device, AtaDma *ata_dma, int rw) {
 					 : BIN_DIS(data, IDE_BMCMD_READ_WRITE);
 	io_out_byte(channel->bmide + IDE_REG_BM_COMMAND, data);
 
-	// 清除 BM 状态 (W1C: 只写入要清除的位，不能读-改-写，否则会把ACTIVE等只读位写入)
-	io_out_byte(channel->bmide + IDE_REG_BM_STATUS, IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR);
+	// 清除 BM 状态 (W1C:
+	// 只写入要清除的位，不能读-改-写，否则会把ACTIVE等只读位写入)
+	io_out_byte(
+		channel->bmide + IDE_REG_BM_STATUS,
+		IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR);
 }
 
 DriverResult ata_bmdma_map_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {
@@ -62,7 +65,7 @@ DriverResult ata_bmdma_map_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {
 
 		DmaSegment *seg = kmalloc(sizeof(DmaSegment));
 		seg->vaddr		= (size_t)tmp_buf;
-		seg->addr		= vir2phy((uint32_t)tmp_buf);
+		seg->addr		= vir2phy((size_t)tmp_buf);
 		seg->size		= size;
 		list_add_tail(&seg->list, &ata_dma->segment_lh);
 		ptr += size;

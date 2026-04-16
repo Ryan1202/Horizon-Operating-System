@@ -95,7 +95,7 @@ pub fn do_rust_dependency<'a>(
         "\t@rustup run {}",
         match rustc.target_type {
             RustcTargetType::Builtin => {
-                "cargo rustc"
+                "nightly cargo rustc"
             }
             RustcTargetType::Custom => {
                 "nightly cargo rustc"

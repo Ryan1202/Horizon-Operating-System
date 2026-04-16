@@ -16,12 +16,12 @@
 #define io_out_word(port, data)	 io_out16(port, data)
 #define io_out_dword(port, data) io_out32(port, data)
 
-#define io_stream_in_byte(port, buffer, nr)	  io_stream_in8(port, buffer, nr)
-#define io_stream_in_word(port, buffer, nr)	  io_stream_in16(port, buffer, nr)
-#define io_stream_in_dword(port, buffer, nr)  io_stream_in32(port, buffer, nr)
-#define io_stream_out_byte(port, buffer, nr)  io_stream_out8(port, buffer, nr)
-#define io_stream_out_word(port, buffer, nr)  io_stream_out16(port, buffer, nr)
-#define io_stream_out_dword(port, buffer, nr) io_stream_out32(port, buffer, nr)
+#define io_stream_in_byte(port, buffer, nr)	  io_ins8(port, buffer, nr)
+#define io_stream_in_word(port, buffer, nr)	  io_ins16(port, buffer, nr)
+#define io_stream_in_dword(port, buffer, nr)  io_ins32(port, buffer, nr)
+#define io_stream_out_byte(port, buffer, nr)  io_outs8(port, buffer, nr)
+#define io_stream_out_word(port, buffer, nr)  io_outs16(port, buffer, nr)
+#define io_stream_out_dword(port, buffer, nr) io_outs32(port, buffer, nr)
 
 #define read_msr(msr, l, h)	 cpu_rdmsr(msr, l, h)
 #define write_msr(msr, l, h) cpu_wrmsr(msr, l, h)
@@ -86,8 +86,8 @@ enum DriverResult disable_device_irq(DeviceIrq *dev_irq);
 
 void			  device_irq_handler(int irq);
 enum DriverResult driver_remap_memory(
-	struct Driver *in_driver, uint32_t in_physical_address, uint32_t in_size,
-	uint32_t *out_virtual_address);
+	struct Driver *in_driver, size_t in_physical_address, uint32_t in_size,
+	size_t *out_virtual_address);
 
 #define kmalloc_from_template(template)            \
 	({                                             \

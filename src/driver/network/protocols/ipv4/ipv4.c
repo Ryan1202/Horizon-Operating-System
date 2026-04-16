@@ -76,7 +76,7 @@ void ipv4_enable_fragment(NetworkConnection *conn) {
 	conn->ipv4.fragment.frag_offset		= 0;
 
 	spin_lock(&ipv4_id_lock);
-	if (ipv4_id_counter == 0) ipv4_id_counter = rand() & 0xffff;
+	if (ipv4_id_counter == 0) ipv4_id_counter = (uint16_t)rand();
 	conn->ipv4.id = ipv4_id_counter++;
 	spin_unlock(&ipv4_id_lock);
 }

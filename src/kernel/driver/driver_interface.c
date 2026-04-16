@@ -85,13 +85,13 @@ void device_irq_handler(int irq) {
 }
 
 DriverResult driver_remap_memory(
-	Driver *in_driver, uint32_t in_physical_address, uint32_t in_size,
-	uint32_t *out_virtual_address) {
+	Driver *in_driver, size_t in_physical_address, uint32_t in_size,
+	size_t *out_virtual_address) {
 	// 地址对齐页大小
-	uint32_t start = in_physical_address & 0xfffff000;
-	uint32_t end   = (in_physical_address + in_size + 0xfff) & 0xfffff000;
-	uint32_t tmp;
-	uint32_t virtual_address = 0;
+	size_t start = in_physical_address & 0xfffff000;
+	size_t end	 = (in_physical_address + in_size + 0xfff) & 0xfffff000;
+	size_t tmp;
+	size_t virtual_address = 0;
 
 	// 调用前先检查是否已经被映射
 	DriverRemappedMemory *cur;

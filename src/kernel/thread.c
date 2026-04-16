@@ -67,7 +67,7 @@ size_t get_current_subject_id() {
  * @param function
  * @param func_arg
  */
-static void kernel_thread(thread_func *function, void *func_arg) {
+void kernel_thread(thread_func *function, void *func_arg) {
 	io_sti();
 	function(func_arg);
 	thread_exit();
@@ -86,11 +86,11 @@ void thread_create(
 	pthread->kstack -= sizeof(struct intr_stack);
 	pthread->kstack -= sizeof(struct thread_stack);
 	struct thread_stack *kthread_stack = (struct thread_stack *)pthread->kstack;
-	kthread_stack->eip				   = kernel_thread;
-	kthread_stack->function			   = function;
-	kthread_stack->func_arg			   = func_arg;
-	kthread_stack->ebp = kthread_stack->ebx = kthread_stack->esi =
-		kthread_stack->edi					= 0;
+	kthread_stack->rip				   = kernel_thread_entry;
+	kthread_stack->r12				   = (uint64_t)function;
+	kthread_stack->r13				   = (uint64_t)func_arg;
+	kthread_stack->rbp = kthread_stack->rbx = kthread_stack->r14 =
+		kthread_stack->r15					= 0;
 }
 
 /**
@@ -114,13 +114,14 @@ void init_thread(
 	pthread->child_count = 0;
 	sema_init(&pthread->child_sem, 0);
 
-	pthread->priority	   = priority;
-	pthread->kstack		   = (uint32_t *)((uint32_t)stack_page + PAGE_SIZE);
-	pthread->ticks		   = timer_get_schedule_tick(priority);
-	pthread->elapsed_ticks = 0;
-	pthread->pgdir		   = NULL;
-	pthread->stack_magic   = 0x10000000;
-	pthread->subject_id	   = SUBJECT_ID_SYSTEM;
+	pthread->priority = priority;
+	pthread->kstack =
+		(size_t *)((size_t)stack_page + THREAD_STACK_PAGES * PAGE_SIZE);
+	pthread->ticks				= timer_get_schedule_tick(priority);
+	pthread->elapsed_ticks		= 0;
+	pthread->pgdir				= NULL;
+	pthread->stack_magic		= 0x10000000;
+	pthread->subject_id			= SUBJECT_ID_SYSTEM;
 	pthread->flags.need_resched = 0;
 }
 
@@ -137,7 +138,7 @@ struct task_s *thread_start(
 	char *name, int priority, thread_func function, void *func_arg,
 	struct task_s *parent) {
 	struct task_s *thread	  = kzalloc(sizeof(struct task_s));
-	void		  *stack_page = kmalloc_pages(1);
+	void		  *stack_page = kmalloc_pages(THREAD_STACK_PAGES);
 
 	init_thread(thread, stack_page, name, priority);
 
@@ -216,7 +217,7 @@ void thread_exit(void) {
 	process_activate(next);
 	current_task = next;
 	prev		 = cur;
-	switch_to((int *)cur, (int *)next);
+	switch_to(&cur->kstack, &next->kstack);
 }
 
 void thread_wait_children(struct task_s *parent) {
@@ -358,15 +359,23 @@ void schedule(void) {
 	if (next->status == TASK_READY) next->status = TASK_RUNNING;
 	spin_unlock(&thread_ready_lock);
 
+	if (next->kstack[6] == 0) {
+		printk(
+			"[Thread Warning] Schedule to thread with empty kstack! "
+			"Thread name:%s, pid:%d\n",
+			next->name, next->pid);
+	}
+
 	prev = cur;
 	// 5. 切换线程
 	// 激活页表并跳转
 	process_activate(next);
 	current_task = next;
-	switch_to((int *)cur, (int *)next);
+	switch_to(&cur->kstack, &next->kstack);
 	// 从其他线程切回来之后，检查上一个线程是否已经结束
 	if (dead_task != NULL) {
-		size_t stack_page = (size_t)dead_task->kstack & ~(PAGE_SIZE - 1);
+		size_t stack_page =
+			(size_t)dead_task->kstack & ~(THREAD_STACK_PAGES * PAGE_SIZE - 1);
 		if (dead_task != main_thread && kfree_pages(stack_page) < 0) {
 			printk(
 				"[Memory Error] Free dead task stack page failed! "

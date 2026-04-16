@@ -1,18 +1,21 @@
 #ifndef _VESA_DISPLAY_H
 #define _VESA_DISPLAY_H
 
+#include <stdint.h>
+#define VESA_INFO_ADDR 0x2500
+
 #include "kernel/driver.h"
 struct VbeModeInfoBlock {
 	unsigned char  VbeSignature[4];
 	unsigned short VbeVersion;
-	unsigned int  *OemStringPtr;
-	unsigned int   Capabilities;
-	unsigned int  *VideoModePtr;
+	size_t		  *OemStringPtr;
+	size_t		   Capabilities;
+	size_t		  *VideoModePtr;
 	unsigned short TotalMemory;
 	unsigned short OemSoftwareRev;
-	unsigned int  *OemVendorNamePtr;
-	unsigned int  *OemProductNamePtr;
-	unsigned int  *OemProduceRevPtr;
+	size_t		  *OemVendorNamePtr;
+	size_t		  *OemProductNamePtr;
+	size_t		  *OemProduceRevPtr;
 	unsigned char  Reserved[222];
 	unsigned char  OemData;
 } __attribute__((packed));
@@ -20,14 +23,14 @@ struct VbeModeInfoBlock {
 struct VbeControlInfoBlock {
 	unsigned char  VbeSignature[4];
 	unsigned short VbeVersion;
-	unsigned int   OemStringPtr;
+	size_t		   OemStringPtr;
 	unsigned char  Capabilities[4];
-	unsigned int   VideoModePtr;
+	size_t		   VideoModePtr;
 	unsigned short TotalMemory;
 	unsigned short OemSoftwareRev;
-	unsigned int   OemVendorNamePtr;
-	unsigned int   OemProductNamePtr;
-	unsigned int   OemProduceRevPtr;
+	size_t		   OemVendorNamePtr;
+	size_t		   OemProductNamePtr;
+	size_t		   OemProduceRevPtr;
 	unsigned char  OemData[256];
 };
 

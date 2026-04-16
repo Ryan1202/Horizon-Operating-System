@@ -1,5 +1,5 @@
 	global io_in8,		io_out8,	io_in16,	io_out16,	io_in32,	io_out32
-	global io_read,		io_write
+	global io_ins8,		io_outs8,	io_ins16,	io_outs16,	io_ins32,	io_outs32
 	global io_cli,		io_sti,		io_hlt,		io_stihlt,	save_eflags_cli
 	global read_cr3,	write_cr3,	read_cr2,	read_cr0,	write_cr0,	enable_paging
 	global load_gdtr,	load_idtr
@@ -11,15 +11,16 @@
 	global stack_exception
 	global general_protection
 	global page_fault
-	global IRQ_timer,	IRQ_pit,	IRQ_keyboard
-	global thread_intr_exit
-	global switch_to
+global IRQ_timer,	IRQ_pit,	IRQ_keyboard
+global thread_intr_exit, kernel_thread_entry
+global switch_to
 
 extern exception_handler
 extern irq_table
 extern do_irq
 extern do_syscall
 extern apic_eoi
+extern kernel_thread
 
 EOI				equ	0x20
 INT_M_CTL		equ	0x20
@@ -28,50 +29,63 @@ INT_S_CTL		equ	0xa0
 INT_S_CTLMASK	equ	0xa1
 
 %define   ERROR_CODE   nop
-%define   NO_ERROR_CODE push 0
+%define   NO_ERROR_CODE push -1
+
+%macro CALL_C_ALIGNED 1
+	mov rax, rsp
+	and rsp, -16
+	sub rsp, 16
+	mov [rsp], rax
+	cld
+	call %1
+	mov rsp, [rsp]
+%endmacro
 
 %macro INTERRUPT_ENTRY 1
 global irq_entry%1
 irq_entry%1:
+	push rax
+	push rbx
+	push rcx
+	push rdx
+	push rsi
+	push rdi
+	push rbp
+	push r8
+	push r9
+	push r10
+	push r11
+	push r12
+	push r13
+	push r14
+	push r15
 	
-	push 0
-
-	push ds
-	push es
-	push fs
-	push gs
-	pushad
+	mov rdi, %1
+	mov rsi, rsp
+	CALL_C_ALIGNED do_irq
 	
-	mov dx, ss
-	mov ds, dx
-	mov es, dx
-	mov fs, dx
-	mov gs, dx
-	
-	push %1+0x20
-	push %1
-	call do_irq
-	add esp, 4
-	
-	jmp intr_exit
+	jmp irq_exit
 
 %endmacro
 
 %macro EXCEPTION_ENTRY 2
 global exception_entry%1
 exception_entry%1:
-    %2				 ; 中断若有错误码会压在eip后面 
-    push %1
-    
-    push esp
-    call exception_handler
-    add esp, 4*3
+    %2
+	mov  rdi, %1
+	mov  rsi, rsp
+    push rax
+    mov  rax, [rsp + 16]
+    push rax
+    push rbp
+    mov  rbp, rsp
+    CALL_C_ALIGNED exception_handler
     
     hlt
 %endmacro
 
 [section .text]
-[bits 32]
+[bits 64]
 
 EXCEPTION_ENTRY 0,NO_ERROR_CODE
 EXCEPTION_ENTRY 1,NO_ERROR_CODE
@@ -124,57 +138,85 @@ INTERRUPT_ENTRY 15
 
 INTERRUPT_ENTRY	0
 
-io_in8:		;int io_in8(int port);
-	mov		edx,[esp+4]
-	xor		eax,eax
-	in		al,dx
+io_in8:     ; port in rdi
+	mov    dx, di
+	xor    eax, eax
+	in     al, dx
 	ret
 
-io_in16:	;int io_in16(int port);
-	mov		edx,[esp+4]
-	xor		eax,eax
-	in		ax,dx
-	ret
-io_in32:	;int io_in32(int port);
-	mov		edx,[esp+4]
-	in		eax,dx
+io_in16:
+	mov    dx, di
+	xor    eax, eax
+	in     ax, dx
 	ret
 
-io_out8:	; void io_out8(int port, int data);
-	mov		edx,[esp+4]
-	mov		al,[esp+8]
-	out		dx,al
+io_in32:
+	mov    dx, di
+	in     eax, dx
 	ret
 
-io_out16:	; void io_out16(int port, int data);
-	mov		edx,[esp+4]
-	mov		ax,[esp+8]
-	out		dx,ax
-	ret	
+io_out8:
+	mov    dx, di
+	mov    al, sil
+	out    dx, al
+	ret
 
-io_out32:	; void io_out32(int port, int data);
-	mov		edx,[esp+4]
-	mov		eax,[esp+8]
-	out		dx,eax
-	ret	
-	
-io_read:	; void io_read(int port, void *buf, int n)
-	mov		edx,	[esp +  4]	; edx = port
-	mov		edi,	[esp +  8]	; edi = buf
-	mov		ecx,	[esp + 12]	; ecx = n
-	shr		ecx,	1			; ecx /= 2
-	cld
-	rep insw					;循环从端口dx(port)读取数据到[es:di](buf) cx(n)次
+io_out16:
+	mov    dx, di
+	mov    ax, si
+	out    dx, ax
+	ret
+
+io_out32:
+	mov    dx, di
+	mov    eax, esi
+	out    dx, eax
 	ret
 	
-io_write:	; void io_write(int port, void *buf, int n)
-	mov		edx,	[esp +  4]	; edx = port
-	mov		edi,	[esp +  8]	; edi = buf
-	mov		ecx,	[esp + 12]	; ecx = n
-	shr		ecx,	1			; ecx /= 2
-	cld
-	rep outsw					;循环从[es:di](buf)写数据到端口dx(port) cx(n)次
-	ret
+io_ins8:
+    mov     rcx, rdx
+	mov     dx, di
+	mov		rdi, rsi
+    cld
+    rep     insb
+    ret
+
+io_ins16:
+    mov     rcx, rdx
+	mov     dx, di
+	mov		rdi, rsi
+    cld
+    rep     insw
+    ret
+
+io_ins32:
+    mov     rcx, rdx
+	mov     dx, di
+	mov		rdi, rsi
+    cld
+    rep     insd
+    ret
+
+io_outs8:
+    mov     rcx, rdx
+    mov     dx, di
+    cld
+    rep     outsb
+    ret
+
+io_outs16:
+    mov     rcx, rdx
+    mov     dx, di
+    cld
+    rep     outsw
+    ret
+
+io_outs32:
+    mov     rcx, rdx
+    mov     dx, di
+    cld
+    rep     outsd
+    ret
 	
 io_cli:		; void io_cli(void);
 	cli
@@ -193,115 +235,145 @@ io_stihlt:
 	ret
 
 read_cr3:
-	mov eax,	cr3
+	mov    rax, cr3
 	ret
 	
 write_cr3:
-	mov	eax,	[esp+4]
-	mov	cr3,	eax
+	mov    cr3, rdi
 	ret
 	
 read_cr2:
-	mov eax,	cr2
+	mov    rax, cr2
 	ret
 
 read_cr0:
-	mov eax,	cr0
+	mov    rax, cr0
 	ret
 	
 write_cr0:
-	mov	eax,	[esp+4]
-	mov	cr0,	eax
+	mov    cr0, rdi
 	ret
 	
-load_gdtr:	;void load_gdtr(int limit, int addr);
-	mov ax, [esp + 4]
-	mov	[esp+6],ax		
-	lgdt [esp+6]
-	
-	jmp dword 0x08: .l
-	
-.l:
-	mov ax, 0x10
-	mov ds, ax 
-	mov es, ax 
-	mov fs, ax 
-	mov ss, ax 
-	mov gs, ax 
+_GDTR:
+	dw 0
+	dq 0
+
+;void load_gdtr(uint16_t limit, uint64_t addr)
+load_gdtr:
+	mov	[_GDTR], di
+	mov	[_GDTR + 2], rsi
+	lgdt   [_GDTR]
 	ret
 	
-load_idtr:	;void load_idtr(int limit, int addr);
-	mov ax, [esp+4]
-	mov	[esp+6],ax
-	lidt [esp+6]
+_IDTR:
+	dw 0
+	dq 0
+
+;void load_idtr(uint16_t limit, uint64_t addr)
+load_idtr:
+	mov	[_IDTR], di
+	mov	[_IDTR + 2], rsi
+	lidt   [_IDTR]
 	ret
 	
-io_load_eflags:		; int io_load_eflags(void);
-	pushfd			; push eflags
-	pop		eax
+io_load_eflags:
+	pushfq
+	pop    rax
 	ret
 
-io_store_eflags:	; void io_store_eflags(int eflags);
-	mov		eax,[esp+4]
-	push	eax
-	popfd			; pop eflags
+io_store_eflags:
+	push   rdi
+	popfq
 	ret
 
-save_eflags_cli:	; int save_eflags_cli(void);
-	pushfd
+save_eflags_cli:
+	pushfq
 	cli
-	pop eax
+	pop    rax
 	ret
 
 global syscall_handler
 syscall_handler:
 	push	0
 	
-	push	ds
-	push	es
-	push	fs
-	push	gs
-	pushad
+	push	rax
+	push	rbx
+	push	rcx
+	push	rdx
+	push	rsi
+	push	rdi
+	push	rbp
+	push	r8
+	push	r9
+	push	r10
+	push	r11
+	push	r12
+	push	r13
+	push	r14
+	push	r15
 	
-	push	0x80
+	mov	rdi, 0x80
+	mov	rsi, rsp
+	CALL_C_ALIGNED do_syscall
 	
-	push	edx
-	push	ecx
-	push	ebx
-	push	eax
-	
-	call 	do_syscall
-	add		esp,	16
-	
-	mov		[esp + 32],	eax
-	jmp intr_exit
-
+	mov	[rsp + 120], rax
+irq_exit:
+	pop    r15
+	pop    r14
+	pop    r13
+	pop    r12
+	pop    r11
+	pop    r10
+	pop    r9
+	pop    r8
+	pop    rbp
+	pop    rdi
+	pop    rsi
+	pop    rdx
+	pop    rcx
+	pop    rbx
+	pop    rax
+	iretq
 thread_intr_exit:
-	mov esp, [esp + 4]
 intr_exit:
-	add esp, 4
-	popad
-	pop gs
-	pop fs	
-	pop es	 
-	pop ds
-	add esp, 4
-	iret
-
+	pop    r15
+	pop    r14
+	pop    r13
+	pop    r12
+	pop    r11
+	pop    r10
+	pop    r9
+	pop    r8
+	pop    rbp
+	pop    rdi
+	pop    rsi
+	pop    rdx
+	pop    rcx
+	pop    rbx
+	pop    rax
+	add    rsp, 8
+	iretq
 switch_to:
-	push	esi
-	push	edi
-	push	ebx
-	push	ebp
-
-	mov		eax,	[esp + 20]	;获取cur
-	mov		[eax],	esp
-
-	mov		eax,	[esp + 24]	;获取next
-	mov		esp,	[eax]
-
-	pop		ebp
-	pop		ebx
-	pop		edi
-	pop		esi
+	push	rbp
+	push	rbx
+	push	r12
+	push	r13
+	push	r14
+	push	r15
+	
+	mov	[rdi], rsp
+	mov	rsp, [rsi]
+	
+	pop	r15
+	pop	r14
+	pop	r13
+	pop	r12
+	pop	rbx
+	pop	rbp
 	ret
+
+kernel_thread_entry:
+	mov	rdi, r12
+	mov	rsi, r13
+	call	kernel_thread
+	hlt

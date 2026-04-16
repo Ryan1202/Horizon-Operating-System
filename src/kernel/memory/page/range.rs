@@ -45,7 +45,7 @@ impl VmRange {
     }
 
     pub const fn get_count(&self) -> usize {
-        self.end.get().get() - self.start.get().get() + 1
+        self.end.get() - self.start.get() + 1
     }
 }
 

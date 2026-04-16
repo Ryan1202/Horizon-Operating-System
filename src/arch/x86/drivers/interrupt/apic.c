@@ -52,19 +52,20 @@ typedef struct ApicInfo {
 		APIC_TYPE_XAPIC,
 		APIC_TYPE_X2APIC,
 	} apic_type;
-	uint32_t	   apic_base;
-	uint32_t	   apic_base_high; // 仅在使用x2APIC有用
-	uint32_t	   apic_id;
-	uint32_t	   apic_id_high; // 仅在使用x2APIC有用
-	uint8_t		   version;
-	uint8_t		   max_lvt_entry;
-	uint32_t	  *lapic_mmio;
-	struct ioapic *ioapic;
-	DeviceIrq	  *device_irq;
+	uint32_t   apic_base;
+	uint32_t   apic_base_high; // 仅在使用x2APIC有用
+	uint32_t   apic_id;
+	uint32_t   apic_id_high; // 仅在使用x2APIC有用
+	uint8_t	   version;
+	uint8_t	   max_lvt_entry;
+	uint32_t  *lapic_mmio;
+	DeviceIrq *device_irq;
+
+	volatile struct ioapic *ioapic;
 } ApicInfo;
 ApicInfo apic_info;
 
-volatile struct ioapic {
+struct ioapic {
 	uint32_t reg;
 	uint32_t pad[3];
 	uint32_t data;
@@ -151,7 +152,7 @@ void x2apic_init(struct DeviceDriver *driver) {
 	apic_info.apic_base		 = 0xfee00000;
 	apic_info.apic_base_high = low >> 12;
 
-	uint32_t tmp;
+	size_t tmp;
 	DRV_RESULT_PRINT_CALL(
 		driver_remap_memory(&core_driver, apic_info.apic_base, 0x3ff, &tmp));
 	apic_info.lapic_mmio = (uint32_t *)tmp;
@@ -170,9 +171,9 @@ void xapic_init(struct DeviceDriver *driver) {
 
 	DRV_RESULT_PRINT_CALL(driver_remap_memory(
 		&core_driver, apic_info.apic_base, 0x3ff,
-		(uint32_t *)&apic_info.lapic_mmio));
+		(size_t *)&apic_info.lapic_mmio));
 	DRV_RESULT_PRINT_CALL(driver_remap_memory(
-		&core_driver, 0xfec00000, 0xfff00, (uint32_t *)&apic_info.ioapic));
+		&core_driver, 0xfec00000, 0xfff00, (size_t *)&apic_info.ioapic));
 
 	apic_info.apic_id		= lapic_read(APIC_ID) >> 24;
 	apic_info.version		= (lapic_read(APIC_Ver) & 0xff);

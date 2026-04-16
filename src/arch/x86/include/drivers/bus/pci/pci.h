@@ -10,16 +10,16 @@
 
 #define PCI_REG_DEVICEID   0x00
 #define PCI_REG_VENDORID   0x02
-#define PCI_REG_STATUS	   0x04
-#define PCI_REG_COMMAND	   0x06
-#define PCI_REG_CLASSCODE  0x08
-#define PCI_REG_SUBCLASS   0x09
-#define PCI_REG_PROGIF	   0x0a
-#define PCI_REG_REVISIONID 0x0b
-#define PCI_REG_BIST	   0x0c
-#define PCI_REG_HEADERTYPE 0x0d
-#define PCI_REG_LTIMER	   0x0e
-#define PCI_REG_CLSIZE	   0x0f
+#define PCI_REG_COMMAND	   0x04
+#define PCI_REG_STATUS	   0x06
+#define PCI_REG_REVISIONID 0x08
+#define PCI_REG_PROGIF	   0x09
+#define PCI_REG_SUBCLASS   0x0a
+#define PCI_REG_CLASSCODE  0x0b
+#define PCI_REG_CLSIZE	   0x0c
+#define PCI_REG_LTIMER	   0x0d
+#define PCI_REG_HEADERTYPE 0x0e
+#define PCI_REG_BIST	   0x0f
 
 #define PCI_BAR_BASE	 0x10
 #define PCI_BAR(x)		 PCI_BAR_BASE + x * 4

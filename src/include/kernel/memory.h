@@ -42,7 +42,7 @@ void mmap_set(struct mmap *btmp, unsigned int bit_index, int value);
 int	 mmap_get(struct mmap *btmp, uint32_t bit_index);
 
 void *kmalloc(size_t size);
-void *kzalloc(uint32_t size);
+void *kzalloc(size_t size);
 int	  kfree(void *address);
 
 struct mem_cache *mem_cache_create(

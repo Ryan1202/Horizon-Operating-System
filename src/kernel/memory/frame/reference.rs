@@ -7,7 +7,7 @@ use core::{
 
 use crate::kernel::memory::frame::{
     FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameNumber, FrameRange, FrameTag,
-    buddy::FrameOrder,
+    assigned::AssignedFixed, buddy::FrameOrder,
 };
 
 #[repr(transparent)]
@@ -136,18 +136,25 @@ impl UniqueFrames {
         debug_assert_eq!(frame_ref.refcount.get(), FrameRc::EXCLUSIVE);
 
         match frame_ref.get_tag() {
-            FrameTag::Buddy | FrameTag::Free | FrameTag::Uninited => {
+            FrameTag::Buddy | FrameTag::Free | FrameTag::Uninited | FrameTag::AssignedFixed => {
+                Some(ManuallyDrop::new(UniqueFrames { start, order }))
+            }
+            FrameTag::HardwareReserved | FrameTag::SystemReserved | FrameTag::BadMemory => {
                 Some(ManuallyDrop::new(UniqueFrames { start, order }))
             }
             FrameTag::Tail => {
                 let range = unsafe { frame_ref.get_data().range };
 
-                let head = range.start;
-                let head_frame = Frame::get_raw(head);
-                let head_ref = unsafe { head_frame.as_ref() };
+                let head = unsafe { Frame::get_raw(range.start).as_ref() };
                 if matches!(
-                    head_ref.get_tag(),
-                    FrameTag::Buddy | FrameTag::Free | FrameTag::Uninited
+                    head.get_tag(),
+                    FrameTag::Buddy
+                        | FrameTag::Free
+                        | FrameTag::Uninited
+                        | FrameTag::AssignedFixed
+                        | FrameTag::HardwareReserved
+                        | FrameTag::SystemReserved
+                        | FrameTag::BadMemory
                 ) && frame_number + order.to_count().get() <= range.end
                 {
                     Some(ManuallyDrop::new(UniqueFrames { start, order }))
@@ -177,7 +184,7 @@ impl UniqueFrames {
         let new_order = self.order - 1;
         self.order = new_order;
 
-        let next_frame_number = self.to_frame_number() + (1 << new_order.get());
+        let next_frame_number = self.frame_number() + (1 << new_order.get());
         let next_frame = Frame::get_raw(next_frame_number);
 
         ManuallyDrop::new(Self {
@@ -203,8 +210,8 @@ impl UniqueFrames {
             return Err((low, high));
         }
 
-        let expected = low_.to_frame_number() + (1 << low_.order.get());
-        if expected != high_.to_frame_number() {
+        let expected = low_.frame_number() + (1 << low_.order.get());
+        if expected != high_.frame_number() {
             return Err((low, high));
         }
 
@@ -257,11 +264,19 @@ fn auto_free(mut frame: NonNull<Frame>) {
     // 释放引用计数
     let frame_ref = unsafe { frame.as_ref() };
     let count = frame_ref.refcount.release();
-    if let FrameTag::Anonymous = frame_ref.get_tag() {
-        // 如果还有映射存在，不立即释放帧资源，等待最后一个映射解除时再释放
-        if unsafe { frame_ref.get_data().anonymous.release() } > 0 {
-            return;
+    match frame_ref.get_tag() {
+        FrameTag::Anonymous => {
+            // 如果还有映射存在，不立即释放帧资源，等待最后一个映射解除时再释放
+            if unsafe { frame_ref.get_data().anonymous.release() } > 0 {
+                return;
+            }
         }
+        FrameTag::AssignedFixed => {
+            if unsafe { frame_ref.get_data().assigned.release() } > 0 {
+                return;
+            }
+        }
+        _ => {}
     }
 
     match count {
@@ -270,7 +285,10 @@ fn auto_free(mut frame: NonNull<Frame>) {
                 .refcount
                 .count
                 .store(FrameRc::EXCLUSIVE, Ordering::Relaxed);
-            last_free(unsafe { frame.as_mut() });
+            match frame_ref.get_tag() {
+                FrameTag::AssignedFixed => restore_assigned_fixed(unsafe { frame.as_mut() }),
+                _ => last_free(unsafe { frame.as_mut() }),
+            }
         }
         Some(0) if let FrameTag::Buddy = frame_ref.get_tag() => {
             last_free(unsafe { frame.as_mut() });
@@ -283,16 +301,53 @@ fn auto_free(mut frame: NonNull<Frame>) {
             // 记录错误但不 panic
             printk!(
                 "ERROR: double-free detected for frame {}, addr = {:#x} (memory leaked)",
-                unsafe { frame.as_ref().to_frame_number() },
+                unsafe { frame.as_ref().frame_number() },
                 frame.addr()
             );
         }
     }
 }
 
+fn restore_assigned_fixed(frame: &mut Frame) {
+    let start = frame.frame_number();
+    let (order, original_tag, original_range) = unsafe {
+        let assigned: &AssignedFixed = &frame.get_data().assigned;
+        (
+            assigned.get_order(),
+            assigned.get_original_tag(),
+            assigned.get_original_range(),
+        )
+    };
+
+    let count = order.to_count().get();
+    unsafe {
+        for i in 1..count {
+            let tail = Frame::get_raw(start + i).as_mut();
+            tail.replace(FrameTag::Uninited, FrameData { unused: () });
+        }
+
+        match original_tag {
+            FrameTag::HardwareReserved
+            | FrameTag::SystemReserved
+            | FrameTag::BadMemory
+            | FrameTag::Free => {
+                frame.replace(
+                    original_tag,
+                    FrameData {
+                        range: original_range,
+                    },
+                );
+            }
+            _ => {
+                frame.replace(FrameTag::Uninited, FrameData { unused: () });
+            }
+        }
+    }
+}
+
 fn last_free(frame: &mut Frame) {
     // 最后一个引用被释放——归还给分配器
-    let frame_number = frame.to_frame_number();
+    let frame_number = frame.frame_number();
 
     if let Err(e) = FRAME_MANAGER.deallocate(frame) {
         // 不 panic，仅记录错误。

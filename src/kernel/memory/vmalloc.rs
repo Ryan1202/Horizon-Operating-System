@@ -27,7 +27,7 @@ pub extern "C" fn ioremap_c(
     cache_type: PageCacheType,
 ) -> *mut core::ffi::c_void {
     match ioremap(PhysAddr::new(addr), size, cache_type) {
-        Ok(mut ptr) => ptr.get_ptr(),
+        Ok(mut ptr) => ptr.get_ptr().as_ptr(),
         Err(e) => {
             printk!(
                 "WARNING: calling ioremap from C failed: addr = {:#x}, size = {:#x}, error = {:?}\n",
@@ -111,13 +111,13 @@ pub fn vmalloc<T>(
     page_options
         .allocate()
         .map(ManuallyDrop::new)
-        .map(|mut pages| unsafe { NonNull::new_unchecked(pages.get_ptr()) })
+        .map(|mut pages| pages.get_ptr())
 }
 
 pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let err = MemoryError::InvalidAddress(vaddr);
 
-    let num = vaddr.to_page_number().ok_or(err.clone())?;
+    let num = vaddr.to_page_number();
     let range = VmRange {
         start: num,
         end: num,

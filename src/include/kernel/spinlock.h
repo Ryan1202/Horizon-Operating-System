@@ -36,9 +36,16 @@ static inline void spinlock_init(spinlock_t *lock) {
 #endif
 
 static inline void spin_lock(spinlock_t *lock) {
-	// 使用gcc提供的__sync_bool_compare_and_swap()实现原子操作
-	while (!__sync_bool_compare_and_swap(&SPINLOCK_GET(lock), 0, 1)) {
-		while (SPINLOCK_GET(lock))
+	// 使用__atomic内建函数实现原子操作，并显式指定内存序
+	int expected;
+	for (;;) {
+		expected = 0;
+		if (__atomic_compare_exchange_n(
+				&SPINLOCK_GET(lock), &expected, 1, 0, __ATOMIC_ACQUIRE,
+				__ATOMIC_RELAXED)) {
+			break;
+		}
+		while (__atomic_load_n(&SPINLOCK_GET(lock), __ATOMIC_RELAXED))
 			;
 	}
 #ifdef DEBUG
@@ -47,7 +54,10 @@ static inline void spin_lock(spinlock_t *lock) {
 }
 
 static inline int spin_try_lock(spinlock_t *lock) {
-	int ret = __sync_bool_compare_and_swap(&SPINLOCK_GET(lock), 0, 1);
+	int expected = 0;
+	int ret		 = __atomic_compare_exchange_n(
+		 &SPINLOCK_GET(lock), &expected, 1, 0, __ATOMIC_ACQUIRE,
+		 __ATOMIC_RELAXED);
 #ifdef DEBUG
 	if (ret) lock->owner = current_task;
 #endif
@@ -55,8 +65,7 @@ static inline int spin_try_lock(spinlock_t *lock) {
 }
 
 static inline void spin_unlock(volatile spinlock_t *lock) {
-	__asm__ __volatile__("" ::: "memory");
-	SPINLOCK_GET(lock) = 0;
+	__atomic_store_n(&SPINLOCK_GET(lock), 0, __ATOMIC_RELEASE);
 #ifdef DEBUG
 	lock->owner = NULL;
 #endif

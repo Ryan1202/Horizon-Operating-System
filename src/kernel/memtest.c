@@ -2,6 +2,7 @@
 #include <kernel/device.h>
 #include <kernel/memory.h>
 #include <kernel/page.h>
+#include <stddef.h>
 
 extern TimerDeviceManager timer_dm_ext;
 
@@ -147,7 +148,7 @@ void test_large_page_allocs(void) {
 		if (i >= HUGE_PAGE_CNT) {
 			struct mem_record *old = &pages[i % HUGE_PAGE_CNT];
 			if (old->ptr) {
-				kfree_pages((int)old->ptr /*, old->page_cnt*/); // 关键修改点
+				kfree_pages((size_t)old->ptr /*, old->page_cnt*/); // 关键修改点
 				old->ptr = NULL;
 			}
 		}
@@ -156,7 +157,7 @@ void test_large_page_allocs(void) {
 	// 清理残留页
 	for (int i = 0; i < HUGE_PAGE_CNT; i++) {
 		if (pages[i].ptr) {
-			kfree_pages((int)pages[i].ptr /*, pages[i].page_cnt*/);
+			kfree_pages((size_t)pages[i].ptr /*, pages[i].page_cnt*/);
 		}
 	}
 

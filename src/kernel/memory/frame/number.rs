@@ -21,7 +21,7 @@ impl FrameNumber {
 
     /// 获取当前物理页指针对应的FrameNumber
     pub fn from_frame(frame: NonNull<Frame>) -> Self {
-        let frame_number = unsafe { frame.as_ref() }.to_frame_number();
+        let frame_number = unsafe { frame.as_ref() }.frame_number();
         FrameNumber(frame_number.0)
     }
 
@@ -43,7 +43,7 @@ impl Display for FrameNumber {
     }
 }
 
-impl Add<usize> for FrameNumber {
+impl const Add<usize> for FrameNumber {
     type Output = FrameNumber;
 
     fn add(self, rhs: usize) -> Self::Output {
@@ -51,7 +51,7 @@ impl Add<usize> for FrameNumber {
     }
 }
 
-impl Sub<usize> for FrameNumber {
+impl const Sub<usize> for FrameNumber {
     type Output = FrameNumber;
 
     fn sub(self, rhs: usize) -> Self::Output {

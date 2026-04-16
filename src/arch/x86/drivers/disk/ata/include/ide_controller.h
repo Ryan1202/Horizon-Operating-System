@@ -40,6 +40,7 @@ typedef struct IdeChannelInfo {
 	uint16_t   io_base;
 	uint16_t   control_base;
 	uint16_t   bmide;
+	uint8_t	   control;
 	uint8_t	   channel_num;
 	uint8_t	   device_count;
 
@@ -64,6 +65,7 @@ extern struct DeviceDriver			 ide_controller_device_driver;
 extern struct BusControllerDeviceOps ide_bus_controller_device_ops;
 
 int	 ide_wait(IdeChannel *channel);
+int	 ide_wait_cmd_ready(IdeChannel *channel);
 void ide_print_error(IdeChannel *channel);
 void ide_reset_drive(IdeChannel *channel);
 void ide_select_device(IdeChannel *channel, int device_num);

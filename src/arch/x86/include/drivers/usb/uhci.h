@@ -83,7 +83,7 @@
 
 typedef struct UhciFrameList {
 	uint32_t *frames_vir;
-	uint32_t *frames_phy;
+	uint32_t  frames_phy;
 } UhciFrameList;
 
 typedef struct UhciQh {

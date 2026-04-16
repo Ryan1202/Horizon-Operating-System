@@ -1,6 +1,11 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    mem::ManuallyDrop,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-use crate::kernel::memory::frame::buddy::FrameOrder;
+use crate::kernel::memory::frame::{
+    self, Frame, FrameData, FrameTag, anonymous, buddy::FrameOrder,
+};
 
 pub struct Anonymous {
     mapcount: AtomicUsize,
@@ -25,5 +30,12 @@ impl Anonymous {
 
     pub fn get_order(&self) -> FrameOrder {
         self.order
+    }
+
+    pub fn replace_frame(self, frame: &mut Frame) {
+        let anonymous = ManuallyDrop::new(self);
+        unsafe {
+            frame.replace(FrameTag::Anonymous, FrameData { anonymous });
+        }
     }
 }

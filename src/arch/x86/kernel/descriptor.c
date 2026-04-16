@@ -23,13 +23,43 @@
 #include <stdint.h>
 #include <string.h>
 
-irq_handler_t	irq_table[NR_IRQ];
-void			default_irq_handler(int irq);
-extern uint32_t syscall_handler(void);
+#define GDT_ENTRY_TSS			5
+#define GDT_ENTRY_PERCPU_BASE	7
+#define EXCEPTION_NO_ERROR_CODE ((size_t)-1)
+
+#define SET_EXCEPTION_ENTRY(n) \
+	set_gate_descriptor(       \
+		&idt[n], (size_t)&exception_entry##n, 0x08, DA_386IGate_DPL0);
+
+#define SET_IRQ_ENTRY(n) \
+	set_gate_descriptor( \
+		&idt[0x20 + n], (size_t)&irq_entry##n, 0x08, DA_386IGate_DPL0);
+
+irq_handler_t irq_table[NR_IRQ];
+void		  default_irq_handler(int irq);
+extern void	  syscall_handler(void);
 
 struct segment_descriptor *gdt;
 struct gate_descriptor	  *idt;
 static struct tss_s		   tss;
+
+static void set_tss_descriptor(
+	int entry, uint32_t limit, uint64_t base, uint8_t access_right) {
+	uint64_t *descriptor = (uint64_t *)(gdt + entry);
+	uint64_t  low		 = 0;
+	uint64_t  high		 = 0;
+
+	low |= (uint64_t)(limit & 0xffff);
+	low |= (uint64_t)(base & 0xffff) << 16;
+	low |= (uint64_t)((base >> 16) & 0xff) << 32;
+	low |= (uint64_t)access_right << 40;
+	low |= (uint64_t)((limit >> 16) & 0x0f) << 48;
+	low |= (uint64_t)((base >> 24) & 0xff) << 56;
+	high |= (base >> 32) & 0xffffffff;
+
+	descriptor[0] = low;
+	descriptor[1] = high;
+}
 
 /**
  * @brief 更新TSS中的ESP为对应任务的ESP
@@ -37,7 +67,7 @@ static struct tss_s		   tss;
  * @param pthread 任务结构
  */
 void update_tss_esp(struct task_s *pthread) {
-	tss.esp0 = (uint32_t *)((uint32_t)pthread + PAGE_SIZE);
+	tss.rsp[0] = ((uint64_t)pthread + PAGE_SIZE);
 }
 
 /**
@@ -45,160 +75,112 @@ void update_tss_esp(struct task_s *pthread) {
  *
  */
 void init_descriptor(void) {
-	size_t page_addr = (size_t)VIR_BASE + GDT_BASE;
-	gdt				 = (struct segment_descriptor *)page_addr;
-	idt				 = (struct gate_descriptor *)(page_addr + GDT_SIZE + 1);
+	gdt = (struct segment_descriptor *)GDT_BASE;
+	idt = (struct gate_descriptor *)IDT_BASE;
 	memset(&tss, 0, sizeof(struct tss_s));
-	tss.ss0		= SELECTOR_K_STACK;
 	tss.io_base = sizeof(struct tss_s);
 
 	// 配置GDT
 	int i;
-	for (i = 0; i < GDT_SIZE / 8; i++) {
+	for (i = 0; i < (GDT_SIZE + 1) / 8; i++) {
 		set_segment_descriptor(gdt + i, 0, 0, 0);
 	}
 	// 内核代码段
 	set_segment_descriptor(
 		gdt + 1, 0xffffffff, 0x00000000,
-		DESC_D | DESC_P | DESC_S_CODE | DESC_TYPE_CODE | DESC_DPL_0);
+		DESC_L | DESC_P | DESC_S | DESC_TYPE_CODE | DESC_DPL(0));
 	// 内核数据段
 	set_segment_descriptor(
 		gdt + 2, 0xffffffff, 0x00000000,
-		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_0);
+		DESC_P | DESC_S | DESC_TYPE_DATA | DESC_DPL(0));
 	// 用户代码段
 	set_segment_descriptor(
 		gdt + 3, 0xffffffff, 0x00000000,
-		DESC_D | DESC_P | DESC_S_CODE | DESC_TYPE_CODE | DESC_DPL_3);
+		DESC_L | DESC_P | DESC_S | DESC_TYPE_CODE | DESC_DPL(3));
 	// 用户数据段
 	set_segment_descriptor(
 		gdt + 4, 0xffffffff, 0x00000000,
-		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_3);
+		DESC_P | DESC_S | DESC_TYPE_DATA | DESC_DPL(3));
 	// TSS
-	set_segment_descriptor(
-		gdt + 5, sizeof(struct tss_s), (int)&tss,
-		DESC_D | DESC_P | DESC_S_SYS | DESC_TYPE_TSS | DESC_DPL_0);
+	set_tss_descriptor(
+		GDT_ENTRY_TSS, (uint32_t)(sizeof(struct tss_s) - 1),
+		(uint64_t)(size_t)&tss, DESC_P | DESC_TYPE_TSS | DESC_DPL(0));
 
 	// 改变GDTR寄存器使其指向刚配置好的GDT
-	load_gdtr(GDT_SIZE, (size_t)gdt);
-	__asm__ __volatile__("ltr %w0" ::"r"(SElECTOR_TSS));
+	load_gdtr((uint16_t)GDT_SIZE, (size_t)gdt);
+	__asm__ __volatile__("ltr %w0" ::"r"(SELECTOR_TSS));
 
 	// 配置IDT
 	// 0x00-0x1f号中断是CPU异常中断, 0x20-0x2f号中断是IRQ中断
-	for (i = 0; i < IDT_SIZE / 8; i++) {
+	for (i = 0; i < (IDT_SIZE + 1) / (int)sizeof(struct gate_descriptor); i++) {
 		set_gate_descriptor(idt + i, 0, 0, 0);
 	}
-	set_gate_descriptor(
-		idt + 0x00, (int)&exception_entry0, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x01, (int)&exception_entry1, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x02, (int)&exception_entry2, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x03, (int)&exception_entry3, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x04, (int)&exception_entry4, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x05, (int)&exception_entry5, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x06, (int)&exception_entry6, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x07, (int)&exception_entry7, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x08, (int)&exception_entry8, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x09, (int)&exception_entry9, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x0a, (int)&exception_entry10, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x0b, (int)&exception_entry11, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x0c, (int)&exception_entry12, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x0d, (int)&exception_entry13, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x0e, (int)&exception_entry14, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x0f, (int)&exception_entry15, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x10, (int)&exception_entry16, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x11, (int)&exception_entry17, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x12, (int)&exception_entry18, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x13, (int)&exception_entry19, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x14, (int)&exception_entry20, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x15, (int)&exception_entry21, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x16, (int)&exception_entry22, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x17, (int)&exception_entry23, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x18, (int)&exception_entry24, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x19, (int)&exception_entry25, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x1a, (int)&exception_entry26, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x1b, (int)&exception_entry27, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x1c, (int)&exception_entry28, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x1d, (int)&exception_entry29, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x1e, (int)&exception_entry30, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x1f, (int)&exception_entry31, 0x08, DA_386IGate_DPL0);
 
-	set_gate_descriptor(
-		idt + 0x20 + 0, (int)&irq_entry0, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 1, (int)&irq_entry1, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 2, (int)&irq_entry2, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 3, (int)&irq_entry3, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 4, (int)&irq_entry4, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 5, (int)&irq_entry5, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 6, (int)&irq_entry6, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 7, (int)&irq_entry7, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 8, (int)&irq_entry8, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 9, (int)&irq_entry9, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 10, (int)&irq_entry10, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 11, (int)&irq_entry11, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 12, (int)&irq_entry12, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 13, (int)&irq_entry13, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 14, (int)&irq_entry14, 0x08, DA_386IGate_DPL0);
-	set_gate_descriptor(
-		idt + 0x20 + 15, (int)&irq_entry15, 0x08, DA_386IGate_DPL0);
+	SET_EXCEPTION_ENTRY(0)
+	SET_EXCEPTION_ENTRY(1)
+	SET_EXCEPTION_ENTRY(2)
+	SET_EXCEPTION_ENTRY(3)
+	SET_EXCEPTION_ENTRY(4)
+	SET_EXCEPTION_ENTRY(5)
+	SET_EXCEPTION_ENTRY(6)
+	SET_EXCEPTION_ENTRY(7)
+	SET_EXCEPTION_ENTRY(8)
+	SET_EXCEPTION_ENTRY(9)
+	SET_EXCEPTION_ENTRY(10)
+	SET_EXCEPTION_ENTRY(11)
+	SET_EXCEPTION_ENTRY(12)
+	SET_EXCEPTION_ENTRY(13)
+	SET_EXCEPTION_ENTRY(14)
+	SET_EXCEPTION_ENTRY(15)
+	SET_EXCEPTION_ENTRY(16)
+	SET_EXCEPTION_ENTRY(17)
+	SET_EXCEPTION_ENTRY(18)
+	SET_EXCEPTION_ENTRY(19)
+	SET_EXCEPTION_ENTRY(20)
+	SET_EXCEPTION_ENTRY(21)
+	SET_EXCEPTION_ENTRY(22)
+	SET_EXCEPTION_ENTRY(23)
+	SET_EXCEPTION_ENTRY(24)
+	SET_EXCEPTION_ENTRY(25)
+	SET_EXCEPTION_ENTRY(26)
+	SET_EXCEPTION_ENTRY(27)
+	SET_EXCEPTION_ENTRY(28)
+	SET_EXCEPTION_ENTRY(29)
+	SET_EXCEPTION_ENTRY(30)
+	SET_EXCEPTION_ENTRY(31)
+
+	SET_IRQ_ENTRY(0)
+	SET_IRQ_ENTRY(1)
+	SET_IRQ_ENTRY(2)
+	SET_IRQ_ENTRY(3)
+	SET_IRQ_ENTRY(4)
+	SET_IRQ_ENTRY(5)
+	SET_IRQ_ENTRY(6)
+	SET_IRQ_ENTRY(7)
+	SET_IRQ_ENTRY(8)
+	SET_IRQ_ENTRY(9)
+	SET_IRQ_ENTRY(10)
+	SET_IRQ_ENTRY(11)
+	SET_IRQ_ENTRY(12)
+	SET_IRQ_ENTRY(13)
+	SET_IRQ_ENTRY(14)
+	SET_IRQ_ENTRY(15)
+
 	for (i = 0; i < NR_IRQ; i++) {
 		irq_table[i] = default_irq_handler;
 	}
 
 	set_gate_descriptor(
-		idt + 0x80, (int)syscall_handler, 0x08, DA_386IGate_DPL3);
+		&idt[0x80], (size_t)syscall_handler, 0x08, DA_386IGate_DPL3);
 
-	load_idtr(IDT_SIZE, (size_t)idt);
+	load_idtr((uint16_t)IDT_SIZE, (size_t)idt);
 }
 
 uint16_t set_percpu_segment_descriptor(int cpu_id, size_t addr) {
 	set_segment_descriptor(
-		gdt + 5 + cpu_id, 0xffffffff, addr,
-		DESC_D | DESC_P | DESC_S_DATA | DESC_TYPE_DATA | DESC_DPL_0);
-	return (5 + cpu_id) * 0x8;
+		gdt + GDT_ENTRY_PERCPU_BASE + cpu_id, 0xffffffff, addr,
+		DESC_L | DESC_P | DESC_S | DESC_TYPE_DATA | DESC_DPL(0));
+	return (GDT_ENTRY_PERCPU_BASE + cpu_id) * 0x8;
 }
 
 /**
@@ -220,18 +202,20 @@ void put_irq_handler(int irq, irq_handler_t handler) {
  * @param ar 标志
  */
 void set_segment_descriptor(
-	struct segment_descriptor *sd, unsigned int limit, int base, int ar) {
-	if (limit > 0xfffff) {
-		ar |= 0x8000; /* G_bit = 1 */
-		limit /= 0x1000;
-	}
+	struct segment_descriptor *sd, uint32_t limit, uint64_t base, int ar) {
+	uint32_t base32 = (uint32_t)base;
+
+	// if (limit > 0xfffff) {
+	// 	ar |= 0x8000; /* G_bit = 1 */
+	// 	limit /= 0x1000;
+	// }
 
 	sd->limit_low	 = limit & 0xffff;
-	sd->base_low	 = base & 0xffff;
-	sd->base_mid	 = (base >> 16) & 0xff;
+	sd->base_low	 = base32 & 0xffff;
+	sd->base_mid	 = (base32 >> 16) & 0xff;
 	sd->access_right = ar & 0xff;
 	sd->limit_high	 = ((limit >> 16) & 0x0f) | ((ar >> 8) & 0xf0);
-	sd->base_high	 = (base >> 24) & 0xff;
+	sd->base_high	 = (base32 >> 24) & 0xff;
 	return;
 }
 
@@ -274,58 +258,89 @@ void set_segment_descriptor(
  * @param ar 标志
  */
 void set_gate_descriptor(
-	struct gate_descriptor *gd, int offset, int selector, int ar) {
+	struct gate_descriptor *gd, uint64_t offset, uint16_t selector,
+	uint8_t ar) {
 	gd->offset_low	 = offset & 0xffff;
 	gd->selector	 = selector;
-	gd->dw_count	 = (ar >> 8) & 0xff;
-	gd->access_right = ar & 0xff;
-	gd->offset_high	 = (offset >> 16) & 0xffff;
+	gd->ist			 = 0;
+	gd->access_right = ar;
+	gd->offset_mid	 = (offset >> 16) & 0xffff;
+	gd->offset_high	 = (offset >> 32) & 0xffffffff;
+	gd->reserved	 = 0;
 	return;
 }
 
 /**
  * @brief 异常中断处理程序
  *
- * @param esp
  * @param vec_no
- * @param err_code
- * @param eip
- * @param cs
- * @param eflags
+ * @param stack_frame
  */
-void exception_handler(
-	int esp, int vec_no, int error_code, int eip, int cs, int eflags) {
-	char err_description[][64] = {
+void exception_handler(int vec_no, uint64_t *stack_frame) {
+	static const char *const err_description[] = {
 		"#DE Divide Error",
-		"#DB RESERVED",
+		"#DB Debug",
 		"NMI Interrupt",
 		"#BP Breakpoint",
 		"#OF Overflow",
 		"#BR BOUND Range Exceeded",
-		"#UD Invalid Opcode (Undefined Opcode)",
-		"#NM Device Not Available (No Math Coprocessor)",
+		"#UD Invalid Opcode",
+		"#NM Device Not Available",
 		"#DF Double Fault",
-		"    Coprocessor Segment Overrun (reserved)",
+		"Reserved",
 		"#TS Invalid TSS",
 		"#NP Segment Not Present",
 		"#SS Stack-Segment Fault",
 		"#GP General Protection",
 		"#PF Page Fault",
-		"(Intel reserved. Do not use.)",
-		"#MF x87 FPU Floating-Point Error (Math Fault)",
+		"Reserved",
+		"#MF x87 Floating-Point Exception",
 		"#AC Alignment Check",
 		"#MC Machine Check",
-		"#XF SIMD Floating-Point Exception"};
+		"#XM SIMD Floating-Point Exception",
+		"#VE Virtualization Exception",
+		"#CP Control Protection Exception",
+		"Reserved",
+		"Reserved",
+		"Reserved",
+		"Reserved",
+		"Reserved",
+		"Reserved",
+		"#HV Hypervisor Injection Exception",
+		"#VC VMM Communication Exception",
+		"#SX Security Exception",
+		"Reserved"};
+	uint64_t	error_code	  = stack_frame[0];
+	uint64_t	rip			  = stack_frame[1];
+	uint64_t	cs			  = stack_frame[2];
+	uint64_t	rflags		  = stack_frame[3];
+	const char *description	  = "Unknown Exception";
+	int			has_saved_rsp = (cs & 0x3) == 3;
+
+	if (vec_no >= 0 &&
+		vec_no < (int)(sizeof(err_description) / sizeof(err_description[0]))) {
+		description = err_description[vec_no];
+	}
+
 	io_cli();
 
-	printk(COLOR_RED "ERROR:%s\n", err_description[vec_no]);
+	printk(COLOR_RED "ERROR:%s\n", description);
+	printk(
+		COLOR_RED "RFLAGS:%#018lx CS:%#lx RIP:%#018lx\n", (unsigned long)rflags,
+		(unsigned long)cs, (unsigned long)rip);
 
-	printk(COLOR_RED "EFLAGS:%x CS:%x EIP:%x ESP:%x\n", eflags, cs, eip, esp);
+	if (has_saved_rsp) {
+		printk(
+			COLOR_RED "RSP:%#018lx SS:%#lx\n", (unsigned long)stack_frame[4],
+			(unsigned long)stack_frame[5]);
+	}
 
-	if (vec_no == 14) { printk(COLOR_RED "Address:%#08x\n", read_cr2()); }
+	if (vec_no == 14) {
+		printk(COLOR_RED "CR2:%#018lx\n", (unsigned long)read_cr2());
+	}
 
-	if (error_code != 0xFFFFFFFF) {
-		printk(COLOR_RED "Error code:%x\n", error_code);
+	if (error_code != EXCEPTION_NO_ERROR_CODE) {
+		printk(COLOR_RED "Error code:%#lx\n", (unsigned long)error_code);
 
 		if (error_code & 1) {
 			printk(COLOR_RED
@@ -345,7 +360,7 @@ void exception_handler(
 		}
 		printk(
 			COLOR_RED "    Selector: idx %d\n" COLOR_RESET,
-			(error_code & 0xfff8) >> 3);
+			(int)((error_code & 0xfff8) >> 3));
 	}
 
 	io_hlt();

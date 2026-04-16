@@ -58,12 +58,12 @@ void *dma_alloc_region(Dma *dma, uint32_t size) {
 	for (int i = 0; i < cnt; i++) {
 		mmap_set(&dma_mem_mmap, idx + i, 1);
 	}
-	return (void *)(DMA_MEM_BASE_ADDR + idx * DMA_REGION_SIZE);
+	return (void *)(DMA_MEM_BASE_ADDR + (size_t)idx * DMA_REGION_SIZE);
 }
 
 DriverResult dma_free_region(Dma *dma, void *ptr, uint32_t size) {
 	int cnt = DIV_ROUND_UP(size, 64 * 1024);
-	int idx = ((uint32_t)ptr - DMA_MEM_BASE_ADDR) / DMA_REGION_SIZE;
+	int idx = ((size_t)ptr - DMA_MEM_BASE_ADDR) / DMA_REGION_SIZE;
 	for (int i = 0; i < cnt; i++) {
 		mmap_set(&dma_mem_mmap, idx + i, 0);
 	}
@@ -173,7 +173,7 @@ void dma_set_page(unsigned int channel, char page) {
 	}
 }
 
-void dma_set_addr(unsigned int channel, unsigned int addr) {
+void dma_set_addr(unsigned int channel, size_t addr) {
 	dma_set_page(channel, addr >> 16);
 	if (channel <= 3) {
 		io_out8(DMA0 + ((channel & 3) << 1), addr & 0xff);

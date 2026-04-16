@@ -54,9 +54,6 @@ uint32_t get_remaining_continuous_clusters(
 FsResult fat_cluster_list_skip(
 	struct FatInfo *fat_info, struct FatDirEntry *entry,
 	CurrentCluster *cur_cluster, int count);
-inline bool fat_cluster_list_is_last(
-	struct FatInfo *fat_info, struct FatDirEntry *entry,
-	CurrentCluster *cur_cluster);
 FsResult get_last_cluster(
 	struct FatInfo *fat_info, struct FatDirEntry *entry,
 	DEF_MRET(uint32_t, last_cluster));

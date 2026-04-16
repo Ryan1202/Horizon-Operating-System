@@ -356,7 +356,7 @@ DriverResult uhci_start(void *_device) {
 	PhysicalDevice *device = _device;
 	Uhci		   *uhci   = device->private_data;
 	uhci->fl.frames_vir	   = (uint32_t *)kmalloc_pages(1);
-	uhci->fl.frames_phy	   = (uint32_t *)vir2phy((uint32_t)uhci->fl.frames_vir);
+	uhci->fl.frames_phy	   = (uint32_t)vir2phy((size_t)uhci->fl.frames_vir);
 	uhci_skel_init(uhci);
 
 	pci_device_write16(uhci->device, UHCI_PCI_REG_LEGSUP, 0x2000);
@@ -365,7 +365,7 @@ DriverResult uhci_start(void *_device) {
 	usb_legacy_support_disabled = true;
 
 	io_out_word(uhci->io_base + UHCI_FRNUM, 0);
-	io_out_dword(uhci->io_base + UHCI_FRBASEADD, (uint32_t)uhci->fl.frames_phy);
+	io_out_dword(uhci->io_base + UHCI_FRBASEADD, uhci->fl.frames_phy);
 
 	uint16_t cmd = io_in_word(uhci->io_base + UHCI_REG_CMD);
 	io_out_word(uhci->io_base + UHCI_REG_CMD, cmd | UHCI_CMD_RUN);

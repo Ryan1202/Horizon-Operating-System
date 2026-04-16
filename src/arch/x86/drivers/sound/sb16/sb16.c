@@ -287,8 +287,7 @@ DriverResult sb16_set_time_constant(Sb16Info *info, uint16_t sample_rate) {
 }
 
 void sb16_setup_dma(
-	Sb16Info *info, uint8_t channel, uint8_t mode, uint32_t addr,
-	uint32_t len) {
+	Sb16Info *info, uint8_t channel, uint8_t mode, size_t addr, uint32_t len) {
 	int flags = dma_lock();
 	dma_disable(channel);
 	dma_ff_reset(channel);
@@ -369,7 +368,7 @@ DriverResult sb16_play_prepare(PcmStream *stream, void *addr, size_t size) {
 
 	sb16_setup_dma(
 		info, info->dma_channel,
-		DMA_MODE_SINGLE | DMA_MODE_AUTO | DMA_MODE_WRITE, (uint32_t)addr, size);
+		DMA_MODE_SINGLE | DMA_MODE_AUTO | DMA_MODE_WRITE, (size_t)addr, size);
 
 	uint16_t sample_count = stream->period_bytes >> 1;
 	sample_count--;
@@ -423,7 +422,7 @@ DriverResult sb16_record_prepare(PcmStream *stream, void *addr, size_t size) {
 
 	sb16_setup_dma(
 		info, info->dma_channel,
-		DMA_MODE_SINGLE | DMA_MODE_AUTO | DMA_MODE_READ, (uint32_t)addr, size);
+		DMA_MODE_SINGLE | DMA_MODE_AUTO | DMA_MODE_READ, (size_t)addr, size);
 
 	uint16_t sample_count = stream->period_bytes >> 1;
 	sample_count--;

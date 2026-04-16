@@ -4,9 +4,10 @@
     all(target_has_atomic = "128", target_pointer_width = "64"),
     all(target_has_atomic = "64", target_pointer_width = "32")
 ))]
+use core::ops::{Deref, DerefMut};
 use core::{
     marker::{PhantomData, PhantomPinned},
-    ops::{Deref, DerefMut},
+    mem::MaybeUninit,
     pin::Pin,
     ptr::NonNull,
 };
@@ -17,11 +18,16 @@ macro_rules! list_owner {
 }
 
 #[derive(PartialEq, Debug)]
+pub struct Link<Owner> {
+    prev: NonNull<Link<Owner>>,
+    pub next: NonNull<Link<Owner>>,
+    _phantom: (PhantomData<Owner>, PhantomPinned),
+}
+
+#[derive(Debug)]
 #[repr(C)]
 pub struct ListHead<Owner> {
-    pub tail: Option<NonNull<ListNode<Owner>>>,
-    pub head: Option<NonNull<ListNode<Owner>>>,
-    _phantom: PhantomPinned,
+    link: MaybeUninit<Link<Owner>>,
 }
 
 impl<T> Default for ListHead<T> {
@@ -33,63 +39,79 @@ impl<T> Default for ListHead<T> {
 impl<Owner> ListHead<Owner> {
     pub const fn empty() -> Self {
         Self {
-            tail: None,
-            head: None,
-            _phantom: PhantomPinned,
+            link: MaybeUninit::uninit(),
         }
     }
 
     #[inline(always)]
     pub fn init(self: &mut Pin<&mut Self>) {
-        let ptr = self.as_ref().into_node();
-        let self_ref = unsafe { self.as_mut().get_unchecked_mut() };
-        self_ref.head = Some(ptr);
-        self_ref.tail = Some(ptr);
+        let ptr = self.as_ref().as_ptr();
+        let link = Link {
+            prev: ptr,
+            next: ptr,
+            _phantom: (PhantomData, PhantomPinned),
+        };
+        unsafe { self.as_mut().get_unchecked_mut().link.write(link) };
     }
 
-    pub const fn into_node(self: Pin<&Self>) -> NonNull<ListNode<Owner>> {
+    pub const fn as_ptr(self: &Pin<&Self>) -> NonNull<Link<Owner>> {
         NonNull::from_ref(self.get_ref()).cast()
     }
 
     #[inline(always)]
     pub fn add_head(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
-        let prev = self.as_ref().into_node();
-        let next = self.head.unwrap();
+        let prev = self.as_ref().as_ptr();
+        let next = unsafe {
+            self.as_mut()
+                .get_unchecked_mut()
+                .link
+                .assume_init_mut()
+                .next
+        };
         unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
     pub fn add_tail(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
-        let prev = self.tail.unwrap();
-        let next = self.as_ref().into_node();
+        let prev = unsafe {
+            self.as_mut()
+                .get_unchecked_mut()
+                .link
+                .assume_init_mut()
+                .prev
+        };
+        let next = self.as_ref().as_ptr();
         unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
+    pub fn del(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+        node.del();
+    }
+
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        (self
-            .head
-            .is_some_and(|ptr| ptr == unsafe { Pin::new_unchecked(self) }.into_node()))
-            || self.head.is_none()
-            || self.tail.is_none()
+        let ptr = NonNull::from_ref(self).cast();
+        let link = unsafe { self.link.assume_init_ref() };
+        link.prev == ptr && link.next == ptr
     }
 }
 
 pub struct ListIterator<Owner> {
-    head: NonNull<ListNode<Owner>>,
-    next: Option<NonNull<ListNode<Owner>>>,
+    head: NonNull<Link<Owner>>,
+    next: Option<NonNull<Link<Owner>>>,
     offset: isize,
     _phantom: PhantomData<Owner>,
 }
 
 impl<Owner> ListHead<Owner> {
-    pub fn iter(&mut self, offset: usize) -> ListIterator<Owner> {
-        let head = unsafe { Pin::new_unchecked(&*self).into_node() };
+    pub fn iter(self: Pin<&mut Self>, offset: usize) -> ListIterator<Owner> {
+        let head = self.as_ref().as_ptr();
+
+        let first = unsafe { NonNull::from_ref(self.link.assume_init_ref()) };
         ListIterator {
             head,
-            next: self
-                .head
-                .and_then(|first| if first != head { Some(first) } else { None }),
+            next: if first != head { Some(first) } else { None },
             offset: -(offset as isize),
             _phantom: PhantomData,
         }
@@ -101,10 +123,8 @@ impl<Owner> Iterator for ListIterator<Owner> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.next;
-        self.next = self
-            .next
-            // 获取下一个节点
-            .and_then(|current| unsafe { current.as_ref().next })
+        self.next = current
+            .map(|current| unsafe { current.as_ref().next })
             // 判断是否到达尾节点
             .and_then(|next| (next != self.head).then_some(next));
 
@@ -129,6 +149,10 @@ pub struct AtomicListNode<Owner> {
     inner: ListNode<Owner>,
 }
 
+#[cfg(any(
+    all(target_has_atomic = "128", target_pointer_width = "64"),
+    all(target_has_atomic = "64", target_pointer_width = "32")
+))]
 impl<Owner> Deref for AtomicListNode<Owner> {
     type Target = ListNode<Owner>;
 
@@ -137,12 +161,20 @@ impl<Owner> Deref for AtomicListNode<Owner> {
     }
 }
 
+#[cfg(any(
+    all(target_has_atomic = "128", target_pointer_width = "64"),
+    all(target_has_atomic = "64", target_pointer_width = "32")
+))]
 impl<Owner> DerefMut for AtomicListNode<Owner> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
+#[cfg(any(
+    all(target_has_atomic = "128", target_pointer_width = "64"),
+    all(target_has_atomic = "64", target_pointer_width = "32")
+))]
 impl<Owner> AtomicListNode<Owner> {
     /// 尝试以一致的方式读取 `ListNode { head, tail }` 的快照，返回
     /// 一对 `Option<NonNull<ListNode<Owner>>>`（head, tail）。
@@ -210,85 +242,102 @@ impl<Owner> AtomicListNode<Owner> {
 #[derive(PartialEq, Default, Debug)]
 #[repr(C)]
 pub struct ListNode<Owner> {
-    pub prev: Option<NonNull<ListNode<Owner>>>,
-    pub next: Option<NonNull<ListNode<Owner>>>,
-    _phantom: (PhantomData<Owner>, PhantomPinned),
+    pub link: Option<Link<Owner>>,
 }
 
 impl<Owner> ListNode<Owner> {
     pub const fn new() -> Self {
-        Self {
-            prev: None,
-            next: None,
-            _phantom: (PhantomData, PhantomPinned),
-        }
+        Self { link: None }
     }
 
     pub fn init(self: Pin<&mut Self>) {
         // SAFETY: 只改链表指针，不移动节点
         let this = unsafe { self.get_unchecked_mut() };
-        this.prev = None;
-        this.next = None;
+        this.link = None;
     }
 
     #[inline(always)]
-    fn ptr(&self) -> NonNull<Self> {
-        NonNull::from_ref(self)
+    const fn as_ptr(self: &Pin<&Self>) -> NonNull<Link<Owner>> {
+        NonNull::from_ref(self.get_ref()).cast()
     }
 
     #[inline(always)]
-    unsafe fn add(self: Pin<&mut Self>, mut prev: NonNull<Self>, mut next: NonNull<Self>) {
+    unsafe fn add(
+        self: Pin<&mut Self>,
+        mut prev: NonNull<Link<Owner>>,
+        mut next: NonNull<Link<Owner>>,
+    ) {
         let (_prev, _next) = unsafe { (prev.as_mut(), next.as_mut()) };
-        let _self = Some(NonNull::from(self.as_ref().get_ref()));
+        let _self = self.as_ref().as_ptr();
         let self_ref = unsafe { self.get_unchecked_mut() };
 
         _next.prev = _self;
         _prev.next = _self;
-        self_ref.next = Some(next);
-        self_ref.prev = Some(prev);
+        let link = Link {
+            prev,
+            next,
+            _phantom: (PhantomData, PhantomPinned),
+        };
+        self_ref.link = Some(link);
     }
 
     /// 将当前节点添加到`node`节点之后
     #[inline(always)]
     pub fn add_after(self: Pin<&mut Self>, node: Pin<&mut Self>) {
-        unsafe {
-            let next = node
-                .next
-                .expect("Trying to add_after on a node with no next")
-                .as_ref();
+        let prev = node.as_ref().as_ptr();
 
-            self.add(node.ptr(), next.ptr());
+        unsafe {
+            let node = node
+                .get_unchecked_mut()
+                .link
+                .as_mut()
+                .expect("Trying to add_after on an unlinked node!");
+
+            let next = node.next;
+
+            self.add(prev, next);
         }
     }
 
     /// 将当前节点添加到`node`节点之前
     #[inline(always)]
     pub fn add_before(self: Pin<&mut Self>, node: Pin<&mut Self>) {
-        unsafe {
-            let prev = node
-                .prev
-                .expect("Trying to add_before on a node with no prev")
-                .as_ref();
+        let next = node.as_ref().as_ptr();
 
-            self.add(prev.ptr(), node.ptr());
+        unsafe {
+            let node = node
+                .get_unchecked_mut()
+                .link
+                .as_mut()
+                .expect("Trying to add_after on an unlinked node!");
+
+            let prev = node.prev;
+
+            self.add(prev, next);
         }
     }
 
     #[inline(always)]
-    pub fn del(self: Pin<&mut Self>, _head: &mut ListHead<Owner>) {
-        let this = unsafe { self.get_unchecked_mut() };
-        let prev = unsafe { this.prev.expect("prev node is null!").as_mut() };
-        let next = unsafe { this.next.expect("next node is null!").as_mut() };
+    fn del(self: Pin<&mut Self>) {
+        unsafe {
+            let link = &mut self.get_unchecked_mut().link;
 
-        prev.next = this.next;
-        next.prev = this.prev;
+            let (mut prev, mut next) = {
+                let link = link
+                    .as_ref()
+                    .expect("trying to delete a unlinked list node!");
+                (link.prev, link.next)
+            };
 
-        this.prev = None;
-        this.next = None;
+            prev.as_mut().next = next;
+            next.as_mut().prev = prev;
+
+            *link = None;
+        }
     }
 
     #[inline(always)]
     pub fn is_linked(&self) -> bool {
-        self.prev.is_some() && self.next.is_some()
+        self.link.is_some()
     }
 }

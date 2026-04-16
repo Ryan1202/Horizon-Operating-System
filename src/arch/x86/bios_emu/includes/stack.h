@@ -1,8 +1,8 @@
 #ifndef _BIOS_EMU_STACK_H
 #define _BIOS_EMU_STACK_H
 
-#define STACK_POINTER16(env) ((env->regs.ss << 4) + env->regs.sp)
-#define STACK_POINTER32(env) env->regs.esp
+#define STACK_POINTER16(env) ((size_t)((env->regs.ss << 4) + env->regs.sp))
+#define STACK_POINTER32(env) ((size_t)env->regs.esp)
 
 #define PUSH16(env, data, size)                                      \
 	{                                                                \

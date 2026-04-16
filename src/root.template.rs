@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(sync_unsafe_cell)]
 #![feature(const_cmp)]
+#![feature(const_ops)]
 #![feature(const_trait_impl)]
 #![feature(const_try)]
 #![feature(const_result_trait_fn)]

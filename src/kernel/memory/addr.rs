@@ -23,7 +23,7 @@ macro_rules! impl_page_addr {
             }
         }
 
-        impl core::ops::Add<usize> for $name {
+        impl const core::ops::Add<usize> for $name {
             type Output = Self;
 
             fn add(self, rhs: usize) -> Self::Output {
@@ -37,7 +37,7 @@ macro_rules! impl_page_addr {
             }
         }
 
-        impl core::ops::Sub<usize> for $name {
+        impl const core::ops::Sub<usize> for $name {
             type Output = Self;
 
             fn sub(self, rhs: usize) -> Self::Output {

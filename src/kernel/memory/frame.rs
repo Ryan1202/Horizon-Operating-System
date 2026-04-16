@@ -1,7 +1,7 @@
 use core::{
     cell::SyncUnsafeCell,
     mem::{self, ManuallyDrop, transmute},
-    ptr::{NonNull, addr_of},
+    ptr::NonNull,
     sync::atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 
@@ -9,20 +9,24 @@ use crate::{
     CACHELINE_SIZE,
     arch::{ArchPageTable, PhysAddr},
     kernel::memory::{
+        VMEMMAP_BASE, VMEMMAP_END,
         arch::ArchMemory,
         frame::{
             anonymous::Anonymous,
+            assigned::AssignedFixed,
             buddy::{Buddy, BuddyAllocator, FrameOrder},
             reference::{FrameRc, SharedFrames, UniqueFrames},
             zone::ZoneType,
         },
         slub::Slub,
     },
+    lib::rust::spinlock::RwSpinlock,
 };
 
 pub mod anonymous;
+pub mod assigned;
 pub mod buddy;
-mod early;
+pub mod early;
 pub mod number;
 pub mod options;
 pub mod reference;
@@ -37,6 +41,10 @@ pub static ALLOCATED_PAGES: AtomicUsize = AtomicUsize::new(0);
 
 #[unsafe(no_mangle)]
 pub static PREALLOCATED_END_PHY: SyncUnsafeCell<PhysAddr> = SyncUnsafeCell::new(PhysAddr::new(0));
+#[unsafe(no_mangle)]
+pub static PREALLOCATED_START_PHY: SyncUnsafeCell<PhysAddr> = SyncUnsafeCell::new(PhysAddr::new(0));
+#[unsafe(no_mangle)]
+pub static VMEMMAP_MAPPED_PAGES: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(target_pointer_width = "32")]
 const MAX_METADATA_SIZE: usize = CACHELINE_SIZE / 2;
@@ -72,6 +80,8 @@ pub union FrameData {
     pub(super) buddy: ManuallyDrop<Buddy>,
     pub(super) slub: ManuallyDrop<Slub>,
     pub anonymous: ManuallyDrop<Anonymous>,
+    pub assigned: ManuallyDrop<AssignedFixed>,
+    pub page_table: ManuallyDrop<RwSpinlock<ArchPageTable>>,
 }
 
 #[repr(u8)]
@@ -90,24 +100,40 @@ pub enum FrameTag {
     Slub = 7,
     /// 跨越单个物理页的大页中，使用头一个页存放元数据，其余页使用 `Tail` 标记
     Tail = 8,
+    /// `AssignedFixed` 用于标识被分配给设备的固定页，这些页不会被内核使用或管理，但需要从 buddy 分配器中剔除
+    AssignedFixed = 9,
+    /// `PageTable` 用于标识页表结构占用的页，这些页由内核使用但不受 buddy 分配器管理
+    PageTable = 10,
 }
 
 const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
 
-pub const FRAME_INFO_COUNT: usize = 1 << 20;
-const PAGE_INFO_SIZE: usize = FRAME_INFO_COUNT * size_of::<Frame>();
-
 /// Buddy 分配器的虚拟地址存储位置
 pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
 
-pub static FRAMES: [Frame; ArchPageTable::TOTAL_ENTRIES] = unsafe { mem::zeroed() };
-
 impl Frame {
+    pub fn init_page_table_frame(frame_number: FrameNumber) {
+        let frame = unsafe { Self::get_raw(frame_number).as_mut() };
+        if frame.get_tag() == FrameTag::PageTable {
+            return;
+        }
+
+        let page_table = ManuallyDrop::new(RwSpinlock::new());
+        unsafe {
+            frame.replace(FrameTag::PageTable, FrameData { page_table });
+        }
+    }
+
     pub fn get_tag(&self) -> FrameTag {
         unsafe { transmute(self.tag.load(Ordering::Acquire)) }
     }
 
-    pub fn set_tag(&mut self, tag: FrameTag) {
+    /// 修改 Frame 的 tag
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保 Frame 当前的 tag 和 data 是匹配且有效的
+    pub unsafe fn set_tag(&mut self, tag: FrameTag) {
         self.tag.store(unsafe { transmute(tag) }, Ordering::Release);
     }
 
@@ -115,7 +141,12 @@ impl Frame {
         unsafe { &*self.data.get() }
     }
 
-    pub fn get_data_mut(&mut self) -> &mut FrameData {
+    /// 获取 FrameData 的可变引用
+    ///
+    /// # Safety
+    ///
+    /// 调用者必须确保当前 FrameTag 与 FrameData 中的数据类型匹配且有效
+    pub unsafe fn get_data_mut(&mut self) -> &mut FrameData {
         self.data.get_mut()
     }
 
@@ -132,8 +163,14 @@ impl Frame {
                 FrameTag::Anonymous => {
                     ManuallyDrop::drop(&mut _data.anonymous);
                 }
+                FrameTag::AssignedFixed => {
+                    ManuallyDrop::drop(&mut _data.assigned);
+                }
                 FrameTag::Buddy => {
                     ManuallyDrop::drop(&mut _data.buddy);
+                }
+                FrameTag::PageTable => {
+                    ManuallyDrop::drop(&mut _data.page_table);
                 }
                 FrameTag::Free
                 | FrameTag::SystemReserved
@@ -148,15 +185,24 @@ impl Frame {
         }
 
         *_data = data;
-        self.set_tag(tag);
+        unsafe { self.set_tag(tag) };
     }
 }
+
+const FRAMES: *mut Frame = VMEMMAP_BASE.as_usize() as *mut Frame;
 
 /// 工具函数实现
 impl Frame {
     pub fn get_tag_relaxed(frame_number: FrameNumber) -> FrameTag {
         assert!(frame_number.get() <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
-        unsafe { transmute(FRAMES[frame_number.get()].tag.load(Ordering::Relaxed)) }
+        unsafe {
+            transmute(
+                Self::get_raw(frame_number)
+                    .as_ref()
+                    .tag
+                    .load(Ordering::Relaxed),
+            )
+        }
     }
 
     #[inline(always)]
@@ -164,9 +210,14 @@ impl Frame {
         SharedFrames::new(Self::get_raw(frame_number))
     }
 
-    pub const fn get_raw(frame_number: FrameNumber) -> NonNull<Frame> {
+    pub fn get_raw(frame_number: FrameNumber) -> NonNull<Frame> {
         assert!(frame_number.get() <= usize::MAX / ArchPageTable::PAGE_SIZE + 1);
-        NonNull::from_ref(&FRAMES[frame_number.get()])
+        let addr = unsafe { FRAMES.add(frame_number.get()) };
+        assert!(
+            addr.addr() < VMEMMAP_END.as_usize(),
+            "vmemmap address out of range"
+        );
+        unsafe { NonNull::new_unchecked(addr as *mut Frame) }
     }
 
     #[inline(always)]
@@ -175,9 +226,11 @@ impl Frame {
         Frame::get(page_num)
     }
 
-    pub const fn start_addr(&self) -> PhysAddr {
-        let frame_number =
-            unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
+    pub fn start_addr(&self) -> PhysAddr {
+        let addr = self as *const Frame as usize;
+        assert!(addr >= VMEMMAP_BASE.as_usize());
+        assert!(addr < VMEMMAP_END.as_usize());
+        let frame_number = unsafe { (self as *const Frame).offset_from(FRAMES) } as usize;
         PhysAddr::new(frame_number * ArchPageTable::PAGE_SIZE)
     }
 
@@ -188,20 +241,18 @@ impl Frame {
     /// 调用者必须确保 `child` 确实是 `Frame` 内部某个字段的指针
     pub unsafe fn from_child<T>(child: &mut T) -> &mut Frame {
         let addr = child as *mut T;
-        assert!(addr.addr() >= addr_of!(FRAMES).addr());
-        let max = addr_of!(FRAMES[ArchPageTable::TOTAL_ENTRIES - 1]).addr();
-        assert!(addr.addr() < max + size_of::<Frame>());
+        assert!(addr.addr() >= VMEMMAP_BASE.as_usize());
+        assert!(addr.addr() < VMEMMAP_END.as_usize());
         unsafe {
-            addr.map_addr(|v| v & !(align_of::<Self>() - 1))
+            addr.map_addr(|v| v & !(size_of::<Self>() - 1))
                 .cast::<Self>()
                 .as_mut()
                 .unwrap()
         }
     }
 
-    pub fn to_frame_number(&self) -> FrameNumber {
-        let frame_number =
-            unsafe { (self as *const Frame).offset_from(addr_of!(FRAMES[0])) as usize };
+    pub fn frame_number(&self) -> FrameNumber {
+        let frame_number = unsafe { (self as *const Frame).offset_from(FRAMES) } as usize;
         FrameNumber::new(frame_number)
     }
 }

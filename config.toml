@@ -1,19 +1,26 @@
-arch = "x86"
+arch = "x86_64"
 
 [tools.macos]
 cc = "x86_64-elf-gcc"
-ld = "x86_64-elf-ld"
+ld = "ld.lld"
+ldflags = ["-flavor", "gnu", "-m", "elf_x86_64", "-nostdlib"]
 
 [tools]
 cc = "gcc"
 as = "nasm"
 ld = "ld"
 cflags = [
-    "-march=i686",
+    "-march=x86-64",
+    "-mcmodel=large",
     "-std=gnu11",
     "-nostdinc",
     "-nostdlib",
-    "-m32",
+    "-m64",
+    "-mno-sse",
+    "-mno-sse2",
+    "-mno-mmx",
+    "-mgeneral-regs-only",
+    "-mno-red-zone",
     "-ffreestanding",
     "-fno-pie",
     "-fno-stack-protector",
@@ -22,9 +29,9 @@ cflags = [
     "-Wall",
     "-Wunused",
 ]
-asflags = ["-f", "elf32"]
-ldflags = ["-m", "elf_i386", "-nostdlib"]
-rust_target = "src/arch/x86/i686-none.json"
+asflags = ["-f", "elf64"]
+ldflags = ["-m", "elf_x86_64", "-nostdlib"]
+rust_target = "x86_64-unknown-none"
 rustflags = [
     "-C",
     "relocation-model=static",
@@ -36,7 +43,17 @@ rustflags = [
     "symbol-mangling-version=v0",
     "-C",
     "force-frame-pointers=yes",
+    "-C",
+    "force-unwind-tables=no",
+    "-C",
+    "target-cpu=x86-64",
+    "-C",
+    "llvm-args=-vectorize-loops=false",
+    "-C",
+    "llvm-args=-vectorize-slp=false",
     "-Cllvm-args=--inline-threshold=0",
+    # "--cfg",
+    # "feature=\"slub_debug\"",
 ]
 
 [debug]

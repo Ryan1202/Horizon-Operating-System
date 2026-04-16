@@ -14,120 +14,81 @@
 #define CR0_CD 0x40000000
 #define CR0_PG 0x80000000
 
-int	 io_in8(unsigned int port);
-int	 io_in16(unsigned int port);
-int	 io_in32(unsigned int port);
-void io_out8(unsigned int port, unsigned int data);
-void io_out16(unsigned int port, unsigned int data);
-void io_out32(unsigned int port, unsigned int data);
-void io_read(unsigned short port, void *buf, unsigned int n);
-void io_write(unsigned short port, void *buf, unsigned int n);
+uint8_t	 io_in8(uint16_t port);
+uint16_t io_in16(uint16_t port);
+uint32_t io_in32(uint16_t port);
+
+void io_out8(uint16_t port, uint8_t value);
+void io_out16(uint16_t port, uint16_t value);
+void io_out32(uint16_t port, uint32_t value);
+
+void io_ins8(uint16_t port, void *dst, size_t count);
+void io_ins16(uint16_t port, void *dst, size_t count);
+void io_ins32(uint16_t port, void *dst, size_t count);
+
+void io_outs8(uint16_t port, const void *src, size_t count);
+void io_outs16(uint16_t port, const void *src, size_t count);
+void io_outs32(uint16_t port, const void *src, size_t count);
+
 void io_cli(void);
 void io_sti(void);
 void io_hlt(void);
 void io_stihlt(void);
 
 static inline void get_cpuid(
-	unsigned int Mop, unsigned int Sop, unsigned int *a, unsigned int *b,
-	unsigned int *c, unsigned int *d) {
-	__asm__ __volatile__("cpuid	\n\t"
+	uint32_t Mop, uint32_t Sop, uint32_t *a, uint32_t *b, uint32_t *c,
+	uint32_t *d) {
+	__asm__ __volatile__("cpuid"
 						 : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d)
 						 : "0"(Mop), "2"(Sop));
 }
 
-static inline void ltr(unsigned short sel) {
-	__asm__ __volatile__("ltr %0" ::"r"(sel));
-}
-static inline void io_stream_in8(
-	unsigned int port, unsigned int buffer, unsigned int nr) {
-	__asm__ __volatile__("cld;\n\t \
-        rep;\n\t \
-        insb;\n\t \
-        mfence;" ::"d"(port),
-						 "D"(buffer), "c"(nr)
-						 : "memory");
+static inline void ltr(uint16_t sel) {
+	__asm__ __volatile__("ltr %w0" ::"r"(sel));
 }
 
-static inline void io_stream_out8(
-	unsigned int port, unsigned int buffer, unsigned int nr) {
-	__asm__ __volatile__("cld;\n\t \
-        rep;\n\t \
-        outsb;\n\t \
-        mfence;\n\t" ::"d"(port),
-						 "S"(buffer), "c"(nr)
-						 : "memory");
-}
-
-static inline void io_stream_in16(
-	unsigned int port, unsigned int buffer, unsigned int nr) {
-	__asm__ __volatile__("cld;\n\t \
-        rep;\n\t \
-        insw;\n\t \
-        mfence;" ::"d"(port),
-						 "D"(buffer), "c"(nr)
-						 : "memory");
-}
-
-static inline void io_stream_out16(
-	unsigned int port, unsigned int buffer, unsigned int nr) {
-	__asm__ __volatile__("cld;\n\t \
-        rep;\n\t \
-        outsw;\n\t \
-        mfence;\n\t" ::"d"(port),
-						 "S"(buffer), "c"(nr)
-						 : "memory");
-}
-
-static inline void io_stream_in32(
-	unsigned int port, unsigned int buffer, unsigned int nr) {
-	__asm__ __volatile__("cld;\n\t \
-        rep;\n\t \
-        insl;\n\t \
-        mfence;\n\t" ::"d"(port),
-						 "S"(buffer), "c"(nr)
-						 : "memory");
-}
-
-static inline void io_stream_out32(
-	unsigned int port, unsigned int buffer, unsigned int nr) {
-	__asm__ __volatile__("cld;\n\t \
-        rep;\n\t \
-        outsl;\n\t \
-        mfence;\n\t" ::"d"(port),
-						 "S"(buffer), "c"(nr)
-						 : "memory");
-}
-
-static inline unsigned int bsr(unsigned int x) {
-	unsigned int index;
-	__asm__ __volatile__("bsrl %1, %0" : "=r"(index) : "r"(x));
+static inline uint64_t bsr64(uint64_t x) {
+	uint64_t index;
+	__asm__ __volatile__("bsrq %1, %0" : "=r"(index) : "r"(x) : "cc");
 	return index;
 }
 
-static inline unsigned int bsf(unsigned int x) {
-	unsigned int index;
-	__asm__ __volatile__("bsfl %1, %0" : "=r"(index) : "r"(x));
+static inline uint64_t bsf64(uint64_t x) {
+	uint64_t index;
+	__asm__ __volatile__("bsfq %1, %0" : "=r"(index) : "r"(x) : "cc");
+	return index;
+}
+
+static inline uint32_t bsr32(uint32_t x) {
+	uint32_t index;
+	__asm__ __volatile__("bsrl %1, %0" : "=r"(index) : "r"(x) : "cc");
+	return index;
+}
+
+static inline uint32_t bsf32(uint32_t x) {
+	uint32_t index;
+	__asm__ __volatile__("bsfl %1, %0" : "=r"(index) : "r"(x) : "cc");
 	return index;
 }
 
 static inline uint64_t read_tsc(void) {
-	unsigned int low, high;
+	uint32_t low, high;
 	__asm__ __volatile__("rdtsc" : "=a"(low), "=d"(high));
 	return ((uint64_t)high << 32) | low;
 }
 
 #define GET_REG(reg, var) __asm__ __volatile__("mov %%" reg ", %0" : "=g"(var));
 
-int	 read_cr3();
-void write_cr3(unsigned int *cr3);
-int	 read_cr2();
-int	 read_cr0();
-void write_cr0(int cr0);
+size_t read_cr3();
+void   write_cr3(size_t *cr3);
+size_t read_cr2();
+size_t read_cr0();
+void   write_cr0(size_t cr0);
 
 void enable_paging(void);
 
-void load_gdtr(int limit, int addr);
-void load_idtr(int limit, int addr);
+void load_gdtr(uint16_t limit, uint64_t addr);
+void load_idtr(uint16_t limit, uint64_t addr);
 
 int	 io_load_eflags(void);
 void io_store_eflags(int eflags);
@@ -184,6 +145,7 @@ void irq_entry13(void);
 void irq_entry14(void);
 void irq_entry15(void);
 
-void switch_to(int *cur, int *next);
+void kernel_thread_entry(void);
+void switch_to(size_t **cur, size_t **next);
 
 #endif

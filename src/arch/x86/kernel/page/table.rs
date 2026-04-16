@@ -1,190 +1,89 @@
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::{ops::Index, sync::atomic::AtomicUsize};
 
 use crate::{
-    arch::{ArchPageTable, PhysAddr, VirtAddr, x86::kernel::page::entry::X86PageEntry},
+    arch::PhysAddr,
     kernel::memory::{
-        MemoryError,
+        KERNEL_BASE,
         arch::ArchMemory,
-        frame::{
-            buddy::FrameOrder, options::FrameAllocOptions, reference::UniqueFrames, zone::ZoneType,
-        },
-        page::{
-            PageEntry, PageFlags, PageTableError, PageTableWalker, dyn_pages::DynPages,
-            options::PageAllocOptions,
-        },
+        frame::FrameNumber,
+        page::{PageTable, linear_table_ptr},
     },
 };
 
-pub const PDE_BASE: usize = 0xFFFF_F000;
-pub const PTE_BASE: usize = 0xFFC0_0000;
+use super::entry::{EntryPtr, X86PageEntry};
 
 pub const PDE_SHIFT: usize = 10;
-pub const PAGES_PER_HUGE_PAGE: usize = 1024;
 
-pub struct X86PageTable;
+const PAGE_OFFSET_BIT: usize = 12;
+pub(super) const INDEX_BITS: [usize; 4] = [9, 9, 9, 9];
+pub(super) const LEVEL_SHIFTS: [usize; 5] = [
+    0,
+    INDEX_BITS[0],
+    INDEX_BITS[0] + INDEX_BITS[1],
+    INDEX_BITS[0] + INDEX_BITS[1] + INDEX_BITS[2],
+    INDEX_BITS[0] + INDEX_BITS[1] + INDEX_BITS[2] + INDEX_BITS[3],
+];
+pub(super) const LEVEL_COUNTS: [usize; 5] = [
+    1 << LEVEL_SHIFTS[0],
+    1 << LEVEL_SHIFTS[1],
+    1 << LEVEL_SHIFTS[2],
+    1 << LEVEL_SHIFTS[3],
+    1 << LEVEL_SHIFTS[4],
+];
+pub(super) const LEVEL_MASKS: [usize; 5] = [
+    !(LEVEL_COUNTS[0] - 1),
+    !(LEVEL_COUNTS[1] - 1),
+    !(LEVEL_COUNTS[2] - 1),
+    !(LEVEL_COUNTS[3] - 1),
+    !(LEVEL_COUNTS[4] - 1),
+];
+pub(super) const HUGE_PAGE: [bool; 4] = [false, true, true, false];
 
-impl X86PageTable {
-    pub fn read_pde_entry(page_number: usize) -> X86PageEntry {
-        let pde_addr = (PDE_BASE + (page_number >> PDE_SHIFT) * 4) as *const AtomicU32;
-        X86PageEntry(unsafe { (*pde_addr).load(Ordering::Relaxed) })
-    }
+pub struct X86PageTable {
+    table: [AtomicUsize; Self::PAGE_SIZE / size_of::<AtomicUsize>()],
+}
 
-    pub fn write_pde_entry(page_number: usize, entry: X86PageEntry) {
-        let pde_addr = (PDE_BASE + (page_number >> PDE_SHIFT) * 4) as *mut AtomicU32;
-        unsafe {
-            (*pde_addr).store(entry.0, Ordering::Relaxed);
-        };
-    }
+impl Index<usize> for X86PageTable {
+    type Output = AtomicUsize;
 
-    pub fn read_pte_entry(page_number: usize) -> X86PageEntry {
-        let pte_addr = (PTE_BASE + page_number * 4) as *const AtomicU32;
-        X86PageEntry(unsafe { (*pte_addr).load(Ordering::Relaxed) })
-    }
-
-    pub fn write_pte_entry(page_number: usize, entry: X86PageEntry) {
-        let pte_addr = (PTE_BASE + page_number * 4) as *mut AtomicU32;
-        unsafe {
-            (*pte_addr).store(entry.0, Ordering::Relaxed);
-        };
-    }
-
-    fn alloc_table_frame(flags: PageFlags) -> Result<X86PageEntry, MemoryError> {
-        let frame_options = FrameAllocOptions::new().fallback(&[ZoneType::LinearMem]);
-        let page_options = PageAllocOptions::new(frame_options)
-            .contiguous(true)
-            .zeroed(true);
-
-        let mut page = page_options.allocate()?;
-
-        let frame = page.get_frame().unwrap();
-
-        let pde_flags = if flags.huge_page {
-            flags
-        } else {
-            PageFlags::new()
-        };
-        let new_pde = X86PageEntry::new_mapped(frame.to_frame_number(), pde_flags, 1);
-
-        Ok(new_pde)
+    fn index(&self, index: usize) -> &Self::Output {
+        assert!(index < Self::PAGE_SIZE / size_of::<AtomicUsize>());
+        &self.table[index]
     }
 }
 
-impl PageTableWalker for X86PageTable {
+impl X86PageTable {
+    pub(super) const fn get_entry(&self, index: usize) -> EntryPtr {
+        assert!(index < Self::PAGE_SIZE / size_of::<AtomicUsize>());
+        EntryPtr(&self.table[index] as *const AtomicUsize)
+    }
+
+    pub const fn kernel_table_ptr<T>(frame: FrameNumber) -> *const T {
+        let kernel_start_phy = 0;
+        let kernel_start = KERNEL_BASE;
+        let phys = PhysAddr::from_frame_number(frame).as_usize();
+
+        (kernel_start + (phys - kernel_start_phy)).as_ptr()
+    }
+
+    pub const fn linear_table_ptr<T>(frame: FrameNumber) -> *const T {
+        linear_table_ptr::<Self>(frame) as *const T
+    }
+}
+
+impl PageTable for X86PageTable {
     type Entry = X86PageEntry;
+    type EntrySlot = EntryPtr;
 
-    fn map(
-        pages: &mut DynPages,
-        offset: usize,
-        frame: &mut UniqueFrames,
-        flags: PageFlags,
-    ) -> Result<(), MemoryError> {
-        let page_number = pages.start_addr().to_page_number().unwrap().get().get() + offset;
+    const PAGE_OFFSET_BITS: usize = PAGE_OFFSET_BIT;
+    const LEVELS: usize = 4;
+    const INDEX_BITS: &'static [usize] = &INDEX_BITS;
+    const LEVEL_SHIFTS: &'static [usize] = &LEVEL_SHIFTS;
+    const LEVEL_COUNTS: &'static [usize] = &LEVEL_COUNTS;
+    const LEVEL_MASKS: &'static [usize] = &LEVEL_MASKS;
+    const HUGE_PAGE: &'static [bool] = &HUGE_PAGE;
 
-        // 尝试使用大页
-        if frame.get_order().get() >= 10 && FrameOrder::from_count(page_number).get() >= 10 {
-            let pde = Self::read_pde_entry(page_number);
-            if pde.is_present() {
-                return Err(PageTableError::EntryAlreadyMapped.into());
-            }
-
-            Self::write_pde_entry(
-                page_number,
-                X86PageEntry::new_mapped(frame.to_frame_number(), flags, 1),
-            );
-            return Ok(());
-        }
-
-        let frame_number = frame.to_frame_number();
-        for i in 0..frame.get_order().to_count().get() {
-            let page_number = page_number + i;
-
-            let pde = Self::read_pde_entry(page_number);
-            if !pde.is_present() {
-                // 需要分配新的页表
-                let new_pde = Self::alloc_table_frame(flags)?;
-
-                Self::write_pde_entry(page_number, new_pde);
-            }
-
-            let pte = Self::read_pte_entry(page_number);
-            if pte.is_present() {
-                return Err(PageTableError::EntryAlreadyMapped.into());
-            }
-
-            let new_pte = X86PageEntry::new_mapped(frame_number + i, flags, 0);
-            Self::write_pte_entry(page_number, new_pte);
-        }
-
-        Ok(())
-    }
-
-    fn translate(vaddr: VirtAddr) -> Result<PhysAddr, PageTableError> {
-        let page_number = vaddr.to_page_number().unwrap().get().get();
-
-        let pde_entry = Self::read_pde_entry(page_number);
-        if !pde_entry.is_present() {
-            return Err(PageTableError::EntryNotPresent);
-        } else if pde_entry.is_huge(1) {
-            return Ok(PhysAddr::new(
-                (pde_entry.0 as usize & 0xFFC0_0000) + (vaddr.as_usize() & 0x003F_FFFF),
-            ));
-        }
-
-        let pte_entry = Self::read_pte_entry(page_number);
-        if !pte_entry.is_present() {
-            return Err(PageTableError::EntryNotPresent);
-        }
-
-        let phys_addr = PhysAddr::new((pte_entry.0 & 0xFFFF_F000) as usize | vaddr.page_offset());
-        Ok(phys_addr)
-    }
-
-    fn unmap(pages: &mut DynPages, offset: usize, order: FrameOrder) -> Result<(), PageTableError> {
-        let vaddr = pages.start_addr() + offset * ArchPageTable::PAGE_SIZE;
-        let page_number = vaddr.to_page_number().unwrap().get().get();
-
-        let pde = Self::read_pde_entry(page_number);
-        if !pde.is_present() {
-            return Err(PageTableError::EntryNotPresent);
-        } else if pde.is_huge(1) {
-            if order.get() >= 10 {
-                let entry = X86PageEntry::new_absent();
-                Self::write_pde_entry(page_number, entry);
-            } else {
-                return Err(PageTableError::InvalidLevel);
-            }
-        }
-
-        for i in 0..order.to_count().get() {
-            let pte = Self::read_pte_entry(page_number + i);
-            if !pte.is_present() {
-                return Err(PageTableError::EntryNotPresent);
-            }
-
-            let entry = X86PageEntry::new_absent();
-            Self::write_pte_entry(page_number, entry);
-        }
-
-        Ok(())
-    }
-
-    fn update_flags(pages: &mut DynPages, flags: PageFlags) -> Result<(), PageTableError> {
-        let pde = Self::read_pde_entry(pages.start_addr().to_page_number().unwrap().get().get());
-        if !pde.is_present() {
-            return Err(PageTableError::EntryNotPresent);
-        }
-
-        let mut pte =
-            Self::read_pte_entry(pages.start_addr().to_page_number().unwrap().get().get());
-        if !pte.is_present() {
-            return Err(PageTableError::EntryNotPresent);
-        }
-
-        pte.set_flags(flags);
-        Self::write_pte_entry(
-            pages.start_addr().to_page_number().unwrap().get().get(),
-            pte,
-        );
-        Ok(())
+    fn get_entry(&self, index: usize) -> Self::EntrySlot {
+        X86PageTable::get_entry(self, index)
     }
 }

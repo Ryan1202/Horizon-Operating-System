@@ -91,7 +91,7 @@ impl Vmap {
 
         let mut list_head = pool.list_head.lock();
 
-        let mut rb_node = list_head
+        let mut rb_node = unsafe { Pin::new_unchecked(list_head.deref_mut()) }
             .iter(RbTree::linked_offset())
             .next()
             .expect("List is empty after checked!");
@@ -99,7 +99,10 @@ impl Vmap {
         // 通过 linked_node -> rbnode -> pages 的层级关系获取 pages
         let pages = container_of!(rb_node, DynPages, rb_node);
 
-        unsafe { rb_node.as_mut().augment.get_list() }.del(&mut list_head);
+        unsafe {
+            let mut list_head = Pin::new_unchecked(list_head.deref_mut());
+            list_head.del(rb_node.as_mut().augment.get_list());
+        }
         Some(pages)
     }
 

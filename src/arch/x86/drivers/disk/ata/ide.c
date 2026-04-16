@@ -24,6 +24,7 @@
 #include "include/dma.h"
 #include "include/ide.h"
 #include "include/ide_controller.h"
+#include "kernel/console.h"
 
 DriverResult ide_device_init(void *device);
 
@@ -119,6 +120,9 @@ void ide_device_probe(IdeChannel *channel) {
 
 	StorageDevice *device[2] = {NULL, NULL};
 	for (i = 0; i < 2; i++) {
+		err	 = 0;
+		type = ATA_DEVICE_TYPE_ATA;
+
 		// 1.选择设备
 		ide_select_device(channel, i);
 		ide_pause(channel);
@@ -128,11 +132,11 @@ void ide_device_probe(IdeChannel *channel) {
 			channel->io_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY_DEVICE);
 
 		// 3.检查设备状态
-		if (io_in_byte(channel->io_base + ATA_REG_STATUS) == 0) {
+		if (io_in_byte(channel->control_base + ATA_REG_ALTSTATUS) == 0) {
 			continue; // 设备不存在
 		}
 		while (true) {
-			status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+			status = io_in_byte(channel->control_base + ATA_REG_ALTSTATUS);
 			if (BIN_IS_EN(status, ATA_STATUS_ERR)) {
 				err = 1;
 				break;
@@ -162,8 +166,11 @@ void ide_device_probe(IdeChannel *channel) {
 		// 5.读取设备信息
 		AtaIdentifyInfo *identify = kmalloc(SECTOR_SIZE);
 		io_stream_in_word(
-			channel->io_base + ATA_REG_DATA, (uint32_t)identify,
+			channel->io_base + ATA_REG_DATA, identify,
 			sizeof(AtaIdentifyInfo) / 2);
+
+		// IDENTIFY 数据阶段结束后读一次主状态，确保通道回到空闲状态。
+		io_in_byte(channel->io_base + ATA_REG_STATUS);
 
 		// 6.注册设备
 		create_storage_device(
@@ -190,10 +197,8 @@ void ide_device_probe(IdeChannel *channel) {
 		channel->device_count++;
 	}
 	if (channel->device_count) {
-		uint8_t data = io_in_byte(channel->control_base + ATA_REG_CONTROL);
-		io_out_byte(
-			channel->control_base + ATA_REG_CONTROL,
-			BIN_DIS(data, ATA_CONTROL_NIEN));
+		channel->control = BIN_DIS(channel->control, ATA_CONTROL_NIEN);
+		io_out_byte(channel->control_base + ATA_REG_CONTROL, channel->control);
 
 		channel->dma = kmalloc(sizeof(AtaDma));
 		channel->dma->prds =
@@ -201,7 +206,7 @@ void ide_device_probe(IdeChannel *channel) {
 		memset(
 			channel->dma->prds, 0,
 			sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
-		channel->dma->prdt_phy_addr	   = vir2phy((uint32_t)channel->dma->prds);
+		channel->dma->prdt_phy_addr	   = vir2phy((size_t)channel->dma->prds);
 		channel->dma->prdt_status	   = 0;
 		channel->dma->max_segment_size = 65536;
 		list_init(&channel->dma->segment_lh);
@@ -263,25 +268,23 @@ void ide_set_sector_lba48(
 /**
  * 通过PIO方式接收数据
  */
-void ide_device_recv_pio(IdeDevice *device, uint32_t *buf, uint32_t count) {
+void ide_device_recv_pio(IdeDevice *device, size_t *buf, uint32_t count) {
 	IdeChannel *channel = device->channel;
 
 	ide_wait(channel);
 	io_stream_in_word(
-		channel->io_base + ATA_REG_DATA, (uint32_t)buf,
-		count << 8 /* count * 512 / 2 */);
+		channel->io_base + ATA_REG_DATA, buf, count << 8 /* count * 512 / 2 */);
 }
 
 /**
  * 通过PIO方式发送数据
  */
-void ide_device_send_pio(IdeDevice *device, uint32_t *buf, uint32_t count) {
+void ide_device_send_pio(IdeDevice *device, size_t *buf, uint32_t count) {
 	IdeChannel *channel = device->channel;
 
 	ide_wait(channel);
 	io_stream_out_word(
-		channel->io_base + ATA_REG_DATA, (uint32_t)buf,
-		count << 8 /* count * 512 / 2 */);
+		channel->io_base + ATA_REG_DATA, buf, count << 8 /* count * 512 / 2 */);
 }
 
 /**
@@ -312,7 +315,14 @@ DriverResult ide_device_read_sectors(
 
 	ide_select_device(channel, ide_device->device_num);
 	ide_sync(channel);
-	ide_wait(channel);
+	ide_wait_cmd_ready(channel);
+
+	int status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+	if (status & ATA_STATUS_DRQ) {
+		print_error(
+			"IDE", "DRQ still set before READ_DMA, status=%#x\n", status);
+		return DRIVER_ERROR_OTHER;
+	}
 
 	uint8_t cmd;
 	if (flag) {
@@ -325,19 +335,19 @@ DriverResult ide_device_read_sectors(
 		cmd = ide_device->cmdset[ATA_CMDSET_READ_EXT];
 	}
 
-	ide_wait(channel);
-	io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
+	ide_wait_cmd_ready(channel);
 
 	int flags					= spin_lock_irqsave(&ide_device->request_lock);
 	ide_device->current_request = request;
 	if (ide_device->mode == TRANSFER_MODE_PIO) {
-		ide_device_recv_pio(
-			ide_device, (uint32_t *)request->buf, request->count);
+		io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
+		ide_device_recv_pio(ide_device, (size_t *)request->buf, request->count);
 	} else {
 		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
 		io_out_byte(
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_EN(data, IDE_BMCMD_START_STOP_BM));
+		io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
 	}
 	spin_unlock_irqrestore(&ide_device->request_lock, flags);
 	return DRIVER_OK;
@@ -371,7 +381,14 @@ DriverResult ide_device_write_sectors(
 
 	ide_select_device(channel, ide_device->device_num);
 	ide_sync(channel);
-	ide_wait(channel);
+	ide_wait_cmd_ready(channel);
+
+	int status = io_in_byte(channel->io_base + ATA_REG_STATUS);
+	if (status & ATA_STATUS_DRQ) {
+		print_error(
+			"IDE", "DRQ still set before WRITE_DMA, status=%#x\n", status);
+		return DRIVER_ERROR_OTHER;
+	}
 
 	uint8_t cmd;
 	if (flag) {
@@ -384,14 +401,13 @@ DriverResult ide_device_write_sectors(
 		cmd = ide_device->cmdset[ATA_CMDSET_WRITE_EXT];
 	}
 
-	ide_wait(channel);
+	ide_wait_cmd_ready(channel);
 	io_out_byte(channel->io_base + ATA_REG_COMMAND, cmd);
 
 	int flags					= spin_lock_irqsave(&ide_device->request_lock);
 	ide_device->current_request = request;
 	if (ide_device->mode == TRANSFER_MODE_PIO) {
-		ide_device_send_pio(
-			ide_device, (uint32_t *)request->buf, request->count);
+		ide_device_send_pio(ide_device, (size_t *)request->buf, request->count);
 		ide_device->current_request = NULL;
 	} else {
 		uint8_t data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);

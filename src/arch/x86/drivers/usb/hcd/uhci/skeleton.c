@@ -11,10 +11,10 @@ void uhci_skel_init(Uhci *uhci) {
 	uhci->skel = kzalloc(sizeof(UhciSkel));
 	qhs		   = uhci->skel->qh;
 
-	uint32_t phy	   = vir2phy((uint32_t)&qhs[TIME_1MS]);
+	size_t phy		   = vir2phy((size_t)&qhs[TIME_1MS]);
 	qhs[TIME_1MS].next = &qhs[ASYNC];
 	qhs[TIME_1MS].qh_link =
-		BIN_EN(vir2phy((uint32_t)qhs[TIME_1MS].next), UHCI_QH_TD_SELECT);
+		BIN_EN(vir2phy((size_t)qhs[TIME_1MS].next), UHCI_QH_TD_SELECT);
 	qhs[TIME_1MS].qe_link = UHCI_TERMINATE;
 	for (i = 1; i < 8; i++) {
 		qhs[i].next	   = &qhs[TIME_1MS];
@@ -23,7 +23,7 @@ void uhci_skel_init(Uhci *uhci) {
 	}
 	qhs[ASYNC].next = &qhs[TERM];
 	qhs[ASYNC].qh_link =
-		BIN_EN(vir2phy((uint32_t)qhs[ASYNC].next), UHCI_QH_TD_SELECT);
+		BIN_EN(vir2phy((size_t)qhs[ASYNC].next), UHCI_QH_TD_SELECT);
 	qhs[ASYNC].qe_link = UHCI_TERMINATE;
 
 	// 构建结束的QH和TD
@@ -33,7 +33,7 @@ void uhci_skel_init(Uhci *uhci) {
 	term_td->max_length	 = 0x7ff;
 	term_td->device_addr = 0x7f;
 	term_td->packet_id	 = USB_PACKET_ID_IN;
-	term_td->link		 = vir2phy((uint32_t)term_td);
+	term_td->link		 = vir2phy((size_t)term_td);
 
 	qhs[TERM].qh_link  = UHCI_TERMINATE;
 	qhs[TERM].qe_link  = term_td->link;
@@ -45,7 +45,7 @@ void uhci_skel_init(Uhci *uhci) {
 		if (irq > 7) irq = 0;
 
 		uhci->fl.frames_vir[i] =
-			BIN_EN(vir2phy((uint32_t)&qhs[irq]), UHCI_QH_TD_SELECT);
+			BIN_EN(vir2phy((size_t)&qhs[irq]), UHCI_QH_TD_SELECT);
 		i++;
 	}
 }
@@ -58,11 +58,11 @@ void uhci_skel_add_qh(Uhci *uhci, UhciQh *qh, UhciSkelType type) {
 		qh->next					  = first_qh;
 		uhci->skel->qh[type].first_qh = qh;
 		uhci->skel->qh[type].qe_link =
-			BIN_EN(vir2phy((uint32_t)qh), UHCI_QH_TD_SELECT);
+			BIN_EN(vir2phy((size_t)qh), UHCI_QH_TD_SELECT);
 	} else {
 		qh->qh_link = UHCI_TERMINATE;
 		uhci->skel->qh[type].qe_link =
-			BIN_EN(vir2phy((uint32_t)qh), UHCI_QH_TD_SELECT);
+			BIN_EN(vir2phy((size_t)qh), UHCI_QH_TD_SELECT);
 	}
 	qh->enqueued				  = 1;
 	uhci->skel->qh[type].first_qh = qh;
@@ -81,7 +81,7 @@ void uhci_skel_del_qh(Uhci *uhci, UhciQh *qh, UhciSkelType type) {
 			} else if (qh->next != NULL) {
 				uhci->skel->qh[type].first_qh = qh->next;
 				uhci->skel->qh[type].qe_link =
-					BIN_EN(vir2phy((uint32_t)qh->next), UHCI_QH_TD_SELECT);
+					BIN_EN(vir2phy((size_t)qh->next), UHCI_QH_TD_SELECT);
 			} else {
 				uhci->skel->qh[type].qe_link = UHCI_TERMINATE;
 			}

@@ -7,6 +7,8 @@
 #include <kernel/sync.h>
 #include <stdint.h>
 
+#define THREAD_STACK_PAGES 4
+
 typedef void thread_func(void *);
 
 typedef enum {
@@ -18,43 +20,41 @@ typedef enum {
 } task_status_t;
 
 struct intr_stack {
-	uint32_t vec_no;
-	uint32_t edi;
-	uint32_t esi;
-	uint32_t ebp;
-	uint32_t esp_dummy;
-	uint32_t ebx;
-	uint32_t edx;
-	uint32_t ecx;
-	uint32_t eax;
-	uint32_t gs;
-	uint32_t fs;
-	uint32_t es;
-	uint32_t ds;
-
-	uint32_t err_code;
-	void (*eip)(void);
-	uint32_t cs;
-	uint32_t eflags;
-	void	*esp;
-	uint32_t ss;
+	uint64_t r15;
+	uint64_t r14;
+	uint64_t r13;
+	uint64_t r12;
+	uint64_t r11;
+	uint64_t r10;
+	uint64_t r9;
+	uint64_t r8;
+	uint64_t rbp;
+	uint64_t rdi;
+	uint64_t rsi;
+	uint64_t rdx;
+	uint64_t rcx;
+	uint64_t rbx;
+	uint64_t rax;
+	uint64_t vec_no;
+	void (*rip)(void);
+	uint64_t cs;
+	uint64_t rflags;
+	void	*rsp;
+	uint64_t ss;
 };
 
 struct thread_stack {
-	uint32_t ebp;
-	uint32_t ebx;
-	uint32_t edi;
-	uint32_t esi;
-
-	void (*eip)(thread_func *func, void *func_arg);
-
-	void(*unused_retaddr);
-	thread_func *function;
-	void		*func_arg;
+	uint64_t r15;
+	uint64_t r14;
+	uint64_t r13;
+	uint64_t r12;
+	uint64_t rbx;
+	uint64_t rbp;
+	void (*rip)(void);
 };
 
 struct task_s {
-	uint32_t *kstack;
+	size_t *kstack;
 
 	uint32_t	  pid;
 	char		  name[32];
@@ -63,7 +63,7 @@ struct task_s {
 	uint8_t		  priority;
 	uint8_t		  ticks;
 	uint32_t	  elapsed_ticks;
-	uint32_t	 *pgdir;
+	size_t		 *pgdir;
 	uint32_t	  stack_magic;
 	size_t		  subject_id;
 

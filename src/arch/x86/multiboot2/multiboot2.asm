@@ -6,18 +6,27 @@ extern kernel_early_start, multiboot2_loader
 global _start
 
 LOADER_STACK_TOP	equ	0x90000
+PML4_BASE			equ	0x3000
+PDPTE0_BASE			equ 0x4000
+PDE0_BASE			equ 0x5000
+
+IA32_EFER			equ 0xc0000080
 
 _start:
 	jmp start
 GDT:
 	;GDT的第0个表项必须为0
 	dd	0,0
-	;1:4GB代码段
-	dd	0x0000ffff
-	dd	0x00cf9a00
-	;2:4GB数据段
-	dd	0x0000ffff
-	dd	0x00cf9200
+	;1:64位 4GB代码段
+	dw	0xffff, 0x0000
+	db	0x00
+	dw	0x2f9a
+	db	0x00
+	;2:64位 4GB数据段
+	dw	0xffff, 0x0000
+	db	0x00
+	dw	0x0f92
+	db	0x00
 GDTR:
 	dw	3*8-1
 	dd	GDT
@@ -100,10 +109,48 @@ end_tag_end:
 multiboot2_header_end:
 start:
     cli
+	mov edi, eax
+	mov esi, ebx
+
+	mov eax, cr4
+	bts eax, 5		; 启用 PAE
+	mov cr4, eax
+
+	; 配置 PML4
+	mov	eax, PDPTE0_BASE
+	or	eax, 7
+	mov	[PML4_BASE], eax
+
+	; 配置 PDPTE
+	mov eax, PDE0_BASE
+	or	eax, 7
+	mov	[PDPTE0_BASE], eax
+
+	; 配置 2MB 大页
+	mov	eax, 0x87
+	mov	[PDE0_BASE], eax
+
+	mov eax, PML4_BASE
+	or	eax, 7
+	mov	cr3, eax
+
+	; 启用 IA-32e
+	mov ecx, IA32_EFER
+	rdmsr
+
+	bts eax, 8 ; 设置IA32_EFER.LME
+	wrmsr
+
+	; 启用分页
+	mov	eax, cr0
+	bts eax, 31
+	mov cr0, eax
+
     lgdt [GDTR]
     jmp 0x08:flush
+
+[bits 64]
 flush:
-	mov edx, eax
 	mov ax, 0x10
 	mov ds, ax
 	mov es, ax
@@ -114,12 +161,15 @@ flush:
     mov ecx, LOADER_STACK_TOP
     mov esp, ecx
 	cld
-
-	mov eax, edx
 	
-    push ebx
-    push eax
-    call multiboot2_loader
-	add esp, 8
+	; 32位下的cdecl ABI
+    ; push esi
+    ; push edi
 
-    jmp kernel_early_start
+	; 64位下的System V ABI
+	; 前面已经设置过了
+    call multiboot2_loader
+	; add esp, 8
+
+	mov rax, kernel_early_start
+    jmp rax

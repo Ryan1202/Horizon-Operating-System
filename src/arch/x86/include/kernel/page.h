@@ -10,6 +10,13 @@
 #error "Unsupported architecture"
 #endif
 
+#define PML4_BASE  0x3000
+#define PDPT0_BASE 0x4000
+#define PDT0_BASE  0x5000
+#define PDPT_KBASE 0x6000
+
+#define PDT_KBASE 0x7000
+
 #define PAGE_SIZE 1024 * 4 // 页大小
 
 #define SIGN_P	0x01 // 存在
@@ -27,6 +34,8 @@
 #define SIGN_G	 0x100 // 全局
 #define SIGN_AVL 0x200 // 软件可用
 
+#define SIGN_HUGE (1 << 7)
+
 typedef enum {
 	PAGE_CACHE_WRITE_BACK	  = 0,
 	PAGE_CACHE_WRITE_COMBINE  = 1,
@@ -35,14 +44,11 @@ typedef enum {
 	PAGE_CACHE_UNCACHED_MINUS = 4,
 } PageCacheType;
 
-void		 setup_page(void);
-uint32_t	*pte_ptr(uint32_t vaddr);
-uint32_t	*pde_ptr(uint32_t vaddr);
-uint32_t	 vir2phy(uint32_t vaddr);
-MemoryResult remap(uint32_t in_paddr, size_t in_size, uint32_t *out_vaddr);
-void		 unmap(uint32_t vaddr, size_t size);
+size_t		 vir2phy(size_t vaddr);
+MemoryResult remap(size_t in_paddr, size_t in_size, size_t *out_vaddr);
+void		 unmap(size_t vaddr, size_t size);
 void		*kmalloc_pages(int pages);
-int			 kfree_pages(int vaddr);
+int			 kfree_pages(size_t vaddr);
 
 void assign_frames(size_t paddr, size_t page_cnt);
 
@@ -55,7 +61,5 @@ void assign_frames(size_t paddr, size_t page_cnt);
 // 	struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages);
 
 void *ioremap(size_t paddr, size_t size, uint8_t cache_type);
-
-extern size_t pdt_phy_addr;
 
 #endif

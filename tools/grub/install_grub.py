@@ -1,7 +1,7 @@
 import os
 import subprocess
 import shutil
-import struct
+import sys
 import argparse
 from grub_dep_detect import GrubModDependencyResolver
 
@@ -97,17 +97,19 @@ def install_grub(disk_image_path, grub_dir_path, platform, fs, mods):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="安装GRUB到磁盘镜像")
     parser.add_argument("--image", help="磁盘映像路径", default=hd_img_path)
+    parser.add_argument("--hd-size", help="磁盘映像大小", default=hd_size)
+    parser.add_argument("--embed-area-size", help="GRUB保留区大小", default=embed_area_size)
     parser.add_argument("--platform", help="目标平台", required=True)
     parser.add_argument("--fs", help="文件系统", required=True)
     parser.add_argument("--mods", help="要额外附加的模块", default=default_mods)
-    parser.add_argument("--grub-dir", help=f"GRUB平台目录(如{default_grub_dir})", default=default_grub_dir)
+    parser.add_argument("--grub-dir", help=f"GRUB平台目录(如{default_grub_dir})")
     parser.add_argument("--grub-mkimage", help="grub-mkimage路径")
     args = parser.parse_args()
 
     grub_mkimage_path = "grub-mkimage"
     if args.grub_dir == None:
         # 使用了默认设置，检查一下
-        if os.name == "Darwin":
+        if sys.platform == "darwin":
             if args.grub_mkimage == None:
                 if args.platform == "i386-pc":
                     cross_prefix = "i686-elf-"
@@ -124,11 +126,8 @@ if __name__ == "__main__":
                     exit(1)
             brew_prefix = get_brew_prefix()
 
-            versions = sorted(os.listdir(brew_prefix))
-            latest_version = versions[-1]
-            grub_dir_path = os.path.join(brew_prefix, latest_version, 'lib', cross_prefix[:-1], 'grub')
-            grub_mkimage_path = cross_prefix + grub_mkimage_path
-        elif os.name == "nt":
+            grub_dir_path = os.path.join(brew_prefix, 'lib', cross_prefix[:-1], 'grub')
+        elif sys.platform == "win32":
             print("检测到为Windows,请输入grub路径：")
             path = input()
             grub_dir_path = path
@@ -138,11 +137,15 @@ if __name__ == "__main__":
             else:
                 grub_mkimage_path = args.grub_mkimage
         else:
+            grub_dir_path = default_grub_dir
             if args.grub_mkimage != None:
                 grub_mkimage_path = args.grub_mkimage
     else:
         grub_dir_path = args.grub_dir
         if args.grub_mkimage != None:
             grub_mkimage_path = args.grub_mkimage
+
+    hd_size = args.hd_size
+    embed_area_size = args.embed_area_size
 
     install_grub(args.image, grub_dir_path, args.platform, args.fs, args.mods)

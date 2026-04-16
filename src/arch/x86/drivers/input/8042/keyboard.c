@@ -262,7 +262,7 @@ void scancode_handle(Ps2Keyboard *kbd, uint8_t keycode) {
 		uint8_t tmp = data >> 12;
 		if (tmp == 0) {
 			new_key_event(
-				INPUT_KEY_EVENT_KEYBOARD_BASE + data & 0xfff, press,
+				INPUT_KEY_EVENT_KEYBOARD_BASE + (data & 0xfff), press,
 				INPUT_KEY_PAGE_KEYBOARD_KEYPAD);
 		} else if (tmp == 1) {
 			new_key_event(data & 0xfff, press, INPUT_KEY_PAGE_CONSUMER);

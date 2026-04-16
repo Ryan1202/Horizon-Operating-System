@@ -29,14 +29,14 @@
 struct framebuffer_tag {
 	uint32_t type;
 	uint32_t size;
-	uint32_t framebuffer_addr[2];
+	uint64_t framebuffer_addr;
 	uint32_t framebuffer_pitch;
 	uint32_t framebuffer_width;
 	uint32_t framebuffer_height;
 	uint8_t	 framebuffer_bpp;
 	uint8_t	 framebuffer_type;
 	uint16_t reserved;
-};
+} __attribute__((packed));
 
 struct vbe_info_tag {
 	uint32_t type;
@@ -47,14 +47,14 @@ struct vbe_info_tag {
 	uint16_t vbe_interface_len;
 	uint8_t	 vbe_control_info[512];
 	uint8_t	 vbe_mode_info[256];
-};
+} __attribute__((packed));
 
 struct base_meminfo_tag {
 	uint32_t type;
 	uint32_t size;
 	uint32_t mem_lower;
 	uint32_t mem_upper;
-};
+} __attribute__((packed));
 
 struct mem_map_tag {
 	uint32_t type;
@@ -64,7 +64,7 @@ struct mem_map_tag {
 	struct mmap_entries {
 		uint32_t entry_size;
 		uint32_t entry_version;
-	} entries[];
-};
+	} __attribute__((packed)) entries[];
+} __attribute__((packed));
 
 #endif

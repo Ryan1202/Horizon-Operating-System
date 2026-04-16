@@ -9,7 +9,6 @@
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/thread.h>
-#include <stdint.h>
 #include <string.h>
 
 int	   sys_getpid(void);
@@ -31,11 +30,10 @@ syscall_t	  syscall_table[][2] = {
 	 {  sys_write, (void *)3},
 };
 
-typedef unsigned long (*syscall0_func_t)(void);
-typedef unsigned long (*syscall1_func_t)(unsigned long);
-typedef unsigned long (*syscall2_func_t)(unsigned long, unsigned long);
-typedef unsigned long (*syscall3_func_t)(
-	unsigned long, unsigned long, unsigned long);
+typedef size_t (*syscall0_func_t)(void);
+typedef size_t (*syscall1_func_t)(size_t);
+typedef size_t (*syscall2_func_t)(size_t, size_t);
+typedef size_t (*syscall3_func_t)(size_t, size_t, size_t);
 
 int sys_getpid(void) {
 	return get_current_thread()->pid;
@@ -55,29 +53,32 @@ int sys_open(char *pathname, int flags) {
 	// int				   fd	 = alloc_fd();
 	// fds[fd]					 = inode->fp;
 	// return fd;
+	return 0;
 }
 
 int sys_close(int fd) {
 	// int ret = fds[fd]->inode->f_ops.close(fds[fd]->inode);
 	// fds[fd] = NULL;
 	// return ret;
+	return 0;
 }
 
 size_t sys_read(int fd, void *buf, size_t count) {
 	// struct file *file = fds[fd];
 	// return file->inode->f_ops.read(file->inode, buf, count);
+	return 0;
 }
 
 size_t sys_write(int fd, void *buf, size_t count) {
 	// struct file *file = fds[fd];
 	// return file->inode->f_ops.write(file->inode, buf, count);
+	return 0;
 }
 
-uint32_t do_syscall(
-	uint32_t func, uint32_t arg1, uint32_t arg2, uint32_t arg3) {
-	uint32_t ret = 0;
+size_t do_syscall(size_t func, size_t arg1, size_t arg2, size_t arg3) {
+	size_t ret = 0;
 	if (syscall_table[func]) {
-		switch ((uint32_t)syscall_table[func][1]) {
+		switch ((size_t)syscall_table[func][1]) {
 		case 0:
 			ret = ((syscall0_func_t)syscall_table[func][0])();
 			break;

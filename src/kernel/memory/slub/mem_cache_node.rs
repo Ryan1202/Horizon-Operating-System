@@ -21,22 +21,22 @@ struct PartialList {
 
 impl Spinlock<PartialList> {
     fn get(&self, config: &CacheConfig, options: PageAllocOptions) -> Option<NonNull<Slub>> {
-        (if !self.get_relaxed().list_head.is_empty() {
+        if !self.get_relaxed().list_head.is_empty() {
             let mut guard = self.lock();
+            let head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
 
-            guard
-                .list_head
-                .iter(Slub::list_offset())
-                .next()
-                .and_then(|mut slub| unsafe {
-                    slub.as_mut().get_list().del(&mut guard.list_head);
-                    guard.count -= 1;
-                    Some(slub)
-                })
-        } else {
-            None
-        })
-        .or_else(|| Slub::new(config, options).ok())
+            let mut iter = head.iter(Slub::list_offset());
+            while let Some(mut slub) = iter.next() {
+                drop(iter);
+                let mut head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
+                head.del(unsafe { slub.as_mut().get_list() });
+
+                guard.count -= 1;
+                return Some(slub);
+            }
+        }
+
+        Slub::new(config, options).ok()
     }
 
     fn put(&self, config: &CacheConfig, options: PageAllocOptions, mut slub: NonNull<Slub>) {
@@ -154,12 +154,15 @@ impl MemCacheNode {
 
     pub fn try_destroy(&mut self, options: &PageAllocOptions) -> Option<()> {
         let mut guard = self.partial_list.lock();
+        let list_head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
 
-        for mut slub in guard.list_head.iter(Slub::list_offset()) {
+        for mut slub in list_head.iter(Slub::list_offset()) {
             let slub = unsafe { slub.as_mut() };
             {
                 let mut head = self.partial_list.lock();
-                slub.get_list().del(&mut head.list_head);
+
+                let mut list_head = unsafe { Pin::new_unchecked(&mut head.list_head) };
+                list_head.del(slub.get_list());
             }
 
             slub.try_destroy(options)?;
