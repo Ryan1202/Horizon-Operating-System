@@ -9,7 +9,7 @@ use crate::{
     CACHELINE_SIZE,
     arch::{ArchPageTable, PhysAddr},
     kernel::memory::{
-        VMEMMAP_BASE, VMEMMAP_END,
+        MemoryError, VMEMMAP_BASE, VMEMMAP_END,
         arch::ArchMemory,
         frame::{
             anonymous::Anonymous,
@@ -20,7 +20,6 @@ use crate::{
         },
         slub::Slub,
     },
-    lib::rust::spinlock::RwSpinlock,
 };
 
 pub mod anonymous;
@@ -29,10 +28,13 @@ pub mod buddy;
 pub mod early;
 pub mod number;
 pub mod options;
+pub mod page_table;
 pub mod reference;
+mod vmemmap;
 pub mod zone;
 
 pub use number::FrameNumber;
+pub use page_table::PageTable;
 
 #[unsafe(export_name = "total_pages")]
 pub static TOTAL_PAGES: AtomicUsize = AtomicUsize::new(0);
@@ -69,7 +71,7 @@ pub struct FrameRange {
 #[cfg_attr(target_pointer_width = "32", repr(align(32)))]
 #[cfg_attr(target_pointer_width = "64", repr(align(64)))]
 pub struct Frame {
-    refcount: FrameRc,
+    pub refcount: FrameRc,
     data: SyncUnsafeCell<FrameData>,
     tag: AtomicU8,
 }
@@ -81,12 +83,13 @@ pub union FrameData {
     pub(super) slub: ManuallyDrop<Slub>,
     pub anonymous: ManuallyDrop<Anonymous>,
     pub assigned: ManuallyDrop<AssignedFixed>,
-    pub page_table: ManuallyDrop<RwSpinlock<ArchPageTable>>,
+    pub page_table: ManuallyDrop<PageTable<ArchPageTable>>,
 }
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FrameTag {
+    // 原始标记
     /// 未配置（比如为一组页中非首个页）
     Uninited = 0,
     HardwareReserved = 1,
@@ -94,10 +97,14 @@ pub enum FrameTag {
     BadMemory = 3,
     /// `Free` 是初始化时使用的临时类型，分配器初始化完成后不应再出现该类型的页
     Free = 4,
+
+    // 数据页
     /// `Anonymous` 用于标识该组页已被分配，但没有标识类型
     Anonymous = 5,
     Buddy = 6,
     Slub = 7,
+
+    // 辅助标记
     /// 跨越单个物理页的大页中，使用头一个页存放元数据，其余页使用 `Tail` 标记
     Tail = 8,
     /// `AssignedFixed` 用于标识被分配给设备的固定页，这些页不会被内核使用或管理，但需要从 buddy 分配器中剔除
@@ -112,18 +119,6 @@ const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
 pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
 
 impl Frame {
-    pub fn init_page_table_frame(frame_number: FrameNumber) {
-        let frame = unsafe { Self::get_raw(frame_number).as_mut() };
-        if frame.get_tag() == FrameTag::PageTable {
-            return;
-        }
-
-        let page_table = ManuallyDrop::new(RwSpinlock::new());
-        unsafe {
-            frame.replace(FrameTag::PageTable, FrameData { page_table });
-        }
-    }
-
     pub fn get_tag(&self) -> FrameTag {
         unsafe { transmute(self.tag.load(Ordering::Acquire)) }
     }
@@ -141,6 +136,10 @@ impl Frame {
         unsafe { &*self.data.get() }
     }
 
+    pub fn refcount(&self) -> usize {
+        self.refcount.count()
+    }
+
     /// 获取 FrameData 的可变引用
     ///
     /// # Safety
@@ -154,7 +153,7 @@ impl Frame {
     ///
     /// # Safety
     ///
-    /// 调用者必须确保 Frame 当前的 tag 和 data 是匹配且有效的
+    /// 调用者必须确保 Frame 当前的 tag 和 data 是匹配且有效的，而且没有被共享引用
     pub unsafe fn replace(&mut self, tag: FrameTag, data: FrameData) {
         let _tag = self.get_tag();
         let _data = self.data.get_mut();
@@ -267,7 +266,7 @@ pub trait FrameAllocator {
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     ///
     /// 需要注意：`start` 须对齐到 `order`
-    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, FrameError>;
+    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, MemoryError>;
 }
 
 #[unsafe(export_name = "assign_frames")]

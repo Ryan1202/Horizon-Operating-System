@@ -1,6 +1,6 @@
 use core::{
     fmt::Display,
-    ops::{Add, Sub},
+    ops::{Add, AddAssign, Sub},
     ptr::NonNull,
 };
 
@@ -48,6 +48,12 @@ impl const Add<usize> for FrameNumber {
 
     fn add(self, rhs: usize) -> Self::Output {
         FrameNumber(self.0 + rhs)
+    }
+}
+
+impl const AddAssign<usize> for FrameNumber {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
     }
 }
 

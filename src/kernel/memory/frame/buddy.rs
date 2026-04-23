@@ -1,6 +1,6 @@
 use core::{
     cell::SyncUnsafeCell,
-    mem::{self, ManuallyDrop, offset_of, size_of, zeroed},
+    mem::{self, ManuallyDrop, offset_of, zeroed},
     num::NonZeroUsize,
     ops::{Add, DerefMut, Sub},
     pin::Pin,
@@ -9,24 +9,23 @@ use core::{
 };
 
 use crate::{
-    arch::{ArchFlushTlb, ArchPageTable, PhysAddr, VirtAddr},
+    arch::ArchPageTable,
     kernel::memory::{
-        KLINEAR_BASE, PageCacheType, ROOT_PT_LINEAR, VMEMMAP_BASE, VMEMMAP_END,
+        MemoryError, ROOT_PT_LINEAR, VMEMMAP_BASE, VMEMMAP_END,
         arch::ArchMemory,
         frame::{
-            ALLOCATED_PAGES, FRAMES, Frame, FrameAllocator, FrameData, FrameError, FrameNumber,
-            FrameTag, PREALLOCATED_END_PHY, PREALLOCATED_START_PHY, VMEMMAP_MAPPED_PAGES,
+            ALLOCATED_PAGES, Frame, FrameAllocator, FrameData, FrameError, FrameNumber, FrameTag,
+            PREALLOCATED_END_PHY, PREALLOCATED_START_PHY,
             anonymous::Anonymous,
             assigned::AssignedFixed,
             early::VMAP_PER_PAGE,
             frame_count,
             reference::UniqueFrames,
+            vmemmap::{conflict_check, ensure_mapped},
             zone::{ZONE_COUNT, ZoneType},
         },
         page::{
-            FlushTlb, PageNumber, current_root_pt,
-            dyn_pages::DynPages,
-            iter::{PtIter, PtStep},
+            iter::{PageTableIter, PtStep},
             linear_table_ptr,
             lock::{NormalPtLock, PtPage},
         },
@@ -100,7 +99,7 @@ impl FrameOrder {
 #[repr(C, align(4))]
 pub struct Buddy {
     list: SyncUnsafeCell<ListNode<Buddy>>,
-    pub order: FrameOrder,
+    order: FrameOrder,
     pub zone_type: ZoneType,
 }
 
@@ -113,6 +112,10 @@ impl Buddy {
             order,
             zone_type,
         }
+    }
+
+    pub const fn order(&self) -> FrameOrder {
+        self.order
     }
 
     const fn list_offset() -> usize {
@@ -258,8 +261,8 @@ impl BuddyAllocator {
         let start = base + prealloc_end.get() / VMAP_PER_PAGE;
 
         // 筛选出叶子节点
-        let leaf_iter = PtIter::<ArchPageTable, NormalPtLock>::new(
-            PtPage::from(root_pt as *const ArchPageTable),
+        let leaf_iter = PageTableIter::<ArchPageTable, NormalPtLock>::new(
+            PtPage::from_ptr(root_pt as *const ArchPageTable),
             start,
             VMEMMAP_END.to_page_number(),
             linear_table_ptr::<ArchPageTable>,
@@ -274,7 +277,7 @@ impl BuddyAllocator {
 
         for page in leaf_iter {
             // 计算帧号
-            let num = page.get() - VMEMMAP_BASE.to_page_number().get();
+            let num = (page.get() - VMEMMAP_BASE.to_page_number().get()) * VMAP_PER_PAGE;
 
             let range_start = FrameNumber::new(num);
             let range_end = FrameNumber::new((num + 1).next_multiple_of(VMAP_PER_PAGE));
@@ -341,135 +344,7 @@ impl BuddyAllocator {
     }
 }
 
-fn is_conflict(frame_number: FrameNumber) -> bool {
-    let tag = Frame::get_tag_relaxed(frame_number);
-    match tag {
-        FrameTag::Tail => {
-            let head = unsafe { Frame::get_raw(frame_number).as_ref().get_data().range.start };
-            is_conflict(head)
-        }
-        FrameTag::HardwareReserved
-        | FrameTag::SystemReserved
-        | FrameTag::BadMemory
-        | FrameTag::Uninited => false,
-        _ => true,
-    }
-}
-
 impl BuddyAllocator {
-    fn metadata_page_range(start: FrameNumber, order: FrameOrder) -> (PageNumber, PageNumber) {
-        let count = order.to_count().get();
-        let start_addr = VirtAddr::new(Frame::get_raw(start).as_ptr().addr()).page_align_down();
-        let end_frame = start + count - 1;
-        let end_addr =
-            VirtAddr::new(Frame::get_raw(end_frame).as_ptr().addr() + size_of::<Frame>())
-                .page_align_up();
-
-        (start_addr.to_page_number(), end_addr.to_page_number())
-    }
-
-    fn map_vmemmap_page(&self, page: PageNumber) -> Result<(), FrameError> {
-        let frame = self
-            .allocate(ZoneType::LinearMem, FrameOrder::new(0))
-            .or_else(|| self.allocate(ZoneType::MEM32, FrameOrder::new(0)))
-            .ok_or(FrameError::OutOfFrames)?;
-
-        let paddr = PhysAddr::from_frame_number(frame.frame_number());
-        let ptr = (KLINEAR_BASE + paddr.as_usize()).as_mut_ptr::<u8>();
-        unsafe { ptr.write_bytes(0, ArchPageTable::PAGE_SIZE) };
-
-        let mut pages = DynPages::fixed(page, NonZeroUsize::new(1).unwrap());
-        pages
-            .map::<ArchPageTable>(frame, PageCacheType::WriteBack)
-            .map_err(|_| FrameError::Conflict)?;
-
-        VMEMMAP_MAPPED_PAGES.fetch_add(1, Ordering::Relaxed);
-        ArchFlushTlb::flush_page(page);
-        Ok(())
-    }
-
-    fn ensure_metadata_mapped(
-        &self,
-        start: FrameNumber,
-        order: FrameOrder,
-    ) -> Result<(), FrameError> {
-        let root_pt = current_root_pt();
-        let (page_start, page_end) = Self::metadata_page_range(start, order);
-
-        let leaf_iter = PtIter::<ArchPageTable, NormalPtLock>::new(
-            PtPage::from(root_pt as *const ArchPageTable),
-            page_start,
-            page_end,
-            linear_table_ptr::<ArchPageTable>,
-        )
-        .ok_or(FrameError::Conflict)?
-        .filter_map(|x| match x {
-            PtStep::Leaf { page, .. } => Some(page),
-            _ => None,
-        });
-
-        let mut expected_page = page_start;
-        for page in leaf_iter {
-            while expected_page < page {
-                self.map_vmemmap_page(expected_page)?;
-                expected_page = expected_page + 1;
-            }
-            expected_page = page + 1;
-        }
-
-        while expected_page < page_end {
-            self.map_vmemmap_page(expected_page)?;
-            expected_page = expected_page + 1;
-        }
-
-        Ok(())
-    }
-
-    fn conflict_check(&self, start: FrameNumber, order: FrameOrder) -> bool {
-        let root_pt = current_root_pt();
-        let end = start + order.to_count().get();
-        let (page_start, page_end) = Self::metadata_page_range(start, order);
-
-        let Some(iter) = PtIter::<ArchPageTable, NormalPtLock>::new(
-            PtPage::from(root_pt as *const ArchPageTable),
-            page_start,
-            page_end,
-            linear_table_ptr::<ArchPageTable>,
-        ) else {
-            return true;
-        };
-
-        let leaf_iter = iter.filter_map(|x| match x {
-            PtStep::Leaf { page, .. } => Some(page),
-            _ => None,
-        });
-
-        let mut expected_page = page_start;
-        for page in leaf_iter {
-            if page != expected_page {
-                return true;
-            }
-            expected_page = page + 1;
-
-            let num = page.get() - VMEMMAP_BASE.to_page_number().get();
-            let range_start = FrameNumber::new(num);
-            let range_end = range_start + VMAP_PER_PAGE;
-            let overlap_start = start.max(range_start);
-            let overlap_end = end.min(range_end);
-
-            let mut frame_number = overlap_start;
-            while frame_number < overlap_end {
-                if is_conflict(frame_number) {
-                    return true;
-                }
-
-                frame_number = frame_number + 1;
-            }
-        }
-
-        expected_page != page_end
-    }
-
     fn split(
         &self,
         zone_type: ZoneType,
@@ -638,7 +513,7 @@ impl FrameAllocator for BuddyAllocator {
         if !matches!(frame.get_tag(), FrameTag::Anonymous) {
             return Err(FrameError::IncorrectFrameType);
         }
-        let order = unsafe { frame.get_data().anonymous.get_order() };
+        let order = unsafe { frame.get_data().anonymous.order() };
         let count = order.to_count().get();
 
         Buddy::new(order, zone_type).replace_frame(frame);
@@ -666,33 +541,22 @@ impl FrameAllocator for BuddyAllocator {
         self.add_to_free_list(&mut frame, order, zone)
     }
 
-    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, FrameError> {
+    fn assign(&self, start: FrameNumber, order: FrameOrder) -> Result<UniqueFrames, MemoryError> {
         debug_assert!(
             start.get() % order.to_count().get() == 0,
             "Assigned frame range must be aligned to its size"
         );
 
-        self.ensure_metadata_mapped(start, order)?;
+        ensure_mapped(start, order)?;
 
-        if self.conflict_check(start, order) {
-            return Err(FrameError::Conflict);
+        if conflict_check(start, order) {
+            Err(FrameError::Conflict)?;
         }
 
         let mut frame = Frame::get_raw(start);
         let original_tag = Frame::get_tag_relaxed(start);
-        let original_range = match original_tag {
-            FrameTag::HardwareReserved
-            | FrameTag::SystemReserved
-            | FrameTag::BadMemory
-            | FrameTag::Free => unsafe { frame.as_ref().get_data().range },
-            _ => crate::kernel::memory::frame::FrameRange {
-                start,
-                end: start + order.to_count().get(),
-            },
-        };
 
-        AssignedFixed::new(order, original_tag, original_range)
-            .replace_frame(unsafe { frame.as_mut() });
+        AssignedFixed::new(order, original_tag).replace_frame(unsafe { frame.as_mut() });
 
         let mut frame =
             UniqueFrames::from_allocator(frame, order, self).ok_or(FrameError::Conflict)?;

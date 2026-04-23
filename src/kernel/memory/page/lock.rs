@@ -8,7 +8,7 @@ use crate::{
     arch::{ArchPageTable, PhysAddr},
     kernel::memory::{
         KLINEAR_BASE,
-        frame::{Frame, FrameNumber},
+        frame::{Frame, FrameNumber, reference::SharedFrames},
         page::{PageNumber, PageTable, PageTableEntry, PageTableEntrySlot},
     },
     lib::rust::spinlock::{RwReadGuard, RwWriteGuard},
@@ -37,7 +37,7 @@ impl<T: PageTable> PtPage<T> {
         }
     }
 
-    pub fn from(ptr: *const T) -> Self {
+    pub fn from_ptr(ptr: *const T) -> Self {
         let addr = ptr.addr();
         assert!(
             addr >= KLINEAR_BASE.as_usize(),
@@ -51,8 +51,11 @@ impl<T: PageTable> PtPage<T> {
 pub trait PtRwLock<'a, T: PageTable> {
     type ReadGuard: 'a + Deref<Target = T> + Into<Self::WriteGuard>;
     type WriteGuard: 'a + Deref<Target = T> + DerefMut<Target = T> + Into<Self::ReadGuard>;
+    type Table: Clone;
 
     fn read_lock(page: PtPage<T>) -> Self::ReadGuard;
+    fn table(page: PtPage<T>) -> Option<Self::Table>;
+    unsafe fn drop_table(table: &mut Self::Table) -> Option<usize>;
 }
 
 pub struct NormalPtLock;
@@ -61,51 +64,36 @@ pub struct EarlyPtLock;
 impl<'a> PtRwLock<'a, ArchPageTable> for NormalPtLock {
     type ReadGuard = RwReadGuard<'a, ArchPageTable>;
     type WriteGuard = RwWriteGuard<'a, ArchPageTable>;
+    type Table = SharedFrames;
 
     fn read_lock(page: PtPage<ArchPageTable>) -> Self::ReadGuard {
         let frame = page.frame;
         let frame = Frame::get_raw(frame);
-        unsafe { frame.as_ref().get_data().page_table.read_lock(page.ptr) }
-    }
-}
-
-pub struct EarlyReadPage<'a, T: PageTable> {
-    table: NonNull<T>,
-    _phantom: PhantomData<&'a T>,
-}
-
-impl<'a, T: PageTable> Deref for EarlyReadPage<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &'a Self::Target {
-        unsafe { self.table.as_ref() }
-    }
-}
-
-impl<'a, T: PageTable> From<EarlyReadPage<'a, T>> for EarlyWritePage<'a, T> {
-    fn from(value: EarlyReadPage<'a, T>) -> Self {
-        Self {
-            table: value.table,
-            _phantom: PhantomData,
+        unsafe {
+            frame
+                .as_ref()
+                .get_data()
+                .page_table
+                .lock
+                .read_lock(page.ptr)
         }
     }
-}
 
-impl<'a, T: PageTable> From<EarlyWritePage<'a, T>> for EarlyReadPage<'a, T> {
-    fn from(value: EarlyWritePage<'a, T>) -> Self {
-        Self {
-            table: value.table,
-            _phantom: PhantomData,
-        }
+    fn table(page: PtPage<ArchPageTable>) -> Option<Self::Table> {
+        SharedFrames::new(Frame::get_raw(page.frame))
+    }
+
+    unsafe fn drop_table(table: &mut Self::Table) -> Option<usize> {
+        table.refcount.release()
     }
 }
 
-pub struct EarlyWritePage<'a, T: PageTable> {
+pub struct EarlyRwPage<'a, T: PageTable> {
     table: NonNull<T>,
     _phantom: PhantomData<&'a mut T>,
 }
 
-impl<'a, T: PageTable> Deref for EarlyWritePage<'a, T> {
+impl<'a, T: PageTable> Deref for EarlyRwPage<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &'a Self::Target {
@@ -113,21 +101,30 @@ impl<'a, T: PageTable> Deref for EarlyWritePage<'a, T> {
     }
 }
 
-impl<'a, T: PageTable> DerefMut for EarlyWritePage<'a, T> {
+impl<'a, T: PageTable> DerefMut for EarlyRwPage<'a, T> {
     fn deref_mut(&mut self) -> &'a mut Self::Target {
         unsafe { self.table.as_mut() }
     }
 }
 
 impl<'a, T: PageTable + 'a> PtRwLock<'a, T> for EarlyPtLock {
-    type ReadGuard = EarlyReadPage<'a, T>;
-    type WriteGuard = EarlyWritePage<'a, T>;
+    type ReadGuard = EarlyRwPage<'a, T>;
+    type WriteGuard = EarlyRwPage<'a, T>;
+    type Table = ();
 
     fn read_lock(page: PtPage<T>) -> Self::ReadGuard {
-        EarlyReadPage {
+        EarlyRwPage {
             table: page.ptr,
             _phantom: PhantomData,
         }
+    }
+
+    fn table(_: PtPage<T>) -> Option<Self::Table> {
+        Some(())
+    }
+
+    unsafe fn drop_table(_: &mut Self::Table) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -140,6 +137,7 @@ where
     pt_base: PageNumber,
     current_level: Option<usize>,
 
+    refs: [Option<Lock::Table>; MAX_PAGE_TABLE_LEVELS],
     read_guards: [Option<Lock::ReadGuard>; MAX_PAGE_TABLE_LEVELS],
     write_guard: Option<Lock::WriteGuard>,
 
@@ -160,13 +158,18 @@ where
         assert!(T::LEVELS <= MAX_PAGE_TABLE_LEVELS);
 
         let root_guard = Lock::read_lock(root);
+        let root_ref = Lock::table(root)?;
+
         let top_level = T::top_level();
         let mut read_guards = [None, None, None, None, None];
+        let mut refs = [None, None, None, None, None];
         read_guards[top_level] = Some(root_guard);
+        refs[top_level] = Some(root_ref);
 
         let mut page_lock = Self {
             pt_base: page,
             current_level: Some(top_level),
+            refs,
             read_guards,
             write_guard: None,
             phy2vir,
@@ -189,7 +192,11 @@ where
             let ptr = (page_lock.phy2vir)(frame);
             let child_page = PtPage::new(ptr, frame);
 
-            page_lock.read_guards[child_level] = Some(Lock::read_lock(child_page));
+            let guard = Lock::read_lock(child_page);
+            let frame = Lock::table(child_page)?;
+
+            page_lock.refs[child_level] = Some(frame);
+            page_lock.read_guards[child_level] = Some(guard);
             page_lock.current_level = Some(child_level);
         }
 
@@ -225,7 +232,26 @@ where
         self.write_guard.as_deref_mut()
     }
 
-    pub fn push(&mut self, index: usize) -> Option<()> {
+    /// 克隆当前页表页引用
+    pub fn clone_current(&self) -> Option<Lock::Table> {
+        let level = self.current_level?;
+        self.refs[level].clone()
+    }
+
+    /// 减少当前页表页引用计数，返回剩余引用计数
+    ///
+    /// # Safety
+    ///
+    /// 需要自行确保增加和释放对称
+    pub unsafe fn drop_current(&mut self) -> Option<usize> {
+        let level = self.current_level?;
+        unsafe { Lock::drop_table(self.refs[level].as_mut()?) }
+    }
+
+    /// 进入子页表
+    ///
+    /// `new_table` 用于传入新创建的页表引用，如果为 `None` 则自动创建
+    pub fn push(&mut self, index: usize, new_table: Option<Lock::Table>) -> Option<()> {
         let level = self.current_level?;
         if level == 0 {
             return None;
@@ -235,14 +261,14 @@ where
 
         let entry = self.get()?.get_entry(index).read();
 
-        let frame = entry.frame_number()?;
+        let frame_number = entry.frame_number()?;
 
         if entry.is_huge(level as u8) {
             return None;
         }
 
         let child_level = level - 1;
-        let child_page = PtPage::new((self.phy2vir)(frame), frame);
+        let child_page = PtPage::new((self.phy2vir)(frame_number), frame_number);
 
         assert!(
             self.read_guards[child_level].is_none(),
@@ -254,13 +280,16 @@ where
         target_page |= index << T::LEVEL_SHIFTS[level];
         self.pt_base = PageNumber::new(target_page);
 
+        let table = new_table.or_else(|| Lock::table(child_page));
+        self.refs[child_level] = table;
         self.read_guards[child_level] = Some(Lock::read_lock(child_page));
         self.current_level = Some(child_level);
 
         Some(())
     }
 
-    pub fn pop(&mut self) -> Option<()> {
+    /// 退出当前页表
+    pub fn pop(&mut self) -> Option<(Lock::Table, usize)> {
         let level = self.current_level?;
 
         if self.write_guard.is_some() {
@@ -276,7 +305,7 @@ where
             self.pt_base = PageNumber::new(self.pt_base.get() & T::LEVEL_MASKS[level + 2]);
         }
 
-        Some(())
+        self.refs[level].take().zip(self.current_level)
     }
 
     pub fn restore_lock_state(&mut self) {
@@ -291,6 +320,12 @@ where
     }
 }
 
+impl<'a> PageLock<'a, ArchPageTable, NormalPtLock> {
+    pub fn get_frame(&mut self) -> Option<&mut SharedFrames> {
+        self.refs[self.current_level?].as_mut()
+    }
+}
+
 impl<'a, T, Lock> Drop for PageLock<'a, T, Lock>
 where
     T: PageTable + 'a,
@@ -299,7 +334,7 @@ where
     fn drop(&mut self) {
         let _ = self.write_guard.take();
 
-        let start = self.current_level.unwrap_or(self.read_guards.len());
+        let start = self.current_level.unwrap_or(0);
         for level in start..self.read_guards.len() {
             let _ = self.read_guards[level].take();
         }

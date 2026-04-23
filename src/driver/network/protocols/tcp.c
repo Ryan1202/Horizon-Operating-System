@@ -174,8 +174,9 @@ ProtocolResult tcp_connect(
 	if (conn->tcp.info == NULL) { return PROTO_ERROR_NULL_PTR; }
 	if (tcp->state != TCP_STATE_CLOSED) {
 		// 如果没有绑定端口，随机绑定一个大于32768的端口
-		uint16_t port = min_ephemeral_port +
-						((uint16_t)rand() % (max_ephemeral_port - min_ephemeral_port));
+		uint16_t port =
+			min_ephemeral_port +
+			((uint16_t)rand() % (max_ephemeral_port - min_ephemeral_port));
 		int count = max_ephemeral_port - min_ephemeral_port + 1;
 		while (count-- > 0) {
 			ProtocolResult result = tcp_bind(conn, port);

@@ -126,7 +126,7 @@ pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let mut node = get_vmap();
     let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
 
-    pages.unmap::<ArchPageTable>()?;
+    pages.unmap()?;
 
     node.deallocate(pages)
 }

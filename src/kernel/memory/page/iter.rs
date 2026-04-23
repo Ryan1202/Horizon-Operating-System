@@ -25,7 +25,7 @@ pub enum PtStep {
     },
 }
 
-pub struct PtIter<'a, T, L>
+pub struct PageTableIter<'a, T, L>
 where
     T: PageTable + 'a,
     L: PtRwLock<'a, T>,
@@ -35,7 +35,7 @@ where
     end: PageNumber,
 }
 
-impl<'a, T, L> PtIter<'a, T, L>
+impl<'a, T, L> PageTableIter<'a, T, L>
 where
     T: PageTable + 'a,
     L: PtRwLock<'a, T>,
@@ -47,8 +47,8 @@ where
         phy2vir: fn(FrameNumber) -> *const T,
     ) -> Option<Self> {
         let lock = PageLock::lock_page(root, page_start, phy2vir)?;
-        let base = lock.base();
-        let index = page_start.get() - base.get();
+        let level = lock.level()?;
+        let index = T::entry_index(page_start, level);
 
         Some(Self {
             lock,
@@ -60,9 +60,13 @@ where
     pub fn get_mut(&mut self) -> Option<&mut T> {
         self.lock.get_mut()
     }
+
+    pub fn get_lock(&self) -> &PageLock<'a, T, L> {
+        &self.lock
+    }
 }
 
-impl<'a, T, L> Iterator for PtIter<'a, T, L>
+impl<'a, T, L> Iterator for PageTableIter<'a, T, L>
 where
     T: PageTable + 'a,
     L: PtRwLock<'a, T>,
@@ -74,8 +78,7 @@ where
         let mut level = self.lock.level()?;
 
         if self.index >= 1 << T::INDEX_BITS[self.lock.level()?] {
-            self.lock.pop()?;
-            level = self.lock.level()?;
+            let (_, level) = self.lock.pop()?;
 
             let page = base + (self.index << T::LEVEL_SHIFTS[level]);
             self.index = T::entry_index(page, level);
@@ -89,24 +92,27 @@ where
         }
 
         loop {
-            let entry_ptr = self.lock.get()?.get_entry(self.index);
-            let entry = entry_ptr.read();
-
             let page = base + (self.index << T::LEVEL_SHIFTS[level]);
-            self.index += 1;
             if page >= self.end {
                 return None;
             }
 
+            let entry_ptr = self.lock.get()?.get_entry(self.index);
+            let entry = entry_ptr.read();
+            self.index += 1;
+
             let Some(frame) = entry.frame_number() else {
                 return Some(PtStep::Absent { page, level });
             };
+            if !entry.is_present() {
+                return Some(PtStep::Absent { page, level });
+            }
 
             if level == 0 || entry.is_huge(level as u8) {
                 return Some(PtStep::Leaf { page, frame, level });
             }
 
-            self.lock.push(self.index - 1)?;
+            self.lock.push(self.index - 1, None)?;
             self.index = 0;
 
             base = self.lock.base();

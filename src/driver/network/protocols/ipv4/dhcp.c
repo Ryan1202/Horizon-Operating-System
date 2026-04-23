@@ -549,7 +549,7 @@ void dhcp_init(DhcpClient *dhcp, NetworkConnection *conn) {
 
 void dhcp_reset(DhcpClient *dhcp, NetworkConnection *conn) {
 	dhcp->state = DHCP_STAT_INIT;
-		dhcp->xid	= (uint32_t)rand();
+	dhcp->xid	= (uint32_t)rand();
 
 	memcpy(conn->net_device->ipv4.ip, &ipv4_null_addr, 4);
 	memset(dhcp->ip_addr, 0, sizeof(dhcp->ip_addr));

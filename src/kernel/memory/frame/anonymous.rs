@@ -3,9 +3,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::kernel::memory::frame::{
-    self, Frame, FrameData, FrameTag, anonymous, buddy::FrameOrder,
-};
+use crate::kernel::memory::frame::{Frame, FrameData, FrameTag, buddy::FrameOrder};
 
 pub struct Anonymous {
     mapcount: AtomicUsize,
@@ -20,16 +18,12 @@ impl Anonymous {
         }
     }
 
-    pub fn acquire(&self) {
-        self.mapcount.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn release(&self) -> usize {
-        self.mapcount.fetch_sub(1, Ordering::Relaxed)
-    }
-
-    pub fn get_order(&self) -> FrameOrder {
+    pub fn order(&self) -> FrameOrder {
         self.order
+    }
+
+    pub fn mapcount(&self) -> usize {
+        self.mapcount.load(Ordering::Relaxed)
     }
 
     pub fn replace_frame(self, frame: &mut Frame) {

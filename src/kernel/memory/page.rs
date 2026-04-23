@@ -1,7 +1,7 @@
 use core::{
     mem::ManuallyDrop,
     num::NonZeroUsize,
-    ops::{Add, Sub},
+    ops::{Add, AddAssign, Sub},
     ptr::NonNull,
 };
 
@@ -13,7 +13,7 @@ use crate::{
         frame::{
             Frame, FrameTag,
             buddy::FrameOrder,
-            reference::{UniqueFrames, try_free},
+            reference::{SharedFrames, UniqueFrames},
         },
         page::{dyn_pages::DynPages, options::PageAllocOptions},
         vmalloc::vfree,
@@ -63,6 +63,15 @@ impl PageNumber {
     }
 }
 
+impl const AddAssign<usize> for PageNumber {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 = self
+            .0
+            .checked_add(rhs)
+            .expect("PageNumber addition overflow");
+    }
+}
+
 impl const Add<usize> for PageNumber {
     type Output = Self;
 
@@ -103,13 +112,20 @@ impl<'a> Pages<'a> {
     pub fn get_frame(&mut self) -> Option<&mut UniqueFrames> {
         match self {
             Pages::Linear(frame) => Some(frame),
-            Pages::Dynamic(vpages) => vpages.head_frame.as_mut(),
+            Pages::Dynamic(_) => None,
+        }
+    }
+
+    pub fn into_frame(self) -> Option<UniqueFrames> {
+        match self {
+            Pages::Linear(frame) => Some(ManuallyDrop::into_inner(frame)),
+            Pages::Dynamic(_) => None,
         }
     }
 
     pub fn get_count(&self) -> usize {
         match self {
-            Pages::Linear(frame) => frame.get_order().to_count().get(),
+            Pages::Linear(frame) => frame.order().to_count().get(),
             Pages::Dynamic(vpages) => vpages.frame_count,
         }
     }
@@ -130,12 +146,11 @@ pub extern "C" fn vir2phy_c(vaddr: usize) -> usize {
     let vaddr = VirtAddr::new(vaddr);
 
     match PageTableOps::<ArchPageTable>::translate(current_root_pt(), vaddr) {
-        Ok(paddr) => paddr.as_usize(),
-        Err(e) => {
+        Some(paddr) => paddr.as_usize(),
+        None => {
             printk!(
-                "WARNING: vir2phy failed: vaddr = {:#x}, error = {:?}\n",
-                vaddr.as_usize(),
-                e
+                "WARNING: vir2phy failed: Entry Absent! vaddr = {:#x}\n",
+                vaddr.as_usize()
             );
             0
         }
@@ -187,7 +202,18 @@ pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
                 Err(MemoryError::UnavailableFrame)
             }
             _ => unsafe {
-                try_free(frame);
+                if let Some(unique) = UniqueFrames::try_from_raw(frame) {
+                    drop(unique);
+                } else if let Some(shared) = SharedFrames::from_raw(frame) {
+                    drop(shared);
+                } else {
+                    printk!(
+                        "Trying to free frame without ownership path! vaddr: {:#x}, tag: {:?}",
+                        vaddr.as_usize(),
+                        tag
+                    );
+                    return Err(MemoryError::UnavailableFrame);
+                }
 
                 Ok(())
             },

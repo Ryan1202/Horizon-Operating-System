@@ -108,7 +108,7 @@ impl<Owner> ListHead<Owner> {
     pub fn iter(self: Pin<&mut Self>, offset: usize) -> ListIterator<Owner> {
         let head = self.as_ref().as_ptr();
 
-        let first = unsafe { NonNull::from_ref(self.link.assume_init_ref()) };
+        let first = unsafe { self.link.assume_init_ref().next };
         ListIterator {
             head,
             next: if first != head { Some(first) } else { None },

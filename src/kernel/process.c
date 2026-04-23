@@ -15,7 +15,6 @@
 #include <kernel/memory.h>
 #include <kernel/page.h>
 #include <kernel/process.h>
-#include <math.h>
 #include <stddef.h>
 #include <string.h>
 

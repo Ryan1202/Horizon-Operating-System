@@ -5,9 +5,20 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::kernel::memory::frame::{
-    FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameNumber, FrameRange, FrameTag,
-    assigned::AssignedFixed, buddy::FrameOrder,
+use crate::{
+    arch::ArchPageTable,
+    kernel::memory::{
+        KLINEAR_BASE,
+        frame::{
+            FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameNumber, FrameRange, FrameTag,
+            anonymous::Anonymous, assigned::AssignedFixed, buddy::FrameOrder,
+        },
+        page::{
+            PageTable, current_root_pt, linear_table_ptr,
+            lock::{NormalPtLock, PageLock, PtPage},
+            table::drop_table,
+        },
+    },
 };
 
 #[repr(transparent)]
@@ -24,33 +35,42 @@ impl FrameRc {
             .ok()
     }
 
-    fn acquire(&self) -> Option<()> {
+    pub fn acquire(&self) -> Option<()> {
         self.update(|value| (value != Self::EXCLUSIVE).then_some(value + 1))
             .map(|_| ())
     }
 
-    fn release(&self) -> Option<usize> {
+    pub fn release(&self) -> Option<usize> {
         self.update(|value| {
             if value == Self::EXCLUSIVE {
                 Some(value) // 已经是独占状态，不修改
+            } else if value == 1 {
+                None // 防止从 1 变成 0 导致误判为独占状态
             } else {
                 Some(value - 1)
             }
         })
     }
 
-    pub fn get(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.count.load(Ordering::Relaxed)
     }
 
-    pub fn is_exclusive(&self, frame: &Frame) -> bool {
-        self.get() == Self::EXCLUSIVE && !matches!(frame.get_tag(), FrameTag::Buddy)
+    pub fn is_unique(&self, frame: &Frame) -> bool {
+        self.count() == Self::EXCLUSIVE && !matches!(frame.get_tag(), FrameTag::Buddy)
+    }
+
+    pub fn try_upgrade(&self) -> Option<()> {
+        self.count
+            .compare_exchange(1, Self::EXCLUSIVE, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| ())
     }
 }
 
 pub struct SharedFrames {
     frame: NonNull<Frame>,
-    _order: FrameOrder,
+    order: FrameOrder,
 }
 
 impl SharedFrames {
@@ -58,7 +78,7 @@ impl SharedFrames {
         unsafe { frame.as_ref().refcount.acquire()? };
         Some(SharedFrames {
             frame,
-            _order: FrameOrder::new(0),
+            order: frame_order(frame),
         })
     }
 
@@ -69,16 +89,32 @@ impl SharedFrames {
     /// # Safety
     ///
     /// 调用者必须确保该帧当前没有其他引用，否则可能导致数据竞争、释放后使用等未定义行为
-    pub unsafe fn from_raw(frame: NonNull<Frame>, order: FrameOrder) -> Option<Self> {
-        let refcount = unsafe { frame.as_ref().refcount.get() };
+    pub unsafe fn from_raw(frame: NonNull<Frame>) -> Option<Self> {
+        let refcount = unsafe { frame.as_ref().refcount.count() };
         if refcount != FrameRc::EXCLUSIVE {
-            Some(SharedFrames {
-                frame,
-                _order: order,
-            })
+            let order = frame_order(frame);
+            Some(SharedFrames { frame, order })
         } else {
             None
         }
+    }
+
+    pub fn order(&self) -> FrameOrder {
+        self.order
+    }
+
+    pub fn try_upgrade(self) -> Option<UniqueFrames> {
+        let mut shared = ManuallyDrop::new(self);
+        let frame = shared.frame;
+        if unsafe { frame.as_ref().refcount.try_upgrade() }.is_none() {
+            unsafe { ManuallyDrop::drop(&mut shared) };
+            return None;
+        }
+
+        Some(UniqueFrames {
+            start: frame,
+            order: shared.order,
+        })
     }
 }
 
@@ -90,9 +126,64 @@ impl Deref for SharedFrames {
     }
 }
 
+impl Clone for SharedFrames {
+    fn clone(&self) -> Self {
+        unsafe {
+            self.frame
+                .as_ref()
+                .refcount
+                .acquire()
+                .expect("clone shared frame from unique state");
+        }
+        SharedFrames {
+            frame: self.frame,
+            order: self.order,
+        }
+    }
+}
+
 impl Drop for SharedFrames {
     fn drop(&mut self) {
-        auto_free(self.frame);
+        let frame = unsafe { self.frame.as_ref() };
+
+        // 多于 1 个引用直接减少引用计数即可
+        if frame.refcount.release().is_some() {
+            return;
+        }
+
+        // 如果是页表页的最后一个引用需要注意处理
+        if let FrameTag::PageTable = frame.get_tag() {
+            let root = current_root_pt();
+            let root = PtPage::from_ptr(root as *const ArchPageTable);
+
+            let page = KLINEAR_BASE.to_page_number() + self.frame_number().get();
+
+            // 在页表锁释放前还不能修改引用计数，不然页表锁获取不了引用
+            if let Some((mut lock, level)) =
+                PageLock::<ArchPageTable, NormalPtLock>::lock_page(root, page, linear_table_ptr)
+                    .and_then(|mut x| {
+                        let (_, level) = x.pop()?;
+                        Some((x, level))
+                    })
+            {
+                let index = ArchPageTable::entry_index(page, level);
+                unsafe { drop_table(&mut lock, index) };
+            } else {
+                printk!("Failed to lock page for frame {}", self.frame_number());
+            }
+        }
+
+        let frame = unsafe { self.frame.as_mut() };
+        frame.refcount.release();
+
+        // 修改回默认标签并替换数据以便后续正确释放
+        Anonymous::new(self.order).replace_frame(frame);
+
+        // 走 UniqueFrames 的释放路径
+        drop(UniqueFrames {
+            start: self.frame,
+            order: self.order,
+        });
     }
 }
 
@@ -109,11 +200,16 @@ impl UniqueFrames {
     /// 调用者必须确保该帧当前没有其他引用，否则可能导致数据竞争和未定义行为
     pub unsafe fn try_from_raw(mut frame: NonNull<Frame>) -> Option<Self> {
         let frame_ref = unsafe { frame.as_mut() };
-        if frame_ref.refcount.is_exclusive(frame_ref) {
-            Some(UniqueFrames {
-                start: frame,
-                order: FrameOrder::new(0),
-            })
+        if frame_ref.refcount.is_unique(frame_ref) {
+            let order = frame_order(frame);
+            let start = match frame_ref.get_tag() {
+                FrameTag::Tail => {
+                    let range = unsafe { frame_ref.get_data().range };
+                    Frame::get_raw(range.start)
+                }
+                _ => frame,
+            };
+            Some(UniqueFrames { start, order })
         } else {
             None
         }
@@ -133,7 +229,7 @@ impl UniqueFrames {
         let start = Frame::get_raw(start);
 
         let frame_ref = unsafe { frame.as_ref() };
-        debug_assert_eq!(frame_ref.refcount.get(), FrameRc::EXCLUSIVE);
+        debug_assert_eq!(frame_ref.refcount.count(), FrameRc::EXCLUSIVE);
 
         match frame_ref.get_tag() {
             FrameTag::Buddy | FrameTag::Free | FrameTag::Uninited | FrameTag::AssignedFixed => {
@@ -171,7 +267,7 @@ impl UniqueFrames {
 
         let frame_ref = SharedFrames {
             frame: self.start,
-            _order: self.order,
+            order: self.order,
         };
         mem::forget(self);
 
@@ -235,7 +331,7 @@ impl UniqueFrames {
         }
     }
 
-    pub fn get_order(&self) -> FrameOrder {
+    pub fn order(&self) -> FrameOrder {
         self.order
     }
 }
@@ -256,96 +352,52 @@ impl DerefMut for UniqueFrames {
 
 impl Drop for UniqueFrames {
     fn drop(&mut self) {
-        auto_free(self.start);
-    }
-}
-
-fn auto_free(mut frame: NonNull<Frame>) {
-    // 释放引用计数
-    let frame_ref = unsafe { frame.as_ref() };
-    let count = frame_ref.refcount.release();
-    match frame_ref.get_tag() {
-        FrameTag::Anonymous => {
-            // 如果还有映射存在，不立即释放帧资源，等待最后一个映射解除时再释放
-            if unsafe { frame_ref.get_data().anonymous.release() } > 0 {
-                return;
-            }
-        }
-        FrameTag::AssignedFixed => {
-            if unsafe { frame_ref.get_data().assigned.release() } > 0 {
-                return;
-            }
-        }
-        _ => {}
-    }
-
-    match count {
-        Some(1) => {
-            frame_ref
-                .refcount
-                .count
-                .store(FrameRc::EXCLUSIVE, Ordering::Relaxed);
-            match frame_ref.get_tag() {
-                FrameTag::AssignedFixed => restore_assigned_fixed(unsafe { frame.as_mut() }),
-                _ => last_free(unsafe { frame.as_mut() }),
-            }
-        }
-        Some(0) if let FrameTag::Buddy = frame_ref.get_tag() => {
-            last_free(unsafe { frame.as_mut() });
-        }
-        Some(_) => {
-            // 还有其他引用存在，不释放
-        }
-        None => {
-            // double-free 或引用计数已经为 0
-            // 记录错误但不 panic
-            printk!(
-                "ERROR: double-free detected for frame {}, addr = {:#x} (memory leaked)",
-                unsafe { frame.as_ref().frame_number() },
-                frame.addr()
-            );
+        match self.get_tag() {
+            FrameTag::AssignedFixed => restore_assigned(self),
+            _ => free_last(self),
         }
     }
 }
 
-fn restore_assigned_fixed(frame: &mut Frame) {
+fn restore_assigned(frame: &mut UniqueFrames) {
     let start = frame.frame_number();
-    let (order, original_tag, original_range) = unsafe {
+    let (order, original_tag) = unsafe {
         let assigned: &AssignedFixed = &frame.get_data().assigned;
-        (
-            assigned.get_order(),
-            assigned.get_original_tag(),
-            assigned.get_original_range(),
-        )
+        (assigned.order(), assigned.get_original_tag())
     };
 
     let count = order.to_count().get();
     unsafe {
-        for i in 1..count {
-            let tail = Frame::get_raw(start + i).as_mut();
-            tail.replace(FrameTag::Uninited, FrameData { unused: () });
-        }
+        frame.set_tail_frames();
 
         match original_tag {
+            // 数据页则释放
+            FrameTag::Anonymous => {
+                free_last(frame);
+            }
+
+            // 标记类页恢复
             FrameTag::HardwareReserved
             | FrameTag::SystemReserved
             | FrameTag::BadMemory
             | FrameTag::Free => {
-                frame.replace(
-                    original_tag,
-                    FrameData {
-                        range: original_range,
-                    },
-                );
+                let end = start + count;
+                let range = FrameRange { start, end };
+                frame.replace(original_tag, FrameData { range });
             }
+
+            // 其他类型不应出现，直接 panic
             _ => {
-                frame.replace(FrameTag::Uninited, FrameData { unused: () });
+                unreachable!(
+                    "Invalid original tag {:?} for assigned frame {}",
+                    original_tag, start
+                );
             }
         }
     }
 }
 
-fn last_free(frame: &mut Frame) {
+fn free_last(frame: &mut Frame) {
     // 最后一个引用被释放——归还给分配器
     let frame_number = frame.frame_number();
 
@@ -361,11 +413,19 @@ fn last_free(frame: &mut Frame) {
     }
 }
 
-pub unsafe fn try_free(frame: NonNull<Frame>) {
+fn frame_order(frame: NonNull<Frame>) -> FrameOrder {
     unsafe {
-        if UniqueFrames::try_from_raw(frame).is_none() {
-            SharedFrames::from_raw(frame, FrameOrder::new(0))
-                .expect("Not unique or shared frames!");
+        let frame_ref = frame.as_ref();
+        let data = frame_ref.get_data();
+        match frame_ref.get_tag() {
+            FrameTag::Anonymous => data.anonymous.order(),
+            FrameTag::AssignedFixed => data.assigned.order(),
+            FrameTag::Buddy => data.buddy.order(),
+            FrameTag::Tail => {
+                let range = data.range;
+                FrameOrder::from_count(range.end.count_from(range.start))
+            }
+            _ => FrameOrder::new(0),
         }
     }
 }

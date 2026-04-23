@@ -1,8 +1,11 @@
 use crate::{
     arch::PhysAddr,
-    kernel::memory::frame::{
-        FRAME_MANAGER, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
-        reference::UniqueFrames, zone::ZONE_COUNT,
+    kernel::memory::{
+        MemoryError,
+        frame::{
+            FRAME_MANAGER, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
+            reference::UniqueFrames, zone::ZONE_COUNT,
+        },
     },
 };
 
@@ -132,12 +135,12 @@ pub enum FrameAllocType {
 }
 
 impl FrameAllocType {
-    fn allocate(&self, zone: ZoneType) -> Result<(UniqueFrames, ZoneType), FrameError> {
+    fn allocate(&self, zone: ZoneType) -> Result<(UniqueFrames, ZoneType), MemoryError> {
         match self {
             Self::Dynamic { order } => FRAME_MANAGER
                 .allocate(zone, *order)
                 .map(|f| (f, zone))
-                .ok_or(FrameError::OutOfFrames),
+                .ok_or(MemoryError::OutOfMemory),
 
             Self::Fixed { start, order } => FRAME_MANAGER.assign(*start, *order).map(|frames| {
                 let paddr = PhysAddr::from_frame_number(*start);

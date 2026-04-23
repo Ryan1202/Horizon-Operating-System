@@ -1,4 +1,7 @@
-use core::{mem::ManuallyDrop, num::NonZeroUsize};
+use core::{
+    mem::{self, ManuallyDrop},
+    num::NonZeroUsize,
+};
 
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable},
@@ -132,13 +135,14 @@ impl PageAllocOptions {
             let result = option.frame.allocate();
 
             match result {
-                Ok((mut _frames, _zone)) => {
+                Ok((mut frames, _zone)) => {
                     debug_assert!(matches!(
-                        _frames.get_tag(),
+                        frames.get_tag(),
                         FrameTag::Anonymous | FrameTag::AssignedFixed
                     ));
 
-                    pages.map::<ArchPageTable>(_frames, self.cache_type)?;
+                    pages.map(&mut frames, self.cache_type)?;
+                    mem::forget(frames);
 
                     if first.is_none() {
                         first = Some(());
@@ -169,7 +173,7 @@ impl PageAllocOptions {
             Ok(())
         } else if first.is_some() {
             // 部分成功但未满足需求，返回错误（避免返回残留的链表）
-            pages.unmap::<ArchPageTable>()?;
+            pages.unmap()?;
             Err(MemoryError::OutOfMemory)
         } else {
             // 完全失败
@@ -181,7 +185,7 @@ impl PageAllocOptions {
         let count = self.get_count();
 
         if self.contiguous {
-            let (frame, zone) = if let Some(count) = self.count {
+            let (mut frame, zone) = if let Some(count) = self.count {
                 let order = FrameOrder::new(count.get().next_power_of_two().ilog2() as u8);
                 let options = self.order(order);
                 options.frame.allocate()?
@@ -192,7 +196,8 @@ impl PageAllocOptions {
             if !is_linear(zone) {
                 let v = unsafe { get_vmap().allocate(count)?.as_mut() };
 
-                v.map::<ArchPageTable>(frame, self.cache_type)?;
+                v.map(&mut frame, self.cache_type)?;
+                mem::forget(frame);
 
                 let start = v.start_addr().to_page_number();
                 let end = start + v.frame_count - 1;

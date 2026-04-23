@@ -337,8 +337,8 @@ DriverResult rtl8139_pci_probe(
 
 	Rtl8139Device *rtl_device = kzalloc(sizeof(Rtl8139Device));
 	if (rtl_device == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
-	rtl_device->pci_device	  = pci_device;
-	rtl_device->chipset		  = chipset;
+	rtl_device->pci_device = pci_device;
+	rtl_device->chipset	   = chipset;
 
 	DriverResult   result;
 	NetworkDevice *network_device;

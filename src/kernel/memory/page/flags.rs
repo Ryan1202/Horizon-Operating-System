@@ -15,6 +15,7 @@ pub struct PageFlags {
 }
 
 impl PageFlags {
+    /// 创建一个默认的可读写、非用户、非全局、非大页、写回缓存的页属性
     pub const fn new() -> Self {
         Self {
             present: true,

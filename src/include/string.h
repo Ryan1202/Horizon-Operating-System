@@ -12,7 +12,7 @@
 
 #define STRING_MAX_LEN 256
 #define STRING_INIT(str) \
-	{ .text = str "\0", .length = sizeof(str), .max_length = sizeof(str) }
+	{.text = str "\0", .length = sizeof(str), .max_length = sizeof(str)}
 
 typedef struct _string {
 	unsigned int length;
@@ -34,12 +34,10 @@ char *itoa(char *ps, int val, int base);
 int	  atoi(const char *src);
 char *itoa16_align(char *str, int num);
 
-void *memset(void *src, uint8_t value, uint32_t size);
-void  memcpy(void *dst_, const void *src_, uint32_t size);
+void *memcpy(void *dest, const void *src, size_t n);
+void *memmove(void *dest, const void *src, size_t n);
+void *memset(void *s, int c, size_t n);
 int	  memcmp(const void *s1, const void *s2, int n);
-void *memset16(void *src, uint16_t value, uint32_t size);
-void *memset32(void *src, uint32_t value, uint32_t size);
-void *memmove(void *dst, const void *src, uint32_t count);
 
 #define bzero(str, n) memset(str, 0, n)
 

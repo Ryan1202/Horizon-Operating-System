@@ -144,7 +144,7 @@ PRIVATE void md5_transform(uint32_t state[4], const uint8_t block[64]) {
 	state[2] += c;
 	state[3] += d;
 
-	memset32(x, 0, 16);
+	memset(x, 0, 64);
 }
 
 void md5(uint8_t digest[16], const uint8_t *data, size_t len) {

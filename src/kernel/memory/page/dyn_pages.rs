@@ -1,8 +1,4 @@
-use core::{
-    mem::{self},
-    num::NonZeroUsize,
-    ptr::NonNull,
-};
+use core::{num::NonZeroUsize, ptr::NonNull};
 
 use crate::{
     arch::{ArchPageTable, VirtAddr},
@@ -10,16 +6,11 @@ use crate::{
         MemoryError, PageCacheType, VMALLOC_BASE, VMALLOC_END,
         arch::ArchMemory,
         frame::{
-            Frame, FrameTag,
-            buddy::FrameOrder,
-            reference::{UniqueFrames, try_free},
+            Frame,
+            reference::{SharedFrames, UniqueFrames},
         },
         kmalloc::kmalloc,
-        page::{
-            PageFlags, PageTable, PageTableError, PageTableOps, current_root_pt,
-            lock::{NormalPtLock, PtRwLock},
-            range::VmRange,
-        },
+        page::{PageFlags, PageTableError, PageTableOps, current_root_pt, range::VmRange},
     },
     lib::rust::rbtree::linked::LinkedRbNodeBase,
 };
@@ -27,7 +18,6 @@ use crate::{
 pub struct DynPages {
     pub(super) rb_node: LinkedRbNodeBase<VmRange, usize>,
     pub(super) frame_count: usize,
-    pub(super) head_frame: Option<UniqueFrames>,
 }
 
 impl DynPages {
@@ -36,7 +26,6 @@ impl DynPages {
         DynPages {
             rb_node: LinkedRbNodeBase::linked_new(range, count),
             frame_count: 0,
-            head_frame: None,
         }
     }
 
@@ -96,56 +85,29 @@ impl DynPages {
         Some(allocated)
     }
 
-    pub fn map<W: PageTable>(
+    pub fn map(
         &mut self,
-        mut frame: UniqueFrames,
+        frame: &mut UniqueFrames,
         cache_type: PageCacheType,
-    ) -> Result<(), MemoryError>
-    where
-        for<'a> NormalPtLock: PtRwLock<'a, W>,
-    {
+    ) -> Result<(), MemoryError> {
         // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
-        let tag = frame.get_tag();
-        let count = frame.get_order().to_count().get();
+        let count = frame.order().to_count().get();
 
-        match tag {
-            FrameTag::Anonymous => unsafe { frame.get_data_mut().anonymous.acquire() },
-            FrameTag::AssignedFixed => unsafe { frame.get_data_mut().assigned.acquire() },
-            _ => return Err(MemoryError::UnavailableFrame),
-        }
-
-        PageTableOps::<W>::map(
+        PageTableOps::<ArchPageTable>::map(
             current_root_pt(),
             self,
             self.frame_count,
-            &mut frame,
+            frame,
             PageFlags::new().cache_type(cache_type),
-        )
-        .inspect_err(|_| match tag {
-            FrameTag::Anonymous => unsafe {
-                frame.get_data().anonymous.release();
-            },
-            FrameTag::AssignedFixed => unsafe {
-                frame.get_data().assigned.release();
-            },
-            _ => unreachable!(),
-        })?;
-        {
-            let range = self.rb_node.get_key();
+        )?;
 
-            if self.head_frame.is_none() {
-                self.head_frame = Some(frame);
-            } else {
-                mem::forget(frame);
-            }
-
-            if self.frame_count + count > range.get_count() {
-                printk!(
-                    "WARNING: DynPages range insufficient: required {}, available {}",
-                    self.frame_count + count,
-                    range.get_count()
-                );
-            }
+        let range = self.rb_node.get_key();
+        if self.frame_count + count > range.get_count() {
+            printk!(
+                "WARNING: DynPages range insufficient: required {}, available {}",
+                self.frame_count + count,
+                range.get_count()
+            );
         }
 
         self.frame_count += count;
@@ -153,62 +115,43 @@ impl DynPages {
         Ok(())
     }
 
-    pub fn unmap<W: PageTable>(&mut self) -> Result<(), PageTableError>
-    where
-        for<'a> NormalPtLock: PtRwLock<'a, W>,
-    {
+    pub fn unmap(&mut self) -> Result<(), PageTableError> {
         let mut page_number = self.start_addr().to_page_number();
         let mut offset = 0;
 
         while offset < self.frame_count {
             let vaddr = page_number.to_addr();
-            let paddr = PageTableOps::<W>::translate(current_root_pt(), vaddr).unwrap();
+            let paddr = PageTableOps::<ArchPageTable>::translate(current_root_pt(), vaddr).unwrap();
+
             let frame_number = paddr.to_frame_number();
-            let frame = unsafe { Frame::get_raw(frame_number).as_ref() };
+            let frame = Frame::get_raw(frame_number);
 
-            let (next, order) = match frame.get_tag() {
-                FrameTag::Anonymous => {
-                    let order = unsafe { frame.get_data().anonymous.get_order() };
-                    (page_number + order.to_count().get(), order)
-                }
-                FrameTag::AssignedFixed => {
-                    let order = unsafe { frame.get_data().assigned.get_order() };
-                    (page_number + order.to_count().get(), order)
-                }
-                _ => {
-                    let tag = Frame::get_tag_relaxed(frame_number + 1);
-                    if let FrameTag::Tail = tag {
-                        let frame = unsafe { Frame::get_raw(frame_number + 1).as_ref() };
+            let order;
+            if let Some(unique) = unsafe { UniqueFrames::try_from_raw(frame) } {
+                order = unique.order();
+                page_number += order.to_count().get();
 
-                        let range = unsafe { frame.get_data().range };
-                        let count = range.end.count_from(range.start);
+                PageTableOps::<ArchPageTable>::unmap(current_root_pt(), self, offset, order)
+            } else if let Some(shared) = unsafe { SharedFrames::from_raw(frame) } {
+                order = shared.order();
+                page_number += order.to_count().get();
 
-                        let next = page_number + count;
-                        let order = FrameOrder::from_count(count);
-
-                        (next, order)
-                    } else {
-                        (page_number + 1, FrameOrder::new(0))
-                    }
-                }
-            };
-            page_number = next;
-
-            let _ =
-                PageTableOps::<W>::unmap(current_root_pt(), self, offset, order).inspect_err(|e| {
-                    printk!(
-                        "unmap range failed! error: {:?}, start: {}, offset: {}, order: {:?}\n",
-                        e,
-                        self.start_addr(),
-                        offset,
-                        order
-                    )
-                });
-
-            // 最后释放
-            unsafe {
-                try_free(Frame::get_raw(frame_number));
+                PageTableOps::<ArchPageTable>::unmap(current_root_pt(), self, offset, order)
+            } else {
+                unreachable!(
+                    "unmap failed: frame at {} is neither unique nor shared",
+                    frame_number
+                );
             }
+            .inspect_err(|e| {
+                printk!(
+                    "unmap range failed! error: {:?}, start: {}, offset: {}, order: {:?}\n",
+                    e,
+                    self.start_addr(),
+                    offset,
+                    order
+                );
+            })?;
             offset += order.to_count().get();
         }
 

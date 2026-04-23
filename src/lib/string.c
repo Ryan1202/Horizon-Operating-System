@@ -176,45 +176,6 @@ int atoi(const char *src) {
 	return s * (is_minus ? -1 : 1);
 }
 
-void *memset(void *src, uint8_t value, uint32_t size) {
-	uint8_t *s = (uint8_t *)src;
-	while (size > 0) {
-		*s = value;
-		s++;
-		--size;
-	}
-	return src;
-}
-
-void *memset16(void *src, uint16_t value, uint32_t size) {
-	uint16_t *s = (uint16_t *)src;
-	while (size-- > 0) {
-		*s = value;
-		s++;
-	}
-	return src;
-}
-
-void *memset32(void *src, uint32_t value, uint32_t size) {
-	uint32_t *s = (uint32_t *)src;
-	while (size-- > 0) {
-		*s = value;
-		s++;
-	}
-	return src;
-}
-
-void memcpy(void *dst_, const void *src_, uint32_t size) {
-
-	uint8_t		  *dst = dst_;
-	const uint8_t *src = src_;
-	while (size-- > 0) {
-		*dst = *src;
-		dst++;
-		src++;
-	}
-}
-
 char *strcpy(char *dst_, const char *src_) {
 
 	char *r = dst_;
@@ -336,25 +297,6 @@ char *strchr(const char *s, int c) {
 		s++;
 	}
 	return NULL;
-}
-
-void *memmove(void *dst, const void *src, uint32_t count) {
-	char *tmpdst = (char *)dst;
-	char *tmpsrc = (char *)src;
-
-	if (tmpdst <= tmpsrc || tmpdst >= tmpsrc + count) {
-		while (count--) {
-			*tmpdst++ = *tmpsrc++;
-		}
-	} else {
-		tmpdst = tmpdst + count - 1;
-		tmpsrc = tmpsrc + count - 1;
-		while (count--) {
-			*tmpdst-- = *tmpsrc--;
-		}
-	}
-
-	return dst;
 }
 
 char *itoa16_align(char *str, int num) {
