@@ -1,6 +1,6 @@
 use crate::kernel::memory::{
     frame::FrameNumber,
-    page::{PageNumber, PageTable, PageTableEntry, PageTableEntrySlot},
+    page::{PageEntrySlot, PageNumber, PageTable, PageTableEntry},
 };
 
 use super::lock::{PageLock, PtPage, PtRwLock};
@@ -83,7 +83,7 @@ where
             let page = base + (self.index << T::LEVEL_SHIFTS[level]);
             self.index = T::entry_index(page, level);
 
-            let entry = self.lock.get()?.get_entry(self.index).read();
+            let entry = self.lock.get()?[self.index].read();
             let frame = entry.frame_number()?;
 
             self.index += 1;
@@ -97,7 +97,7 @@ where
                 return None;
             }
 
-            let entry_ptr = self.lock.get()?.get_entry(self.index);
+            let entry_ptr = &self.lock.get()?[self.index];
             let entry = entry_ptr.read();
             self.index += 1;
 

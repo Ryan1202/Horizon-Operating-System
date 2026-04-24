@@ -1,9 +1,14 @@
-use core::{marker::PhantomData, mem, sync::atomic::Ordering};
+use core::{
+    marker::PhantomData,
+    mem,
+    ops::{Index, IndexMut, Range},
+    sync::atomic::Ordering,
+};
 
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
-        KERNEL_BASE, KLINEAR_BASE, PageCacheType,
+        KERNEL_BASE, KERNEL_END, KLINEAR_BASE, KLINEAR_END, PageCacheType,
         arch::ArchMemory,
         frame::{
             self, FrameNumber,
@@ -57,11 +62,11 @@ pub trait PageTableEntry: Sized {
     }
 }
 
-pub trait PageTableEntrySlot {
+pub trait PageEntrySlot {
     type Entry: PageTableEntry;
 
     fn read(&self) -> Self::Entry;
-    fn write(&self, entry: Self::Entry);
+    fn write(&mut self, entry: Self::Entry);
 }
 
 #[derive(Clone, Copy)]
@@ -118,9 +123,15 @@ impl MappingChunk {
 /// 多级页表结构定义。
 ///
 /// 架构实现只提供页表几何常量、entry 类型和 entry slot 访问。
-pub const trait PageTable: ArchMemory + Sized {
+pub const trait PageTable
+where
+    Self: ArchMemory
+        + Sized
+        + Index<usize, Output = Self::EntrySlot>
+        + IndexMut<usize, Output = Self::EntrySlot>,
+{
     type Entry: PageTableEntry;
-    type EntrySlot: PageTableEntrySlot<Entry = Self::Entry>;
+    type EntrySlot: PageEntrySlot<Entry = Self::Entry>;
 
     const PAGE_OFFSET_BITS: usize = Self::PAGE_BITS;
     const LEVELS: usize;
@@ -129,8 +140,6 @@ pub const trait PageTable: ArchMemory + Sized {
     const LEVEL_COUNTS: &'static [usize];
     const LEVEL_MASKS: &'static [usize];
     const HUGE_PAGE: &'static [bool];
-
-    fn get_entry(&self, index: usize) -> Self::EntrySlot;
 
     fn top_level() -> usize {
         Self::LEVELS - 1
@@ -185,7 +194,7 @@ impl<T: PageTable> PageTableOps<T> {
         let mut lock = PageLock::<ArchPageTable, EarlyPtLock>::lock_page(root, page, phy2vir)
             .ok_or(PageTableError::EntryAbsent)?;
 
-        map_with_iter::<EarlyPtLock>(&mut lock, page, end, frame, flags, &mut allocate_table)
+        map_range::<EarlyPtLock>(&mut lock, page, end, frame, flags, &mut allocate_table)
     }
 
     /// 翻译虚拟地址到物理地址
@@ -193,7 +202,19 @@ impl<T: PageTable> PageTableOps<T> {
     where
         for<'a> NormalPtLock: PtRwLock<'a, T>,
     {
+        const LINEAR_RANGE: Range<usize> = KLINEAR_BASE.as_usize()..KLINEAR_END.as_usize();
+        const KERNEL_RANGE: Range<usize> = KERNEL_BASE.as_usize()..(KERNEL_END.as_usize());
+
+        if LINEAR_RANGE.contains(&vaddr.as_usize()) {
+            let offset = vaddr.as_usize() - KLINEAR_BASE.as_usize();
+            return Some(PhysAddr::new(offset));
+        } else if KERNEL_RANGE.contains(&vaddr.as_usize()) {
+            let offset = vaddr.as_usize() - KERNEL_BASE.as_usize();
+            return Some(PhysAddr::new(offset));
+        }
+
         let page = vaddr.to_page_number();
+
         let root = PtPage::from_ptr(root_pt as *const T);
         let mut iter =
             PageTableIter::<T, NormalPtLock>::new(root, page, page + 1, linear_table_ptr::<T>)?;
@@ -223,7 +244,8 @@ impl<T: PageTable> PageTableOps<T> {
 
         let level = page_lock.level()?;
         let index = T::entry_index(page_number, level);
-        let entry_ptr = page_lock.get_mut()?.get_entry(index);
+        let table = page_lock.get_mut()?;
+        let entry_ptr = &mut table[index];
 
         let mut entry = entry_ptr.read();
         entry.set_flags(flags, level);
@@ -250,7 +272,6 @@ impl PageTableOps<ArchPageTable> {
         let page_start = pages.start_addr().to_page_number() + offset;
         let page_end = page_start + page_count;
 
-        let map_flags = flags.huge_page(frames.order().get() >= 9);
         let mut allocate_table = || alloc_table::<ArchPageTable>();
 
         let root = PtPage::from_ptr(root_pt as *const ArchPageTable);
@@ -261,12 +282,12 @@ impl PageTableOps<ArchPageTable> {
         )
         .ok_or(PageTableError::EntryAbsent)?;
 
-        map_with_iter::<NormalPtLock>(
+        map_range::<NormalPtLock>(
             &mut lock,
             page_start,
             page_end,
             frames.frame_number(),
-            map_flags,
+            flags,
             &mut allocate_table,
         )
     }
@@ -286,14 +307,14 @@ impl PageTableOps<ArchPageTable> {
         let root = PtPage::from_ptr(root_pt as *const ArchPageTable);
         let mut head = None;
 
-        while page_number < end {
-            let mut lock = PageLock::<ArchPageTable, NormalPtLock>::lock_page(
-                root,
-                page_number,
-                linear_table_ptr::<ArchPageTable>,
-            )
-            .ok_or(PageTableError::EntryAbsent)?;
+        let mut lock = PageLock::<ArchPageTable, NormalPtLock>::lock_page(
+            root,
+            page_number,
+            linear_table_ptr::<ArchPageTable>,
+        )
+        .ok_or(PageTableError::EntryAbsent)?;
 
+        while page_number < end {
             let (frame_number, count) = unmap_entry(&mut lock, page_number)?;
             trim_table(&mut lock, page_number).ok_or(PageTableError::InvalidLevel)?;
 
@@ -344,7 +365,7 @@ fn alloc_table<T: PageTable>()
     ))
 }
 
-fn map_with_iter<'a, Lock>(
+fn map_range<'a, Lock>(
     lock: &mut PageLock<'a, ArchPageTable, Lock>,
     page_start: PageNumber,
     page_end: PageNumber,
@@ -360,15 +381,15 @@ where
 {
     type Entry = <ArchPageTable as PageTable>::Entry;
 
-    let mut current = page_start;
+    let mut current_page = page_start;
     let mut current_frame = frame;
-    while current < page_end {
-        let base = lock.base();
-        let level = lock.level().ok_or(PageTableError::InvalidLevel)?;
 
-        let index = ArchPageTable::entry_index(current, level);
+    let mut base = lock.base();
+    let mut level = lock.level().ok_or(PageTableError::InvalidLevel)?;
 
-        let start = current.max(base);
+    let mut index = ArchPageTable::entry_index(current_page, level);
+    while current_page < page_end {
+        let start = current_page.max(base);
         let end = page_end.min(base + ArchPageTable::LEVEL_COUNTS[level + 1]);
 
         assert!(start < end);
@@ -378,8 +399,7 @@ where
             && count >= ArchPageTable::LEVEL_COUNTS[level]
             && ArchPageTable::HUGE_PAGE[level];
 
-        let guard = lock.get().unwrap();
-        let entry = guard.get_entry(index).read();
+        let entry = lock.get().unwrap()[index].read();
         if entry.is_present() {
             if use_huge || level == 0 || entry.is_huge(level as u8) {
                 return Err(PageTableError::EntryAlreadyMapped);
@@ -390,10 +410,11 @@ where
         }
 
         let step = ArchPageTable::LEVEL_COUNTS[level];
-        let guard = lock.get_mut().unwrap();
-        let entry_ptr = guard.get_entry(index);
+        // 当前页表增加引用
+        mem::forget(lock.clone_current());
 
-        let frames = lock.clone_current();
+        let entry_ptr = &mut lock.get_mut().unwrap()[index];
+
         let entry = if use_huge {
             Entry::new_mapped(current_frame, flags, level)
         } else if level == 0 {
@@ -406,20 +427,25 @@ where
             entry_ptr.write(Entry::new_mapped(table_frame, flags, level));
 
             lock.push(index, table).unwrap();
-            mem::forget(frames);
+
+            base = lock.base();
+            level = lock.level().unwrap();
+            index = ArchPageTable::entry_index(current_page, level);
             continue;
         };
 
         entry_ptr.write(entry);
-        mem::forget(frames);
 
-        current += step;
-        current_frame += step;
-
-        if index + 1 >= (1 << ArchPageTable::INDEX_BITS[level]) {
+        while index + 1 >= (1 << ArchPageTable::INDEX_BITS[level]) {
             lock.pop().ok_or(PageTableError::InvalidLevel)?;
-            continue;
+            base = lock.base();
+            level = lock.level().ok_or(PageTableError::InvalidLevel)?;
+            index = ArchPageTable::entry_index(current_page, level);
         }
+        index += 1;
+
+        current_page += step;
+        current_frame += step;
     }
 
     Ok(())
@@ -435,19 +461,12 @@ where
 {
     let level = lock.level().ok_or(PageTableError::InvalidLevel)?;
     let index = T::entry_index(page, level);
-    let entry = lock
-        .get()
-        .ok_or(PageTableError::EntryAbsent)?
-        .get_entry(index)
-        .read();
+    let entry = lock.get().ok_or(PageTableError::EntryAbsent)?[index].read();
     let Some(frame_number) = entry.frame_number() else {
         return Err(PageTableError::EntryAbsent);
     };
 
-    lock.get_mut()
-        .ok_or(PageTableError::EntryAbsent)?
-        .get_entry(index)
-        .write(T::Entry::new_absent());
+    lock.get_mut().ok_or(PageTableError::EntryAbsent)?[index].write(T::Entry::new_absent());
 
     Ok((frame_number, T::LEVEL_COUNTS[level]))
 }
@@ -489,10 +508,7 @@ pub unsafe fn drop_table<'a>(
     lock: &mut PageLock<'a, ArchPageTable, NormalPtLock>,
     index: usize,
 ) -> Option<()> {
-    let table = lock.get_mut()?;
-    table
-        .get_entry(index)
-        .write(<ArchPageTable as PageTable>::Entry::new_absent());
+    lock.get_mut()?[index].write(<ArchPageTable as PageTable>::Entry::new_absent());
 
     let frame = lock.get_frame()?;
     frame.refcount.release();

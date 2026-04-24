@@ -285,28 +285,29 @@ impl BuddyAllocator {
             frame_number = frame_number.max(range_start);
 
             while frame_number < range_end {
-                let frame = Frame::get_raw(frame_number);
-
-                match Frame::get_tag_relaxed(frame_number) {
-                    FrameTag::Free => {
-                        let frame =
-                            UniqueFrames::from_allocator(frame, FrameOrder(0), self).unwrap();
-
-                        let block_range = unsafe { frame.get_data().range };
-                        frame_number = block_range.end;
-
-                        self.add_free_block(&mut zone_state, block_range.start, block_range.end);
-                    }
-                    FrameTag::HardwareReserved | FrameTag::SystemReserved => {
-                        let reserved_end = unsafe { frame.as_ref().get_data().range.end };
-                        frame_number = reserved_end;
-                    }
-                    FrameTag::Uninited | FrameTag::PageTable => {
-                        frame_number = frame_number + 1;
-                    }
-                    tag => panic!("Buddy init: invalid frame tag: {:?}", tag),
-                }
+                frame_number = self.scan_frame(&mut zone_state, frame_number);
             }
+        }
+    }
+
+    fn scan_frame(&self, zone_state: &mut ZoneState, frame_number: FrameNumber) -> FrameNumber {
+        let frame = Frame::get_raw(frame_number);
+
+        match Frame::get_tag_relaxed(frame_number) {
+            FrameTag::Free => {
+                let frame = UniqueFrames::from_allocator(frame, FrameOrder(0), self).unwrap();
+
+                let block_range = unsafe { frame.get_data().range };
+
+                self.add_free_block(zone_state, block_range.start, block_range.end);
+
+                block_range.end
+            }
+            FrameTag::HardwareReserved | FrameTag::SystemReserved => unsafe {
+                frame.as_ref().get_data().range.end
+            },
+            FrameTag::Uninited | FrameTag::PageTable => frame_number + 1,
+            tag => panic!("Buddy init: invalid frame tag: {:?}", tag),
         }
     }
 

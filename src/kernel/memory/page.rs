@@ -32,7 +32,7 @@ pub(super) mod vmap;
 
 pub use flags::PageFlags;
 pub use table::{
-    MappingChunk, PageTable, PageTableEntry, PageTableEntrySlot, PageTableError, PageTableOps,
+    MappingChunk, PageTable, PageTableEntry, PageEntrySlot, PageTableError, PageTableOps,
     kernel_table_ptr, linear_table_ptr,
 };
 pub use tlb::FlushTlb;

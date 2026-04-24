@@ -6,7 +6,7 @@ use crate::{
         PageCacheType,
         arch::ArchMemory,
         frame::FrameNumber,
-        page::{PageFlags, PageTableEntry, PageTableEntrySlot},
+        page::{PageEntrySlot, PageFlags, PageTableEntry},
     },
 };
 
@@ -111,22 +111,21 @@ impl X86PageFlags {
 }
 
 #[repr(transparent)]
-pub struct X86PageEntry(pub(super) usize);
-pub struct EntryPtr(pub(super) *const AtomicUsize);
+pub struct X86EntryInfo(pub(super) usize);
+#[repr(transparent)]
+pub struct X86PageEntry(pub(super) AtomicUsize);
 
-impl EntryPtr {
-    pub fn read(&self) -> X86PageEntry {
-        X86PageEntry(unsafe { (*self.0).load(Ordering::Relaxed) })
+impl X86PageEntry {
+    pub fn read(&self) -> X86EntryInfo {
+        X86EntryInfo(self.0.load(Ordering::Relaxed))
     }
 
-    pub fn write(&self, entry: X86PageEntry) {
-        unsafe {
-            (*self.0).store(entry.0, Ordering::Relaxed);
-        }
+    pub fn write(&mut self, entry: X86EntryInfo) {
+        self.0.store(entry.0, Ordering::Relaxed);
     }
 }
 
-impl X86PageEntry {
+impl X86EntryInfo {
     pub fn get_ptr(&self) -> *const usize {
         (self.0 & !0xFFF) as *const usize
     }
@@ -144,13 +143,13 @@ impl X86PageEntry {
     }
 }
 
-impl PageTableEntry for X86PageEntry {
+impl PageTableEntry for X86EntryInfo {
     fn new_absent() -> Self {
-        X86PageEntry(0)
+        X86EntryInfo(0)
     }
 
     fn new_mapped(frame: FrameNumber, flags: PageFlags, page_level: usize) -> Self {
-        X86PageEntry::new_mapped(frame, flags, page_level)
+        X86EntryInfo::new_mapped(frame, flags, page_level)
     }
 
     fn is_present(&self) -> bool {
@@ -170,18 +169,18 @@ impl PageTableEntry for X86PageEntry {
     }
 
     fn set_flags(&mut self, flags: PageFlags, page_level: usize) {
-        X86PageEntry::set_flags(self, flags, page_level);
+        X86EntryInfo::set_flags(self, flags, page_level);
     }
 }
 
-impl PageTableEntrySlot for EntryPtr {
-    type Entry = X86PageEntry;
+impl PageEntrySlot for X86PageEntry {
+    type Entry = X86EntryInfo;
 
     fn read(&self) -> Self::Entry {
-        EntryPtr::read(self)
+        X86PageEntry::read(self)
     }
 
-    fn write(&self, entry: Self::Entry) {
-        EntryPtr::write(self, entry);
+    fn write(&mut self, entry: Self::Entry) {
+        X86PageEntry::write(self, entry);
     }
 }

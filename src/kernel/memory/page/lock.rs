@@ -9,7 +9,7 @@ use crate::{
     kernel::memory::{
         KLINEAR_BASE,
         frame::{Frame, FrameNumber, reference::SharedFrames},
-        page::{PageNumber, PageTable, PageTableEntry, PageTableEntrySlot},
+        page::{PageEntrySlot, PageNumber, PageTable, PageTableEntry},
     },
     lib::rust::spinlock::{RwReadGuard, RwWriteGuard},
 };
@@ -180,7 +180,7 @@ where
             && level > 0
         {
             let index = T::entry_index(page, level);
-            let entry = page_lock.get()?.get_entry(index).read();
+            let entry = page_lock.get()?[index].read();
 
             if !entry.is_present() || entry.is_huge(level as u8) {
                 break;
@@ -259,7 +259,7 @@ where
 
         self.restore_lock_state();
 
-        let entry = self.get()?.get_entry(index).read();
+        let entry = self.get()?[index].read();
 
         let frame_number = entry.frame_number()?;
 
@@ -336,6 +336,7 @@ where
 
         let start = self.current_level.unwrap_or(0);
         for level in start..self.read_guards.len() {
+            let _ = self.refs[level].take();
             let _ = self.read_guards[level].take();
         }
     }

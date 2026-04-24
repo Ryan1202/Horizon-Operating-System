@@ -1,4 +1,7 @@
-use core::{ops::Index, sync::atomic::AtomicUsize};
+use core::{
+    ops::{Index, IndexMut},
+    sync::atomic::AtomicUsize,
+};
 
 use crate::{
     arch::PhysAddr,
@@ -10,7 +13,7 @@ use crate::{
     },
 };
 
-use super::entry::{EntryPtr, X86PageEntry};
+use super::entry::{X86EntryInfo, X86PageEntry};
 
 pub const PDE_SHIFT: usize = 10;
 
@@ -40,24 +43,26 @@ pub(super) const LEVEL_MASKS: [usize; 5] = [
 pub(super) const HUGE_PAGE: [bool; 4] = [false, true, true, false];
 
 pub struct X86PageTable {
-    table: [AtomicUsize; Self::PAGE_SIZE / size_of::<AtomicUsize>()],
+    table: [X86PageEntry; Self::PAGE_SIZE / size_of::<AtomicUsize>()],
 }
 
 impl Index<usize> for X86PageTable {
-    type Output = AtomicUsize;
+    type Output = X86PageEntry;
 
     fn index(&self, index: usize) -> &Self::Output {
-        assert!(index < Self::PAGE_SIZE / size_of::<AtomicUsize>());
+        debug_assert!(index < Self::PAGE_SIZE / size_of::<AtomicUsize>());
         &self.table[index]
     }
 }
 
-impl X86PageTable {
-    pub(super) const fn get_entry(&self, index: usize) -> EntryPtr {
-        assert!(index < Self::PAGE_SIZE / size_of::<AtomicUsize>());
-        EntryPtr(&self.table[index] as *const AtomicUsize)
+impl IndexMut<usize> for X86PageTable {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        debug_assert!(index < Self::PAGE_SIZE / size_of::<AtomicUsize>());
+        &mut self.table[index]
     }
+}
 
+impl X86PageTable {
     pub const fn kernel_table_ptr<T>(frame: FrameNumber) -> *const T {
         let kernel_start_phy = 0;
         let kernel_start = KERNEL_BASE;
@@ -72,8 +77,8 @@ impl X86PageTable {
 }
 
 impl PageTable for X86PageTable {
-    type Entry = X86PageEntry;
-    type EntrySlot = EntryPtr;
+    type Entry = X86EntryInfo;
+    type EntrySlot = X86PageEntry;
 
     const PAGE_OFFSET_BITS: usize = PAGE_OFFSET_BIT;
     const LEVELS: usize = 4;
@@ -82,8 +87,4 @@ impl PageTable for X86PageTable {
     const LEVEL_COUNTS: &'static [usize] = &LEVEL_COUNTS;
     const LEVEL_MASKS: &'static [usize] = &LEVEL_MASKS;
     const HUGE_PAGE: &'static [bool] = &HUGE_PAGE;
-
-    fn get_entry(&self, index: usize) -> Self::EntrySlot {
-        X86PageTable::get_entry(self, index)
-    }
 }
