@@ -1,14 +1,14 @@
 use core::{
     marker::PhantomData,
     mem,
-    ops::{Index, IndexMut, Range},
+    ops::{Index, IndexMut},
     sync::atomic::Ordering,
 };
 
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
-        KERNEL_BASE, KERNEL_END, KLINEAR_BASE, KLINEAR_END, PageCacheType,
+        KERNEL_BASE, KERNEL_RANGE, KLINEAR_BASE, KLINEAR_RANGE, PageCacheType,
         arch::ArchMemory,
         frame::{
             self, FrameNumber,
@@ -202,14 +202,11 @@ impl<T: PageTable> PageTableOps<T> {
     where
         for<'a> NormalPtLock: PtRwLock<'a, T>,
     {
-        const LINEAR_RANGE: Range<usize> = KLINEAR_BASE.as_usize()..KLINEAR_END.as_usize();
-        const KERNEL_RANGE: Range<usize> = KERNEL_BASE.as_usize()..(KERNEL_END.as_usize());
-
-        if LINEAR_RANGE.contains(&vaddr.as_usize()) {
-            let offset = vaddr.as_usize() - KLINEAR_BASE.as_usize();
+        if KLINEAR_RANGE.contains(&vaddr) {
+            let offset = vaddr.offset_from(KLINEAR_BASE)?;
             return Some(PhysAddr::new(offset));
-        } else if KERNEL_RANGE.contains(&vaddr.as_usize()) {
-            let offset = vaddr.as_usize() - KERNEL_BASE.as_usize();
+        } else if KERNEL_RANGE.contains(&vaddr) {
+            let offset = vaddr.offset_from(KERNEL_BASE)?;
             return Some(PhysAddr::new(offset));
         }
 

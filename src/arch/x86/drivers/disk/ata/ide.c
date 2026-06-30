@@ -5,6 +5,7 @@
 #include <driver/timer/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
+#include <kernel/dma.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
 #include <kernel/list.h>
@@ -88,7 +89,7 @@ void ide_handle_interrupt(IdeChannel *channel) {
 			channel->bmide + IDE_REG_BM_COMMAND,
 			BIN_DIS(data, IDE_BMCMD_START_STOP_BM));
 
-		ata_bmdma_unmap_buffer(
+		ata_bmdma_unmap_sg(
 			channel->dma, request->buf, request->count * SECTOR_SIZE);
 		if (request->rw == 0) { storage_solve_read_request(request); }
 	}
@@ -201,15 +202,48 @@ void ide_device_probe(IdeChannel *channel) {
 		io_out_byte(channel->control_base + ATA_REG_CONTROL, channel->control);
 
 		channel->dma = kmalloc(sizeof(AtaDma));
-		channel->dma->prds =
-			kmalloc(sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
+		if (channel->dma == NULL) {
+			print_warning("ATA BMDMA", "Failed to allocate DMA state\n");
+			return;
+		}
+		memset(channel->dma, 0, sizeof(AtaDma));
+
+		// 确保 DmaDevice 存在（ATA 也是 32 位 PCI 设备，DMA < 4GB）
+		if (channel->physical_device->dma == NULL) {
+			DmaConstraints c			  = DMA_CONSTRAINTS_INIT(32);
+			channel->physical_device->dma = dma_device_create(c, &dma_backend_identity, false);
+		}
+		if (channel->physical_device->dma == NULL) {
+			print_warning("ATA BMDMA", "Failed to create DMA device\n");
+			kfree(channel->dma);
+			channel->dma = NULL;
+			return;
+		}
+		channel->dma->dma_device = channel->physical_device->dma;
+		// 预分配 PRDT
+		channel->dma->prdt_handle = dma_alloc_coherent(
+			channel->dma->dma_device,
+			sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
+		if (channel->dma->prdt_handle == NULL) {
+			print_warning("ATA BMDMA", "Failed to allocate PRDT\n");
+			kfree(channel->dma);
+			channel->dma = NULL;
+			return;
+		}
+		channel->dma->prds = dma_handle_cpu_addr(channel->dma->prdt_handle);
+		if (channel->dma->prds == NULL) {
+			print_warning("ATA BMDMA", "Failed to get PRDT CPU address\n");
+			dma_free_coherent(channel->dma->prdt_handle);
+			kfree(channel->dma);
+			channel->dma = NULL;
+			return;
+		}
 		memset(
 			channel->dma->prds, 0,
 			sizeof(PhysicalRegionDescriptor) * IDE_MAX_PRDT_COUNT);
-		channel->dma->prdt_phy_addr	   = vir2phy((size_t)channel->dma->prds);
+		channel->dma->prdt_dma_addr = dma_handle_dma_addr(channel->dma->prdt_handle);
 		channel->dma->prdt_status	   = 0;
 		channel->dma->max_segment_size = 65536;
-		list_init(&channel->dma->segment_lh);
 
 		enable_device_irq(channel->irq);
 
@@ -308,8 +342,10 @@ DriverResult ide_device_read_sectors(
 	}
 
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
-		ata_bmdma_map_buffer(
-			channel->dma, request->buf, request->count * SECTOR_SIZE);
+		DriverResult result = ata_bmdma_map_sg(
+			channel->dma, request->buf, request->count * SECTOR_SIZE,
+			request->rw);
+		if (result != DRIVER_OK) { return result; }
 		ata_bmdma_set_prdt(ide_device, channel->dma, request->rw);
 	}
 
@@ -321,6 +357,9 @@ DriverResult ide_device_read_sectors(
 	if (status & ATA_STATUS_DRQ) {
 		print_error(
 			"IDE", "DRQ still set before READ_DMA, status=%#x\n", status);
+		if (ide_device->mode == TRANSFER_MODE_DMA) {
+			ata_bmdma_cancel_sg(channel->dma);
+		}
 		return DRIVER_ERROR_OTHER;
 	}
 
@@ -374,8 +413,10 @@ DriverResult ide_device_write_sectors(
 
 	if (ide_device->mode == TRANSFER_MODE_DMA) {
 		storage_solve_write_request(request);
-		ata_bmdma_map_buffer(
-			channel->dma, request->buf, request->count * SECTOR_SIZE);
+		DriverResult result = ata_bmdma_map_sg(
+			channel->dma, request->buf, request->count * SECTOR_SIZE,
+			request->rw);
+		if (result != DRIVER_OK) { return result; }
 		ata_bmdma_set_prdt(ide_device, channel->dma, request->rw);
 	}
 
@@ -387,6 +428,9 @@ DriverResult ide_device_write_sectors(
 	if (status & ATA_STATUS_DRQ) {
 		print_error(
 			"IDE", "DRQ still set before WRITE_DMA, status=%#x\n", status);
+		if (ide_device->mode == TRANSFER_MODE_DMA) {
+			ata_bmdma_cancel_sg(channel->dma);
+		}
 		return DRIVER_ERROR_OTHER;
 	}
 

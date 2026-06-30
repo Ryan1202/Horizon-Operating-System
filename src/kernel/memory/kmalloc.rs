@@ -77,7 +77,7 @@ pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
     );
 
     let vaddr = VirtAddr::new(addr);
-    let phy_addr = PhysAddr::new(vaddr.offset_from(KLINEAR_BASE));
+    let phy_addr = PhysAddr::new(vaddr.offset_from(KLINEAR_BASE).unwrap());
     let frame_number = phy_addr.to_frame_number();
 
     match Frame::get_tag_relaxed(frame_number) {
@@ -95,6 +95,6 @@ pub fn kfree<T>(ptr: NonNull<T>) -> Result<(), MemoryError> {
             Ok(())
         }
         FrameTag::Anonymous => kfree_pages(vaddr),
-        _ => Err(MemoryError::InvalidAddress(vaddr)),
+        _ => Err(MemoryError::InvalidVirtualAddress(vaddr)),
     }
 }

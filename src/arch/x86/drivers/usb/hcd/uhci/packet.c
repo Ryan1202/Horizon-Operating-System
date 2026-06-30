@@ -8,6 +8,7 @@
 #include <drivers/usb/uhci.h>
 #include <kernel/barrier.h>
 #include <kernel/console.h>
+#include <kernel/dma.h>
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
@@ -15,8 +16,6 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
-
-#define DEFAULT_TD_COUNT 4
 
 void *uhci_create_pipeline(UsbDevice *usb_device, UsbEndpoint *endpoint);
 
@@ -34,76 +33,77 @@ UsbHcdOps uhci_hcd_ops = {
 };
 
 void *uhci_create_pipeline(UsbDevice *usb_device, UsbEndpoint *endpoint) {
+	Uhci *uhci = usb_device->hcd->device->private_data;
+
+	// Pipeline 用普通 kmalloc
 	UhciPipeline *pipe = kzalloc(sizeof(UhciPipeline));
-	pipe->qh.qe_link   = UHCI_TERMINATE;
-	pipe->qh.qh_link   = UHCI_TERMINATE;
-	pipe->qh.endpoint  = endpoint;
+	if (pipe == NULL) return NULL;
+
+	// QH 从 pool 分配
+	size_t qh_dma;
+	pipe->qh = dma_pool_alloc(uhci->td_qh_pool, &qh_dma);
+	if (pipe->qh == NULL) {
+		kfree(pipe);
+		return NULL;
+	}
+	pipe->qh->dma_addr = qh_dma;
+	pipe->qh->qe_link  = UHCI_TERMINATE;
+	pipe->qh->qh_link  = UHCI_TERMINATE;
+	pipe->qh->enqueued = 0;
+	pipe->qh->next	   = NULL;
+	pipe->qh->endpoint = endpoint;
 
 	uint8_t ep_type = endpoint->desc->bmAttributes & 0x03;
 	if (ep_type == USB_EP_INTERRUPT) {
-		pipe->td_count = 2; // 1个正式TD和1个备用TD
-
-		// 向下对齐后最大128
-		int type =
-			aligned_down_log2n(endpoint->desc->bInterval | 1 /* 保证最小为1 */);
-		uhci_skel_add_qh(
-			usb_device->hcd->device->private_data, &pipe->qh, type);
+		int type = aligned_down_log2n(endpoint->desc->bInterval | 1);
+		uhci_skel_add_qh(usb_device->hcd->device->private_data, pipe->qh, type);
 	} else if (ep_type == USB_EP_CONTROL) {
-		pipe->td_count = 3; // SETUP, DATA, STATUS 3个阶段
-
 		uhci_skel_add_qh(
-			usb_device->hcd->device->private_data, &pipe->qh, ASYNC);
+			usb_device->hcd->device->private_data, pipe->qh, ASYNC);
 	} else {
-		pipe->td_count = DEFAULT_TD_COUNT;
 		uhci_skel_add_qh(
-			usb_device->hcd->device->private_data, &pipe->qh, ASYNC);
+			usb_device->hcd->device->private_data, pipe->qh, ASYNC);
 	}
-	pipe->td_used	   = 0;
-	pipe->pre_alloc_td = kzalloc(sizeof(UhciTd) * pipe->td_count);
-	list_init(&pipe->pipe_lh);
-
-	for (int i = 0; i < pipe->td_count; i++) {
-		pipe->pre_alloc_td[i].link = UHCI_TERMINATE;
-	}
+	pipe->first_td = NULL;
+	pipe->last_td  = NULL;
 	return pipe;
 }
 
-UhciTd *uhci_alloc_td(UhciPipeline *pipe) {
+UhciTd *uhci_alloc_td(Uhci *uhci) {
+	size_t	dma;
 	UhciTd *td;
-	int		index = BIT_FFZ_R(pipe->td_used);
-	if (index >= pipe->td_count) {
-		td = kzalloc(sizeof(UhciTd));
-	} else {
-		td = &pipe->pre_alloc_td[index];
-		pipe->td_used |= (1 << index);
+	td = dma_pool_alloc(uhci->td_qh_pool, &dma);
+	if (td == NULL) {
+		return NULL;
 	}
+	memset(td, 0, sizeof(UhciTd));
+	td->dma_addr = dma;
 	return td;
 }
 
-void uhci_free_td(UhciPipeline *pipe, UhciTd *td) {
-	int index = (td - pipe->pre_alloc_td);
-	if (index >= 0 && index < pipe->td_count) {
-		pipe->td_used &= ~(1 << index);
-	} else {
-		kfree(td);
-	}
+void uhci_free_td(Uhci *uhci, UhciTd *td) {
+	dma_pool_free(uhci->td_qh_pool, td);
 }
 
-void uhci_free_all_td(UhciPipeline *pipe) {
+void uhci_free_all_td(Uhci *uhci, UhciPipeline *pipe) {
 	UhciTd *td, *next;
-	list_for_each_owner_safe (td, next, &pipe->pipe_lh, list) {
-		list_del(&td->list);
-		uhci_free_td(pipe, td);
+	for (td = pipe->first_td; td != NULL; td = next) {
+		next = td->next;
+		uhci_free_td(uhci, td);
 	}
+	pipe->qh->first_td = NULL;
+	pipe->first_td	   = NULL;
+	pipe->last_td	   = NULL;
 }
 
 UhciTd *uhci_send_token_packet(
 	UsbDevice *device, UsbEndpoint *ep, UhciQh *qh, uint8_t data_toggle,
 	void *buffer, uint8_t packet_id, int length) {
 	UsbDevice	 *usb_device = device;
+	Uhci		 *uhci		 = usb_device->hcd->device->private_data;
 	UhciPipeline *pipe		 = ep->pipe;
-	UhciTd		 *td		 = uhci_alloc_td(pipe);
-	memset(td, 0, sizeof(UhciTd));
+	UhciTd		 *td		 = uhci_alloc_td(uhci);
+	if (td == NULL) return NULL;
 
 	td->packet_id		= packet_id;
 	td->device_addr		= usb_device->address & 0x7f;
@@ -120,15 +120,16 @@ UhciTd *uhci_send_token_packet(
 	if (buffer != NULL) td->buf_addr_phy = vir2phy((size_t)buffer);
 	else td->buf_addr_phy = 0;
 
-	if (!list_empty(&pipe->pipe_lh)) {
-		UhciTd *last_td = list_last_owner(&pipe->pipe_lh, UhciTd, list);
-		list_add_tail(&td->list, &pipe->pipe_lh);
-		last_td->link = BIN_DIS(vir2phy((size_t)td), UHCI_QH_TD_SELECT);
-		last_td->link = BIN_EN(last_td->link, UHCI_VERTICAL_FIRST);
-		last_td->next = td;
+	if (pipe->first_td != NULL && pipe->last_td != NULL) {
+		UhciTd *last_td = pipe->last_td;
+		pipe->last_td	= td;
+		last_td->link	= BIN_DIS(td->dma_addr, UHCI_QH_TD_SELECT);
+		last_td->link	= BIN_EN(last_td->link, UHCI_VERTICAL_FIRST);
+		last_td->next	= td;
 	} else {
-		list_add_tail(&td->list, &pipe->pipe_lh);
-		qh->first_td = td;
+		qh->first_td   = td;
+		pipe->first_td = td;
+		pipe->last_td  = td;
 	}
 	td->link = UHCI_TERMINATE;
 	return td;
@@ -168,8 +169,7 @@ int uhci_wait_transfer(UhciQh *qh) {
 		if (td->bitstuff_Error || td->crc_timeout_Error ||
 			td->databuffer_Error || td->stalled || td->NAK_received) {
 
-			// 发送错误
-			uint32_t *raw = (uint32_t *)td; // TD 在内存首地址
+			uint32_t *raw = (uint32_t *)td;
 			printk(
 				"TD raw: w0=%08x w1=%08x w2=%08x w3=%08x\n", raw[0], raw[1],
 				raw[2], raw[3]);
@@ -178,9 +178,7 @@ int uhci_wait_transfer(UhciQh *qh) {
 				"active=%u\n",
 				td->packet_id, td->device_addr, td->endpoint, td->data_toggle,
 				td->max_length, td->active);
-			printk(
-				"[UHCI]td %#08x(phy %#08x) timeout.\n", td,
-				vir2phy((size_t)td));
+			printk("[UHCI]td %#08x(dma %#08x) timeout.\n", td, td->dma_addr);
 			return -1;
 		}
 
@@ -193,20 +191,30 @@ int uhci_wait_transfer(UhciQh *qh) {
 UsbSetupStatus uhci_ctrl_transfer_in(
 	UsbHcd *hcd, UsbDevice *device, void *buffer, uint32_t data_length,
 	UsbControlRequest *usb_req) {
+	Uhci		 *uhci = hcd->device->private_data;
 	UhciPipeline *pipe = device->ep0->pipe;
-	UhciQh		 *qh   = &pipe->qh;
+	UhciQh		 *qh   = pipe->qh;
 	qh->qe_link		   = UHCI_TERMINATE;
 	qh->qh_link		   = UHCI_TERMINATE;
-	uhci_setup_transcation(device, device->ep0, qh, usb_req, 8);
-	uhci_in_transcation(device, device->ep0, qh, 0, buffer, data_length);
+	if (uhci_setup_transcation(device, device->ep0, qh, usb_req, 8) == NULL) {
+		uhci_free_all_td(uhci, pipe);
+		return USB_SETUP_CRC_TIMEOUT_ERR;
+	}
+	if (uhci_in_transcation(device, device->ep0, qh, 0, buffer, data_length) == NULL) {
+		uhci_free_all_td(uhci, pipe);
+		return USB_SETUP_CRC_TIMEOUT_ERR;
+	}
 	UhciTd *last_td = uhci_out_transcation(device, device->ep0, qh, 1, NULL, 0);
 	UhciTd *first_td = qh->first_td;
-	qh->qe_link		 = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
+	if (last_td == NULL || first_td == NULL) {
+		uhci_free_all_td(uhci, pipe);
+		return USB_SETUP_CRC_TIMEOUT_ERR;
+	}
+	qh->qe_link		 = BIN_DIS(first_td->dma_addr, UHCI_QH_TD_SELECT);
 
 	if (uhci_wait_transfer(qh) < 0) {
-		// 超时
 		qh->qh_link = UHCI_TERMINATE;
-		uhci_free_all_td(pipe);
+		uhci_free_all_td(uhci, pipe);
 		return USB_SETUP_CRC_TIMEOUT_ERR;
 	}
 	qh->qe_link = UHCI_TERMINATE;
@@ -226,7 +234,7 @@ UsbSetupStatus uhci_ctrl_transfer_in(
 	} else {
 		result = USB_SETUP_SUCCESS;
 	}
-	uhci_free_all_td(pipe);
+	uhci_free_all_td(uhci, pipe);
 
 	return result;
 }
@@ -234,21 +242,31 @@ UsbSetupStatus uhci_ctrl_transfer_in(
 UsbSetupStatus uhci_ctrl_transfer_out(
 	UsbHcd *hcd, UsbDevice *device, void *buffer, uint32_t data_length,
 	UsbControlRequest *usb_req) {
+	Uhci		 *uhci = hcd->device->private_data;
 	UhciPipeline *pipe = device->ep0->pipe;
-	UhciQh		 *qh   = &pipe->qh;
+	UhciQh		 *qh   = pipe->qh;
 	qh->qe_link		   = UHCI_TERMINATE;
 	qh->qh_link		   = UHCI_TERMINATE;
-	uhci_setup_transcation(device, device->ep0, qh, usb_req, 8);
+	if (uhci_setup_transcation(device, device->ep0, qh, usb_req, 8) == NULL) {
+		uhci_free_all_td(uhci, pipe);
+		return USB_SETUP_CRC_TIMEOUT_ERR;
+	}
 	if (data_length != 0) {
-		uhci_out_transcation(device, device->ep0, qh, 0, buffer, data_length);
+		if (uhci_out_transcation(device, device->ep0, qh, 0, buffer, data_length) == NULL) {
+			uhci_free_all_td(uhci, pipe);
+			return USB_SETUP_CRC_TIMEOUT_ERR;
+		}
 	}
 	UhciTd *last_td	 = uhci_in_transcation(device, device->ep0, qh, 1, NULL, 0);
 	UhciTd *first_td = qh->first_td;
-	qh->qe_link		 = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
+	if (last_td == NULL || first_td == NULL) {
+		uhci_free_all_td(uhci, pipe);
+		return USB_SETUP_CRC_TIMEOUT_ERR;
+	}
+	qh->qe_link		 = BIN_DIS(first_td->dma_addr, UHCI_QH_TD_SELECT);
 
 	if (uhci_wait_transfer(qh) < 0) {
-		// 超时
-		uhci_free_all_td(pipe);
+		uhci_free_all_td(uhci, pipe);
 		return USB_SETUP_CRC_TIMEOUT_ERR;
 	}
 	qh->qe_link = UHCI_TERMINATE;
@@ -268,7 +286,7 @@ UsbSetupStatus uhci_ctrl_transfer_out(
 	} else {
 		result = USB_SETUP_SUCCESS;
 	}
-	uhci_free_all_td(pipe);
+	uhci_free_all_td(uhci, pipe);
 
 	return result;
 }
@@ -276,7 +294,7 @@ UsbSetupStatus uhci_ctrl_transfer_out(
 void uhci_add_interrupt_transfer(
 	UsbHcd *hcd, UsbDevice *device, UsbEndpoint *ep, UsbRequestBlock *urb) {
 	UhciPipeline *pipe = ep->pipe;
-	UhciQh		 *qh   = &pipe->qh;
+	UhciQh		 *qh   = pipe->qh;
 	UhciTd		 *td, *_td;
 	qh->qe_link = UHCI_TERMINATE;
 	if (ep->desc->bEndpointAddress >> 7 == USB_EP_IN) {
@@ -294,12 +312,16 @@ void uhci_add_interrupt_transfer(
 			device, ep, qh, ep->data_toggle ^ 1, urb->buffer,
 			ep->desc->wMaxPacketSize);
 	}
+	if (td == NULL || _td == NULL || qh->first_td == NULL) {
+		uhci_free_all_td(hcd->device->private_data, pipe);
+		return;
+	}
 
-	UhciTd *first_td = qh->first_td;
-	qh->qe_link		 = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
-	td->urb			 = urb;
-	_td->urb		 = urb;
-	td->interrupt_on_complete  = 1; // 传输完成后中断通知
+	UhciTd *first_td		   = qh->first_td;
+	qh->qe_link				   = BIN_DIS(first_td->dma_addr, UHCI_QH_TD_SELECT);
+	td->urb					   = urb;
+	_td->urb				   = urb;
+	td->interrupt_on_complete  = 1;
 	_td->interrupt_on_complete = 0;
 	wmb();
 }
@@ -307,7 +329,7 @@ void uhci_add_interrupt_transfer(
 void uhci_interrupt_transfer(UsbHcd *hcd, UsbEndpoint *ep) {
 	UhciPipeline *pipe = ep->pipe;
 
-	UhciTd *first_td = pipe->qh.first_td;
+	UhciTd *first_td = pipe->qh->first_td;
 	UhciTd *next	 = first_td->next;
 
 	ep->data_toggle ^= 1;
@@ -326,6 +348,5 @@ void uhci_interrupt_transfer(UsbHcd *hcd, UsbEndpoint *ep) {
 	next->data_toggle = ep->data_toggle ^ 1;
 	next->active	  = 1;
 
-	// 2. 挂回 QH
-	pipe->qh.qe_link = BIN_DIS(vir2phy((size_t)first_td), UHCI_QH_TD_SELECT);
+	pipe->qh->qe_link = BIN_DIS(first_td->dma_addr, UHCI_QH_TD_SELECT);
 }

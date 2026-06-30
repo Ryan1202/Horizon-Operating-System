@@ -3,7 +3,6 @@ c = [
     "driver/device_driver.c",
     "driver/device_manager.c",
     "driver/device.c",
-    "driver/dma.c",
     "driver/driver_interface.c",
     "driver/driver.c",
     "app.c",
@@ -26,6 +25,4 @@ c = [
     "thread.c",
     "wait_queue.c",
 ]
-rust = [
-    "memory/mod.rs",
-]
+rust = ["memory/mod.rs"]

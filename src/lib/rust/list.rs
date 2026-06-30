@@ -17,6 +17,7 @@ macro_rules! list_owner {
     ($var:ident, $container:ty, $field:ident) => {{ $crate::container_of!($var.cast::<ListNode<$container>>(), $container, $field) }};
 }
 
+#[repr(C)]
 #[derive(PartialEq, Debug)]
 pub struct Link<Owner> {
     prev: NonNull<Link<Owner>>,
@@ -129,7 +130,7 @@ impl<Owner> Iterator for ListIterator<Owner> {
             .and_then(|next| (next != self.head).then_some(next));
 
         // 转换到 Owner 类型
-        current.map(|p| unsafe { p.offset(self.offset).cast() })
+        current.map(|p| unsafe { p.byte_offset(self.offset).cast() })
     }
 }
 

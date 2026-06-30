@@ -76,5 +76,5 @@ typedef enum ZoneType {
 
 void mem_caches_init();
 void vmap_init();
-
+void swiotlb_init();
 #endif

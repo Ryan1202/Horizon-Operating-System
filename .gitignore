@@ -74,3 +74,4 @@ fixdep
 dump.pcap
 target/
 .stfolder/
+.worktrees/

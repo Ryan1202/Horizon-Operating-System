@@ -22,7 +22,8 @@
 #define HOST2LE_WORD(n)	 (n)
 #define HOST2LE_DWORD(n) (n)
 
-#define BIT(n)		 (1 << (n))
+#define BIT(n)		 ((size_t)1 << (n))
+#define BIT_MASK(n)	 (BIT(n) - 1)
 #define BIT_FFS_R(n) (bsf64((uint64_t)n))	 // 从低到高找到第一个非0位的位置
 #define BIT_FFS_L(n) (bsr64((uint64_t)n))	 // 从高到低找到第一个非0位的位置
 #define BIT_FFZ_R(n) (bsf64(~((uint64_t)n))) // 从低到高找到第一个为0位的位置

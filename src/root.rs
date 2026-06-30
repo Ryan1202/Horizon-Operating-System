@@ -11,6 +11,7 @@
 #![feature(const_try)]
 #![feature(const_result_trait_fn)]
 #![feature(atomic_ptr_null)]
+#![feature(const_range)]
 
 use core::{fmt, panic::PanicInfo};
 
@@ -52,9 +53,9 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
-pub mod kernel {
-    pub mod memory;
-}
 pub mod lib {
     pub mod rust;
+}
+pub mod kernel {
+    pub mod memory;
 }

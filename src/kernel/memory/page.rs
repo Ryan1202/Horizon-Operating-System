@@ -32,7 +32,7 @@ pub(super) mod vmap;
 
 pub use flags::PageFlags;
 pub use table::{
-    MappingChunk, PageTable, PageTableEntry, PageEntrySlot, PageTableError, PageTableOps,
+    MappingChunk, PageEntrySlot, PageTable, PageTableEntry, PageTableError, PageTableOps,
     kernel_table_ptr, linear_table_ptr,
 };
 pub use tlb::FlushTlb;
@@ -109,10 +109,10 @@ impl<'a> Pages<'a> {
         NonNull::new(self.start_addr().as_mut_ptr()).unwrap()
     }
 
-    pub fn get_frame(&mut self) -> Option<&mut UniqueFrames> {
+    pub fn get_first_frame(&mut self) -> Option<&mut UniqueFrames> {
         match self {
             Pages::Linear(frame) => Some(frame),
-            Pages::Dynamic(_) => None,
+            Pages::Dynamic(pages) => pages.first_frame.as_mut(),
         }
     }
 
@@ -182,7 +182,7 @@ pub fn kmalloc_pages_c(count: usize) -> *mut core::ffi::c_void {
 pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
     // 如果在内核线性映射区，则无需释放虚拟页
     if vaddr >= KLINEAR_BASE && vaddr < KLINEAR_BASE + KLINEAR_SIZE {
-        let phy_addr = PhysAddr::new(vaddr.offset_from(KLINEAR_BASE));
+        let phy_addr = PhysAddr::new(vaddr.offset_from(KLINEAR_BASE).unwrap());
         let frame_number = phy_addr.to_frame_number();
         let frame = Frame::get_raw(frame_number);
 

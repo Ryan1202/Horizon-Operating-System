@@ -110,7 +110,6 @@ qemu_dbg:
 	-no-reboot \
 	-s -S \
 	-D qemu.log \
-	-d trace:*dma* \
 	-serial stdio \
 	-m 1024 \
 	-drive file=$(HD_IMG),if=ide,format=raw \

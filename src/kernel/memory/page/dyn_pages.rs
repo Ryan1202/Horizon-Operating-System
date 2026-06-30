@@ -1,4 +1,4 @@
-use core::{num::NonZeroUsize, ptr::NonNull};
+use core::{mem, num::NonZeroUsize, ptr::NonNull};
 
 use crate::{
     arch::{ArchPageTable, VirtAddr},
@@ -18,6 +18,7 @@ use crate::{
 pub struct DynPages {
     pub(super) rb_node: LinkedRbNodeBase<VmRange, usize>,
     pub(super) frame_count: usize,
+    pub(super) first_frame: Option<UniqueFrames>,
 }
 
 impl DynPages {
@@ -26,6 +27,7 @@ impl DynPages {
         DynPages {
             rb_node: LinkedRbNodeBase::linked_new(range, count),
             frame_count: 0,
+            first_frame: None,
         }
     }
 
@@ -87,7 +89,7 @@ impl DynPages {
 
     pub fn map(
         &mut self,
-        frame: &mut UniqueFrames,
+        mut frame: UniqueFrames,
         cache_type: PageCacheType,
     ) -> Result<(), MemoryError> {
         // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
@@ -97,9 +99,15 @@ impl DynPages {
             current_root_pt(),
             self,
             self.frame_count,
-            frame,
+            &mut frame,
             PageFlags::new().cache_type(cache_type),
         )?;
+
+        if self.first_frame.is_none() {
+            self.first_frame = Some(frame);
+        } else {
+            mem::forget(frame);
+        }
 
         let range = self.rb_node.get_key();
         if self.frame_count + count > range.get_count() {

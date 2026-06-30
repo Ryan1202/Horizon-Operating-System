@@ -43,6 +43,7 @@ void init_memory(void) {
 	mem_caches_init();
 
 	vmap_init();
+	swiotlb_init();
 }
 
 int mmap_search(struct mmap *btmp, unsigned int cnt) {

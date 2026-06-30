@@ -3,10 +3,13 @@ use core::ptr::{with_exposed_provenance, with_exposed_provenance_mut};
 use crate::{
     arch::ArchPageTable,
     impl_page_addr,
-    kernel::memory::{arch::ArchMemory, frame::FrameNumber, page::PageNumber},
+    kernel::memory::{
+        KLINEAR_BASE, KLINEAR_RANGE, KLINEAR_SIZE, arch::ArchMemory, frame::FrameNumber,
+        page::PageNumber,
+    },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Eq, Ord)]
 pub struct PhysAddr(usize);
 
 impl PhysAddr {
@@ -27,11 +30,28 @@ impl PhysAddr {
     pub const fn from_frame_number(frame_num: FrameNumber) -> Self {
         Self(frame_num.get() * ArchPageTable::PAGE_SIZE)
     }
+
+    pub const fn try_to_virt(self) -> Option<VirtAddr> {
+        if self.0 >= KLINEAR_SIZE {
+            return None;
+        }
+        Some(KLINEAR_BASE + self.0)
+    }
+
+    pub const fn try_from_linear_virt(vaddr: VirtAddr) -> Option<Self> {
+        if KLINEAR_RANGE.contains(&vaddr) {
+            return Some(Self(vaddr.as_usize() - KLINEAR_BASE.as_usize()));
+        } else {
+            return None;
+        }
+    }
 }
 
 impl_page_addr!(PhysAddr, ArchPageTable::PAGE_SIZE);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// 布局与 usize 相同
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, Eq, Ord)]
 pub struct VirtAddr(usize);
 
 impl VirtAddr {

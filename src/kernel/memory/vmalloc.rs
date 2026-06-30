@@ -114,8 +114,9 @@ pub fn vmalloc<T>(
         .map(|mut pages| pages.get_ptr())
 }
 
+/// 仅释放虚拟地址，不涉及物理页框的回收
 pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
-    let err = MemoryError::InvalidAddress(vaddr);
+    let err = MemoryError::InvalidVirtualAddress(vaddr);
 
     let num = vaddr.to_page_number();
     let range = VmRange {

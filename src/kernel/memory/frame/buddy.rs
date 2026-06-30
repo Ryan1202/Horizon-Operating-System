@@ -71,16 +71,25 @@ impl FrameOrder {
         FrameOrder(order)
     }
 
-    pub const fn from_count(count: usize) -> Self {
+    /// 将页数转换为对应的 FrameOrder，自动向上对齐
+    pub const fn from_count_ceil(count: usize) -> Self {
         debug_assert!(count > 0);
         debug_assert!(count < MAX_ORDER.to_count().get() * 2);
         FrameOrder::new(count.next_power_of_two().ilog2() as u8)
     }
 
+    /// 将页数转换为对应的 FrameOrder，向下对齐
+    pub const fn from_count(count: usize) -> Self {
+        debug_assert!(count > 0);
+        debug_assert!(count < MAX_ORDER.to_count().get() * 2);
+        FrameOrder::new(count.trailing_zeros() as u8)
+    }
+
+    /// 将字节大小转换为对应的 FrameOrder，自动向上对齐
     pub const fn from_size(size: usize) -> Self {
         debug_assert!(size > 0);
         let frame_count = frame_count(size);
-        Self::from_count(frame_count)
+        Self::from_count_ceil(frame_count)
     }
 
     pub const fn get(&self) -> usize {
@@ -166,11 +175,11 @@ struct ZoneState {
 impl ZoneState {
     const fn new() -> Self {
         let zone_type = ZoneType::from_index(0);
-        let (zone_start, zone_end) = zone_type.range();
+        let range = zone_type.range();
         ZoneState {
             current_index: 0,
-            zone_start: zone_start.to_frame_number(),
-            zone_end: zone_end.to_frame_number(),
+            zone_start: range.start.to_frame_number(),
+            zone_end: range.end.to_frame_number(),
         }
     }
 
@@ -189,8 +198,8 @@ impl ZoneState {
 
             let range = zone_type.range();
 
-            zone_start = range.0.to_frame_number();
-            zone_end = range.1.to_frame_number();
+            zone_start = range.start.to_frame_number();
+            zone_end = range.end.to_frame_number();
         }
         self.zone_start = zone_start;
         self.zone_end = zone_end;
@@ -353,10 +362,13 @@ impl BuddyAllocator {
         target_order: FrameOrder,
         frame: &mut UniqueFrames,
     ) {
-        let mut split_order = FrameOrder::new(order.0 - 1);
-        let mut next_frame = frame.split();
+        let mut split_order = order;
+        let mut next_frame;
 
         while split_order.0 > target_order.0 {
+            split_order.0 -= 1;
+            next_frame = frame.split();
+
             match next_frame.get_tag() {
                 FrameTag::Buddy => {
                     panic!("Split error: frame is already a buddy block");
@@ -379,9 +391,6 @@ impl BuddyAllocator {
             }
 
             mem::forget(next_frame);
-
-            split_order.0 -= 1;
-            next_frame = frame.split();
         }
 
         let buddy: &mut Buddy = frame.deref_mut().try_into().unwrap();
@@ -488,11 +497,11 @@ impl FrameAllocator for BuddyAllocator {
                     self.split(zone_type, order, target_order, &mut frame);
                 }
 
-                Anonymous::new(order).replace_frame(&mut frame);
+                Anonymous::new(target_order).replace_frame(&mut frame);
 
                 frame.set_tail_frames();
 
-                ALLOCATED_PAGES.fetch_add(order.to_count().get(), Ordering::Relaxed);
+                ALLOCATED_PAGES.fetch_add(target_order.to_count().get(), Ordering::Relaxed);
                 return Some(frame);
             }
             order.0 += 1;
@@ -507,8 +516,8 @@ impl FrameAllocator for BuddyAllocator {
         let zone = self.get_zone(zone_type);
         let zone_range = zone_type.range();
         let (zone_start, zone_end) = (
-            zone_range.0.to_frame_number(),
-            zone_range.1.to_frame_number(),
+            zone_range.start.to_frame_number(),
+            zone_range.end.to_frame_number(),
         );
 
         if !matches!(frame.get_tag(), FrameTag::Anonymous) {

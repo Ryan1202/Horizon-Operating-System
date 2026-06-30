@@ -8,6 +8,7 @@
 #include <drivers/bus/usb/usb.h>
 #include <drivers/usb/core/urb.h>
 #include <drivers/usb/core/usb.h>
+#include <kernel/dma.h>
 #include <kernel/driver_interface.h>
 #include <kernel/list.h>
 #include <stdint.h>
@@ -83,7 +84,7 @@
 
 typedef struct UhciFrameList {
 	uint32_t *frames_vir;
-	uint32_t  frames_phy;
+	uint32_t  frames_dma;
 } UhciFrameList;
 
 typedef struct UhciQh {
@@ -98,7 +99,8 @@ typedef struct UhciQh {
 		struct UhciTd *first_td;
 	};
 	UsbEndpoint *endpoint;
-} __attribute__((packed, aligned(16))) UhciQh;
+	size_t		 dma_addr; // 本 QH 的 DMA 地址（末字段，硬件不可见）
+} __attribute__((aligned(16), packed)) UhciQh;
 
 typedef struct UhciTd {
 	uint32_t link;
@@ -132,19 +134,20 @@ typedef struct UhciTd {
 	uint32_t buf_addr_phy;
 
 	// software use
-	list_t			 list;
 	struct UhciTd	*next;
 	UsbRequestBlock *urb;
-} __attribute__((packed, aligned(16))) UhciTd;
+	size_t			 dma_addr; // 本 TD 的 DMA 地址（末字段，硬件不可见）
+} __attribute__((aligned(16), packed)) UhciTd;
+
+typedef union {
+	UhciTd td;
+	UhciQh qh;
+} __attribute__((aligned(16))) UhciTdQh;
 
 typedef struct UhciSched {
-	UhciQh qh;
-
-	uint8_t td_count;
-	uint8_t td_used;	  // bitmap
-	UhciTd *pre_alloc_td; // 预分配的TD
-
-	list_t pipe_lh;
+	struct UhciQh *qh; // 从 pool 分配
+	struct UhciTd *first_td;
+	struct UhciTd *last_td;
 } UhciPipeline;
 
 typedef struct UhciSkel {
@@ -159,8 +162,10 @@ typedef struct {
 	uint8_t		  port_cnt;
 	Timer		  timer;
 
-	UhciSkel *skel;
-	UsbHcd	 *hcd;
+	UhciSkel   *skel;
+	UsbHcd	   *hcd;
+	DmaHandle  *skel_handle, *fl_handle;
+	DmaPool	   *td_qh_pool;
 
 	DeviceIrq *irq;
 } Uhci;
@@ -178,12 +183,12 @@ typedef enum UhciSkelType {
 	TERM,
 } UhciSkelType;
 
-void uhci_skel_init(Uhci *uhci);
+DriverResult uhci_skel_init(Uhci *uhci);
 
 void uhci_skel_add_qh(Uhci *uhci, UhciQh *qh, UhciSkelType type);
 void uhci_skel_del_qh(Uhci *uhci, UhciQh *qh, UhciSkelType type);
 
-void uhci_free_all_td(UhciPipeline *pipe);
+void uhci_free_all_td(Uhci *uhci, UhciPipeline *pipe);
 
 UsbSetupStatus uhci_ctrl_transfer_in(
 	UsbHcd *hcd, UsbDevice *device, void *buffer, uint32_t data_length,

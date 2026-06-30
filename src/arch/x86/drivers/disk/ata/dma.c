@@ -2,8 +2,8 @@
 #include "include/ide.h"
 #include "include/ide_controller.h"
 #include "kernel/driver.h"
+#include "kernel/driver_interface.h"
 #include "kernel/list.h"
-#include "kernel/memory.h"
 #include "stdint.h"
 #include <kernel/dma.h>
 #include <kernel/page.h>
@@ -17,13 +17,14 @@ void ata_bmdma_set_prdt(IdeDevice *device, AtaDma *ata_dma, int rw) {
 	IdeChannel *channel = device->channel;
 
 	PhysicalRegionDescriptor *prds = ata_dma->prds;
-	DmaSegment				 *seg;
 
 	int		 i = 0, size, left_size;
 	uint32_t addr, offset;
-	list_for_each_owner (seg, &ata_dma->segment_lh, list) {
-		left_size = seg->size;
-		addr	  = seg->addr;
+
+	for (int j = 0; j < ata_dma->sg_nents; j++) {
+		DmaScatterList *seg = &ata_dma->sg_list[j];
+		left_size = sg_dma_len(seg);
+		addr	  = sg_dma_address(seg);
 		while (left_size > 0 && i < IDE_MAX_PRDT_COUNT) {
 			offset			  = addr & 0xffff; // 缓冲区不能跨越64K边界
 			size			  = MIN(left_size, 0x10000 - offset);
@@ -35,9 +36,10 @@ void ata_bmdma_set_prdt(IdeDevice *device, AtaDma *ata_dma, int rw) {
 			i++;
 		}
 	}
+	if (i == 0) { return; }
 	prds[i - 1].sign = BIT(15);
 
-	io_out_dword(channel->bmide + IDE_REG_BM_PRDT, ata_dma->prdt_phy_addr);
+	io_out_dword(channel->bmide + IDE_REG_BM_PRDT, ata_dma->prdt_dma_addr);
 
 	uint8_t data;
 	data = io_in_byte(channel->bmide + IDE_REG_BM_COMMAND);
@@ -52,43 +54,69 @@ void ata_bmdma_set_prdt(IdeDevice *device, AtaDma *ata_dma, int rw) {
 		IDE_BMSTATUS_INT | IDE_BMSTATUS_ERROR);
 }
 
-DriverResult ata_bmdma_map_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {
-	size_t addr;
-	addr = (size_t)ptr;
+inline DriverResult ata_bmdma_map_sg(
+	AtaDma *ata_dma, void *ptr, uint32_t size, int rw) {
+	DmaDirection direction = rw ? DmaToDevice : DmaFromDevice;
 
-	if (addr & 3) {
-		// 申请一个小的临时缓冲区处理未对齐的部分
-		int	  size	  = 32 - (addr & 0x1f);
-		void *tmp_buf = kmalloc(size);
-		if (tmp_buf == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
-		memcpy(tmp_buf, ptr, size);
-
-		DmaSegment *seg = kmalloc(sizeof(DmaSegment));
-		seg->vaddr		= (size_t)tmp_buf;
-		seg->addr		= vir2phy((size_t)tmp_buf);
-		seg->size		= size;
-		list_add_tail(&seg->list, &ata_dma->segment_lh);
-		ptr += size;
+	if (ata_dma->sg_list != NULL) {
+		// 意料之外的情况，无法确定指针是否有效，兜底方案直接泄露
+		print_warning(
+			"ATA BMDMA",
+			"Previous DMA mapping pointer (%#x) still exists, leaking...\n",
+			(size_t)ata_dma->sg_list);
 	}
 
-	dma_split_mem(&ata_dma->segment_lh, ptr, size, ata_dma->max_segment_size);
+	// 计算需要的entry数量（每个页面一个entry）
+	uint32_t nents = ((size_t)ptr + size + PAGE_SIZE - 1) / PAGE_SIZE
+		- (size_t)ptr / PAGE_SIZE;
+	if (nents == 0) nents = 1;
+
+	DmaScatterList *sg = sg_create_segment(nents);
+	if (sg == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
+
+	// 简化处理：假设ptr指向的缓冲区是连续的虚拟地址
+	// 将其拆分为页面级别的scatter entry
+	void *cur = ptr;
+	uint32_t remaining = size;
+	for (uint32_t i = 0; i < nents && remaining > 0; i++) {
+		uint32_t page_offset = (size_t)cur & (PAGE_SIZE - 1);
+		uint32_t len = MIN(remaining, PAGE_SIZE - page_offset);
+		sg_set_buf(&sg[i], cur, len);
+		cur += len;
+		remaining -= len;
+	}
+
+	int mapped = dma_map_sg(ata_dma->dma_device, sg, nents);
+	if (mapped <= 0) {
+		kfree(sg);
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
+
+	ata_dma->sg_list = sg;
+	ata_dma->sg_nents = mapped;
+	ata_dma->direction = direction;
+
 	return DRIVER_OK;
 }
 
-void ata_bmdma_unmap_buffer(AtaDma *ata_dma, void *ptr, uint32_t size) {
-	DmaSegment *seg, *next;
-	size_t		start_ptr = (size_t)ptr;
-	size_t		end_ptr	  = start_ptr + size;
-	void	   *addr	  = ptr;
+inline void ata_bmdma_unmap_sg(AtaDma *ata_dma, void *ptr, uint32_t size) {
+	if (ata_dma->sg_list != NULL) {
+		dma_unmap_sg(
+			ata_dma->dma_device, ata_dma->sg_list, ata_dma->sg_nents);
+		kfree(ata_dma->sg_list);
+		ata_dma->sg_list = NULL;
+		ata_dma->sg_nents = 0;
+		ata_dma->direction = DmaNone;
+	}
+}
 
-	list_for_each_owner_safe (seg, next, &ata_dma->segment_lh, list) {
-		if (start_ptr > seg->vaddr || seg->vaddr >= end_ptr) {
-			memcpy(addr, (void *)seg->vaddr, seg->size);
-			// 释放临时缓冲区
-			kfree((void *)seg->vaddr);
-		}
-		addr += seg->size;
-		list_del(&seg->list);
-		kfree(seg);
+inline void ata_bmdma_cancel_sg(AtaDma *ata_dma) {
+	if (ata_dma->sg_list != NULL) {
+		dma_unmap_sg(
+			ata_dma->dma_device, ata_dma->sg_list, ata_dma->sg_nents);
+		kfree(ata_dma->sg_list);
+		ata_dma->sg_list = NULL;
+		ata_dma->sg_nents = 0;
+		ata_dma->direction = DmaNone;
 	}
 }

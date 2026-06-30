@@ -12,7 +12,7 @@
 #define IDE_IRQ0 14
 #define IDE_IRQ1 15
 
-#define IDE_MAX_PRDT_COUNT 16
+#define IDE_MAX_PRDT_COUNT 128
 
 typedef struct IdeOps {
 	void (*set_sector)(

@@ -74,6 +74,7 @@ typedef struct LogicalDevice {
 struct Bus;
 struct Object;
 struct DeviceDriver;
+struct DmaDevice;
 typedef struct PhysicalDevice {
 	DeviceKind	kind;
 	DeviceState state;
@@ -91,6 +92,7 @@ typedef struct PhysicalDevice {
 
 	DeviceOps *ops;
 
+	struct DmaDevice *dma;
 	void *private_data;
 	void *bus_ext;
 } PhysicalDevice;

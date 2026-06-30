@@ -2,7 +2,6 @@
  * @file uhci.c
  * @author Ryan Wang (Ryan1202@foxmail.com)
  * @brief UHCI驱动程序
- * @version 0.1
  * @date 2022-09-10
  *
  * 目前仅仅只是初始化了UHCI而已，其他涉及USB协议的东西都还没做
@@ -24,6 +23,7 @@
 #include <kernel/descriptor.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
+#include <kernel/dma.h>
 #include <kernel/driver.h>
 #include <kernel/driver_dependency.h>
 #include <kernel/driver_interface.h>
@@ -108,7 +108,6 @@ void uhci_handler(void *arg) {
 		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_INTERRUPT);
 	}
 	if (status & UHCI_STAT_ERROR_INT) {
-		print_error("UHCI", "Error Interrupt");
 		io_out_word(uhci->io_base + UHCI_REG_STS, UHCI_STAT_ERROR_INT);
 	}
 	if (status & UHCI_STAT_RESUME_DETECT) {
@@ -135,8 +134,9 @@ void uhci_handler(void *arg) {
 		qh = (UhciQh *)qhs[i].first_qh;
 		if (qh->endpoint == NULL) continue;
 		while (qh != NULL && qh->first_td != NULL) {
-			UhciTd *td = (UhciTd *)qh->first_td;
-			qh		   = qh->next;
+			UhciTd *first_td = qh->first_td;
+			UhciTd *td		 = first_td;
+			qh				 = qh->next;
 			while (td != NULL) {
 				if (td->active || !td->interrupt_on_complete) {
 					td = td->next;
@@ -355,9 +355,26 @@ void uhci_probe(Uhci *uhci) {
 DriverResult uhci_start(void *_device) {
 	PhysicalDevice *device = _device;
 	Uhci		   *uhci   = device->private_data;
-	uhci->fl.frames_vir	   = (uint32_t *)kmalloc_pages(1);
-	uhci->fl.frames_phy	   = (uint32_t)vir2phy((size_t)uhci->fl.frames_vir);
-	uhci_skel_init(uhci);
+
+	uhci->fl_handle = dma_alloc_coherent(device->dma, PAGE_SIZE);
+	if (uhci->fl_handle == NULL) {
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
+	uhci->fl.frames_vir = (uint32_t *)dma_handle_cpu_addr(uhci->fl_handle);
+	if (uhci->fl.frames_vir == NULL) {
+		dma_free_coherent(uhci->fl_handle);
+		uhci->fl_handle = NULL;
+		return DRIVER_ERROR_NULL_POINTER;
+	}
+	uhci->fl.frames_dma = (uint32_t)dma_handle_dma_addr(uhci->fl_handle);
+	DriverResult result = uhci_skel_init(uhci);
+	if (result != DRIVER_OK) {
+		dma_free_coherent(uhci->fl_handle);
+		uhci->fl_handle		= NULL;
+		uhci->fl.frames_vir = NULL;
+		uhci->fl.frames_dma = 0;
+		return result;
+	}
 
 	pci_device_write16(uhci->device, UHCI_PCI_REG_LEGSUP, 0x2000);
 	pci_enable_bus_mastering(uhci->device);
@@ -365,7 +382,7 @@ DriverResult uhci_start(void *_device) {
 	usb_legacy_support_disabled = true;
 
 	io_out_word(uhci->io_base + UHCI_FRNUM, 0);
-	io_out_dword(uhci->io_base + UHCI_FRBASEADD, uhci->fl.frames_phy);
+	io_out_dword(uhci->io_base + UHCI_FRBASEADD, uhci->fl.frames_dma);
 
 	uint16_t cmd = io_in_word(uhci->io_base + UHCI_REG_CMD);
 	io_out_word(uhci->io_base + UHCI_REG_CMD, cmd | UHCI_CMD_RUN);
@@ -400,14 +417,33 @@ DriverResult uhci_pci_probe(
 	DriverResult result;
 
 	Uhci *uhci	   = kzalloc(sizeof(Uhci));
+	if (uhci == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 	uhci->device   = pci_device;
 	uhci->io_base  = io_base;
 	uhci->port_cnt = port_cnt;
+
+	// 创建 DmaDevice（UHCI 是 32 位 PCI 设备，DMA 地址必须 < 4GB）
+	if (physical_device->dma == NULL) {
+		DmaConstraints c	 = DMA_CONSTRAINTS_INIT(32);
+		physical_device->dma = dma_device_create(c, &dma_backend_identity, false);
+	}
+	if (physical_device->dma == NULL) {
+		kfree(uhci);
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
+	// 创建 TD/QH 共用 pool
+	uhci->td_qh_pool = dma_pool_create(
+		"UHCI-TdQh", physical_device->dma, sizeof(UhciTdQh), 16);
+	if (uhci->td_qh_pool == NULL) {
+		kfree(uhci);
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
 
 	result = usb_create_hcd(
 		&uhci->hcd, port_cnt, &uhci_hcd_ops, &uhci_logical_device_ops,
 		physical_device, &uhci_device_driver);
 	if (result != DRIVER_OK) {
+		dma_pool_destroy(uhci->td_qh_pool);
 		kfree(uhci);
 		return result;
 	}

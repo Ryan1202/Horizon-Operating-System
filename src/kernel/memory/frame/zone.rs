@@ -1,3 +1,5 @@
+use core::ops::Range;
+
 use crate::{arch::PhysAddr, kernel::memory::frame::FrameNumber};
 
 /// 内存区域类型
@@ -50,17 +52,17 @@ impl ZoneType {
         }
     }
 
-    pub const fn range(&self) -> (PhysAddr, PhysAddr) {
+    pub const fn range(&self) -> Range<PhysAddr> {
         match self {
             #[cfg(target_pointer_width = "32")]
-            ZoneType::LinearMem => (PhysAddr::new(0x100000), PhysAddr::new(0x30000000)),
+            ZoneType::LinearMem => PhysAddr::new(0x100000)..PhysAddr::new(0x30000000),
             #[cfg(target_pointer_width = "64")]
-            ZoneType::LinearMem => (PhysAddr::new(1 << 32), PhysAddr::new(usize::MAX)),
+            ZoneType::LinearMem => PhysAddr::new(1 << 32)..PhysAddr::new(usize::MAX),
 
             #[cfg(target_pointer_width = "32")]
-            ZoneType::MEM32 => (PhysAddr::new(0x30000000), PhysAddr::new(usize::MAX)),
+            ZoneType::MEM32 => PhysAddr::new(0x30000000)..PhysAddr::new(usize::MAX),
             #[cfg(target_pointer_width = "64")]
-            ZoneType::MEM32 => (PhysAddr::new(0), PhysAddr::new(1 << 32)),
+            ZoneType::MEM32 => PhysAddr::new(0)..PhysAddr::new(1 << 32),
         }
     }
 

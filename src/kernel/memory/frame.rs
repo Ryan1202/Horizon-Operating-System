@@ -256,6 +256,7 @@ impl Frame {
     }
 }
 
+/// 计算给定字节大小需要的页数，向上取整
 pub const fn frame_count(size: usize) -> usize {
     size.div_ceil(ArchPageTable::PAGE_SIZE)
 }

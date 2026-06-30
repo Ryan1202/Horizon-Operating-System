@@ -106,7 +106,7 @@ pub struct MemCache {
     /// 链表节点，连接到 MemCaches 的 list_head
     list: SyncUnsafeCell<ListNode<MemCache>>,
     /// 配置
-    pub(super) config: CacheConfig,
+    pub config: CacheConfig,
     /// 指向 Slub 的原子指针
     slub: AtomicPtr<Slub>,
     /// 单一节点（忽略 NUMA）

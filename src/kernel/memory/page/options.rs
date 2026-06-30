@@ -1,7 +1,4 @@
-use core::{
-    mem::{self, ManuallyDrop},
-    num::NonZeroUsize,
-};
+use core::{mem::ManuallyDrop, num::NonZeroUsize};
 
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable},
@@ -20,13 +17,13 @@ use crate::{
 
 #[derive(Debug, Clone, Copy)]
 pub struct PageAllocOptions {
-    frame: FrameAllocOptions,
-    contiguous: bool,
-    cache_type: PageCacheType,
-    zeroed: bool,
-    retry: RetryPolicy,
-
     count: Option<NonZeroUsize>,
+
+    frame: FrameAllocOptions,
+    retry: RetryPolicy,
+    cache_type: PageCacheType,
+    contiguous: bool,
+    zeroed: bool,
 }
 
 impl PageAllocOptions {
@@ -135,14 +132,13 @@ impl PageAllocOptions {
             let result = option.frame.allocate();
 
             match result {
-                Ok((mut frames, _zone)) => {
+                Ok((frames, _zone)) => {
                     debug_assert!(matches!(
                         frames.get_tag(),
                         FrameTag::Anonymous | FrameTag::AssignedFixed
                     ));
 
-                    pages.map(&mut frames, self.cache_type)?;
-                    mem::forget(frames);
+                    pages.map(frames, self.cache_type)?;
 
                     if first.is_none() {
                         first = Some(());
@@ -185,7 +181,7 @@ impl PageAllocOptions {
         let count = self.get_count();
 
         if self.contiguous {
-            let (mut frame, zone) = if let Some(count) = self.count {
+            let (frame, zone) = if let Some(count) = self.count {
                 let order = FrameOrder::new(count.get().next_power_of_two().ilog2() as u8);
                 let options = self.order(order);
                 options.frame.allocate()?
@@ -196,8 +192,7 @@ impl PageAllocOptions {
             if !is_linear(zone) {
                 let v = unsafe { get_vmap().allocate(count)?.as_mut() };
 
-                v.map(&mut frame, self.cache_type)?;
-                mem::forget(frame);
+                v.map(frame, self.cache_type)?;
 
                 let start = v.start_addr().to_page_number();
                 let end = start + v.frame_count - 1;

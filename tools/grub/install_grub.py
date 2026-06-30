@@ -74,7 +74,7 @@ def install_grub(disk_image_path, grub_dir_path, platform, fs, mods):
         if not os.path.isfile(os.path.join(_grub_dir_path, 'boot.img')):
             print(f"{_grub_dir_path}boot.img不存在，请检查")
             return
-        shutil.copy(os.path.join(grub_dir_path, 'boot.img'), boot_img_path)
+        shutil.copy(os.path.join(_grub_dir_path, 'boot.img'), boot_img_path)
 
     # 创建 core.img
     prefix_device = "(hd0,"

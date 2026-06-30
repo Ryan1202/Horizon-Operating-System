@@ -7,6 +7,7 @@
 #![feature(const_try)]
 #![feature(const_result_trait_fn)]
 #![feature(atomic_ptr_null)]
+#![feature(const_range)]
 
 use core::{fmt, panic::PanicInfo};
 

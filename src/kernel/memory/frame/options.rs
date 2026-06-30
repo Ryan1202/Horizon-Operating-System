@@ -12,8 +12,8 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub struct FrameAllocOptions {
     alloc_type: FrameAllocType,
-    fallback: FallbackChain,
     retry: RetryPolicy,
+    fallback: FallbackChain,
 }
 
 impl FrameAllocOptions {
@@ -120,7 +120,7 @@ pub struct FallbackChain {
 #[derive(Debug, Clone, Copy)]
 pub enum RetryPolicy {
     FastFail,
-    Retry(usize),
+    Retry(u8),
 }
 
 #[derive(Debug, Clone, Copy)]
