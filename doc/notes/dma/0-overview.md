@@ -1,5 +1,7 @@
 # 类型
 
+生命周期、FFI 所有权和 C 侧调用约束见 [1-lifecycle-and-ffi.md](1-lifecycle-and-ffi.md)。
+
 DMA 根据分配的方式区别有几个不同系列的API
 
 - Coherent：用于分配一组满足设备要求的物理连续的页，可以直接被内核或设备访问
