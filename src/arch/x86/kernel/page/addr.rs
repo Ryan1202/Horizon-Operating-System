@@ -1,4 +1,4 @@
-use core::ptr::{with_exposed_provenance, with_exposed_provenance_mut};
+use core::ptr::{NonNull, with_exposed_provenance, with_exposed_provenance_mut};
 
 use crate::{
     arch::ArchPageTable,
@@ -53,6 +53,24 @@ impl_page_addr!(PhysAddr, ArchPageTable::PAGE_SIZE);
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Eq, Ord)]
 pub struct VirtAddr(usize);
+
+impl<T> From<*const T> for VirtAddr {
+    fn from(value: *const T) -> Self {
+        Self(value.addr())
+    }
+}
+
+impl<T> From<*mut T> for VirtAddr {
+    fn from(value: *mut T) -> Self {
+        Self(value.addr())
+    }
+}
+
+impl<T> From<NonNull<T>> for VirtAddr {
+    fn from(value: NonNull<T>) -> Self {
+        Self(value.as_ptr().addr())
+    }
+}
 
 impl VirtAddr {
     pub const fn new(addr: usize) -> Self {

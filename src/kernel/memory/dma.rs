@@ -1,12 +1,17 @@
 use core::{
     ffi::{CStr, c_char, c_int, c_void},
-    mem::size_of,
-    num::{NonZeroU16, NonZeroUsize},
-    ptr::{NonNull, drop_in_place, null_mut},
+    num::NonZeroU16,
+    ptr::{NonNull, null_mut},
     sync::atomic::Ordering,
 };
 
-use crate::{CACHELINE_SIZE, arch::ArchPageTable};
+use alloc::boxed::Box;
+
+use crate::{
+    CACHELINE_SIZE,
+    arch::ArchPageTable,
+    kernel::memory::kmalloc::{Atomic, Kmalloc},
+};
 use crate::{
     impl_addr,
     kernel::memory::{
@@ -16,7 +21,6 @@ use crate::{
             scatter_gather::EntryList as DmaScatterList, source::pool::Pool,
         },
         frame::TOTAL_PAGES,
-        kmalloc::{kfree, kmalloc},
     },
 };
 
@@ -87,27 +91,16 @@ pub extern "C" fn device_create_c(
 
     let device = Device::new(constraints, *backend, coherent != 0);
 
-    const DMA_DEVICE_SIZE: NonZeroUsize = NonZeroUsize::new(size_of::<Device>()).unwrap();
-    match kmalloc::<Device>(DMA_DEVICE_SIZE) {
-        Some(ptr) => {
-            unsafe { ptr.as_ptr().write(device) };
-            ptr.as_ptr()
-        }
-        None => {
-            printk!("WARNING: dma_device_create failed: out of memory\n");
-            null_mut()
-        }
+    match Box::try_new_in(device, Kmalloc::<Atomic>::default()) {
+        Ok(b) => Box::leak(b),
+        Err(_) => null_mut(),
     }
 }
 
 #[unsafe(export_name = "dma_device_destroy")]
 pub extern "C" fn device_destroy_c(device: *mut Device) {
     if let Some(device) = NonNull::new(device) {
-        unsafe { drop_in_place(device.as_ptr()) };
-
-        if let Err(e) = kfree(device) {
-            printk!("WARNING: dma_device_destroy failed: {:?}\n", e);
-        }
+        unsafe { Box::from_non_null_in(device, Kmalloc::<Atomic>::default()) };
     }
 }
 
@@ -120,13 +113,9 @@ pub extern "C" fn alloc_coherent_c(device: *mut Device, size: usize) -> *mut Dma
     match device.alloc_coherent(size) {
         Ok(handle) => {
             // 堆分配 handle 并返回指针，C 侧负责管理生命周期
-            const HANDLE_SIZE: NonZeroUsize = NonZeroUsize::new(size_of::<DmaHandle>()).unwrap();
-            match kmalloc::<DmaHandle>(HANDLE_SIZE) {
-                Some(ptr) => {
-                    unsafe { ptr.as_ptr().write(handle) };
-                    ptr.as_ptr()
-                }
-                None => {
+            match Box::try_new_in(handle, Kmalloc::<Atomic>::default()) {
+                Ok(b) => Box::leak(b),
+                Err(_) => {
                     printk!("WARNING: dma_alloc_coherent failed: out of memory for handle\n");
 
                     null_mut()
@@ -150,13 +139,8 @@ pub extern "C" fn free_coherent_c(handle: *mut DmaHandle) {
         return;
     };
 
-    unsafe { drop_in_place(handle_ptr.as_ptr()) };
-
-    if let Err(e) = kfree(handle_ptr) {
-        printk!(
-            "WARNING: dma_free_coherent failed to free handle memory: {:?}\n",
-            e
-        );
+    unsafe {
+        Box::from_non_null_in(handle_ptr, Kmalloc::<Atomic>::default());
     }
 }
 
@@ -250,7 +234,8 @@ pub extern "C" fn sg_create_segment_c(capacity: c_int) -> *mut DmaScatterList {
     let Some(entries_count) = checked_entries_count(capacity) else {
         return null_mut();
     };
-    DmaScatterList::create_segment(entries_count).map_or(null_mut(), NonNull::as_ptr)
+    DmaScatterList::create_segment::<Kmalloc>(entries_count)
+        .map_or(null_mut(), |b| Box::leak(b).as_mut_ptr())
 }
 
 /// 在已分配的内存上初始化 scatter list，不建议使用
@@ -343,19 +328,13 @@ pub extern "C" fn map_single_c(
     };
 
     match device.map_single(ptr, size, direction) {
-        Ok(handle) => {
-            const HANDLE_SIZE: NonZeroUsize = NonZeroUsize::new(size_of::<DmaHandle>()).unwrap();
-            match kmalloc::<DmaHandle>(HANDLE_SIZE) {
-                Some(ptr) => {
-                    unsafe { ptr.as_ptr().write(handle) };
-                    ptr.as_ptr()
-                }
-                None => {
-                    printk!("WARNING: dma_map_single failed: out of memory for handle\n");
-                    null_mut()
-                }
+        Ok(handle) => match Box::try_new_in(handle, Kmalloc::<Atomic>::default()) {
+            Ok(b) => Box::leak(b),
+            Err(_) => {
+                printk!("WARNING: dma_map_single failed: out of memory for handle\n");
+                null_mut()
             }
-        }
+        },
         Err(e) => {
             printk!(
                 "WARNING: dma_map_single failed: size = {:#x}, error = {:?}\n",
@@ -372,12 +351,8 @@ pub extern "C" fn unmap_single_c(handle: *mut DmaHandle) {
     let Some(handle_ptr) = NonNull::new(handle) else {
         return;
     };
-    unsafe { drop_in_place(handle_ptr.as_ptr()) };
-    if let Err(e) = kfree(handle_ptr) {
-        printk!(
-            "WARNING: failed to free DMA handle in dma_unmap_single: {:?}\n",
-            e
-        );
+    unsafe {
+        Box::from_non_null_in(handle_ptr, Kmalloc::<Atomic>::default());
     }
 }
 

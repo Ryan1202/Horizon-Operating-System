@@ -12,6 +12,11 @@
 #![feature(const_result_trait_fn)]
 #![feature(atomic_ptr_null)]
 #![feature(const_range)]
+#![feature(allocator_api)]
+#![feature(const_default)]
+#![feature(const_convert)]
+
+extern crate alloc;
 
 use core::{fmt, panic::PanicInfo};
 

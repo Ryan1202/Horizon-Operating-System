@@ -1,5 +1,7 @@
 use core::{
+    alloc::{AllocError, Allocator, GlobalAlloc, Layout},
     ffi::c_void,
+    marker::PhantomData,
     mem::transmute,
     num::NonZeroUsize,
     ptr::{NonNull, null_mut},
@@ -15,6 +17,105 @@ use crate::{
         slub::{Slub, config::select_cache},
     },
 };
+
+/// `PanicAllocator` 是一个在分配时直接触发 panic 的假分配器，用来当作全局分配器的占位符以通过编译，防止在内核初始化之前使用全局分配器
+#[global_allocator]
+static PANIC_ALLOCATOR: PanicAllocator = PanicAllocator;
+
+struct PanicAllocator;
+
+/// `Kmalloc` 为该类型实现了不会陷入等待的内核堆分配器
+pub struct Atomic;
+
+/// `Kmalloc` 为该类型实现了可能陷入等待的内核堆分配器
+pub struct Kernel;
+
+/// 内核堆分配器
+///
+/// `T` 是分配器的类型参数，表示分配器的行为特性。`Atomic` 表示不会等待的分配器，适用于内核中需要保证原子性的场景。
+#[derive(Clone, Copy)]
+pub struct Kmalloc<T = Kernel> {
+    _marker: PhantomData<T>,
+}
+
+impl<T> Kmalloc<T> {
+    pub const fn new() -> Self {
+        Kmalloc {
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> Default for Kmalloc<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+unsafe impl GlobalAlloc for PanicAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        panic!(
+            "Attempted to allocate memory before kernel heap initialization: size = {}, align = {}",
+            layout.size(),
+            layout.align()
+        );
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        panic!(
+            "Attempted to deallocate memory before kernel heap initialization: ptr = {:p}, size = {}, align = {}",
+            ptr,
+            layout.size(),
+            layout.align()
+        );
+    }
+}
+
+unsafe impl Allocator for Kmalloc<Atomic> {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        let size = match NonZeroUsize::new(layout.size()) {
+            Some(size) => size,
+            None => return Err(AllocError),
+        };
+
+        let ptr = kmalloc(size).ok_or(AllocError)?;
+        Ok(NonNull::slice_from_raw_parts(ptr, layout.size()))
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        if let Err(e) = kfree(ptr) {
+            printk!(
+                "WARNING: Failed to free memory at {:p} of size {}: {:?}",
+                ptr.as_ptr(),
+                layout.size(),
+                e
+            );
+        }
+    }
+}
+
+unsafe impl Allocator for Kmalloc<Kernel> {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
+        let size = match NonZeroUsize::new(layout.size()) {
+            Some(size) => size,
+            None => return Err(AllocError),
+        };
+
+        let ptr = kmalloc(size).ok_or(AllocError)?;
+        Ok(NonNull::slice_from_raw_parts(ptr, layout.size()))
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
+        if let Err(e) = kfree(ptr) {
+            printk!(
+                "WARNING: Failed to free memory at {:p} of size {}: {:?}",
+                ptr.as_ptr(),
+                layout.size(),
+                e
+            );
+        }
+    }
+}
 
 #[unsafe(export_name = "kmalloc")]
 pub extern "C" fn kmalloc_c(size: usize) -> *mut c_void {

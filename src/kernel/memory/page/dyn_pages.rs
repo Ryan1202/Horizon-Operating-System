@@ -1,4 +1,6 @@
-use core::{mem, num::NonZeroUsize, ptr::NonNull};
+use core::{mem, num::NonZeroUsize};
+
+use alloc::boxed::Box;
 
 use crate::{
     arch::{ArchPageTable, VirtAddr},
@@ -9,7 +11,7 @@ use crate::{
             Frame,
             reference::{SharedFrames, UniqueFrames},
         },
-        kmalloc::kmalloc,
+        kmalloc::Kmalloc,
         page::{PageFlags, PageTableError, PageTableOps, current_root_pt, range::VmRange},
     },
     lib::rust::rbtree::linked::LinkedRbNodeBase,
@@ -61,7 +63,7 @@ impl DynPages {
 
     /// 从当前 VirtPages 中切出 count 个页
     /// 修改当前节点范围为 [start+count, end]，创建新节点 [start, start+count-1] 并返回
-    pub(super) unsafe fn split(&mut self, count: NonZeroUsize) -> Option<NonNull<DynPages>> {
+    pub(super) unsafe fn split(&mut self, count: NonZeroUsize) -> Option<Box<DynPages, Kmalloc>> {
         let range = self.rb_node.get_key();
         let old_start = range.start;
 
@@ -74,15 +76,13 @@ impl DynPages {
         }
 
         // 分配新节点存储分配部分
-        let allocated =
-            kmalloc::<DynPages>(unsafe { NonZeroUsize::new_unchecked(size_of::<DynPages>()) })?;
-
-        unsafe {
-            allocated.write(DynPages::new(VmRange {
+        let allocated = Box::new_in(
+            DynPages::new(VmRange {
                 start: old_start,
                 end: split_point - 1,
-            }));
-        }
+            }),
+            Kmalloc::default(),
+        );
 
         Some(allocated)
     }

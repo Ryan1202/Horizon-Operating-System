@@ -1,11 +1,6 @@
-use core::{
-    cell::SyncUnsafeCell,
-    mem::MaybeUninit,
-    num::{NonZeroU16, NonZeroUsize},
-    ops::Range,
-    ptr::NonNull,
-    slice,
-};
+use core::{cell::SyncUnsafeCell, mem::MaybeUninit, num::NonZeroU16, ops::Range, ptr::NonNull};
+
+use ::alloc::boxed::Box;
 
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
@@ -13,8 +8,12 @@ use crate::{
     kernel::memory::{
         MemoryError,
         dma::Device,
-        frame::{buddy::FrameOrder, options::FrameAllocOptions, zone::ZoneType},
-        kmalloc::kmalloc,
+        frame::{
+            buddy::{FrameOrder, MAX_ORDER},
+            options::FrameAllocOptions,
+            zone::ZoneType,
+        },
+        kmalloc::{Atomic, Kmalloc},
         page::{PageTableOps, current_root_pt, options::PageAllocOptions},
     },
     lib::rust::spinlock::Spinlock,
@@ -23,14 +22,21 @@ use crate::{
 const SLOT_SIZE: u16 = 2048;
 const MAX_ALLOC_SLOTS: u16 = 128;
 const TOTAL_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
+const TOTAL_SLOTS: usize = TOTAL_SIZE / SLOT_SIZE as usize;
+
+const _: () = assert!(
+    TOTAL_SIZE <= MAX_ORDER.to_size(),
+    "SWIOTLB: TOTAL_SIZE exceeds maximum frame order size"
+);
 
 const TOTAL_AREAS: usize = 4;
+const SLOT_PER_AREA: usize = TOTAL_SLOTS / TOTAL_AREAS;
 
 pub struct BouncePool {
     vaddr_base: VirtAddr,
     paddr_base: BounceAddr,
     total_slots: u16,
-    areas: &'static [IotlbArea],
+    areas: Box<[IotlbArea; TOTAL_AREAS], Kmalloc<Atomic>>,
 }
 
 pub struct IotlbArea {
@@ -93,6 +99,18 @@ impl BounceAddr {
     pub const fn align_to_slot(&self) -> BounceAddr {
         let offset = self.0 % SLOT_SIZE as usize;
         BounceAddr(self.0 - offset)
+    }
+}
+
+impl const Default for SlotMeta {
+    fn default() -> Self {
+        SlotMeta {
+            origin_addr: PhysAddr::new(0),
+            origin_size: 0,
+            n_slots: Some(NonZeroU16::new(1).unwrap()),
+            padding_slots: 0,
+            allocation_head: false,
+        }
     }
 }
 
@@ -428,7 +446,6 @@ impl BouncePool {
 
 #[unsafe(export_name = "swiotlb_init")]
 pub extern "C" fn init() {
-    let total_slots = TOTAL_SIZE / SLOT_SIZE as usize;
     let order = FrameOrder::from_size(TOTAL_SIZE);
 
     let frame_options = FrameAllocOptions::new()
@@ -445,37 +462,24 @@ pub extern "C" fn init() {
         .expect("SWIOTLB: failed to translate pool virt addr");
     let paddr_base = BounceAddr(paddr_base.as_usize());
 
-    let slot_bytes = NonZeroUsize::new(total_slots * size_of::<SlotMeta>()).unwrap();
-    let slots_ptr =
-        kmalloc::<SlotMeta>(slot_bytes).expect("SWIOTLB: failed to allocate slot metadata");
+    let mut slots = Box::new_in(
+        [const { SlotMeta::default() }; TOTAL_SLOTS],
+        Kmalloc::<Atomic>::default(),
+    );
 
-    let slots = unsafe { slice::from_raw_parts_mut(slots_ptr.as_ptr(), total_slots) };
-
-    for i in 0..total_slots {
-        unsafe {
-            let n_slots = (total_slots - i) as u16;
-            let n_slots = NonZeroU16::new_unchecked(n_slots);
-            let n_slots = Some(n_slots);
-
-            slots[i] = SlotMeta {
-                origin_addr: PhysAddr::new(0),
-                origin_size: 0,
-                n_slots,
-                padding_slots: 0,
-                allocation_head: false,
-            };
-        }
+    for (i, slot) in slots.iter_mut().enumerate() {
+        slot.n_slots = Some(NonZeroU16::new((TOTAL_SLOTS - i) as u16).unwrap());
     }
 
-    let area_bytes = NonZeroUsize::new(TOTAL_AREAS * size_of::<IotlbArea>()).unwrap();
-    let areas_ptr: *mut IotlbArea = kmalloc::<IotlbArea>(area_bytes)
-        .expect("SWIOTLB: failed to allocate area metadata")
-        .as_ptr();
+    let mut areas = Box::new_in(
+        [const { MaybeUninit::uninit() }; TOTAL_AREAS],
+        Kmalloc::<Atomic>::default(),
+    );
 
-    let slots_per_area = total_slots.div_ceil(TOTAL_AREAS);
+    let slots = Box::leak(slots);
 
-    for (i, area_slots) in slots.chunks_mut(slots_per_area).enumerate() {
-        let area_start = i * slots_per_area;
+    for (i, area_slots) in slots.chunks_mut(SLOT_PER_AREA).enumerate() {
+        let area_start = i * SLOT_PER_AREA;
 
         let inner = AreaInner {
             used: 0,
@@ -484,19 +488,18 @@ pub extern "C" fn init() {
             slots: area_slots,
         };
 
-        unsafe {
-            areas_ptr.add(i).write(IotlbArea {
-                lock: Spinlock::new(inner),
-            });
-        }
+        areas[i].write(IotlbArea {
+            lock: Spinlock::new(inner),
+        });
     }
 
-    let areas: &'static [IotlbArea] =
-        unsafe { core::slice::from_raw_parts(areas_ptr, TOTAL_AREAS) };
+    let (raw, allocator) = Box::into_raw_with_allocator(areas);
+    let areas = unsafe { Box::from_raw_in(raw as *mut [IotlbArea; TOTAL_AREAS], allocator) };
+
     let pool = BouncePool {
         vaddr_base,
         paddr_base,
-        total_slots: total_slots as u16,
+        total_slots: TOTAL_SLOTS as u16,
         areas,
     };
     unsafe { (*BOUNCE_POOL.get()).write(pool) };

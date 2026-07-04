@@ -1,6 +1,6 @@
 use core::{
     ffi::c_void,
-    mem::ManuallyDrop,
+    mem::{self, ManuallyDrop},
     num::NonZeroUsize,
     ptr::{NonNull, null_mut},
 };
@@ -27,7 +27,11 @@ pub extern "C" fn ioremap_c(
     cache_type: PageCacheType,
 ) -> *mut core::ffi::c_void {
     match ioremap(PhysAddr::new(addr), size, cache_type) {
-        Ok(mut ptr) => ptr.get_ptr().as_ptr(),
+        Ok(mut pages) => {
+            let ptr = pages.get_ptr().as_ptr();
+            mem::forget(pages);
+            ptr
+        }
         Err(e) => {
             printk!(
                 "WARNING: calling ioremap from C failed: addr = {:#x}, size = {:#x}, error = {:?}\n",
@@ -77,11 +81,11 @@ pub extern "C" fn vmalloc_c(size: usize, cache_type: PageCacheType) -> *mut c_vo
     }
 }
 
-pub fn ioremap<'a>(
+pub fn ioremap(
     addr: PhysAddr,
     size: usize,
     cache_type: PageCacheType,
-) -> Result<Pages<'a>, MemoryError> {
+) -> Result<Pages, MemoryError> {
     let start = addr.to_frame_number();
     let count = frame_count(size);
     let non_zero_count = NonZeroUsize::new(count).ok_or(MemoryError::InvalidSize(size))?;

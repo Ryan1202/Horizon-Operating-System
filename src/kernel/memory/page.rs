@@ -15,6 +15,7 @@ use crate::{
             buddy::FrameOrder,
             reference::{SharedFrames, UniqueFrames},
         },
+        kmalloc::Kmalloc,
         page::{dyn_pages::DynPages, options::PageAllocOptions},
         vmalloc::vfree,
     },
@@ -30,6 +31,7 @@ pub mod table;
 mod tlb;
 pub(super) mod vmap;
 
+use alloc::boxed::Box;
 pub use flags::PageFlags;
 pub use table::{
     MappingChunk, PageEntrySlot, PageTable, PageTableEntry, PageTableError, PageTableOps,
@@ -92,12 +94,12 @@ impl const Sub<usize> for PageNumber {
     }
 }
 
-pub enum Pages<'a> {
+pub enum Pages {
     Linear(ManuallyDrop<UniqueFrames>),
-    Dynamic(&'a mut DynPages),
+    Dynamic(Box<DynPages, Kmalloc>),
 }
 
-impl<'a> Pages<'a> {
+impl Pages {
     pub fn start_addr(&self) -> VirtAddr {
         match self {
             Pages::Linear(frame) => KLINEAR_BASE + frame.start_addr().as_usize(),
@@ -131,7 +133,7 @@ impl<'a> Pages<'a> {
     }
 }
 
-pub fn kmalloc_pages<'a>(count: NonZeroUsize) -> Result<Pages<'a>, MemoryError> {
+pub fn kmalloc_pages<'a>(count: NonZeroUsize) -> Result<Pages, MemoryError> {
     let order = FrameOrder::new(count.get().next_power_of_two().ilog2() as u8);
 
     let page_options = PageAllocOptions::kernel(order);

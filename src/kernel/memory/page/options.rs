@@ -177,7 +177,7 @@ impl PageAllocOptions {
         }
     }
 
-    fn try_alloc<'a>(&self) -> Result<Pages<'a>, MemoryError> {
+    fn try_alloc(&self) -> Result<Pages, MemoryError> {
         let count = self.get_count();
 
         if self.contiguous {
@@ -190,7 +190,7 @@ impl PageAllocOptions {
             };
 
             if !is_linear(zone) {
-                let v = unsafe { get_vmap().allocate(count)?.as_mut() };
+                let mut v = get_vmap().allocate(count)?;
 
                 v.map(frame, self.cache_type)?;
 
@@ -203,27 +203,15 @@ impl PageAllocOptions {
                 Ok(Pages::Linear(ManuallyDrop::new(frame)))
             }
         } else {
-            let v = unsafe { get_vmap().allocate(count)?.as_mut() };
+            let mut v = get_vmap().allocate(count)?;
 
-            let result = self.alloc_discontiguous(v);
-
-            if result.is_err() {
-                let _ = get_vmap().deallocate(v).inspect_err(|e| {
-                    printk!(
-                        "Failed to free virtual memory since {}, error: {:?} (memory leaked)",
-                        v.start_addr(),
-                        e
-                    )
-                });
-
-                result?;
-            }
+            self.alloc_discontiguous(&mut v)?;
 
             Ok(Pages::Dynamic(v))
         }
     }
 
-    pub fn allocate<'a>(&self) -> Result<Pages<'a>, MemoryError> {
+    pub fn allocate(&self) -> Result<Pages, MemoryError> {
         let mut pages = self.try_alloc().or_else(|e| match self.retry {
             RetryPolicy::FastFail => Err(e),
             RetryPolicy::Retry(n) => {

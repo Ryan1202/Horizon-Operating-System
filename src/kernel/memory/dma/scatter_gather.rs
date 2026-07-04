@@ -1,4 +1,6 @@
-use core::{num::NonZeroUsize, ptr::NonNull, slice};
+use core::{ptr::NonNull, slice};
+
+use alloc::{alloc::Allocator, boxed::Box};
 
 use crate::{
     arch::{PhysAddr, VirtAddr},
@@ -9,7 +11,7 @@ use crate::{
             source::{BouncePool, software_iotlb::BounceAddr},
         },
         frame::Frame,
-        kmalloc::{kfree, kmalloc},
+        kmalloc::kfree,
     },
 };
 
@@ -96,10 +98,7 @@ impl EntryList {
     }
 
     pub const fn clear(&mut self) {
-        self.entry_type = EntryTypeRaw::EMPTY;
-        self.offset = 0;
-        self.size = 0;
-        self.dma_addr = DmaAddr::new(0);
+        *self = Self::empty();
     }
 
     /// 设置 END 标记，仅供内部使用
@@ -129,27 +128,28 @@ impl EntryList {
     /// `next` 必须是通过 `EntryList::create_segment` 分配的，并且没有被释放过
     ///
     /// 需要确保当前 entry 不含有效数据，否则会导致内存泄漏
-    unsafe fn force_set_chain(&mut self, next: NonNull<EntryList>) {
-        self.entry_type = EntryType::Chain(next).to_raw(false);
+    unsafe fn force_set_chain(&mut self, next: &mut [EntryList]) {
+        self.entry_type = EntryType::Chain(NonNull::from_ref(next).cast()).to_raw(false);
     }
 
     /// 分配 `capacity` 个连续 EntryList。
     ///
     /// 前 capacity-1 个初始化为零（frame=0，无标志），最后一个设 END。
-    pub fn create_segment(capacity: usize) -> Option<NonNull<EntryList>> {
-        let size = NonZeroUsize::new(capacity.checked_mul(size_of::<EntryList>())?)?;
-        let head = kmalloc::<EntryList>(size)?;
+    pub fn create_segment<A: Allocator + Default>(capacity: usize) -> Option<Box<[EntryList], A>> {
+        let mut entries = Box::try_new_uninit_slice_in(capacity, A::default()).ok()?;
 
-        let entries = unsafe { core::slice::from_raw_parts_mut(head.as_ptr(), capacity) };
         for entry in entries.iter_mut() {
-            entry.clear();
+            entry.write(EntryList::empty());
         }
+
+        let mut entries = unsafe { entries.assume_init() };
+
         // 最后一个 slot 标记数组结束
         if capacity > 0 {
             entries[capacity - 1].mark_end();
         }
 
-        Some(head)
+        Some(entries)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -202,26 +202,25 @@ impl EntryList {
     /// 当前 entry 设 `CHAIN`，分配新 segment，返回新 segment head
     ///
     /// 仅在当前 entry 为 `END` 时成功
-    pub fn extend(&mut self, new_capacity: usize) -> Option<NonNull<EntryList>> {
+    pub fn extend<A: Allocator + Default>(
+        &mut self,
+        new_capacity: usize,
+    ) -> Option<Box<[EntryList], A>> {
         match self.entry_type.get() {
-            (EntryType::Array(Some(frame)), true) => {
-                let mut new_head = Self::create_segment(new_capacity)?;
+            (EntryType::Array(frame), true) => {
+                let mut new_entries = Self::create_segment(new_capacity)?;
 
-                unsafe {
-                    *new_head.as_mut() = EntryList {
+                if let Some(frame) = frame {
+                    new_entries[0] = EntryList {
                         entry_type: EntryType::Array(Some(frame)).to_raw(false),
                         offset: self.offset,
                         size: self.size,
                         dma_addr: self.dma_addr,
                     };
-                    self.force_set_chain(new_head);
+                    unsafe { self.force_set_chain(&mut new_entries) }
                 }
-                Some(new_head)
-            }
-            (EntryType::Array(None), true) => {
-                let new_head = Self::create_segment(new_capacity)?;
-                unsafe { self.force_set_chain(new_head) };
-                Some(new_head)
+
+                Some(new_entries)
             }
             _ => {
                 // 当前 entry 不是 `Array(None)` 或者不是 `END`，无法扩展
@@ -298,6 +297,7 @@ impl EntryList {
     ///
     /// 必须已经释放了所有的 bounce buffer，否则会导致内存泄漏
     unsafe fn destroy_array(head: NonNull<EntryList>) {
+        // 由于没有保存长度，所以只能直接用 kfree 而不是 Box
         if let Err(e) = kfree(head) {
             printk!(
                 "WARN: Failed to free EntryList segment at {:p}: {:?}",
