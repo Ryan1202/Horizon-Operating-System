@@ -1,10 +1,3 @@
-// no external imports required
-
-#[cfg(any(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    all(target_has_atomic = "64", target_pointer_width = "32")
-))]
-use core::ops::{Deref, DerefMut};
 use core::{
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
@@ -24,6 +17,9 @@ pub struct Link<Owner> {
     pub next: NonNull<Link<Owner>>,
     _phantom: (PhantomData<Owner>, PhantomPinned),
 }
+
+unsafe impl<Owner: Send> Send for Link<Owner> {}
+unsafe impl<Owner: Sync> Sync for Link<Owner> {}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -86,8 +82,8 @@ impl<Owner> ListHead<Owner> {
     }
 
     #[inline(always)]
-    pub fn del(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
-        node.del();
+    pub fn delete(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+        node.delete();
     }
 
     #[inline(always)]
@@ -131,112 +127,6 @@ impl<Owner> Iterator for ListIterator<Owner> {
 
         // 转换到 Owner 类型
         current.map(|p| unsafe { p.byte_offset(self.offset).cast() })
-    }
-}
-
-#[cfg(any(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    all(target_has_atomic = "64", target_pointer_width = "32")
-))]
-#[cfg_attr(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    repr(align(16))
-)]
-#[cfg_attr(
-    all(target_has_atomic = "64", target_pointer_width = "32"),
-    repr(align(8))
-)]
-pub struct AtomicListNode<Owner> {
-    inner: ListNode<Owner>,
-}
-
-#[cfg(any(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    all(target_has_atomic = "64", target_pointer_width = "32")
-))]
-impl<Owner> Deref for AtomicListNode<Owner> {
-    type Target = ListNode<Owner>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-#[cfg(any(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    all(target_has_atomic = "64", target_pointer_width = "32")
-))]
-impl<Owner> DerefMut for AtomicListNode<Owner> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-#[cfg(any(
-    all(target_has_atomic = "128", target_pointer_width = "64"),
-    all(target_has_atomic = "64", target_pointer_width = "32")
-))]
-impl<Owner> AtomicListNode<Owner> {
-    /// 尝试以一致的方式读取 `ListNode { head, tail }` 的快照，返回
-    /// 一对 `Option<NonNull<ListNode<Owner>>>`（head, tail）。
-    ///
-    /// 成功时返回 `ListNode { head, tail }`快照（可能通过原子加载或通过加锁回退），
-    /// 在走原子路径时本函数不会阻塞；否则会获取锁以安全读取。
-    #[allow(unused)]
-    fn get_atomic_snapshot(&mut self) -> ListNode<Owner> {
-        // 注意：下面的导入放在 cfg 分支中，以避免在某些目标上出现
-        // “未使用的导入”警告。
-        // 64 位指针被打包为 128 位整数
-        #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::AtomicU128;
-
-            let ptr: *mut AtomicU128 = unsafe { transmute(self.inner.get()) };
-
-            let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
-
-            return unsafe { transmute::<u128, ListNode<Owner>>(v) };
-        }
-
-        // 32 位指针被打包为 64-bit 位整数
-        #[cfg(all(target_has_atomic = "64", target_pointer_width = "32"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::AtomicU64;
-
-            let ptr: *mut AtomicU64 = self.deref_mut() as *mut ListNode<Owner> as *mut AtomicU64;
-
-            let v = unsafe { &*ptr }.load(core::sync::atomic::Ordering::Relaxed);
-
-            unsafe { transmute::<u64, ListNode<Owner>>(v) }
-        }
-    }
-
-    #[allow(unused)]
-    fn set_atomic(&mut self, new: ListHead<Owner>) {
-        // 64 位指针被打包为 128 位整数（低 64 位存 head，高 64 位存 tail）
-        #[cfg(all(target_has_atomic = "128", target_pointer_width = "64"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::{AtomicU128, Ordering};
-
-            let ptr: *mut AtomicU128 = unsafe { transmute(self.inner.get()) };
-            let new: u128 = transmute(new);
-            unsafe { &*ptr }.store(new, Ordering::Release);
-            return;
-        }
-
-        // 32-bit pointers packed into 64-bit integer (low=head, high=tail)
-        #[cfg(all(target_has_atomic = "64", target_pointer_width = "32"))]
-        {
-            use core::mem::transmute;
-            use core::sync::atomic::{AtomicU64, Ordering};
-
-            let ptr: *mut AtomicU64 = self.deref_mut() as *mut ListNode<Owner> as *mut AtomicU64;
-            let new: u64 = unsafe { transmute(new) };
-            unsafe { &*ptr }.store(new, Ordering::Release);
-        }
     }
 }
 
@@ -319,7 +209,7 @@ impl<Owner> ListNode<Owner> {
     }
 
     #[inline(always)]
-    fn del(self: Pin<&mut Self>) {
+    fn delete(self: Pin<&mut Self>) {
         unsafe {
             let link = &mut self.get_unchecked_mut().link;
 

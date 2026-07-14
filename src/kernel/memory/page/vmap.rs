@@ -103,7 +103,7 @@ impl Vmap {
 
         unsafe {
             let mut list_head = Pin::new_unchecked(list_head.deref_mut());
-            list_head.del(rb_node.as_mut().augment.get_list());
+            list_head.delete(rb_node.as_mut().augment.get_list());
         }
         Some(unsafe { Box::from_non_null_in(pages, Kmalloc::default()) })
     }

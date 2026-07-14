@@ -25,4 +25,4 @@ c = [
     "thread.c",
     "wait_queue.c",
 ]
-rust = ["memory/mod.rs"]
+rust = ["memory/mod.rs", "thread/mod.rs"]

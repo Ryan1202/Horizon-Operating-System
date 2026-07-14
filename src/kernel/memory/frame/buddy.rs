@@ -486,7 +486,7 @@ impl FrameAllocator for BuddyAllocator {
             if let Some(mut buddy) = iter {
                 let buddy = unsafe { buddy.as_mut() };
 
-                zone.get_free_list(order).del(buddy.get_list());
+                zone.get_free_list(order).delete(buddy.get_list());
 
                 let frame = unsafe { NonNull::from(Frame::from_child(buddy)) };
                 let frame = UniqueFrames::from_allocator(frame, order, self).unwrap();

@@ -65,7 +65,7 @@ impl PageNumber {
     }
 }
 
-impl const AddAssign<usize> for PageNumber {
+const impl AddAssign<usize> for PageNumber {
     fn add_assign(&mut self, rhs: usize) {
         self.0 = self
             .0
@@ -74,7 +74,7 @@ impl const AddAssign<usize> for PageNumber {
     }
 }
 
-impl const Add<usize> for PageNumber {
+const impl Add<usize> for PageNumber {
     type Output = Self;
 
     fn add(self, rhs: usize) -> Self::Output {
@@ -86,7 +86,7 @@ impl const Add<usize> for PageNumber {
     }
 }
 
-impl const Sub<usize> for PageNumber {
+const impl Sub<usize> for PageNumber {
     type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
@@ -95,7 +95,7 @@ impl const Sub<usize> for PageNumber {
 }
 
 pub enum Pages {
-    Linear(ManuallyDrop<UniqueFrames>),
+    Linear(UniqueFrames),
     Dynamic(Box<DynPages, Kmalloc>),
 }
 
@@ -107,7 +107,7 @@ impl Pages {
         }
     }
 
-    pub fn get_ptr<T>(&mut self) -> NonNull<T> {
+    pub fn get_ptr<T>(&self) -> NonNull<T> {
         NonNull::new(self.start_addr().as_mut_ptr()).unwrap()
     }
 
@@ -120,12 +120,12 @@ impl Pages {
 
     pub fn into_frame(self) -> Option<UniqueFrames> {
         match self {
-            Pages::Linear(frame) => Some(ManuallyDrop::into_inner(frame)),
+            Pages::Linear(frame) => Some(frame),
             Pages::Dynamic(_) => None,
         }
     }
 
-    pub fn get_count(&self) -> usize {
+    pub const fn get_count(&self) -> usize {
         match self {
             Pages::Linear(frame) => frame.order().to_count().get(),
             Pages::Dynamic(vpages) => vpages.frame_count,
@@ -167,7 +167,7 @@ pub fn kmalloc_pages_c(count: usize) -> *mut core::ffi::c_void {
 
     match result {
         Ok(pages) => {
-            let mut pages = ManuallyDrop::new(pages);
+            let pages = ManuallyDrop::new(pages);
             pages.get_ptr().as_ptr()
         }
         Err(e) => {
@@ -204,10 +204,8 @@ pub fn kfree_pages(vaddr: VirtAddr) -> Result<(), MemoryError> {
                 Err(MemoryError::UnavailableFrame)
             }
             _ => unsafe {
-                if let Some(unique) = UniqueFrames::try_from_raw(frame) {
-                    drop(unique);
-                } else if let Some(shared) = SharedFrames::from_raw(frame) {
-                    drop(shared);
+                if let Some(_) = UniqueFrames::try_from_raw(frame) {
+                } else if let Some(_) = SharedFrames::from_raw(frame) {
                 } else {
                     printk!(
                         "Trying to free frame without ownership path! vaddr: {:#x}, tag: {:?}",

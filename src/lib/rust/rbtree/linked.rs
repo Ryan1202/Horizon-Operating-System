@@ -53,7 +53,7 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
     }
     fn unlink_ext(&mut self, tree: &mut LinkedRbTreeBase<K, A, NA>) {
         let list_node = self.augment.get_list();
-        unsafe { Pin::new_unchecked(&mut tree.augment.list_head) }.del(list_node);
+        unsafe { Pin::new_unchecked(&mut tree.augment.list_head) }.delete(list_node);
     }
 }
 

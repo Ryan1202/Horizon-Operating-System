@@ -302,7 +302,7 @@ impl MemCache {
         let mut head = unsafe { (*CACHES.get()).assume_init_ref().list_head.lock() };
 
         let list = mem_cache.get_list();
-        unsafe { Pin::new_unchecked(&mut *head) }.del(list);
+        unsafe { Pin::new_unchecked(&mut *head) }.delete(list);
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));

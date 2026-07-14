@@ -1,4 +1,4 @@
-use core::{mem::ManuallyDrop, num::NonZeroUsize};
+use core::num::NonZeroUsize;
 
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable},
@@ -200,7 +200,7 @@ impl PageAllocOptions {
 
                 Ok(Pages::Dynamic(v))
             } else {
-                Ok(Pages::Linear(ManuallyDrop::new(frame)))
+                Ok(Pages::Linear(frame))
             }
         } else {
             let mut v = get_vmap().allocate(count)?;

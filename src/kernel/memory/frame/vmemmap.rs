@@ -1,4 +1,4 @@
-use core::{mem, num::NonZeroUsize, ops::ControlFlow, sync::atomic::Ordering};
+use core::{mem::ManuallyDrop, num::NonZeroUsize, ops::ControlFlow, sync::atomic::Ordering};
 
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable, PhysAddr},
@@ -31,7 +31,8 @@ fn metadata_range(start: FrameNumber, order: FrameOrder) -> (PageNumber, PageNum
 }
 
 fn map_vmemmap_page(page: PageNumber) -> Result<(), MemoryError> {
-    let (mut frame, _) = FrameAllocOptions::atomic(FrameOrder::new(0)).allocate()?;
+    let (frame, _) = FrameAllocOptions::atomic(FrameOrder::new(0)).allocate()?;
+    let mut frame = ManuallyDrop::new(frame);
 
     let paddr = PhysAddr::from_frame_number(frame.frame_number());
     let ptr = (KLINEAR_BASE + paddr.as_usize()).as_mut_ptr::<u8>();
@@ -45,7 +46,6 @@ fn map_vmemmap_page(page: PageNumber) -> Result<(), MemoryError> {
         &mut frame,
         PageFlags::new(),
     )?;
-    mem::forget(frame);
 
     VMEMMAP_MAPPED_PAGES.fetch_add(1, Ordering::Relaxed);
     ArchFlushTlb::flush_page(page);

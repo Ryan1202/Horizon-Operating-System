@@ -7,13 +7,13 @@ macro_rules! impl_addr {
             }
         }
 
-        impl const core::cmp::PartialEq for $name {
+        const impl core::cmp::PartialEq for $name {
             fn eq(&self, other: &Self) -> bool {
                 self.0 == other.0
             }
         }
 
-        impl const core::cmp::PartialOrd for $name {
+        const impl core::cmp::PartialOrd for $name {
             fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
                 self.0.partial_cmp(&other.0)
             }
@@ -25,7 +25,7 @@ macro_rules! impl_addr {
             }
         }
 
-        impl const core::ops::Add<usize> for $name {
+        const impl core::ops::Add<usize> for $name {
             type Output = Self;
 
             fn add(self, rhs: usize) -> Self::Output {
@@ -33,13 +33,13 @@ macro_rules! impl_addr {
             }
         }
 
-        impl core::ops::AddAssign<usize> for $name {
+        const impl core::ops::AddAssign<usize> for $name {
             fn add_assign(&mut self, rhs: usize) {
                 self.0 += rhs;
             }
         }
 
-        impl const core::ops::Sub<usize> for $name {
+        const impl core::ops::Sub<usize> for $name {
             type Output = Self;
 
             fn sub(self, rhs: usize) -> Self::Output {
@@ -47,7 +47,7 @@ macro_rules! impl_addr {
             }
         }
 
-        impl const core::ops::Sub for $name {
+        const impl core::ops::Sub for $name {
             type Output = usize;
 
             fn sub(self, rhs: Self) -> Self::Output {
@@ -55,7 +55,7 @@ macro_rules! impl_addr {
             }
         }
 
-        impl core::ops::SubAssign<usize> for $name {
+        const impl core::ops::SubAssign<usize> for $name {
             fn sub_assign(&mut self, rhs: usize) {
                 self.0 -= rhs;
             }

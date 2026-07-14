@@ -14,7 +14,7 @@
 #![feature(const_range)]
 #![feature(allocator_api)]
 #![feature(const_default)]
-#![feature(const_convert)]
+#![feature(abi_custom)]
 
 extern crate alloc;
 
@@ -44,7 +44,7 @@ impl fmt::Write for ConsoleOutput {
 #[macro_export]
 macro_rules! printk {
     ($($arg:tt)*) => {{
-        use core::fmt::Write;
+        use ::core::fmt::Write;
 
         let mut output = crate::ConsoleOutput;
         let _ = write!(output, $($arg)*);
@@ -63,4 +63,5 @@ pub mod lib {
 }
 pub mod kernel {
     pub mod memory;
+    pub mod thread;
 }

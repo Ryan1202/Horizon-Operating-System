@@ -43,7 +43,7 @@ impl Display for FrameNumber {
     }
 }
 
-impl const Add<usize> for FrameNumber {
+const impl Add<usize> for FrameNumber {
     type Output = FrameNumber;
 
     fn add(self, rhs: usize) -> Self::Output {
@@ -51,13 +51,13 @@ impl const Add<usize> for FrameNumber {
     }
 }
 
-impl const AddAssign<usize> for FrameNumber {
+const impl AddAssign<usize> for FrameNumber {
     fn add_assign(&mut self, rhs: usize) {
         self.0 += rhs;
     }
 }
 
-impl const Sub<usize> for FrameNumber {
+const impl Sub<usize> for FrameNumber {
     type Output = FrameNumber;
 
     fn sub(self, rhs: usize) -> Self::Output {

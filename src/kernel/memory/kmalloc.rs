@@ -2,7 +2,7 @@ use core::{
     alloc::{AllocError, Allocator, GlobalAlloc, Layout},
     ffi::c_void,
     marker::PhantomData,
-    mem::transmute,
+    mem::{ManuallyDrop, transmute},
     num::NonZeroUsize,
     ptr::{NonNull, null_mut},
 };
@@ -25,9 +25,11 @@ static PANIC_ALLOCATOR: PanicAllocator = PanicAllocator;
 struct PanicAllocator;
 
 /// `Kmalloc` 为该类型实现了不会陷入等待的内核堆分配器
+#[derive(Clone)]
 pub struct Atomic;
 
 /// `Kmalloc` 为该类型实现了可能陷入等待的内核堆分配器
+#[derive(Clone)]
 pub struct Kernel;
 
 /// 内核堆分配器
@@ -46,7 +48,7 @@ impl<T> Kmalloc<T> {
     }
 }
 
-impl<T> Default for Kmalloc<T> {
+const impl<T> Default for Kmalloc<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -145,7 +147,7 @@ pub fn kmalloc<T>(size: NonZeroUsize) -> Option<NonNull<T>> {
             let order = FrameOrder::new((ilog - ArchPageTable::PAGE_BITS) as u8);
 
             let page_options = PageAllocOptions::kernel(order);
-            let mut pages = page_options.allocate().ok()?;
+            let pages = ManuallyDrop::new(page_options.allocate().ok()?);
 
             Some(pages.get_ptr())
         }

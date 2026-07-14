@@ -102,7 +102,7 @@ impl BounceAddr {
     }
 }
 
-impl const Default for SlotMeta {
+const impl Default for SlotMeta {
     fn default() -> Self {
         SlotMeta {
             origin_addr: PhysAddr::new(0),

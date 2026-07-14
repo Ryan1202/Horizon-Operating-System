@@ -56,7 +56,7 @@ impl DynPages {
         Self::new(vm_range)
     }
 
-    pub const fn start_addr(&self) -> VirtAddr {
+    pub fn start_addr(&self) -> VirtAddr {
         let addr = self.rb_node.get_key().start.get() * ArchPageTable::PAGE_SIZE;
         VirtAddr::new(addr)
     }

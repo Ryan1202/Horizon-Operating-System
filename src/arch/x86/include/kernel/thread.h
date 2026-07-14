@@ -153,4 +153,8 @@ void init_task(void);
 void schedule(void);
 void thread_wait_children(struct task_s *parent);
 
+// -------------
+
+void thread_manager_init(void (*main_thread)(void *arg));
+
 #endif

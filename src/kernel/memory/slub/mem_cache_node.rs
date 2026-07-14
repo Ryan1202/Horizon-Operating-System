@@ -29,7 +29,7 @@ impl Spinlock<PartialList> {
             while let Some(mut slub) = iter.next() {
                 drop(iter);
                 let mut head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
-                head.del(unsafe { slub.as_mut().get_list() });
+                head.delete(unsafe { slub.as_mut().get_list() });
 
                 guard.count -= 1;
                 return Some(slub);
@@ -162,7 +162,7 @@ impl MemCacheNode {
                 let mut head = self.partial_list.lock();
 
                 let mut list_head = unsafe { Pin::new_unchecked(&mut head.list_head) };
-                list_head.del(slub.get_list());
+                list_head.delete(slub.get_list());
             }
 
             slub.try_destroy(options)?;

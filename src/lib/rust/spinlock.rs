@@ -142,6 +142,7 @@ pub struct Spinlock<T> {
 }
 
 unsafe impl<T> Sync for Spinlock<T> {}
+unsafe impl<T> Send for Spinlock<T> {}
 
 pub struct SpinGuard<'a, T> {
     lock: &'a SpinlockRaw,

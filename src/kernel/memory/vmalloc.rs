@@ -1,6 +1,6 @@
 use core::{
     ffi::c_void,
-    mem::{self, ManuallyDrop},
+    mem::ManuallyDrop,
     num::NonZeroUsize,
     ptr::{NonNull, null_mut},
 };
@@ -27,11 +27,7 @@ pub extern "C" fn ioremap_c(
     cache_type: PageCacheType,
 ) -> *mut core::ffi::c_void {
     match ioremap(PhysAddr::new(addr), size, cache_type) {
-        Ok(mut pages) => {
-            let ptr = pages.get_ptr().as_ptr();
-            mem::forget(pages);
-            ptr
-        }
+        Ok(pages) => ManuallyDrop::new(pages).get_ptr().as_ptr(),
         Err(e) => {
             printk!(
                 "WARNING: calling ioremap from C failed: addr = {:#x}, size = {:#x}, error = {:?}\n",
@@ -115,7 +111,7 @@ pub fn vmalloc<T>(
     page_options
         .allocate()
         .map(ManuallyDrop::new)
-        .map(|mut pages| pages.get_ptr())
+        .map(|pages| pages.get_ptr())
 }
 
 /// 仅释放虚拟地址，不涉及物理页框的回收

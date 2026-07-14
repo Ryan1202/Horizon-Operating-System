@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::config::{CompilerConfig, Config};
-use crate::rustc_target::{RustConfig, RustcTargetType};
+use crate::rustc_target::RustConfig;
 use std::fs::OpenOptions;
 use std::io::Write;
 
@@ -68,8 +68,8 @@ pub fn do_asm_dependency<'a>(assembler: &'a CompilerConfig, file: &PathBuf, out_
 }
 
 pub fn do_rust_dependency<'a>(
-    rustc: &'a RustConfig,
-    file: &PathBuf,
+    _rustc: &'a RustConfig,
+    _file: &PathBuf,
     out_dir: &PathBuf,
     target_name: &str,
     is_release: bool,
@@ -90,19 +90,9 @@ pub fn do_rust_dependency<'a>(
     writeln!(cmd_file, "{}: FORCE", out_file.display()).unwrap();
 
     writeln!(cmd_file, "\t@echo RUSTC $@").unwrap();
-    writeln!(
-        cmd_file,
-        "\t@rustup run {}",
-        match rustc.target_type {
-            RustcTargetType::Builtin => {
-                "nightly cargo rustc"
-            }
-            RustcTargetType::Custom => {
-                "nightly cargo rustc"
-            }
-        },
-    )
-    .unwrap();
+    // 由仓库根目录的 rust-toolchain.toml 选择并固定 nightly。这里不能再
+    // 硬编码 `rustup run nightly`，否则生成的构建命令会绕过版本锁定。
+    writeln!(cmd_file, "\t@cargo rustc").unwrap();
 
     writeln!(cmd_file, "\t@echo COPY $@").unwrap();
     if is_release {

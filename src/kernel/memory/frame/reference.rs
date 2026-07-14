@@ -29,9 +29,10 @@ pub struct FrameRc {
 impl FrameRc {
     const EXCLUSIVE: usize = 0;
 
+    #[inline]
     fn update(&self, f: impl Fn(usize) -> Option<usize>) -> Option<usize> {
         self.count
-            .fetch_update(Ordering::Release, Ordering::Acquire, f)
+            .try_update(Ordering::Release, Ordering::Acquire, f)
             .ok()
     }
 
@@ -331,7 +332,7 @@ impl UniqueFrames {
         }
     }
 
-    pub fn order(&self) -> FrameOrder {
+    pub const fn order(&self) -> FrameOrder {
         self.order
     }
 }

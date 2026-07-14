@@ -109,6 +109,8 @@ void kernel_early_init(void) {
 	memory_early_init();
 }
 
+void thread_main(void *arg);
+
 int main() {
 	init_memory();
 	init_object_tree();
@@ -120,6 +122,12 @@ int main() {
 	platform_init();
 	platform_start_devices();
 
+	thread_manager_init(thread_main);
+
+	return 0;
+}
+
+void thread_main(void *arg) {
 	init_task();
 	task_idle = thread_start("Idle", 1, idle, 0, NULL);
 	io_sti();
