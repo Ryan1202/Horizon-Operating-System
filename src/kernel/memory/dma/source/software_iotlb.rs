@@ -65,7 +65,7 @@ pub struct SlotMeta {
     /// Slot 内部用于对齐的填充槽位数量，位于前部
     padding_slots: u16,
     /// 当前 Slot 是否为分配区域的头部
-    allocation_head: bool,
+    _allocation_head: bool,
 }
 
 /// 该结构体用于表示 Bounce Pool 中的物理地址
@@ -109,7 +109,7 @@ const impl Default for SlotMeta {
             origin_size: 0,
             n_slots: Some(NonZeroU16::new(1).unwrap()),
             padding_slots: 0,
-            allocation_head: false,
+            _allocation_head: false,
         }
     }
 }
@@ -140,7 +140,7 @@ impl SlotMeta {
             origin_size,
             n_slots: None,
             padding_slots,
-            allocation_head: true,
+            _allocation_head: true,
         }
     }
 
@@ -155,7 +155,7 @@ impl SlotMeta {
             origin_size,
             n_slots: None,
             padding_slots: 0,
-            allocation_head: false,
+            _allocation_head: false,
         }
     }
 }
@@ -291,7 +291,7 @@ impl AreaInner {
             origin_size: 0,
             n_slots: Some(Self::ONE),
             padding_slots: 0,
-            allocation_head: false,
+            _allocation_head: false,
         };
 
         // 后面会被合并，所以先不设置 n_slots

@@ -126,12 +126,21 @@ int main() {
 	return 0;
 }
 
+void test_thread(void *arg) {
+	return;
+}
+
 void thread_main(void *arg) {
 	io_sti();
 	printk(
 		"Memory Size: Total %dMiB, Usable %dMiB\n", get_memory_total_mib(),
 		get_memory_usable_mib());
-	thread_start("Kernel Periodic Tasks", periodic_task, NULL);
+	Thread *periodic =
+		thread_create("Kernel Periodic Tasks", periodic_task, NULL);
+	thread_run(periodic);
+
+	Thread *test = thread_create("Test Thread", test_thread, NULL);
+	thread_run(test);
 
 	do_initcalls();
 	while (true) {
@@ -179,7 +188,7 @@ void thread_main(void *arg) {
 	// 	printk("VBE Error: %d\n", exception);
 	// }
 
-	// thread_start("play", 100, thread_play, NULL, NULL);
+	// thread_create("play", thread_play, NULL);
 
 	console_start();
 

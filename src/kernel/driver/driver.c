@@ -181,7 +181,8 @@ PeriodicTask driver_periodic_task = {
 };
 
 DriverResult driver_start_all(void) {
-	thread_start("Start Devices", start_devices, NULL);
+	struct Thread *thread = thread_create("Start Devices", start_devices, NULL);
+	thread_run(thread);
 	while (!(list_empty(&new_bus_lh) && list_empty(&new_device_lh))) {
 		try_yield();
 	}

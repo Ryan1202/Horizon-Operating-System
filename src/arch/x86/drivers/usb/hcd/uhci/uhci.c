@@ -348,7 +348,8 @@ void uhci_probe_thread(void *arg) {
 
 void uhci_probe(Uhci *uhci) {
 	// 通过独立线程初始化，避免usb初始化长时间的等待导致系统阻塞
-	thread_start("UHCI Probe", uhci_probe_thread, uhci);
+	struct Thread *thread = thread_create("UHCI Probe", uhci_probe_thread, uhci);
+	thread_run(thread);
 }
 
 DriverResult uhci_start(void *_device) {

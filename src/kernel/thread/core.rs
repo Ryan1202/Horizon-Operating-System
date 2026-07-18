@@ -145,9 +145,10 @@ impl Thread {
     }
 }
 
-pub extern "C" fn thread_entry_wrapper(entry: KernelThreadEntry, argument: *mut c_void) {
+pub extern "C" fn thread_entry_wrapper(entry: KernelThreadEntry, argument: *mut c_void) -> ! {
     unsafe { SCHEDULER.finish_first_switch() };
     entry(argument);
+    SCHEDULER.exit_current()
 }
 
 pub struct ThreadInner {
@@ -191,6 +192,10 @@ impl ThreadInner {
                 self.state = ThreadState::Idle;
                 Ok(())
             }
+            (ThreadState::Running, ThreadState::Dead) => {
+                self.state = ThreadState::Dead;
+                Ok(())
+            }
             _ => Err(ThreadError::InvalidTransition {
                 from: self.state,
                 to: new_state,
@@ -221,7 +226,6 @@ pub enum ThreadState {
     Ready,
     Running,
     Blocked,
-    Dying,
     Dead,
 }
 

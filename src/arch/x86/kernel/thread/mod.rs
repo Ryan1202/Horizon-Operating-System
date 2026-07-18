@@ -135,8 +135,8 @@ unsafe extern "custom" fn x86_switch_to() {
 /// 新内核线程的一次性入口。
 ///
 /// `r12` 和 `r13` 只存在于初始 switch frame：分别保存入口函数和参数。线程
-/// 函数返回后的完整退出/回收路径属于调度器迁移任务；当前先保持 CPU 可响应
-/// 中断并等待调度，避免从 naked trampoline 跌落到未知地址。
+/// wrapper 完成首次切换收尾、开启中断并执行线程函数；线程函数返回后由
+/// wrapper 进入不返回的调度器退出路径。
 #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 #[unsafe(naked)]
 unsafe extern "custom" fn x86_kernel_thread_entry() -> ! {
@@ -145,11 +145,8 @@ unsafe extern "custom" fn x86_kernel_thread_entry() -> ! {
         "mov rdi, r12",
         // 线程函数的参数在 r13 中，调用约定要求第一个参数在 rdi 中。
         "mov rsi, r13",
-        "sti",
         "call {wrapper}",
-        "2:",
-        "hlt",
-        "jmp 2b",
+        "ud2",
         wrapper = sym thread_entry_wrapper,
     )
 }

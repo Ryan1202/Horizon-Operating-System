@@ -1,4 +1,7 @@
-use core::ffi::{CStr, c_void};
+use core::{
+    ffi::{CStr, c_void},
+    ptr,
+};
 
 use alloc::vec::Vec;
 
@@ -41,5 +44,18 @@ impl ThreadManager {
         self.all.lock().push(thread.clone());
 
         Ok(thread)
+    }
+
+    /// 移除已经退出调度系统的线程，并返回 manager 持有的强引用。
+    ///
+    /// 返回值必须在 manager 锁外、且不再运行于该线程的内核栈上时释放。
+    pub(super) fn remove(&self, thread: &Thread) -> ThreadArc {
+        let mut all = self.all.lock();
+        let position = all
+            .iter()
+            .position(|candidate| ptr::eq(candidate.as_ref(), thread))
+            .expect("dead thread must be registered in ThreadManager");
+
+        all.swap_remove(position)
     }
 }

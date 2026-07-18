@@ -71,26 +71,6 @@ void kernel_thread(thread_func *function, void *func_arg) {
 }
 
 /**
- * @brief 创建线程
- *
- * @param pthread 线程结构
- * @param function 线程入口函数
- * @param func_arg 参数
- */
-void thread_create(
-	struct task_s *pthread, thread_func *function, void *func_arg) {
-	pthread->pid = alloc_pid();
-	pthread->kstack -= sizeof(struct intr_stack);
-	pthread->kstack -= sizeof(struct thread_stack);
-	struct thread_stack *kthread_stack = (struct thread_stack *)pthread->kstack;
-	kthread_stack->rip				   = kernel_thread_entry;
-	kthread_stack->r12				   = (uint64_t)function;
-	kthread_stack->r13				   = (uint64_t)func_arg;
-	kthread_stack->rbp = kthread_stack->rbx = kthread_stack->r14 =
-		kthread_stack->r15					= 0;
-}
-
-/**
  * @brief 初始化线程结构
  *
  * @param pthread 线程结构
@@ -120,104 +100,6 @@ void init_thread(
 	pthread->stack_magic		= 0x10000000;
 	pthread->subject_id			= SUBJECT_ID_SYSTEM;
 	pthread->flags.need_resched = 0;
-}
-
-// /**
-//  * @brief 创建并运行一个线程
-//  *
-//  * @param name 线程名
-//  * @param priority 优先级
-//  * @param function 入口函数
-//  * @param func_arg 参数
-//  * @return struct task_s* 创建好的线程
-//  */
-// struct task_s *thread_start(
-// 	char *name, int priority, thread_func function, void *func_arg,
-// 	struct task_s *parent) {
-// 	struct task_s *thread	  = kzalloc(sizeof(struct task_s));
-// 	void		  *stack_page = kmalloc_pages(THREAD_STACK_PAGES);
-
-// 	init_thread(thread, stack_page, name, priority);
-
-// 	if (parent != NULL) {
-// 		thread->parent = parent;
-// 		lock_acquire(&parent->child_lock);
-// 		parent->child_count++;
-// 		lock_release(&parent->child_lock);
-// 	}
-// 	thread_create(thread, function, func_arg);
-
-// 	int flags = spin_lock_irqsave(&thread_all_lock);
-// 	if (list_find(&thread->all_list_tag, &thread_all)) {
-// 		printk("[Thread Error]%s thread is already in thread_all!\n", name);
-// 		list_del(&thread->all_list_tag);
-// 	}
-// 	list_add_tail(&thread->all_list_tag, &thread_all);
-// 	spin_unlock_irqrestore(&thread_all_lock, flags);
-
-// 	flags = spin_lock_irqsave(&thread_ready_lock);
-// 	if (list_in_list(&thread->general_tag)) {
-// 		printk("[Thread Error]%s thread is already in thread_ready!\n", name);
-// 		list_del(&thread->general_tag);
-// 	}
-// 	list_add_tail(&thread->general_tag, &thread_ready);
-// 	spin_unlock_irqrestore(&thread_ready_lock, flags);
-
-// 	return thread;
-// }
-
-void thread_exit(void) {
-	struct task_s *cur = get_current_thread();
-
-	if (cur->parent != NULL) {
-		struct task_s *parent = cur->parent;
-		lock_acquire(&parent->child_lock);
-		parent->child_count--;
-		if (parent->child_count == 0) {
-			sema_up(&parent->child_sem); // 所有子线程完成，唤醒父线程
-		}
-		lock_release(&parent->child_lock);
-	}
-
-	/*
-	 * 先从thread_all中删除，再从thread_ready中删除
-	 * 否则一旦被打断切换到其他线程，就无法再调度回来了
-	 */
-	int flags = spin_lock_irqsave(&thread_all_lock);
-	list_del(&cur->all_list_tag);
-	spin_unlock_irqrestore(&thread_all_lock, flags);
-
-	flags = spin_lock_irqsave(&thread_ready_lock);
-	if (list_in_list(&cur->general_tag)) { list_del(&cur->general_tag); }
-
-	cur->status = TASK_DIED;
-
-	// 切换线程
-	struct task_s *next;
-	next = list_first_owner(&thread_ready, struct task_s, general_tag);
-	if (next != cur) list_del(&next->general_tag);
-	else {
-		printk("[Thread Error] No ready task!\n");
-		// next = task_idle;
-		while (true) {
-			try_yield();
-		}
-	}
-
-	// 进程将要退出，不需要恢复中断状态了
-	spin_unlock(&thread_ready_lock);
-
-	spin_lock(&next->status_lock);
-	if (next->status == TASK_READY) next->status = TASK_RUNNING;
-	spin_unlock(&next->status_lock);
-
-	// 3. 切换线程
-	dead_task = cur;
-	// 激活页表并跳转
-	process_activate(next);
-	current_task = next;
-	prev		 = cur;
-	switch_to(&cur->kstack, &next->kstack);
 }
 
 void thread_wait_children(struct task_s *parent) {
