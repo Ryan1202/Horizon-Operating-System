@@ -171,12 +171,24 @@ impl ThreadInner {
                 self.state = ThreadState::Ready;
                 Ok(())
             }
+            (ThreadState::Registered, ThreadState::Idle) => {
+                self.state = ThreadState::Idle;
+                Ok(())
+            }
             (ThreadState::Ready, ThreadState::Running) => {
+                self.state = ThreadState::Running;
+                Ok(())
+            }
+            (ThreadState::Idle, ThreadState::Running) => {
                 self.state = ThreadState::Running;
                 Ok(())
             }
             (ThreadState::Running, ThreadState::Ready) => {
                 self.state = ThreadState::Ready;
+                Ok(())
+            }
+            (ThreadState::Running, ThreadState::Idle) => {
+                self.state = ThreadState::Idle;
                 Ok(())
             }
             _ => Err(ThreadError::InvalidTransition {
@@ -205,6 +217,7 @@ impl ThreadId {
 pub enum ThreadState {
     New,
     Registered,
+    Idle,
     Ready,
     Running,
     Blocked,

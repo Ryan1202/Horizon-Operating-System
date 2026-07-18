@@ -32,6 +32,13 @@ impl Interrupt for X86Interrupt {
     }
 
     #[inline]
+    fn wait() {
+        // SAFETY: sti 后紧接 hlt，CPU 会在下一次可屏蔽中断到来时继续执行，
+        // 不会在开启中断与休眠之间留下可丢失唤醒的指令窗口。
+        unsafe { asm!("sti; hlt", options(nomem, nostack)) };
+    }
+
+    #[inline]
     fn save_and_disable<'a>() -> InterruptGuard<'a, Self> {
         let flags;
         unsafe {

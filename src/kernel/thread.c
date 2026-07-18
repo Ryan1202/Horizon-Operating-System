@@ -6,6 +6,7 @@
  * @date 2021-02
  *
  */
+#include "types.h"
 #include <driver/timer/timer_dm.h>
 #include <kernel/console.h>
 #include <kernel/driver_interface.h>
@@ -31,8 +32,6 @@ spinlock_t thread_all_lock;
 
 struct lock pid_lock;
 uint32_t	new_pid = 0;
-
-extern struct task_s *task_idle;
 
 /**
  * @brief 分配pid
@@ -199,7 +198,10 @@ void thread_exit(void) {
 	if (next != cur) list_del(&next->general_tag);
 	else {
 		printk("[Thread Error] No ready task!\n");
-		next = task_idle;
+		// next = task_idle;
+		while (true) {
+			try_yield();
+		}
 	}
 
 	// 进程将要退出，不需要恢复中断状态了

@@ -45,8 +45,6 @@
 
 void run_memory_benchmarks(void);
 
-void		  idle(void *arg);
-Thread		 *task_idle;
 extern Driver core_driver;
 
 // void print_permission(Permission *permission) {
@@ -129,8 +127,6 @@ int main() {
 }
 
 void thread_main(void *arg) {
-	// init_task();
-	task_idle = thread_start("Idle", idle, NULL);
 	io_sti();
 	printk(
 		"Memory Size: Total %dMiB, Usable %dMiB\n", get_memory_total_mib(),
@@ -190,11 +186,5 @@ void thread_main(void *arg) {
 	thread_exit();
 	for (;;) {
 		io_hlt();
-	}
-}
-
-void idle(void *arg) {
-	for (;;) {
-		try_yield();
 	}
 }

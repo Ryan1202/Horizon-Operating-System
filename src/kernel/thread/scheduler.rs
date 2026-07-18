@@ -1,13 +1,13 @@
 use core::{
     pin::Pin,
-    ptr::{NonNull, null_mut},
+    ptr::{self, NonNull, null_mut},
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU16, Ordering},
 };
 
 use crate::{
     arch::ArchInterrupt,
     kernel::{
-        interrupt::{self, Interrupt, PreemptPoint},
+        interrupt::{Interrupt, PreemptPoint},
         thread::{Thread, ThreadState, core::ThreadError},
     },
     lib::rust::{list::ListHead, spinlock::Spinlock},
@@ -18,8 +18,14 @@ const TIME_SLICE_MS: u16 = 100;
 pub static SCHEDULER: Scheduler = Scheduler::new();
 
 pub struct Scheduler {
+    /// 就绪队列，存放所有处于 Ready 状态的线程
     ready: Spinlock<ReadyQueue>,
+    /// 当前正在运行的线程
     current: AtomicPtr<Thread>,
+    /// 空闲线程，永远不会被调度器抢占
+    ///
+    /// 当需要切换到 idle 线程时，该字段会被设置为空，避免出现多个引用
+    idle: AtomicPtr<Thread>,
     preempt_count: AtomicU8,
     resched: AtomicBool,
     slice_ms: AtomicU16,
@@ -34,13 +40,14 @@ impl Scheduler {
         Self {
             ready: Spinlock::new(ReadyQueue::new()),
             current: AtomicPtr::new(null_mut()),
+            idle: AtomicPtr::new(null_mut()),
             preempt_count: AtomicU8::new(0),
             resched: AtomicBool::new(false),
             slice_ms: AtomicU16::new(TIME_SLICE_MS),
         }
     }
 
-    pub(super) fn init(&self, current: &'static Thread) {
+    pub(super) fn init(&self, current: &'static Thread, idle: &'static Thread) {
         assert!(
             self.current
                 .compare_exchange(
@@ -51,6 +58,17 @@ impl Scheduler {
                 )
                 .is_ok(),
             "scheduler initialized twice"
+        );
+        assert!(
+            self.idle
+                .compare_exchange(
+                    null_mut(),
+                    idle as *const Thread as *mut Thread,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok(),
+            "scheduler idle thread initialized twice"
         );
         self.preempt_count.store(1, Ordering::Relaxed);
         self.ready.lock_irqsave().init();
@@ -162,7 +180,9 @@ impl Scheduler {
         let next = {
             let mut ready_queue = self.ready.lock_irqsave();
             let Some(next) = ready_queue.next() else {
-                todo!("schedule without an eligible thread");
+                // 如果没有就绪线程，则继续运行当前线程，并积极尝试在下一次抢占点进行调度。
+                self.resched.store(true, Ordering::Relaxed);
+                return;
             };
 
             // SAFETY: 所有就绪线程都由 ThreadManager 持有；PreemptGuard 保证
@@ -174,14 +194,20 @@ impl Scheduler {
                 "current thread must not be in the ready queue"
             );
 
+            if self.is_idle(current) {
+                current
+                    .transition_to(ThreadState::Idle)
+                    .expect("running idle thread must transition back to Idle");
+            } else {
+                unsafe { ready_queue.enqueue(current) }
+                    .expect("running thread must transition back to Ready");
+            }
+
             unsafe { ready_queue.dequeue(next, ThreadState::Running) }
                 .expect("ready thread must transition to Running");
 
             next
         };
-
-        self.enqueue(current)
-            .expect("running thread must transition back to Ready");
 
         let _guard = ArchInterrupt::save_and_disable();
         // SAFETY: 已关闭中断，两个线程都由调度器独占，
@@ -198,6 +224,13 @@ impl Scheduler {
                 .as_ref()
                 .expect("scheduler is not initialized")
         }
+    }
+
+    fn is_idle(&self, thread: &Thread) -> bool {
+        ptr::eq(
+            self.idle.load(Ordering::Relaxed),
+            thread as *const Thread as *mut Thread,
+        )
     }
 }
 
@@ -281,8 +314,4 @@ impl ReadyQueue {
     fn next(&mut self) -> Option<NonNull<Thread>> {
         unsafe { self.head() }.iter(Thread::list_offset()).next()
     }
-}
-
-pub fn preempt(point: PreemptPoint) {
-    SCHEDULER.try_preempt(point);
 }

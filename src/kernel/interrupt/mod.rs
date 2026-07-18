@@ -27,6 +27,9 @@ pub trait Interrupt: Sized {
     /// 禁用中断
     fn disable();
 
+    /// 开启中断并等待下一次中断。
+    fn wait();
+
     /// 禁用中断并保存当前中断状态，返回调用前的中断状态。
     fn save_and_disable<'a>() -> InterruptGuard<'a, Self>;
     /// 恢复中断状态
@@ -185,7 +188,7 @@ impl PreemptPoint {
         })
     }
 
-    pub fn from_softirq(_softirq: SoftIrqGuard) -> Self {
+    fn from_softirq(_softirq: SoftIrqGuard) -> Self {
         Self {
             _phantom: PhantomData,
         }
