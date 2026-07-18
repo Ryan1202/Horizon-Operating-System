@@ -154,7 +154,7 @@ void uhci_handler(void *arg) {
 						: td->NAK_received ? USB_STATUS_NAK
 										   : USB_STATUS_ACK;
 					list_add_tail(&td->urb->list, &urb_lh);
-					pending_softirq();
+					softirq_raise(SOFTIRQ_USB);
 				}
 				td = td->next;
 			}
@@ -348,8 +348,7 @@ void uhci_probe_thread(void *arg) {
 
 void uhci_probe(Uhci *uhci) {
 	// 通过独立线程初始化，避免usb初始化长时间的等待导致系统阻塞
-	thread_start(
-		"UHCI Probe", THREAD_DEFAULT_PRIO, uhci_probe_thread, uhci, NULL);
+	thread_start("UHCI Probe", uhci_probe_thread, uhci);
 }
 
 DriverResult uhci_start(void *_device) {
@@ -357,9 +356,7 @@ DriverResult uhci_start(void *_device) {
 	Uhci		   *uhci   = device->private_data;
 
 	uhci->fl_handle = dma_alloc_coherent(device->dma, PAGE_SIZE);
-	if (uhci->fl_handle == NULL) {
-		return DRIVER_ERROR_OUT_OF_MEMORY;
-	}
+	if (uhci->fl_handle == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 	uhci->fl.frames_vir = (uint32_t *)dma_handle_cpu_addr(uhci->fl_handle);
 	if (uhci->fl.frames_vir == NULL) {
 		dma_free_coherent(uhci->fl_handle);
@@ -416,7 +413,7 @@ DriverResult uhci_pci_probe(
 
 	DriverResult result;
 
-	Uhci *uhci	   = kzalloc(sizeof(Uhci));
+	Uhci *uhci = kzalloc(sizeof(Uhci));
 	if (uhci == NULL) { return DRIVER_ERROR_OUT_OF_MEMORY; }
 	uhci->device   = pci_device;
 	uhci->io_base  = io_base;
@@ -424,8 +421,9 @@ DriverResult uhci_pci_probe(
 
 	// 创建 DmaDevice（UHCI 是 32 位 PCI 设备，DMA 地址必须 < 4GB）
 	if (physical_device->dma == NULL) {
-		DmaConstraints c	 = DMA_CONSTRAINTS_INIT(32);
-		physical_device->dma = dma_device_create(c, &dma_backend_identity, false);
+		DmaConstraints c = DMA_CONSTRAINTS_INIT(32);
+		physical_device->dma =
+			dma_device_create(c, &dma_backend_identity, false);
 	}
 	if (physical_device->dma == NULL) {
 		kfree(uhci);

@@ -4,9 +4,7 @@
 #include <kernel/driver.h>
 #include <stdint.h>
 
-#define pending_softirq() ({ softirq.pending = 1; })
-
-typedef enum SoftirqType {
+typedef enum SoftirqType : uint8_t {
 	SOFTIRQ_TIMER,
 	SOFTIRQ_USB,
 	SOFTIRQ_NETWORK,
@@ -15,17 +13,10 @@ typedef enum SoftirqType {
 	SOFTIRQ_MAX
 } SoftirqType;
 
-typedef struct Softirq {
-	uint8_t pending : 1;
-} Softirq;
+typedef void (*SoftirqHandler)(void);
 
-typedef struct SoftirqHandler {
-	void (*handler)();
-} SoftirqHandler;
-
-extern Softirq softirq;
-
-void		 do_softirq(void);
-DriverResult softirq_register_handler(SoftirqType type, void (*handler)(void));
+DriverResult softirq_register_handler(SoftirqType type, SoftirqHandler handler);
+void		 softirq_raise(SoftirqType type);
+void		 softirq_dispatch(uint8_t pending);
 
 #endif

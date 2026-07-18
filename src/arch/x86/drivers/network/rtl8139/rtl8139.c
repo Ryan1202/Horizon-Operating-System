@@ -83,7 +83,7 @@ void rtl8139_handler(void *_device) {
 		_status |= IMR_TER;
 	}
 	if (status & IMR_ROK) {
-		pending_softirq();
+		softirq_raise(SOFTIRQ_NETWORK);
 		_status |= IMR_ROK;
 	}
 	if (status & IMR_RER) {

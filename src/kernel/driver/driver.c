@@ -93,7 +93,7 @@ void device_detect(void *arg) {
 			&new_device_lh, PhysicalDevice, new_device_list);
 		spin_unlock(&device_list_lock);
 		if (phy == NULL) {
-			schedule();
+			try_yield();
 			continue;
 		}
 		if (phy->ops == NULL) { // 没有绑定驱动
@@ -140,7 +140,7 @@ void start_devices(void *arg) {
 				&new_device_lh, PhysicalDevice, new_device_list);
 			spin_unlock(&device_list_lock);
 			if (phy == NULL) {
-				schedule();
+				try_yield();
 				continue;
 			}
 			if (phy->ops == NULL) { // 没有绑定驱动
@@ -181,10 +181,9 @@ PeriodicTask driver_periodic_task = {
 };
 
 DriverResult driver_start_all(void) {
-	thread_start(
-		"Start Devices", THREAD_DEFAULT_PRIO, start_devices, NULL, NULL);
+	thread_start("Start Devices", start_devices, NULL);
 	while (!(list_empty(&new_bus_lh) && list_empty(&new_device_lh))) {
-		schedule();
+		try_yield();
 	}
 
 	periodic_task_add(&driver_periodic_task);

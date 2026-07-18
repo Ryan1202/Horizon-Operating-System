@@ -114,19 +114,9 @@ void timer_irq_handler(LogicalDevice *device) {
 		if (cur->callback != NULL) cur->callback(cur->arg);
 	}
 
-	if (!list_empty(&thread_all)) {
-		// 已启用多任务
-		if (device == timer_dm_ext.scheduler_timer) {
-			struct task_s *cur_thread = get_current_thread();
-			cur_thread->elapsed_ticks++;
-
-			if (cur_thread->ticks == 0) {
-				// printk("need resched\n");
-				cur_thread->flags.need_resched = 1;
-			} else {
-				cur_thread->ticks--;
-			}
-		}
+	if (device == timer_dm_ext.scheduler_timer &&
+		timer_device->current_frequency != 0) {
+		scheduler_tick(1000 / timer_device->current_frequency);
 	}
 }
 

@@ -16,8 +16,7 @@ global thread_intr_exit, kernel_thread_entry
 global switch_to
 
 extern exception_handler
-extern irq_table
-extern do_irq
+extern irq_dispatch
 extern do_syscall
 extern apic_eoi
 extern kernel_thread
@@ -61,8 +60,7 @@ irq_entry%1:
 	push r15
 	
 	mov rdi, %1
-	mov rsi, rsp
-	CALL_C_ALIGNED do_irq
+	CALL_C_ALIGNED irq_dispatch
 	
 	jmp irq_exit
 

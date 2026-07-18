@@ -1,5 +1,3 @@
-#include "kernel/page.h"
-#include "kernel/platform.h"
 #include <driver/framebuffer/console_backend.h>
 #include <driver/framebuffer/fb.h>
 #include <driver/framebuffer/fb_dm.h>
@@ -224,6 +222,8 @@ void fb_console_backend_put_string(
 	void *context, const char *string, int length) {
 	FrameBufferDevice		  *fb_device = context;
 	FrameBufferConsoleBackend *backend	 = &fb_device->console_backend;
+
+	if (backend->line_ends == NULL || backend->line_widths == NULL) { return; }
 
 	spin_lock(&backend->lock);
 	for (int i = 0; i < length; i++) {

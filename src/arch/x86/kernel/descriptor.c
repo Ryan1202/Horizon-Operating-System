@@ -5,18 +5,12 @@
  * @version 1.2
  * @date 2022-07-31
  */
-#include "kernel/platform.h"
-#include <driver/interrupt/interrupt_dm.h>
-#include <drivers/8259a.h>
-#include <drivers/apic.h>
-#include <drivers/pit.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
 #include <kernel/driver_interface.h>
 #include <kernel/func.h>
 #include <kernel/page.h>
-#include <kernel/softirq.h>
 #include <kernel/thread.h>
 #include <kernel/tss.h>
 #include <stddef.h>
@@ -35,9 +29,7 @@
 	set_gate_descriptor( \
 		&idt[0x20 + n], (size_t)&irq_entry##n, 0x08, DA_386IGate_DPL0);
 
-irq_handler_t irq_table[NR_IRQ];
-void		  default_irq_handler(int irq);
-extern void	  syscall_handler(void);
+extern void syscall_handler(void);
 
 struct segment_descriptor *gdt;
 struct gate_descriptor	  *idt;
@@ -166,10 +158,6 @@ void init_descriptor(void) {
 	SET_IRQ_ENTRY(14)
 	SET_IRQ_ENTRY(15)
 
-	for (i = 0; i < NR_IRQ; i++) {
-		irq_table[i] = default_irq_handler;
-	}
-
 	set_gate_descriptor(
 		&idt[0x80], (size_t)syscall_handler, 0x08, DA_386IGate_DPL3);
 
@@ -181,16 +169,6 @@ uint16_t set_percpu_segment_descriptor(int cpu_id, size_t addr) {
 		gdt + GDT_ENTRY_PERCPU_BASE + cpu_id, 0xffffffff, addr,
 		DESC_L | DESC_P | DESC_S | DESC_TYPE_DATA | DESC_DPL(0));
 	return (GDT_ENTRY_PERCPU_BASE + cpu_id) * 0x8;
-}
-
-/**
- * @brief 设置IRQ中断处理函数
- *
- * @param irq IRQ号
- * @param handler 中断处理函数
- */
-void put_irq_handler(int irq, irq_handler_t handler) {
-	irq_table[irq] = handler;
 }
 
 /**
@@ -366,34 +344,4 @@ void exception_handler(int vec_no, uint64_t *stack_frame) {
 	io_hlt();
 	while (1)
 		;
-}
-
-void irq_return(void) {
-	if (need_resched() && preempt_count() == 0) {
-		get_current_thread()->flags.need_resched = 0;
-		schedule();
-	}
-}
-
-void do_irq(int irq) {
-	disable_interrupt();
-	hardirq_enter();
-	device_irq_handler(irq);
-	irq_table[irq](irq);
-
-	interrupt_eoi(irq);
-	hardirq_exit();
-	enable_interrupt();
-
-	do_softirq();
-
-	irq_return();
-}
-
-void default_irq_handler(int irq) {
-	// if (use_apic) {
-	// 	apic_eoi();
-	// } else {
-	// 	pic_eoi(irq);
-	// }
 }

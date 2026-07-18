@@ -207,7 +207,7 @@ ProtocolResult ipv4_lookup_mac(
 
 	if (entry == NULL) return PROTO_ERROR_CANNOT_FIND;
 	while (entry->state == NEIGH_STATE_WAITING) {
-		schedule();
+		try_yield();
 	}
 	memcpy(mac, entry->haddr, 8);
 	return PROTO_OK;

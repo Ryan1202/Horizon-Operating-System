@@ -9,7 +9,9 @@
 #include <objects/object.h>
 #include <stdint.h>
 
-list_t device_irq_lists[16] = {
+enum { NR_IRQ = 16 };
+
+list_t device_irq_lists[NR_IRQ] = {
 	LIST_HEAD_INIT(device_irq_lists[0]),  LIST_HEAD_INIT(device_irq_lists[1]),
 	LIST_HEAD_INIT(device_irq_lists[2]),  LIST_HEAD_INIT(device_irq_lists[3]),
 	LIST_HEAD_INIT(device_irq_lists[4]),  LIST_HEAD_INIT(device_irq_lists[5]),
@@ -23,7 +25,7 @@ list_t device_irq_lists[16] = {
 DriverResult register_device_irq(
 	DEF_MRET(DeviceIrq *, device_irq), PhysicalDevice *physical_device,
 	void *arg, int irq, DeviceIrqHandler irq_handler, IrqMode mode) {
-	if (irq > 16) {
+	if (irq < 0 || irq >= NR_IRQ) {
 		print_error(
 			"DeviceIrq", "invalid irq number:%d, device %s\n", irq,
 			physical_device->object->name.text);

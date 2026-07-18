@@ -1,35 +1,24 @@
-#include "kernel/softirq.h"
-#include "kernel/driver.h"
-#include "kernel/thread.h"
+#include <kernel/softirq.h>
+#include <stddef.h>
 
-Softirq softirq = {0};
+static SoftirqHandler softirq_handlers[SOFTIRQ_MAX];
 
-SoftirqHandler softirq_handlers[SOFTIRQ_MAX];
-
-void do_softirq(void) {
-	if (softirq.pending && !in_softirq()) {
-		disable_preempt();
-		softirq_enter();
-
-		for (int i = 0; i < SOFTIRQ_MAX; i++) {
-			if (softirq_handlers[i].handler != NULL) {
-				softirq_handlers[i].handler();
-			}
-		}
-
-		softirq.pending = 0;
-		softirq_exit();
-		enable_preempt();
+DriverResult softirq_register_handler(
+	SoftirqType type, SoftirqHandler handler) {
+	if (type < 0 || type >= SOFTIRQ_MAX) {
+		return DRIVER_ERROR_INVALID_TYPE;
 	}
+	if (handler == NULL) { return DRIVER_ERROR_NULL_POINTER; }
+	if (softirq_handlers[type] != NULL) { return DRIVER_ERROR_CONFLICT; }
+
+	softirq_handlers[type] = handler;
+	return DRIVER_OK;
 }
 
-DriverResult softirq_register_handler(SoftirqType type, void (*handler)(void)) {
-	if (type == SOFTIRQ_MAX) { return DRIVER_ERROR_INVALID_TYPE; }
-	if (softirq_handlers[type].handler != NULL) {
-		return DRIVER_ERROR_CONFLICT;
+void softirq_dispatch(uint8_t pending) {
+	for (int type = 0; type < SOFTIRQ_MAX; type++) {
+		if ((pending & (1U << type)) != 0 && softirq_handlers[type] != NULL) {
+			softirq_handlers[type]();
+		}
 	}
-
-	softirq_handlers[type].handler = handler;
-
-	return DRIVER_OK;
 }

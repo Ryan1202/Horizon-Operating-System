@@ -11,6 +11,9 @@
 
 typedef void thread_func(void *);
 
+typedef struct Thread {
+} Thread;
+
 typedef enum {
 	TASK_RUNNING,
 	TASK_READY,
@@ -81,7 +84,6 @@ struct task_s {
 	list_t all_list_tag;
 };
 
-extern uint32_t	  preempt_count;
 extern list_t	  thread_all;
 extern spinlock_t thread_ready_lock;
 
@@ -89,69 +91,26 @@ extern struct task_s *current_task;
 
 #define THREAD_DEFAULT_PRIO 100
 
-#define PREEMPT_COUNT_MASK	0xff0000
-#define HARDIRQ_COUNT_MASK	0xff00
-#define SOFTIRQ_COUNT_MASK	0xff
-#define PREEMPT_COUNT_SHIFT 16
-#define HARDIRQ_COUNT_SHIFT 8
-#define SOFTIRQ_COUNT_SHIFT 0
-
-#define softirq_count() \
-	((preempt_count & SOFTIRQ_COUNT_MASK) >> SOFTIRQ_COUNT_SHIFT)
-#define hardirq_count() \
-	((preempt_count & HARDIRQ_COUNT_MASK) >> HARDIRQ_COUNT_SHIFT)
-#define preempt_count() \
-	((preempt_count & PREEMPT_COUNT_MASK) >> PREEMPT_COUNT_SHIFT)
-
-#define in_softirq() ((preempt_count & SOFTIRQ_COUNT_MASK) != 0)
-#define in_hardirq() ((preempt_count & HARDIRQ_COUNT_MASK) != 0)
-#define can_preempt() \
-	((preempt_count & (PREEMPT_COUNT_MASK | HARDIRQ_COUNT_MASK)) == 0)
-
-static inline bool need_resched(void) {
-	return current_task != NULL && current_task->flags.need_resched;
-}
-
-static inline void hardirq_enter(void) {
-	preempt_count += 1 << HARDIRQ_COUNT_SHIFT;
-}
-
-static inline void hardirq_exit(void) {
-	preempt_count -= 1 << HARDIRQ_COUNT_SHIFT;
-}
-
-static inline void softirq_enter(void) {
-	preempt_count += 1 << SOFTIRQ_COUNT_SHIFT;
-}
-
-static inline void softirq_exit(void) {
-	preempt_count -= 1 << SOFTIRQ_COUNT_SHIFT;
-}
-
-static inline void disable_preempt(void) {
-	preempt_count += 1 << PREEMPT_COUNT_SHIFT;
-}
-
-static inline void enable_preempt(void) {
-	preempt_count -= 1 << PREEMPT_COUNT_SHIFT;
-}
+void disable_preempt(void);
+void enable_preempt(void);
+bool can_preempt(void);
+void scheduler_tick(uint16_t elapsed_ms);
 
 struct task_s *get_current_thread();
 size_t		   get_current_subject_id();
 void		   init_thread(
 			  struct task_s *pthread, void *stack_page, char *name, int priority);
-void thread_create(
-	struct task_s *pthread, thread_func *function, void *func_arg);
-struct task_s *thread_start(
-	char *name, int priority, thread_func function, void *func_arg,
-	struct task_s *parent);
-void thread_exit(void);
-void thread_set_status(task_status_t status);
-void thread_wait();
-void thread_unblock(struct task_s *pthread);
-void init_task(void);
-void schedule(void);
-void thread_wait_children(struct task_s *parent);
+// void thread_create(
+// 	struct task_s *pthread, thread_func *function, void *func_arg);
+struct Thread *thread_start(char *name, thread_func function, void *func_arg);
+// void		   schedule(void);
+void		   try_yield();
+void		   thread_exit(void);
+void		   thread_set_status(task_status_t status);
+void		   thread_wait();
+void		   thread_unblock(struct task_s *pthread);
+// void		   init_task(void);
+void		   thread_wait_children(struct task_s *parent);
 
 // -------------
 

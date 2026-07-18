@@ -21,8 +21,6 @@
 #include <stdint.h>
 #include <string.h>
 
-uint32_t preempt_count = 0; // 预防抢占计数
-
 struct task_s *current_task, *dead_task = NULL, *prev;
 struct task_s *main_thread;
 
@@ -125,49 +123,49 @@ void init_thread(
 	pthread->flags.need_resched = 0;
 }
 
-/**
- * @brief 创建并运行一个线程
- *
- * @param name 线程名
- * @param priority 优先级
- * @param function 入口函数
- * @param func_arg 参数
- * @return struct task_s* 创建好的线程
- */
-struct task_s *thread_start(
-	char *name, int priority, thread_func function, void *func_arg,
-	struct task_s *parent) {
-	struct task_s *thread	  = kzalloc(sizeof(struct task_s));
-	void		  *stack_page = kmalloc_pages(THREAD_STACK_PAGES);
+// /**
+//  * @brief 创建并运行一个线程
+//  *
+//  * @param name 线程名
+//  * @param priority 优先级
+//  * @param function 入口函数
+//  * @param func_arg 参数
+//  * @return struct task_s* 创建好的线程
+//  */
+// struct task_s *thread_start(
+// 	char *name, int priority, thread_func function, void *func_arg,
+// 	struct task_s *parent) {
+// 	struct task_s *thread	  = kzalloc(sizeof(struct task_s));
+// 	void		  *stack_page = kmalloc_pages(THREAD_STACK_PAGES);
 
-	init_thread(thread, stack_page, name, priority);
+// 	init_thread(thread, stack_page, name, priority);
 
-	if (parent != NULL) {
-		thread->parent = parent;
-		lock_acquire(&parent->child_lock);
-		parent->child_count++;
-		lock_release(&parent->child_lock);
-	}
-	thread_create(thread, function, func_arg);
+// 	if (parent != NULL) {
+// 		thread->parent = parent;
+// 		lock_acquire(&parent->child_lock);
+// 		parent->child_count++;
+// 		lock_release(&parent->child_lock);
+// 	}
+// 	thread_create(thread, function, func_arg);
 
-	int flags = spin_lock_irqsave(&thread_all_lock);
-	if (list_find(&thread->all_list_tag, &thread_all)) {
-		printk("[Thread Error]%s thread is already in thread_all!\n", name);
-		list_del(&thread->all_list_tag);
-	}
-	list_add_tail(&thread->all_list_tag, &thread_all);
-	spin_unlock_irqrestore(&thread_all_lock, flags);
+// 	int flags = spin_lock_irqsave(&thread_all_lock);
+// 	if (list_find(&thread->all_list_tag, &thread_all)) {
+// 		printk("[Thread Error]%s thread is already in thread_all!\n", name);
+// 		list_del(&thread->all_list_tag);
+// 	}
+// 	list_add_tail(&thread->all_list_tag, &thread_all);
+// 	spin_unlock_irqrestore(&thread_all_lock, flags);
 
-	flags = spin_lock_irqsave(&thread_ready_lock);
-	if (list_in_list(&thread->general_tag)) {
-		printk("[Thread Error]%s thread is already in thread_ready!\n", name);
-		list_del(&thread->general_tag);
-	}
-	list_add_tail(&thread->general_tag, &thread_ready);
-	spin_unlock_irqrestore(&thread_ready_lock, flags);
+// 	flags = spin_lock_irqsave(&thread_ready_lock);
+// 	if (list_in_list(&thread->general_tag)) {
+// 		printk("[Thread Error]%s thread is already in thread_ready!\n", name);
+// 		list_del(&thread->general_tag);
+// 	}
+// 	list_add_tail(&thread->general_tag, &thread_ready);
+// 	spin_unlock_irqrestore(&thread_ready_lock, flags);
 
-	return thread;
-}
+// 	return thread;
+// }
 
 void thread_exit(void) {
 	struct task_s *cur = get_current_thread();
@@ -251,7 +249,7 @@ void thread_wait() {
 	struct task_s *cur_thread = get_current_thread();
 
 	while (cur_thread->status == TASK_INTERRUPTIBLE) {
-		schedule();
+		try_yield();
 	}
 }
 
@@ -305,88 +303,4 @@ void init_task(void) {
 
 	lock_init(&pid_lock);
 	make_main_thread();
-}
-
-/**
- * @brief 调度
- *
- */
-void schedule(void) {
-	int			   old_status;
-	struct task_s *cur = get_current_thread();
-
-	if (!can_preempt()) {
-		// 如果不能抢占，直接返回
-		return;
-	}
-
-	old_status = spin_try_lock_irqsave(&thread_ready_lock);
-	if (old_status == 0) return;
-
-	// 1. 判断当前线程是否需要加入到thread_ready
-	if (cur->status == TASK_RUNNING) {
-		if (list_in_list(&cur->general_tag)) {
-			printk(
-				"Error:Current thread(pid:%d) is in thread_ready list!\n",
-				cur->pid);
-			list_del(&cur->general_tag);
-		}
-		cur->status = TASK_READY;
-		list_add_tail(&cur->general_tag, &thread_ready);
-		cur->ticks = cur->priority;
-	} else if (cur->status == TASK_INTERRUPTIBLE) {
-		list_add_tail(&cur->general_tag, &thread_ready);
-		cur->ticks = cur->priority;
-	} else {
-		printk("[Thread Status Error] %s:%d\n", cur->name, cur->status);
-	}
-
-	// 2. 获取下一个线程，如果没有则使用idle线程
-	struct task_s *next;
-	if (!list_empty(&thread_ready)) {
-		next = list_first_owner(&thread_ready, struct task_s, general_tag);
-		if (next == cur) {
-			printk("[Thread Error] Same Task!\n");
-			__asm__("nop" ::);
-		}
-		list_del(&next->general_tag);
-	} else {
-		next = task_idle;
-		if (list_in_list(&task_idle->general_tag))
-			list_del(&task_idle->general_tag);
-	}
-	// 4. 改变状态并加入到thread_ready
-	if (next->status == TASK_READY) next->status = TASK_RUNNING;
-	spin_unlock(&thread_ready_lock);
-
-	if (next->kstack[6] == 0) {
-		printk(
-			"[Thread Warning] Schedule to thread with empty kstack! "
-			"Thread name:%s, pid:%d\n",
-			next->name, next->pid);
-	}
-
-	prev = cur;
-	// 5. 切换线程
-	// 激活页表并跳转
-	process_activate(next);
-	current_task = next;
-	switch_to(&cur->kstack, &next->kstack);
-	// 从其他线程切回来之后，检查上一个线程是否已经结束
-	if (dead_task != NULL) {
-		size_t stack_page =
-			(size_t)dead_task->kstack & ~(THREAD_STACK_PAGES * PAGE_SIZE - 1);
-		if (dead_task != main_thread && kfree_pages(stack_page) < 0) {
-			printk(
-				"[Memory Error] Free dead task stack page failed! "
-				"Task name:%s, pid:%d\n",
-				dead_task->name, dead_task->pid);
-		}
-
-		kfree(dead_task);
-		dead_task = NULL;
-	}
-	if (cur->status == TASK_READY) cur->status = TASK_RUNNING;
-
-	store_interrupt_status(old_status);
 }

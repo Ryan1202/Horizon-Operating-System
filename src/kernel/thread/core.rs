@@ -16,7 +16,7 @@ use crate::{
             frame::buddy::FrameOrder,
             page::{Pages, options::PageAllocOptions},
         },
-        thread::run_state::CPU_RUN_STATE,
+        thread::scheduler::SCHEDULER,
     },
     lib::rust::{list::ListNode, spinlock::Spinlock},
 };
@@ -47,11 +47,14 @@ pub trait ThreadContext: Sized {
     ///
     /// # Safety
     ///
-    /// 调用者必须保证当前 CPU 独占两个上下文，且满足架构切换所需的中断和
-    /// 抢占约束。
+    /// 调用者必须保证当前 CPU 独占两个上下文，且满足架构切换所需的中断和抢占约束。
     unsafe fn switch_to(&mut self, next: &Self);
 
     /// 为第一个线程构造初始上下文。
+    ///
+    /// # Safety
+    ///
+    /// 只能在构造第一个线程时使用，否则会破坏当前线程的上下文
     unsafe fn prepare_first_thread(context: &ArchThreadContext);
 }
 
@@ -143,7 +146,7 @@ impl Thread {
 }
 
 pub extern "C" fn thread_entry_wrapper(entry: KernelThreadEntry, argument: *mut c_void) {
-    CPU_RUN_STATE.enable_preemption();
+    unsafe { SCHEDULER.finish_first_switch() };
     entry(argument);
 }
 

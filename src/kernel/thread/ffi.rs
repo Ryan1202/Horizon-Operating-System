@@ -5,7 +5,10 @@ use core::{
 
 use alloc::sync::Arc;
 
-use crate::kernel::thread::{THREAD_MANAGER, Thread};
+use crate::kernel::{
+    interrupt::{self, PreemptPoint},
+    thread::{THREAD_MANAGER, Thread, scheduler::SCHEDULER},
+};
 
 #[unsafe(export_name = "thread_start")]
 extern "C" fn thread_start_c(
@@ -18,8 +21,38 @@ extern "C" fn thread_start_c(
         return null();
     };
 
-    THREAD_MANAGER
-        .scheduler
+    SCHEDULER
         .enqueue(thread.as_ref())
         .map_or(null(), |_| Arc::into_raw_with_allocator(thread).0)
+}
+
+#[unsafe(export_name = "disable_preempt")]
+extern "C" fn disable_preempt() {
+    // SAFETY: C 调用方负责在同一 CPU 上通过 enable_preempt 配平。
+    unsafe { SCHEDULER.disable_preempt() };
+}
+
+#[unsafe(export_name = "enable_preempt")]
+extern "C" fn enable_preempt() {
+    // SAFETY: C 调用方必须已经在同一 CPU 上调用过 disable_preempt。
+    unsafe { SCHEDULER.enable_preempt() };
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn can_preempt() -> bool {
+    SCHEDULER.can_preempt() && interrupt::in_thread()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn scheduler_tick(elapsed_ms: u16) {
+    SCHEDULER.tick(elapsed_ms);
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn try_yield() {
+    let Some(point) = PreemptPoint::new() else {
+        return;
+    };
+
+    SCHEDULER.try_yield(point);
 }

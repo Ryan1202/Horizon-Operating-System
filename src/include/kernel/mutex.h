@@ -11,7 +11,7 @@ void mutex_init(mutex_t *lock) {
 
 void mutex_lock(mutex_t *lock) {
 	while (__sync_lock_test_and_set(lock, 1)) {
-		schedule();
+		try_yield();
 	}
 }
 

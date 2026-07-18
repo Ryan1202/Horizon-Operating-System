@@ -118,6 +118,13 @@ impl Pages {
         }
     }
 
+    pub fn take(self) -> Option<UniqueFrames> {
+        match self {
+            Pages::Linear(frame) => Some(frame),
+            Pages::Dynamic(_) => None,
+        }
+    }
+
     pub fn into_frame(self) -> Option<UniqueFrames> {
         match self {
             Pages::Linear(frame) => Some(frame),

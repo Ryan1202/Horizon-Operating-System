@@ -5,6 +5,7 @@
  * @date 2020-03
  */
 #include "objects/transfer.h"
+#include "types.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
 #include <bits.h>
@@ -44,9 +45,9 @@
 
 void run_memory_benchmarks(void);
 
-void		   idle(void *arg);
-struct task_s *task_idle;
-extern Driver  core_driver;
+void		  idle(void *arg);
+Thread		 *task_idle;
+extern Driver core_driver;
 
 // void print_permission(Permission *permission) {
 // 	printk("Subject ID:%d\n", permission->subject_id);
@@ -128,17 +129,18 @@ int main() {
 }
 
 void thread_main(void *arg) {
-	init_task();
-	task_idle = thread_start("Idle", 1, idle, 0, NULL);
+	// init_task();
+	task_idle = thread_start("Idle", idle, NULL);
 	io_sti();
 	printk(
 		"Memory Size: Total %dMiB, Usable %dMiB\n", get_memory_total_mib(),
 		get_memory_usable_mib());
-	thread_start(
-		"Kernel Periodic Tasks", THREAD_DEFAULT_PRIO, periodic_task, NULL,
-		NULL);
+	thread_start("Kernel Periodic Tasks", periodic_task, NULL);
 
 	do_initcalls();
+	while (true) {
+		io_hlt();
+	}
 	driver_start_all();
 
 	Object		*net;
@@ -193,6 +195,6 @@ void thread_main(void *arg) {
 
 void idle(void *arg) {
 	for (;;) {
-		schedule();
+		try_yield();
 	}
 }

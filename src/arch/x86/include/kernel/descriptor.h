@@ -49,12 +49,8 @@ struct gate_descriptor {
 	uint32_t reserved;
 } __attribute__((packed));
 
-typedef void (*irq_handler_t)(int irq);
-
 extern struct segment_descriptor *gdt;
 extern struct gate_descriptor	 *idt;
-
-#define NR_IRQ 16
 
 #define GDT_BASE 0xffffffff80000800
 #define GDT_SIZE 0x7ff
@@ -72,7 +68,6 @@ extern struct gate_descriptor	 *idt;
 
 void update_tss_esp(struct task_s *pthread);
 void init_descriptor(void);
-void put_irq_handler(int irq, irq_handler_t handler);
 void set_segment_descriptor(
 	struct segment_descriptor *sd, unsigned int limit, uint64_t base, int ar);
 void set_gate_descriptor(

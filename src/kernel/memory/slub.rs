@@ -117,7 +117,7 @@ impl Slub {
         options: PageAllocOptions,
     ) -> Result<NonNull<Self>, MemoryError> {
         // 分配页
-        let mut pages = options.allocate()?;
+        let pages = options.allocate()?;
 
         let free_nodes = unsafe { pages.get_ptr().as_mut() };
 
@@ -130,7 +130,7 @@ impl Slub {
             freelist.byte_add(user_ptr_offset(config.align))
         };
 
-        let first_frame = pages.get_first_frame().unwrap();
+        let mut frame = ManuallyDrop::new(pages.take().unwrap());
 
         let slub_info = Slub {
             list: SyncUnsafeCell::new(ListNode::new()),
@@ -147,9 +147,10 @@ impl Slub {
         };
 
         let slub = {
-            slub_info.replace_frame(first_frame);
+            slub_info.replace_frame(&mut frame);
 
-            let slub: &mut Self = first_frame.deref_mut().try_into()?;
+            let slub: &mut Slub = (*frame).deref_mut().try_into().unwrap();
+
             NonNull::from_ref(slub)
         };
 

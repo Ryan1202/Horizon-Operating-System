@@ -12,7 +12,7 @@ void periodic_task(void *arg) {
 			periodic_task, &periodic_task_lh, period_task_list) {
 			periodic_task->func(periodic_task->arg);
 		}
-		schedule();
+		try_yield();
 	}
 }
 
