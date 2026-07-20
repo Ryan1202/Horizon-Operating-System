@@ -38,12 +38,12 @@ pub struct Vmap {
 static VMAP: Spinlock<Vmap> = Spinlock::new(unsafe { mem::zeroed() });
 static FREE_VMAP_TREE: Spinlock<RbTree> = Spinlock::new(LinkedRbTreeBase::empty());
 
-pub fn get_vmap<'a>() -> SpinGuard<'a, Vmap> {
-    VMAP.lock()
+pub fn get_vmap<'a>() -> SpinGuard<'a, Pin<&'a mut Vmap>> {
+    unsafe { Pin::new_unchecked(&VMAP).lock_pinned() }
 }
 
 impl Vmap {
-    pub fn init(&mut self) {
+    pub fn init(mut self: Pin<&mut Self>) {
         unsafe {
             FREE_VMAP_TREE.init_with(|rbtree| {
                 rbtree.init();
@@ -53,12 +53,13 @@ impl Vmap {
                     Kmalloc::<Atomic>::default(),
                 ));
 
-                rbtree.insert(&mut pages.rb_node);
+                free_map_tree().as_mut().insert(&mut pages.rb_node);
             })
         };
 
         unsafe {
-            for pool in self.pools.iter_mut() {
+            let pools = &mut self.as_mut().get_unchecked_mut().pools;
+            for pool in pools.iter_mut() {
                 pool.list_head
                     .init_with(|list_head| Pin::new_unchecked(list_head).init());
             }
@@ -66,34 +67,41 @@ impl Vmap {
         }
     }
 
-    fn pool_put(&mut self, pages: &mut DynPages) {
+    fn pool_put(self: &Pin<&mut Self>, pages: &mut DynPages) {
         let count = pages.rb_node.get_key().get_count();
         if count >= MAX_VMAP_POOL_PAGES {
             return;
         }
-        let pool = unsafe { self.pools.get_unchecked_mut(count) };
+        let mut list_head = unsafe {
+            self.as_ref()
+                .map_unchecked(|vmap| &vmap.pools.get_unchecked(count).list_head)
+        }
+        .lock_pinned();
 
-        let mut list_head = pool.list_head.lock();
-        let mut list_head = unsafe { Pin::new_unchecked(&mut *list_head) };
         let node = pages.rb_node.augment.get_list();
 
         list_head.add_tail(node);
     }
 
-    fn pool_get(&mut self, count: NonZeroUsize) -> Option<Box<DynPages, Kmalloc>> {
+    fn pool_get(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<Box<DynPages, Kmalloc>> {
         let index = count.get() - 1;
         if index >= MAX_VMAP_POOL_PAGES {
             return None;
         }
 
-        let pool = unsafe { self.pools.get_unchecked_mut(index) };
+        let pool = unsafe { self.pools.get_unchecked(index) };
         if pool.list_head.get_relaxed().is_empty() {
             return None;
         }
 
-        let mut list_head = pool.list_head.lock();
+        let mut list_head = unsafe {
+            self.as_ref()
+                .map_unchecked(|vmap| &vmap.pools.get_unchecked(index).list_head)
+        }
+        .lock_pinned();
 
-        let mut rb_node = unsafe { Pin::new_unchecked(list_head.deref_mut()) }
+        let mut rb_node = list_head
+            .as_ref()
             .iter(RbTree::linked_offset())
             .next()
             .expect("List is empty after checked!");
@@ -108,7 +116,10 @@ impl Vmap {
         Some(unsafe { Box::from_non_null_in(pages, Kmalloc::default()) })
     }
 
-    pub fn allocate(&mut self, count: NonZeroUsize) -> Result<Box<DynPages, Kmalloc>, MemoryError> {
+    pub fn allocate(
+        self: Pin<&mut Self>,
+        count: NonZeroUsize,
+    ) -> Result<Box<DynPages, Kmalloc>, MemoryError> {
         // 先从快速池获取
         let mut pages = self
             .pool_get(count)
@@ -116,14 +127,20 @@ impl Vmap {
             .ok_or(MemoryError::OutOfMemory)?;
 
         // 加入已分配树
-        self.allocated.lock().insert(&mut pages.rb_node);
+        unsafe { self.as_ref().map_unchecked(|vmap| &vmap.allocated) }
+            .lock_pinned()
+            .as_mut()
+            .insert(&mut pages.rb_node);
         Ok(pages)
     }
 
     /// 从红黑树中查找并分配满足条件的虚拟页块
     /// 查找策略：优先左子树（smaller but sufficient），精确匹配或分割
-    fn allocate_from_tree(&mut self, count: NonZeroUsize) -> Option<Box<DynPages, Kmalloc>> {
-        let mut tree = FREE_VMAP_TREE.lock();
+    fn allocate_from_tree(
+        self: &Pin<&mut Self>,
+        count: NonZeroUsize,
+    ) -> Option<Box<DynPages, Kmalloc>> {
+        let tree = free_map_tree();
         let mut node = tree.root?;
 
         // 根节点不满足要求，整棵树都不够大
@@ -152,7 +169,7 @@ impl Vmap {
                     // 需要分割：从 pages 中切出 count 个页，剩余部分重新插入树
                     unsafe { pages.as_mut().split(count) }
                 } else {
-                    node_ref.delete(tree.deref_mut());
+                    free_map_tree().as_mut().delete_node(node);
                     Some(unsafe { Box::from_non_null_in(pages, Kmalloc::default()) })
                 };
             }
@@ -164,26 +181,34 @@ impl Vmap {
         }
     }
 
-    pub fn search_allocated(&mut self, range: &VmRange) -> Option<NonNull<DynPages>> {
-        let node = self.allocated.lock().search_exact(range, VmRange::cmp)?;
+    pub fn search_allocated(self: &Pin<&mut Self>, range: &VmRange) -> Option<NonNull<DynPages>> {
+        let node = unsafe { self.as_ref().map_unchecked(|vmap| &vmap.allocated) }
+            .lock_pinned()
+            .as_ref()
+            .search_exact(range, VmRange::cmp)?;
 
         let pages = container_of!(node, DynPages, rb_node);
         Some(pages)
     }
 
-    pub fn deallocate(&mut self, pages: &mut DynPages) -> Result<(), MemoryError> {
-        self.allocated
-            .lock()
+    pub fn deallocate(self: &Pin<&mut Self>, pages: &mut DynPages) -> Result<(), MemoryError> {
+        unsafe { self.as_ref().map_unchecked(|vmap| &vmap.allocated) }
+            .lock_pinned()
+            .as_mut()
             .delete_node(NonNull::from(&pages.rb_node));
 
         let node = &mut pages.rb_node;
 
         if node.get_key().get_count() >= MAX_VMAP_POOL_PAGES {
-            FREE_VMAP_TREE.lock().insert(node);
+            free_map_tree().as_mut().insert(node);
         } else {
             self.pool_put(pages);
         }
 
         Ok(())
     }
+}
+
+fn free_map_tree<'a>() -> SpinGuard<'a, Pin<&'a mut RbTree>> {
+    unsafe { Pin::new_unchecked(&FREE_VMAP_TREE) }.lock_pinned()
 }

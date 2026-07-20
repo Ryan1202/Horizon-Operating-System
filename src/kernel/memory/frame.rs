@@ -1,6 +1,7 @@
 use core::{
     cell::SyncUnsafeCell,
     mem::{self, ManuallyDrop, transmute},
+    pin::Pin,
     ptr::NonNull,
     sync::atomic::{AtomicU8, AtomicUsize, Ordering},
 };
@@ -116,7 +117,11 @@ pub enum FrameTag {
 const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
 
 /// Buddy 分配器的虚拟地址存储位置
-pub static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
+static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
+
+pub fn frame_manager() -> Pin<&'static BuddyAllocator> {
+    unsafe { Pin::new_unchecked(&FRAME_MANAGER) }
+}
 
 impl Frame {
     pub fn get_tag(&self) -> FrameTag {
@@ -262,8 +267,8 @@ pub const fn frame_count(size: usize) -> usize {
 }
 
 pub trait FrameAllocator {
-    fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames>;
-    fn deallocate(&self, page: &mut Frame) -> Result<(), FrameError>;
+    fn allocate(self: Pin<&Self>, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames>;
+    fn deallocate(self: Pin<&Self>, page: &mut Frame) -> Result<(), FrameError>;
     /// 从 buddy 分配器中剔除指定物理内存区域（如 ioremap 需要映射的物理内存）
     ///
     /// 需要注意：`start` 须对齐到 `order`

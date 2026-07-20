@@ -3,7 +3,7 @@ use crate::{
     kernel::memory::{
         MemoryError,
         frame::{
-            FRAME_MANAGER, FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder,
+            FrameAllocator, FrameError, FrameNumber, ZoneType, buddy::FrameOrder, frame_manager,
             reference::UniqueFrames, zone::ZONE_COUNT,
         },
     },
@@ -137,12 +137,12 @@ pub enum FrameAllocType {
 impl FrameAllocType {
     fn allocate(&self, zone: ZoneType) -> Result<(UniqueFrames, ZoneType), MemoryError> {
         match self {
-            Self::Dynamic { order } => FRAME_MANAGER
+            Self::Dynamic { order } => frame_manager()
                 .allocate(zone, *order)
                 .map(|f| (f, zone))
                 .ok_or(MemoryError::OutOfMemory),
 
-            Self::Fixed { start, order } => FRAME_MANAGER.assign(*start, *order).map(|frames| {
+            Self::Fixed { start, order } => frame_manager().assign(*start, *order).map(|frames| {
                 let paddr = PhysAddr::from_frame_number(*start);
                 let zone_type = ZoneType::from_address(paddr);
 

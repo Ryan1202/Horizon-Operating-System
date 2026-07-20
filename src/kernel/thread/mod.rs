@@ -4,17 +4,21 @@ use alloc::sync::Arc;
 
 use crate::{
     arch::ArchInterrupt,
-    kernel::{interrupt::Interrupt, memory::kmalloc::Kmalloc, thread::scheduler::SCHEDULER},
+    kernel::{interrupt::Interrupt, memory::kmalloc::Kmalloc, thread::scheduler::scheduler},
 };
 
+mod completion;
 pub mod core;
 mod ffi;
 pub mod manager;
 pub(super) mod scheduler;
+pub mod wait_queue;
 
 // 导出符号
+pub use completion::Completion;
 pub use core::{KernelThreadEntry, Thread, ThreadId, ThreadState};
 pub use manager::{THREAD_MANAGER, ThreadManager};
+pub use wait_queue::{WaitCondition, WaitQueue};
 
 pub type ThreadArc = Arc<Thread, Kmalloc>;
 
@@ -37,7 +41,7 @@ extern "C" fn thread_manager_init(entry: KernelThreadEntry) {
     // idle 线程有一个单独的状态 Idle
     idle.transition_to(ThreadState::Idle).unwrap();
 
-    SCHEDULER.init(current, idle);
+    scheduler().init(current, idle);
     current.transition_to(ThreadState::Ready).unwrap();
 
     Thread::prepare_first_thread(current);

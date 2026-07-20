@@ -1,4 +1,4 @@
-use core::{cmp, marker::PhantomData, mem, ptr::NonNull};
+use core::{cmp, marker::PhantomData, mem, pin::Pin, ptr::NonNull};
 
 use crate::lib::rust::rbtree::augment::AugmentLinkHead;
 
@@ -54,7 +54,7 @@ pub struct RbTreeBase<K: Sized, I, TA, NA> {
 }
 
 pub trait RbSearch<K: Sized, Node, Compare: Fn(&K, &K) -> cmp::Ordering> {
-    fn search_exact(&self, key: &K, compare: Compare) -> Option<NonNull<Node>> {
+    fn search_exact(self: Pin<&Self>, key: &K, compare: Compare) -> Option<NonNull<Node>> {
         self.search_closest(key, compare)
             .and_then(|(v, ord)| match ord {
                 cmp::Ordering::Equal => Some(v),
@@ -62,7 +62,11 @@ pub trait RbSearch<K: Sized, Node, Compare: Fn(&K, &K) -> cmp::Ordering> {
             })
     }
 
-    fn search_closest(&self, key: &K, compare: Compare) -> Option<(NonNull<Node>, cmp::Ordering)>;
+    fn search_closest(
+        self: Pin<&Self>,
+        key: &K,
+        compare: Compare,
+    ) -> Option<(NonNull<Node>, cmp::Ordering)>;
 }
 
 pub type RbTree<K> = RbTreeBase<K, (), (), ()>;
@@ -147,19 +151,22 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
         self.root = None;
     }
 
-    pub fn insert(&mut self, new_node: &mut RbNodeBase<K, I, NA>)
+    pub fn insert(self: Pin<&mut Self>, new_node: &mut RbNodeBase<K, I, NA>)
     where
         K: Ord + Sized,
         RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
         RbTreeBase<K, I, TA, NA>: AugmentLinkHead<K, I, TA, NA>,
     {
+        // SAFETY: this operation only rewires links in place and never moves
+        // the pinned tree value.
+        let tree = unsafe { self.get_unchecked_mut() };
         debug_assert!(
             new_node.get_parent().is_none() && new_node.left.is_none() && new_node.right.is_none(),
             "Inserting a node that is already in a tree!"
         );
 
         let key = &new_node.key;
-        let parent = self
+        let parent = tree
             .root
             .and_then(|root| unsafe { root.as_ref() }.search_closest_and_recalc(key, K::cmp));
 
@@ -168,23 +175,23 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
                 let parent_ref = unsafe { parent_ptr.as_mut() };
 
                 parent_ref.link_node(new_node, ordering);
-                new_node.insert_fixup(self);
+                new_node.insert_fixup(tree);
 
-                parent_ref.link_ext(self, new_node, ordering);
+                parent_ref.link_ext(tree, new_node, ordering);
 
-                new_node.propagate(self.root.unwrap());
+                new_node.propagate(tree.root.unwrap());
             }
             None => {
                 // 树为空，插入为根节点
                 new_node.parent = RbNodeWithColor::null_node();
-                self.root = Some(NonNull::from_mut(new_node));
+                tree.root = Some(NonNull::from_mut(new_node));
 
-                self.init(new_node);
+                tree.init(new_node);
             }
         }
     }
 
-    pub fn delete<'a>(&mut self, key: &K) -> Option<NonNull<RbNodeBase<K, I, NA>>>
+    pub fn delete<'a>(self: Pin<&mut Self>, key: &K) -> Option<NonNull<RbNodeBase<K, I, NA>>>
     where
         &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
         RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
@@ -193,12 +200,12 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
         I: 'a,
         NA: 'a,
     {
-        let target = self.search_exact(key, K::cmp)?;
+        let target = self.as_ref().search_exact(key, K::cmp)?;
         self.delete_node(target);
         Some(target)
     }
 
-    pub fn delete_node<'a>(&mut self, mut target: NonNull<RbNodeBase<K, I, NA>>)
+    pub fn delete_node<'a>(self: Pin<&mut Self>, mut target: NonNull<RbNodeBase<K, I, NA>>)
     where
         &'a mut RbNodeBase<K, I, NA>: IntoIterator<Item = &'a mut RbNodeBase<K, I, NA>>,
         RbNodeBase<K, I, NA>: Augment + AugmentLink<K, I, TA, NA>,
@@ -207,8 +214,9 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
         I: 'a,
         NA: 'a,
     {
-        let target_ref = unsafe { target.as_mut() };
-        target_ref.delete(self);
+        let tree = unsafe { self.get_unchecked_mut() };
+        let target = unsafe { target.as_mut() };
+        target.delete(tree);
     }
 }
 
@@ -374,8 +382,12 @@ impl<K: Sized, I, A, Compare: Fn(&K, &K) -> cmp::Ordering> RbSearch<K, RbNodeBas
     /// - 如果找到完全相等的节点，返回`Ordering::Equal`
     /// - 如果未找到完全相等的节点，返回最后访问节点及其与`key`的比较结果
     /// - 如果是无法比较的类型，则视为`Greater`
-    fn search_closest(&self, key: &K, cmp: Compare) -> Option<(NonNull<Self>, cmp::Ordering)> {
-        self.search_closest_and_recalc(key, cmp)
+    fn search_closest(
+        self: Pin<&Self>,
+        key: &K,
+        cmp: Compare,
+    ) -> Option<(NonNull<Self>, cmp::Ordering)> {
+        self.get_ref().search_closest_and_recalc(key, cmp)
     }
 }
 
@@ -383,12 +395,12 @@ impl<K: Sized, I, TA, NA, Compare: Fn(&K, &K) -> cmp::Ordering>
     RbSearch<K, RbNodeBase<K, I, NA>, Compare> for RbTreeBase<K, I, TA, NA>
 {
     fn search_closest(
-        &self,
+        self: Pin<&Self>,
         key: &K,
         cmp: Compare,
     ) -> Option<(NonNull<RbNodeBase<K, I, NA>>, cmp::Ordering)> {
         if let Some(root_ptr) = self.root {
-            unsafe { root_ptr.as_ref().search_closest(key, cmp) }
+            unsafe { Pin::new_unchecked(root_ptr.as_ref()) }.search_closest(key, cmp)
         } else {
             None
         }

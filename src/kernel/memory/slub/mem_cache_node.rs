@@ -22,16 +22,18 @@ struct PartialList {
 impl Spinlock<PartialList> {
     fn get(&self, config: &CacheConfig, options: PageAllocOptions) -> Option<NonNull<Slub>> {
         if !self.get_relaxed().list_head.is_empty() {
-            let mut guard = self.lock();
-            let head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
+            let mut guard = unsafe { Pin::new_unchecked(self) }.lock_pinned();
 
+            let head = unsafe { guard.as_ref().map_unchecked(|list| &list.list_head) };
             let mut iter = head.iter(Slub::list_offset());
             while let Some(mut slub) = iter.next() {
                 drop(iter);
-                let mut head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
+
+                let mut head =
+                    unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
                 head.delete(unsafe { slub.as_mut().get_list() });
 
-                guard.count -= 1;
+                unsafe { guard.as_mut().get_unchecked_mut().count -= 1 };
                 return Some(slub);
             }
         }
@@ -40,19 +42,21 @@ impl Spinlock<PartialList> {
     }
 
     fn put(&self, config: &CacheConfig, options: PageAllocOptions, mut slub: NonNull<Slub>) {
-        let mut guard = self.lock();
+        let mut guard = unsafe { Pin::new_unchecked(self) }.lock_pinned();
+
+        let partial = unsafe { guard.as_mut().get_unchecked_mut() };
         let slub = unsafe { slub.as_mut() };
 
         // 如果当前 partial list 中对象数量已经超过 min_partial，并且 slub 中没有对象在使用，则销毁该 slub
-        if guard.count >= config.min_partial as usize && slub.inner.get_relaxed().inuse == 0 {
+        if partial.count >= config.min_partial as usize && slub.inner.get_relaxed().inuse == 0 {
             if let Some(_) = slub.try_destroy(&options) {
                 return;
             }
         }
 
-        let mut head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
+        partial.count += 1;
+        let mut head = unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
         head.add_tail(slub.get_list());
-        guard.count += 1;
     }
 }
 
@@ -62,24 +66,33 @@ impl MemCacheNode {
         .ok()
         .unwrap();
 
-    pub(super) fn init(&mut self, config: &CacheConfig, slub: Option<NonNull<Slub>>) {
-        *self = Self {
-            partial_list: Spinlock::new(PartialList {
-                list_head: ListHead::empty(),
-                count: 0,
-            }),
-            object_size: config.object_size,
-        };
-
+    pub(super) fn init(
+        mut self: Pin<&mut Self>,
+        config: &CacheConfig,
+        slub: Option<NonNull<Slub>>,
+    ) {
         unsafe {
-            self.partial_list.init_with(|v| {
-                let mut head = Pin::new_unchecked(&mut v.list_head);
+            let list = self.as_mut().map_unchecked_mut(|node| {
+                *node = Self {
+                    partial_list: Spinlock::new(PartialList {
+                        list_head: ListHead::empty(),
+                        count: 0,
+                    }),
+                    object_size: config.object_size,
+                };
+                &mut node.partial_list
+            });
+
+            list.as_ref().init_with_pinned(|mut v| {
+                let mut head = v.as_mut().map_unchecked_mut(|list| &mut list.list_head);
                 head.init();
 
                 if let Some(mut slub) = slub {
                     let slub = slub.as_mut().get_list();
                     head.add_tail(slub);
-                    v.count += 1;
+
+                    drop(head);
+                    v.get_unchecked_mut().count += 1;
                 }
             })
         };
@@ -97,7 +110,7 @@ impl MemCacheNode {
             let mut mem_cache_node: NonNull<Self> =
                 slub.as_ref().allocate(NonNull::dangling()).unwrap();
 
-            mem_cache_node.as_mut().init(config, Some(slub));
+            Pin::new_unchecked(mem_cache_node.as_mut()).init(config, Some(slub));
 
             mem_cache_node
         }
@@ -152,16 +165,14 @@ impl MemCacheNode {
         self.partial_list.put(config, options, slub);
     }
 
-    pub fn try_destroy(&mut self, options: &PageAllocOptions) -> Option<()> {
-        let mut guard = self.partial_list.lock();
-        let list_head = unsafe { Pin::new_unchecked(&mut guard.list_head) };
+    pub fn try_destroy(self: Pin<&Self>, options: &PageAllocOptions) -> Option<()> {
+        let mut guard = unsafe { self.map_unchecked(|node| &node.partial_list) }.lock_pinned();
 
-        for mut slub in list_head.iter(Slub::list_offset()) {
+        let mut list_head = unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
+
+        for mut slub in list_head.as_ref().iter(Slub::list_offset()) {
             let slub = unsafe { slub.as_mut() };
             {
-                let mut head = self.partial_list.lock();
-
-                let mut list_head = unsafe { Pin::new_unchecked(&mut head.list_head) };
                 list_head.delete(slub.get_list());
             }
 

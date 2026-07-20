@@ -102,8 +102,8 @@ pub struct ListIterator<Owner> {
 }
 
 impl<Owner> ListHead<Owner> {
-    pub fn iter(self: Pin<&mut Self>, offset: usize) -> ListIterator<Owner> {
-        let head = self.as_ref().as_ptr();
+    pub fn iter(self: &Pin<&Self>, offset: usize) -> ListIterator<Owner> {
+        let head = self.as_ptr();
 
         let first = unsafe { self.link.assume_init_ref().next };
         ListIterator {

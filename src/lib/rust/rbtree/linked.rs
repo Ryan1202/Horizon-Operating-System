@@ -98,8 +98,8 @@ impl<K, A> Linked<K, A> {
 }
 
 impl<K, A, NA> LinkedHead<K, A, NA> {
-    pub fn iter(&mut self) -> ListIterator<LinkedRbNodeBase<K, NA>> {
-        unsafe { Pin::new_unchecked(&mut self.list_head) }
+    pub fn iter(&self) -> ListIterator<LinkedRbNodeBase<K, NA>> {
+        unsafe { Pin::new_unchecked(&self.list_head) }
             .iter(LinkedRbTreeBase::<K, A, NA>::linked_offset())
     }
 }
@@ -210,7 +210,7 @@ impl<'a, K: Ord + Sized, A, NA> LinkedRbTreeBase<K, A, NA> {
             }
         };
 
-        let list_head = unsafe { Pin::new_unchecked(&mut self.augment.list_head) };
+        let list_head = unsafe { Pin::new_unchecked(&self.augment.list_head) };
         let first_node = list_head
             .iter(offset_of!(LinkedHead<K, A, NA>, list_head))
             .next();

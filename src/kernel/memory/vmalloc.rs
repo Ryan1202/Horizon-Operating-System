@@ -17,7 +17,7 @@ use crate::{
 
 #[unsafe(no_mangle)]
 pub extern "C" fn vmap_init() {
-    get_vmap().init();
+    get_vmap().as_mut().init();
 }
 
 #[unsafe(export_name = "ioremap")]
@@ -124,7 +124,7 @@ pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
         end: num,
     };
 
-    let mut node = get_vmap();
+    let node = get_vmap();
     let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
 
     pages.unmap()?;

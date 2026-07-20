@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use crate::kernel::{
     interrupt::{self, PreemptPoint},
     memory::kmalloc::Kmalloc,
-    thread::{THREAD_MANAGER, Thread, ThreadArc, scheduler::SCHEDULER},
+    thread::{THREAD_MANAGER, Thread, ThreadArc, scheduler::scheduler},
 };
 
 /// 创建一个由 ThreadManager 持有、尚未加入运行队列的线程。
@@ -56,7 +56,7 @@ extern "C" fn thread_run_c(thread: *const Thread) -> bool {
     };
 
     assert!(interrupt::in_thread(), "thread_run outside thread context");
-    SCHEDULER.enqueue(thread).is_ok()
+    scheduler().enqueue(thread).is_ok()
 }
 
 /// 释放一个由 thread_get 返回的 owning handle。
@@ -75,29 +75,29 @@ extern "C" fn thread_put_c(thread: *const Thread) {
 
 #[unsafe(export_name = "thread_exit")]
 extern "C" fn thread_exit_c() -> ! {
-    SCHEDULER.exit_current()
+    scheduler().exit_self()
 }
 
 #[unsafe(export_name = "disable_preempt")]
 extern "C" fn disable_preempt() {
     // SAFETY: C 调用方负责在同一 CPU 上通过 enable_preempt 配平。
-    unsafe { SCHEDULER.disable_preempt() };
+    unsafe { scheduler().disable_preempt() };
 }
 
 #[unsafe(export_name = "enable_preempt")]
 extern "C" fn enable_preempt() {
     // SAFETY: C 调用方必须已经在同一 CPU 上调用过 disable_preempt。
-    unsafe { SCHEDULER.enable_preempt() };
+    unsafe { scheduler().enable_preempt() };
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn can_preempt() -> bool {
-    SCHEDULER.can_preempt() && interrupt::in_thread()
+    scheduler().can_preempt() && interrupt::in_thread()
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn scheduler_tick(elapsed_ms: u16) {
-    SCHEDULER.tick(elapsed_ms);
+    scheduler().tick(elapsed_ms);
 }
 
 #[unsafe(no_mangle)]
@@ -106,5 +106,5 @@ extern "C" fn try_yield() {
         return;
     };
 
-    SCHEDULER.try_yield(point);
+    scheduler().try_yield(point);
 }

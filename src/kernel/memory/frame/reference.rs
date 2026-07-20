@@ -1,6 +1,7 @@
 use core::{
     mem::{self, ManuallyDrop},
     ops::{Deref, DerefMut},
+    pin::Pin,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -10,8 +11,8 @@ use crate::{
     kernel::memory::{
         KLINEAR_BASE,
         frame::{
-            FRAME_MANAGER, Frame, FrameAllocator, FrameData, FrameNumber, FrameRange, FrameTag,
-            anonymous::Anonymous, assigned::AssignedFixed, buddy::FrameOrder,
+            Frame, FrameAllocator, FrameData, FrameNumber, FrameRange, FrameTag,
+            anonymous::Anonymous, assigned::AssignedFixed, buddy::FrameOrder, frame_manager,
         },
         page::{
             PageTable, current_root_pt, linear_table_ptr,
@@ -293,12 +294,12 @@ impl UniqueFrames {
     pub fn merge<A, F>(
         mut low: ManuallyDrop<Self>,
         mut high: ManuallyDrop<Self>,
-        allocator: &A,
+        allocator: Pin<&A>,
         f: F,
     ) -> Result<ManuallyDrop<Self>, (ManuallyDrop<Self>, ManuallyDrop<Self>)>
     where
         A: FrameAllocator,
-        F: FnOnce(&A, &mut Self, ManuallyDrop<Self>),
+        F: FnOnce(Pin<&A>, &mut Self, ManuallyDrop<Self>),
     {
         let low_ = low.deref_mut();
         let high_ = high.deref_mut();
@@ -402,7 +403,7 @@ fn free_last(frame: &mut Frame) {
     // 最后一个引用被释放——归还给分配器
     let frame_number = frame.frame_number();
 
-    if let Err(e) = FRAME_MANAGER.deallocate(frame) {
+    if let Err(e) = frame_manager().deallocate(frame) {
         // 不 panic，仅记录错误。
         // 内存会泄漏，但系统继续运行。
         // 比 panic 导致整个系统停机要好。

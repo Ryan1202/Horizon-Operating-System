@@ -1,6 +1,7 @@
 use core::ops::ControlFlow;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::kernel::memory::frame::frame_manager;
 use crate::kernel::memory::frame::page_table::PageTable;
 use crate::kernel::memory::frame::vmemmap::early_create_vmemmap;
 use crate::kernel::memory::{EARLY_ROOT_PT_VIR, KERNEL_END, KLINEAR_END, VMEMMAP_END};
@@ -19,8 +20,8 @@ use crate::{
 };
 
 use super::{
-    ALLOCATED_PAGES, FRAME_MANAGER, Frame, FrameData, FrameNumber, FrameRange, FrameTag,
-    PREALLOCATED_END_PHY, PREALLOCATED_START_PHY, TOTAL_PAGES, frame_count,
+    ALLOCATED_PAGES, Frame, FrameData, FrameNumber, FrameRange, FrameTag, PREALLOCATED_END_PHY,
+    PREALLOCATED_START_PHY, TOTAL_PAGES, frame_count,
 };
 
 /// 仅记录启动阶段初始化的线性映射内存末尾
@@ -52,7 +53,7 @@ pub extern "C" fn page_init(blocks: *const E820Ards, block_count: u16, kernel_st
     });
     Frame::init(blocks, block_count, kernel_range);
 
-    FRAME_MANAGER.init();
+    frame_manager().init();
 }
 
 // 内核启动早期分配的页都是不会释放的，如页表结构等

@@ -75,31 +75,41 @@ impl MemCaches {
                 }
             }
 
-            caches.list_head.init_with(|v| {
-                let mut head = Pin::new_unchecked(v);
-                head.init();
+            global_caches()
+                .map_unchecked(|caches| &caches.list_head)
+                .init_with_pinned(|mut head| {
+                    head.init();
 
-                head.add_head(mem_cache_node.as_mut().get_list());
-                head.add_head(mem_cache.as_mut().get_list());
+                    head.add_head(mem_cache_node.as_mut().get_list());
+                    head.add_head(mem_cache.as_mut().get_list());
 
-                for cache in 0..DEFAULT_CACHE_COUNT {
-                    let mut cache = get_cache_unchecked(cache);
-                    head.add_tail(cache.as_mut().get_list());
-                }
-            });
+                    for cache in 0..DEFAULT_CACHE_COUNT {
+                        let mut cache = get_cache_unchecked(cache);
+                        head.add_tail(cache.as_mut().get_list());
+                    }
+                });
         }
     }
 
-    pub fn add_cache(&self, cache: Pin<&mut MemCache>) {
-        let mut list_head = self.list_head.lock();
+    pub fn add_cache(self: Pin<&Self>, cache: Pin<&mut MemCache>) {
+        let mut list_head = unsafe { self.map_unchecked(|cache| &cache.list_head) }.lock_pinned();
         unsafe {
-            Pin::new_unchecked(&mut *list_head)
+            list_head
+                .as_mut()
                 .add_head(cache.map_unchecked_mut(|v| &mut *v.list.get()))
         };
+    }
+
+    fn list_head(self: Pin<&Self>) -> Pin<&Spinlock<ListHead<MemCache>>> {
+        unsafe { self.map_unchecked(|cache| &cache.list_head) }
     }
 }
 
 static CACHES: SyncUnsafeCell<MaybeUninit<MemCaches>> = SyncUnsafeCell::new(MaybeUninit::uninit());
+
+pub fn global_caches() -> Pin<&'static MemCaches> {
+    unsafe { Pin::new_unchecked((*CACHES.get()).assume_init_ref()) }
+}
 
 /// 顶层 MemCache
 pub struct MemCache {
@@ -152,7 +162,7 @@ impl MemCache {
             options = options.order(config.frame_order);
 
             let slub = Slub::new(&Self::CONFIG, options).unwrap();
-            node.as_mut().init(config, Some(slub));
+            Pin::new_unchecked(node.as_mut()).init(config, Some(slub));
 
             // 申请 "mem_cache" 的 MemCache
             let mut mem_cache = {
@@ -198,7 +208,7 @@ impl MemCache {
             .and_then(|mut ptr| unsafe {
                 let mem_cache = ptr.as_mut();
 
-                node.as_mut().init(&config, None);
+                Pin::new_unchecked(node.as_mut()).init(&config, None);
                 mem_cache
                     .init(config, node, options.order(config.frame_order))
                     .ok()?;
@@ -214,7 +224,7 @@ impl MemCache {
     }
 
     pub fn new(config: CacheConfig, options: PageAllocOptions) -> Option<NonNull<Self>> {
-        let caches = unsafe { (*CACHES.get()).assume_init_ref() };
+        let caches = global_caches();
 
         unsafe {
             Self::new_raw(config, caches.node_mem_cache, caches.mem_cache, options).and_then(
@@ -283,7 +293,7 @@ impl MemCache {
 
     pub fn try_destory(mut ptr: NonNull<Self>) -> Option<()> {
         let mem_cache = unsafe { ptr.as_mut() };
-        unsafe { mem_cache.node.as_mut().try_destroy(&mem_cache.options)? };
+        unsafe { Pin::new_unchecked(mem_cache.node.as_ref()).try_destroy(&mem_cache.options)? };
 
         // 交换出 Slub 指针并用空指针替代
         let slub_ptr = mem_cache.slub.swap(null_mut(), Ordering::Relaxed);
@@ -299,10 +309,10 @@ impl MemCache {
                 })?;
         }
 
-        let mut head = unsafe { (*CACHES.get()).assume_init_ref().list_head.lock() };
+        let mut head = global_caches().list_head().lock_pinned();
 
         let list = mem_cache.get_list();
-        unsafe { Pin::new_unchecked(&mut *head) }.delete(list);
+        head.as_mut().delete(list);
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));

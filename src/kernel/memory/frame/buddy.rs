@@ -160,8 +160,8 @@ pub struct Zone {
 }
 
 impl Zone {
-    pub fn get_free_list(&mut self, order: FrameOrder) -> Pin<&mut ListHead<Buddy>> {
-        unsafe { Pin::new_unchecked(&mut self.free_frames[order.get()]) }
+    pub fn get_free_list(self: Pin<&mut Self>, order: FrameOrder) -> Pin<&mut ListHead<Buddy>> {
+        unsafe { self.map_unchecked_mut(|zone| &mut zone.free_frames[order.get()]) }
     }
 }
 
@@ -216,14 +216,14 @@ impl BuddyAllocator {
         unsafe { zeroed() }
     }
 
-    fn get_zone(&self, zone_type: ZoneType) -> &Spinlock<Zone> {
-        &self.zones[zone_type.index()]
+    fn get_zone(self: Pin<&Self>, zone_type: ZoneType) -> Pin<&Spinlock<Zone>> {
+        unsafe { self.map_unchecked(|buddy| &buddy.zones[zone_type.index()]) }
     }
 
     /// 初始化Buddy内存分配器
     /// 1. 初始化所有Zone的空闲链表
     /// 2. 遍历Frame，根据Zone类型和Buddy order分割内存
-    pub fn init(&self) {
+    pub fn init(self: Pin<&Self>) {
         // 初始化所有Zone的空闲链表
         self.init_zone_lists();
 
@@ -232,7 +232,7 @@ impl BuddyAllocator {
     }
 
     /// 初始化所有Zone的空闲链表结构
-    fn init_zone_lists(&self) {
+    fn init_zone_lists(self: Pin<&Self>) {
         for i in 0..ZONE_COUNT {
             unsafe {
                 self.zones[i].init_with(|v| {
@@ -245,7 +245,7 @@ impl BuddyAllocator {
     }
 
     /// 遍历 vmemmap，根据Zone和order将Free页加入对应的空闲链表
-    fn populate_zones(&self) {
+    fn populate_zones(self: Pin<&Self>) {
         let mut zone_state = ZoneState::new();
         let root_pt = ROOT_PT_LINEAR;
 
@@ -299,12 +299,17 @@ impl BuddyAllocator {
         }
     }
 
-    fn scan_frame(&self, zone_state: &mut ZoneState, frame_number: FrameNumber) -> FrameNumber {
+    fn scan_frame(
+        self: Pin<&Self>,
+        zone_state: &mut ZoneState,
+        frame_number: FrameNumber,
+    ) -> FrameNumber {
         let frame = Frame::get_raw(frame_number);
 
         match Frame::get_tag_relaxed(frame_number) {
             FrameTag::Free => {
-                let frame = UniqueFrames::from_allocator(frame, FrameOrder(0), self).unwrap();
+                let frame =
+                    UniqueFrames::from_allocator(frame, FrameOrder(0), self.get_ref()).unwrap();
 
                 let block_range = unsafe { frame.get_data().range };
 
@@ -321,7 +326,12 @@ impl BuddyAllocator {
     }
 
     /// 将一个E820内存块按Zone和Order分割加入Buddy系统
-    fn add_free_block(&self, zone_state: &mut ZoneState, mut start: FrameNumber, end: FrameNumber) {
+    fn add_free_block(
+        self: Pin<&Self>,
+        zone_state: &mut ZoneState,
+        mut start: FrameNumber,
+        end: FrameNumber,
+    ) {
         while start < end {
             // 找到当前地址对应的Zone并获取其范围
             let (zone_type, zone_start, zone_end) = zone_state.get_zone_for_frame(start);
@@ -343,7 +353,8 @@ impl BuddyAllocator {
 
             // 初始化该Buddy块的Frame结构
             let frame = Frame::get_raw(start);
-            let mut frame = UniqueFrames::from_allocator(frame, FrameOrder(0), self).unwrap();
+            let mut frame =
+                UniqueFrames::from_allocator(frame, FrameOrder(0), self.get_ref()).unwrap();
 
             Buddy::new(order, zone_type).replace_frame(&mut frame);
 
@@ -356,7 +367,7 @@ impl BuddyAllocator {
 
 impl BuddyAllocator {
     fn split(
-        &self,
+        self: Pin<&Self>,
         zone_type: ZoneType,
         order: FrameOrder,
         target_order: FrameOrder,
@@ -384,8 +395,8 @@ impl BuddyAllocator {
             let node = Buddy::get_list((*next_frame).deref_mut().try_into().unwrap());
 
             {
-                let mut zone = self.get_zone(zone_type).lock();
-                let mut head = zone.get_free_list(split_order);
+                let mut zone = self.get_zone(zone_type).lock_pinned();
+                let mut head = zone.as_mut().get_free_list(split_order);
 
                 head.add_tail(node);
             }
@@ -397,7 +408,7 @@ impl BuddyAllocator {
         buddy.order = target_order;
     }
 
-    fn merge_exact(&self, left: &mut UniqueFrames, right: ManuallyDrop<UniqueFrames>) {
+    fn merge_exact(self: Pin<&Self>, left: &mut UniqueFrames, right: ManuallyDrop<UniqueFrames>) {
         let buddy: &mut Buddy = left.deref_mut().try_into().unwrap();
 
         let new_order = buddy.order.0 + 1;
@@ -411,15 +422,15 @@ impl BuddyAllocator {
 
             let node = Buddy::get_list(left.deref_mut().try_into().unwrap());
 
-            let mut zone = self.get_zone(zone_type).lock();
-            let mut head = zone.get_free_list(FrameOrder(new_order));
+            let mut zone = self.get_zone(zone_type).lock_pinned();
+            let mut head = zone.as_mut().get_free_list(FrameOrder(new_order));
 
             head.add_head(node);
         }
     }
 
     fn merge_once(
-        &self,
+        self: Pin<&Self>,
         frame: ManuallyDrop<UniqueFrames>,
         current_order: FrameOrder,
         range: (FrameNumber, FrameNumber),
@@ -439,7 +450,7 @@ impl BuddyAllocator {
         let is_low = low == frame_number;
         let buddy = Frame::get_raw(if is_low { high } else { low });
 
-        let pair = match UniqueFrames::from_allocator(buddy, current_order, self) {
+        let pair = match UniqueFrames::from_allocator(buddy, current_order, self.get_ref()) {
             Some(buddy) => {
                 if is_low {
                     Ok((frame, buddy))
@@ -458,14 +469,14 @@ impl BuddyAllocator {
 
     /// 将 Frame 添加回空闲链表
     fn add_to_free_list(
-        &self,
+        self: Pin<&Self>,
         frame: &mut Frame,
         order: FrameOrder,
-        zone: &Spinlock<Zone>,
+        zone: Pin<&Spinlock<Zone>>,
     ) -> Result<(), FrameError> {
         let node = Buddy::get_list(frame.try_into()?);
-        let mut zone = zone.lock();
-        let mut head = zone.get_free_list(order);
+        let mut zone = zone.lock_pinned();
+        let mut head = zone.as_mut().get_free_list(order);
 
         head.add_head(node);
 
@@ -474,22 +485,22 @@ impl BuddyAllocator {
 }
 
 impl FrameAllocator for BuddyAllocator {
-    fn allocate(&self, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames> {
+    fn allocate(self: Pin<&Self>, zone_type: ZoneType, order: FrameOrder) -> Option<UniqueFrames> {
         let mut order = order;
         let target_order = order;
 
         while order <= MAX_ORDER {
-            let mut zone = self.get_zone(zone_type).lock();
-            let list_head = zone.get_free_list(order);
-            let iter = list_head.iter(Buddy::list_offset()).next();
+            let mut zone = self.get_zone(zone_type).lock_pinned();
+            let list_head = zone.as_mut().get_free_list(order);
+            let iter = list_head.as_ref().iter(Buddy::list_offset()).next();
 
             if let Some(mut buddy) = iter {
                 let buddy = unsafe { buddy.as_mut() };
 
-                zone.get_free_list(order).delete(buddy.get_list());
+                zone.as_mut().get_free_list(order).delete(buddy.get_list());
 
                 let frame = unsafe { NonNull::from(Frame::from_child(buddy)) };
-                let frame = UniqueFrames::from_allocator(frame, order, self).unwrap();
+                let frame = UniqueFrames::from_allocator(frame, order, self.get_ref()).unwrap();
                 let mut frame = ManuallyDrop::into_inner(frame);
                 drop(zone);
 
@@ -509,7 +520,7 @@ impl FrameAllocator for BuddyAllocator {
         None
     }
 
-    fn deallocate(&self, frame: &mut Frame) -> Result<(), FrameError> {
+    fn deallocate(self: Pin<&Self>, frame: &mut Frame) -> Result<(), FrameError> {
         let addr = frame.start_addr();
 
         let zone_type = ZoneType::from_address(addr);
@@ -528,7 +539,8 @@ impl FrameAllocator for BuddyAllocator {
 
         Buddy::new(order, zone_type).replace_frame(frame);
 
-        let mut frame = UniqueFrames::from_allocator(NonNull::from(frame), order, self).unwrap();
+        let mut frame =
+            UniqueFrames::from_allocator(NonNull::from(frame), order, self.get_ref()).unwrap();
 
         ALLOCATED_PAGES.fetch_sub(count, Ordering::Relaxed);
 

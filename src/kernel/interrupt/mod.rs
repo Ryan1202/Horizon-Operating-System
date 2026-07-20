@@ -6,7 +6,7 @@ use core::{
     sync::atomic::{AtomicU8, Ordering},
 };
 
-use crate::{arch::ArchInterrupt, kernel::thread::scheduler::SCHEDULER};
+use crate::{arch::ArchInterrupt, kernel::thread::scheduler::scheduler};
 
 mod softirq;
 
@@ -195,7 +195,7 @@ impl PreemptPoint {
     }
 
     pub fn try_preempt(self) {
-        SCHEDULER.try_preempt(self);
+        scheduler().try_preempt(self);
     }
 }
 

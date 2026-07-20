@@ -16,7 +16,7 @@ use crate::{
             frame::buddy::FrameOrder,
             page::{Pages, options::PageAllocOptions},
         },
-        thread::scheduler::SCHEDULER,
+        thread::{scheduler::scheduler, wait_queue::Waiter},
     },
     lib::rust::{list::ListNode, spinlock::Spinlock},
 };
@@ -62,7 +62,8 @@ pub struct Thread {
     id: ThreadId,
     name: &'static CStr,
 
-    node: SyncUnsafeCell<ListNode<Thread>>,
+    run_node: SyncUnsafeCell<ListNode<Thread>>,
+    waiter: Waiter,
 
     // context 只能由持有调度器全局锁且禁止抢占的代码修改，不能通过普通
     // Thread API 取得可变引用。
@@ -86,7 +87,8 @@ impl Thread {
         Ok(Self {
             id: ThreadId::new(),
             name,
-            node: SyncUnsafeCell::new(ListNode::new()),
+            run_node: SyncUnsafeCell::new(ListNode::new()),
+            waiter: Waiter::new(),
             context: SyncUnsafeCell::new(context),
             _kernel_stack: stack,
             inner: Spinlock::new(ThreadInner::new()),
@@ -136,19 +138,33 @@ impl Thread {
     /// # Safety
     ///
     /// 该线程必须已经被 ThreadManager 注册
-    pub(super) unsafe fn get_node(&self) -> Pin<&mut ListNode<Thread>> {
-        unsafe { Pin::new_unchecked(&mut *self.node.get()) }
+    pub(super) unsafe fn get_run_node(&self) -> Pin<&mut ListNode<Thread>> {
+        unsafe { Pin::new_unchecked(&mut *self.run_node.get()) }
     }
 
-    pub(super) const fn list_offset() -> usize {
-        offset_of!(Thread, node)
+    pub(super) const fn run_node_offset() -> usize {
+        offset_of!(Thread, run_node)
+    }
+
+    pub(super) const fn waiter(&self) -> &Waiter {
+        &self.waiter
+    }
+
+    /// 从内嵌的 Waiter 恢复所属线程。
+    ///
+    /// # Safety
+    ///
+    /// `waiter` 必须指向一个仍然存活的 Thread 的 `waiter` 字段。
+    pub(super) unsafe fn from_waiter(waiter: NonNull<Waiter>) -> NonNull<Self> {
+        crate::container_of!(waiter, Thread, waiter)
     }
 }
 
 pub extern "C" fn thread_entry_wrapper(entry: KernelThreadEntry, argument: *mut c_void) -> ! {
-    unsafe { SCHEDULER.finish_first_switch() };
+    let scheduler = scheduler();
+    unsafe { scheduler.finish_first_switch() };
     entry(argument);
-    SCHEDULER.exit_current()
+    scheduler.exit_self()
 }
 
 pub struct ThreadInner {
@@ -192,6 +208,22 @@ impl ThreadInner {
                 self.state = ThreadState::Idle;
                 Ok(())
             }
+            (ThreadState::Running, ThreadState::Blocking) => {
+                self.state = ThreadState::Blocking;
+                Ok(())
+            }
+            (ThreadState::Blocking, ThreadState::Blocked) => {
+                self.state = ThreadState::Blocked;
+                Ok(())
+            }
+            (ThreadState::Blocking, ThreadState::Running) => {
+                self.state = ThreadState::Running;
+                Ok(())
+            }
+            (ThreadState::Blocked, ThreadState::Ready) => {
+                self.state = ThreadState::Ready;
+                Ok(())
+            }
             (ThreadState::Running, ThreadState::Dead) => {
                 self.state = ThreadState::Dead;
                 Ok(())
@@ -225,6 +257,7 @@ pub enum ThreadState {
     Idle,
     Ready,
     Running,
+    Blocking,
     Blocked,
     Dead,
 }

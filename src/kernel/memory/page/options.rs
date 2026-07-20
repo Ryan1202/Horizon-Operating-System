@@ -190,7 +190,7 @@ impl PageAllocOptions {
             };
 
             if !is_linear(zone) {
-                let mut v = get_vmap().allocate(count)?;
+                let mut v = get_vmap().as_mut().allocate(count)?;
 
                 v.map(frame, self.cache_type)?;
 
@@ -203,7 +203,7 @@ impl PageAllocOptions {
                 Ok(Pages::Linear(frame))
             }
         } else {
-            let mut v = get_vmap().allocate(count)?;
+            let mut v = get_vmap().as_mut().allocate(count)?;
 
             self.alloc_discontiguous(&mut v)?;
 
