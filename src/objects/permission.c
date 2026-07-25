@@ -1,11 +1,11 @@
 #include <kernel/list.h>
-#include <kernel/thread.h>
 #include <objects/object.h>
 #include <objects/permission.h>
 #include <stdint.h>
 
 Permission *get_permission_info(ObjectAttr *attr) {
-	size_t subject_id = get_current_subject_id();
+	// 当前阶段只有系统主体；用户身份将在进程层接入。
+	size_t subject_id = SUBJECT_ID_SYSTEM;
 	if (subject_id == SUBJECT_ID_SYSTEM) {
 		return &attr->system_permission;
 	} else if (subject_id == attr->owner_id) {

@@ -11,7 +11,6 @@
 #include <kernel/console.h>
 #include <kernel/elf32.h>
 #include <kernel/memory.h>
-#include <kernel/process.h>
 
 /**
  * @brief 运行应用程序
@@ -34,7 +33,6 @@ void run_app(char *path) {
 	// 	string_cpy(&prog->name, &prog->filename);
 	// 	list_init(&prog->seg_head);
 	// 	unsigned int *entry = elf_load(prog);
-	// 	process_excute(entry, prog);
 	// } else {
 	// 	printk(
 	// 		"Unsupport Executable File or Command %s!", prog->inode->name.text);

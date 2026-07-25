@@ -23,11 +23,11 @@
 
 #define SET_EXCEPTION_ENTRY(n) \
 	set_gate_descriptor(       \
-		&idt[n], (size_t)&exception_entry##n, 0x08, DA_386IGate_DPL0);
+		&idt[n], (size_t)&exception_entry##n, 0x08, DA_386IGate_DPL0, 1);
 
 #define SET_IRQ_ENTRY(n) \
 	set_gate_descriptor( \
-		&idt[0x20 + n], (size_t)&irq_entry##n, 0x08, DA_386IGate_DPL0);
+		&idt[0x20 + n], (size_t)&irq_entry##n, 0x08, DA_386IGate_DPL0, 0);
 
 extern void syscall_handler(void);
 
@@ -51,15 +51,9 @@ static void set_tss_descriptor(
 
 	descriptor[0] = low;
 	descriptor[1] = high;
-}
 
-/**
- * @brief 更新TSS中的ESP为对应任务的ESP
- *
- * @param pthread 任务结构
- */
-void update_tss_esp(struct task_s *pthread) {
-	tss.rsp[0] = ((uint64_t)pthread + PAGE_SIZE);
+	struct tss_s *tss = (struct tss_s *)base;
+	tss->ist[0]		  = 0xffffffff80090000;
 }
 
 /**
@@ -105,7 +99,7 @@ void init_descriptor(void) {
 	// 配置IDT
 	// 0x00-0x1f号中断是CPU异常中断, 0x20-0x2f号中断是IRQ中断
 	for (i = 0; i < (IDT_SIZE + 1) / (int)sizeof(struct gate_descriptor); i++) {
-		set_gate_descriptor(idt + i, 0, 0, 0);
+		set_gate_descriptor(idt + i, 0, 0, 0, 0);
 	}
 
 	SET_EXCEPTION_ENTRY(0)
@@ -159,7 +153,7 @@ void init_descriptor(void) {
 	SET_IRQ_ENTRY(15)
 
 	set_gate_descriptor(
-		&idt[0x80], (size_t)syscall_handler, 0x08, DA_386IGate_DPL3);
+		&idt[0x80], (size_t)syscall_handler, 0x08, DA_386IGate_DPL3, 0);
 
 	load_idtr((uint16_t)IDT_SIZE, (size_t)idt);
 }
@@ -234,13 +228,14 @@ void set_segment_descriptor(
  * @param offset 偏移地址
  * @param selector 段选择子
  * @param ar 标志
+ * @param ist 中断栈表索引
  */
 void set_gate_descriptor(
-	struct gate_descriptor *gd, uint64_t offset, uint16_t selector,
-	uint8_t ar) {
+	struct gate_descriptor *gd, uint64_t offset, uint16_t selector, uint8_t ar,
+	uint8_t ist) {
 	gd->offset_low	 = offset & 0xffff;
 	gd->selector	 = selector;
-	gd->ist			 = 0;
+	gd->ist			 = ist;
 	gd->access_right = ar;
 	gd->offset_mid	 = (offset >> 16) & 0xffff;
 	gd->offset_high	 = (offset >> 32) & 0xffffffff;

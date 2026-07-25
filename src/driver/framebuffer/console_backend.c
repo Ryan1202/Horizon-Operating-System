@@ -6,7 +6,6 @@
 #include <kernel/memory.h>
 #include <kernel/periodic_task.h>
 #include <kernel/spinlock.h>
-#include <kernel/thread.h>
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
@@ -16,6 +15,7 @@ void fb_console_backend_update(void *arg);
 void fb_console_backend_init(void *context) {
 	FrameBufferDevice		  *fb_device = context;
 	FrameBufferConsoleBackend *backend	 = &fb_device->console_backend;
+	backend->initialized                 = false;
 
 	backend->fb_device	 = fb_device;
 	backend->font		 = font16;
@@ -44,11 +44,12 @@ void fb_console_backend_init(void *context) {
 	backend->foreground_color = backend->default_fg_color;
 	backend->background_color = backend->default_bg_color;
 
+	spinlock_init(&backend->lock);
+	backend->initialized = true;
+
 	backend->periodic_task.func = fb_console_backend_update;
 	backend->periodic_task.arg	= backend;
 	periodic_task_add(&backend->periodic_task);
-
-	spinlock_init(&backend->lock);
 }
 
 void fb_console_backend_scroll(FrameBufferConsoleBackend *backend, int lines) {
@@ -223,7 +224,7 @@ void fb_console_backend_put_string(
 	FrameBufferDevice		  *fb_device = context;
 	FrameBufferConsoleBackend *backend	 = &fb_device->console_backend;
 
-	if (backend->line_ends == NULL || backend->line_widths == NULL) { return; }
+	if (!backend->initialized) return;
 
 	spin_lock(&backend->lock);
 	for (int i = 0; i < length; i++) {
@@ -276,5 +277,5 @@ void fb_console_backend_put_string(
 		}
 	}
 	spin_unlock(&backend->lock);
-	if (list_empty(&thread_all)) { fb_console_backend_update(backend); }
+	fb_console_backend_update(backend);
 }

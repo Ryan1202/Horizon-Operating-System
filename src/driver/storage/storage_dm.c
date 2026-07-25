@@ -1,5 +1,4 @@
 #include "kernel/spinlock.h"
-#include "kernel/wait_queue.h"
 #include "objects/attr.h"
 #include <driver/storage/disk/mbr.h>
 #include <driver/storage/disk/volume.h>
@@ -73,7 +72,6 @@ DriverResult create_storage_device(
 
 	spinlock_init(&storage->queue_lock);
 	list_init(&storage->io_queue_lh);
-	wait_queue_init(&storage->wq);
 
 	char	 _name[] = "Storage";
 	string_t name;

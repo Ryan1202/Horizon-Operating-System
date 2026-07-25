@@ -66,12 +66,12 @@ extern struct gate_descriptor	 *idt;
 #define DA_386IGate_DPL3 0xEE /* 386中断门类型值(3特权级)	*/
 #define DA_386TGate		 0x8F /* 386陷阱门类型值			*/
 
-void update_tss_esp(struct task_s *pthread);
 void init_descriptor(void);
 void set_segment_descriptor(
 	struct segment_descriptor *sd, unsigned int limit, uint64_t base, int ar);
 void set_gate_descriptor(
-	struct gate_descriptor *gd, uint64_t offset, uint16_t selector, uint8_t ar);
+	struct gate_descriptor *gd, uint64_t offset, uint16_t selector, uint8_t ar,
+	uint8_t ist);
 uint16_t set_percpu_segment_descriptor(int cpu_id, size_t addr);
 
 #endif

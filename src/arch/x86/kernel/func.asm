@@ -12,7 +12,7 @@
 	global general_protection
 	global page_fault
 global IRQ_timer,	IRQ_pit,	IRQ_keyboard
-global thread_intr_exit, kernel_thread_entry
+global thread_intr_exit
 global switch_to
 
 extern exception_handler
@@ -369,9 +369,3 @@ switch_to:
 	pop	rbx
 	pop	rbp
 	ret
-
-kernel_thread_entry:
-	mov	rdi, r12
-	mov	rsi, r13
-	call	kernel_thread
-	hlt

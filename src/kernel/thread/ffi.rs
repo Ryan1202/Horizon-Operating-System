@@ -73,6 +73,14 @@ extern "C" fn thread_put_c(thread: *const Thread) {
     drop(thread);
 }
 
+/// 等待 owning handle 指向的线程退出，不消费该引用。
+#[unsafe(export_name = "thread_join")]
+extern "C" fn thread_join_c(thread: *const Thread) {
+    unsafe { thread.as_ref() }
+        .expect("null thread handle")
+        .join();
+}
+
 #[unsafe(export_name = "thread_exit")]
 extern "C" fn thread_exit_c() -> ! {
     scheduler().exit_self()

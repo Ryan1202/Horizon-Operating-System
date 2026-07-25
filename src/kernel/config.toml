@@ -7,7 +7,6 @@ c = [
     "driver/driver.c",
     "app.c",
     "block_cache.c",
-    "condvar.c",
     "console.c",
     "elf.c",
     "fifo.c",
@@ -17,12 +16,8 @@ c = [
     "memory.c",
     "memtest.c",
     "periodic_task.c",
-    "process.c",
     "rwlock.c",
     "softirq.c",
-    "sync.c",
     "syscall.c",
-    "thread.c",
-    "wait_queue.c",
 ]
-rust = ["memory/mod.rs", "thread/mod.rs", "interrupt/mod.rs"]
+rust = ["thread/mod.rs", "interrupt/mod.rs", "memory/mod.rs"]

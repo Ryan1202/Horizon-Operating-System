@@ -10,7 +10,6 @@
 #include <kernel/console.h>
 #include <kernel/font.h>
 #include <kernel/list.h>
-#include <kernel/sync.h>
 #include <kernel/thread.h>
 #include <math.h>
 #include <stdio.h>

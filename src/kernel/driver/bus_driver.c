@@ -3,18 +3,13 @@
 #include <kernel/driver.h>
 #include <kernel/list.h>
 #include <kernel/memory.h>
-#include <kernel/wait_queue.h>
 #include <math.h>
 #include <objects/object.h>
 #include <string.h>
 
 BusDriver *bus_drivers[BUS_TYPE_MAX];
-WaitQueue  bus_wqm[BUS_TYPE_MAX];
 
 DriverResult init_bus_manager() {
-	for (int i = 0; i < BUS_TYPE_MAX; i++) {
-		wait_queue_init(&bus_wqm[i]);
-	}
 	return DRIVER_OK;
 }
 

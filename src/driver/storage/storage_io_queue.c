@@ -1,7 +1,7 @@
 #include "kernel/block_cache.h"
 #include "kernel/rwlock.h"
 #include "kernel/spinlock.h"
-#include "kernel/wait_queue.h"
+#include "kernel/completion.h"
 #include <driver/storage/storage_dm.h>
 #include <driver/storage/storage_io_queue.h>
 #include <kernel/list.h>
@@ -26,9 +26,14 @@ PRIVATE void storage_modify_merged_request(
 	last_request->next_merged_request = new_request;
 }
 
-PRIVATE void storage_new_merge_request(
+PRIVATE bool storage_new_merge_request(
 	StorageRequest *new_request, StorageRequest *request) {
 	StorageRequest *req = kzalloc(sizeof(StorageRequest));
+	if (req == NULL) return false;
+	if (!completion_init(&req->completion)) {
+		kfree(req);
+		return false;
+	}
 	req->buf			= NULL; // 缓冲区先不申请，等到真正提交时再申请
 	req->position		= MIN(new_request->position, request->position);
 	req->count			= MAX(new_request->position + new_request->count,
@@ -37,19 +42,21 @@ PRIVATE void storage_new_merge_request(
 	req->rw				= new_request->rw;
 	req->is_finished	= 0;
 	req->storage_device = new_request->storage_device;
+	req->batch_next      = NULL;
 
 	req->next_merged_request	 = request;
 	request->next_merged_request = new_request;
 
 	list_add_before(&req->list, &request->list);
 	list_del(&request->list);
+	return true;
 }
 
 bool storage_try_merge_request(
 	StorageRequest *new_request, StorageRequest *request, size_t max_count) {
 	if (new_request->rw == request->rw) { // 读写类型相同
 		if (new_request->count + request->count > max_count) return false;
-		if (new_request->position + new_request->count < request->position &&
+		if (new_request->position + new_request->count < request->position ||
 			new_request->position > request->position + request->count) {
 			// 两个请求没有交集
 			return false;
@@ -60,8 +67,9 @@ bool storage_try_merge_request(
 			storage_modify_merged_request(new_request, request);
 		} else { // 未合并过
 			// 因为不能修改已有的请求，就新申请一个请求替换掉
-			storage_new_merge_request(new_request, request);
+			if (!storage_new_merge_request(new_request, request)) return false;
 		}
+		return true;
 	}
 	return false;
 }
@@ -86,10 +94,12 @@ void storage_add_request(
 	list_for_each_owner (req, &storage_device->io_queue_lh, list) {
 		if (storage_try_merge_request(
 				request, req, storage_device->max_block_per_request)) {
+			spin_unlock(&storage_device->queue_lock);
 			return;
 		}
 		if (req->position > request->position) {
 			list_add_before(&request->list, &req->list);
+			spin_unlock(&storage_device->queue_lock);
 			return;
 		}
 	}
@@ -128,17 +138,17 @@ void storage_periodic_task(void *arg) {
 // 需要修改storage_finish_request函数，支持分割请求的完成
 void storage_finish_request(StorageRequest *storage_request) {
 	storage_request->is_finished = true;
+	completion_complete(&storage_request->completion);
 
 	// 处理合并请求的情况
 	StorageRequest *req = storage_request->next_merged_request;
 	if (req) {
 		while (req) {
 			req->is_finished = true;
+			completion_complete(&req->completion);
 			req				 = req->next_merged_request;
 		}
 	}
-	wait_queue_wakeup_thread(
-		&storage_request->storage_device->wq, storage_request->thread);
 }
 
 void storage_submit_request(StorageRequest *request) {

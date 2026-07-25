@@ -11,7 +11,9 @@ use crate::{
         MemoryError, PageCacheType,
         arch::ArchMemory,
         frame::{buddy::FrameOrder, frame_count, options::FrameAllocOptions, zone::ZoneType},
-        page::{Pages, options::PageAllocOptions, range::VmRange, vmap::get_vmap},
+        page::{
+            Pages, dyn_pages::DynPages, options::PageAllocOptions, range::VmRange, vmap::get_vmap,
+        },
     },
 };
 
@@ -117,17 +119,17 @@ pub fn vmalloc<T>(
 /// 仅释放虚拟地址，不涉及物理页框的回收
 pub fn vfree(vaddr: VirtAddr) -> Result<(), MemoryError> {
     let err = MemoryError::InvalidVirtualAddress(vaddr);
-
-    let num = vaddr.to_page_number();
+    let page = vaddr.to_page_number();
     let range = VmRange {
-        start: num,
-        end: num,
+        start: page,
+        end: page,
     };
 
-    let node = get_vmap();
-    let pages = unsafe { node.search_allocated(&range).ok_or(err)?.as_mut() };
+    let vmap = get_vmap();
+    let mut pointer = vmap.search_allocated(&range).ok_or(err)?;
+    let mut pages = ManuallyDrop::new(unsafe { DynPages::new(pointer) });
 
     pages.unmap()?;
 
-    node.deallocate(pages)
+    vmap.deallocate(unsafe { pointer.as_mut() })
 }

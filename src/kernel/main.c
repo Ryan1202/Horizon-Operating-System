@@ -5,7 +5,6 @@
  * @date 2020-03
  */
 #include "objects/transfer.h"
-#include "types.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
 #include <bits.h>
@@ -34,7 +33,6 @@
 #include <kernel/page.h>
 #include <kernel/periodic_task.h>
 #include <kernel/platform.h>
-#include <kernel/process.h>
 #include <kernel/thread.h>
 #include <objects/handle.h>
 #include <objects/ops.h>
@@ -126,10 +124,6 @@ int main() {
 	return 0;
 }
 
-void test_thread(void *arg) {
-	return;
-}
-
 void thread_main(void *arg) {
 	io_sti();
 	printk(
@@ -139,14 +133,13 @@ void thread_main(void *arg) {
 		thread_create("Kernel Periodic Tasks", periodic_task, NULL);
 	thread_run(periodic);
 
-	Thread *test = thread_create("Test Thread", test_thread, NULL);
-	thread_run(test);
-
 	do_initcalls();
-	while (true) {
-		io_hlt();
+	DriverResult driver_result = driver_start_all();
+	if (driver_result == DRIVER_OK) {
+		printk("[driver] driver_start_all completed\n");
+	} else {
+		DRV_PRINT_RESULT(driver_result, driver_start_all());
 	}
-	driver_start_all();
 
 	Object		*net;
 	ObjectResult result = open_object_by_path("\\Device\\Network0", &net);

@@ -1,4 +1,4 @@
-use core::{mem, num::NonZeroUsize};
+use core::{mem, num::NonZeroUsize, ptr::NonNull};
 
 use alloc::boxed::Box;
 
@@ -11,32 +11,31 @@ use crate::{
             Frame,
             reference::{SharedFrames, UniqueFrames},
         },
-        kmalloc::Kmalloc,
-        page::{PageFlags, PageTableError, PageTableOps, current_root_pt, range::VmRange},
+        kmalloc::{Kernel, Kmalloc},
+        page::{
+            PageFlags, PageNumber, PageTableError, PageTableOps, current_root_pt, range::VmRange,
+            vmap::get_vmap,
+        },
     },
     lib::rust::rbtree::linked::LinkedRbNodeBase,
+    linked_augment,
 };
 
-pub struct DynPages {
+pub(in crate::kernel::memory) struct VmapNode {
     pub(super) rb_node: LinkedRbNodeBase<VmRange, usize>,
     pub(super) frame_count: usize,
-    pub(super) first_frame: Option<UniqueFrames>,
 }
 
-impl DynPages {
+impl VmapNode {
     const fn new(range: VmRange) -> Self {
         let count = range.get_count();
-        DynPages {
+        Self {
             rb_node: LinkedRbNodeBase::linked_new(range, count),
             frame_count: 0,
-            first_frame: None,
         }
     }
 
-    pub const fn fixed(
-        start: crate::kernel::memory::page::PageNumber,
-        count: NonZeroUsize,
-    ) -> Self {
+    pub const fn fixed(start: PageNumber, count: NonZeroUsize) -> Self {
         let range = VmRange {
             start,
             end: start + count.get() - 1,
@@ -56,35 +55,53 @@ impl DynPages {
         Self::new(vm_range)
     }
 
+    #[inline]
     pub fn start_addr(&self) -> VirtAddr {
         let addr = self.rb_node.get_key().start.get() * ArchPageTable::PAGE_SIZE;
         VirtAddr::new(addr)
     }
 
-    /// 从当前 VirtPages 中切出 count 个页
-    /// 修改当前节点范围为 [start+count, end]，创建新节点 [start, start+count-1] 并返回
-    pub(super) unsafe fn split(&mut self, count: NonZeroUsize) -> Option<Box<DynPages, Kmalloc>> {
+    /// 从当前空闲区间头部切出 `count` 页。
+    ///
+    /// # Safety
+    ///
+    /// 调用时节点必须已经从 intrusive tree/list 摘除。
+    pub(super) unsafe fn split(&mut self, count: NonZeroUsize) -> Option<Box<VmapNode, Kmalloc>> {
         let range = self.rb_node.get_key();
+        debug_assert!(count.get() < range.get_count());
+
         let old_start = range.start;
-
-        // 计算分割点：[old_start, split_point-1] 用于分配，[split_point, old_end] 放回 pool
         let split_point = old_start + count.get();
+        let allocated =
+            Box::try_new_in(Self::fixed(old_start, count), Kmalloc::<Kernel>::default()).ok()?;
 
-        // 修改当前节点范围
-        unsafe {
-            self.rb_node.get_key_mut().start = split_point;
-        }
-
-        // 分配新节点存储分配部分
-        let allocated = Box::new_in(
-            DynPages::new(VmRange {
-                start: old_start,
-                end: split_point - 1,
-            }),
-            Kmalloc::default(),
-        );
+        let range = unsafe { self.rb_node.get_key_mut() };
+        range.start = split_point;
+        linked_augment!(self.rb_node) = range.get_count();
 
         Some(allocated)
+    }
+}
+
+pub struct DynPages {
+    pointer: NonNull<VmapNode>,
+}
+
+impl DynPages {
+    /// # Safety
+    ///
+    /// `pointer` 在该对象使用期间必须有效，且不能同时存在另一个 `DynPages` 权限对象。
+    /// 若允许该对象执行 Drop，节点还必须由 Vmap 持有并位于 allocated tree 中。
+    pub(in crate::kernel::memory) const unsafe fn new(pointer: NonNull<VmapNode>) -> Self {
+        Self { pointer }
+    }
+
+    pub fn start_addr(&self) -> VirtAddr {
+        unsafe { self.pointer.as_ref().start_addr() }
+    }
+
+    pub const fn frame_count(&self) -> usize {
+        unsafe { self.pointer.as_ref().frame_count }
     }
 
     pub fn map(
@@ -95,30 +112,30 @@ impl DynPages {
         // 由于vmap只使用range.start做比较，所以修改end不会影响树结构
         let count = frame.order().to_count().get();
 
+        let offset = self.frame_count();
+
         PageTableOps::<ArchPageTable>::map(
             current_root_pt(),
             self,
-            self.frame_count,
+            offset,
             &mut frame,
             PageFlags::new().cache_type(cache_type),
         )?;
 
-        if self.first_frame.is_none() {
-            self.first_frame = Some(frame);
-        } else {
-            mem::forget(frame);
-        }
+        mem::forget(frame);
 
-        let range = self.rb_node.get_key();
-        if self.frame_count + count > range.get_count() {
+        let range = unsafe { self.pointer.as_ref().rb_node.get_key() };
+        if offset + count > range.get_count() {
             printk!(
                 "WARNING: DynPages range insufficient: required {}, available {}",
-                self.frame_count + count,
+                offset + count,
                 range.get_count()
             );
         }
 
-        self.frame_count += count;
+        unsafe {
+            self.pointer.as_mut().frame_count += count;
+        }
 
         Ok(())
     }
@@ -127,7 +144,7 @@ impl DynPages {
         let mut page_number = self.start_addr().to_page_number();
         let mut offset = 0;
 
-        while offset < self.frame_count {
+        while offset < self.frame_count() {
             let vaddr = page_number.to_addr();
             let paddr = PageTableOps::<ArchPageTable>::translate(current_root_pt(), vaddr).unwrap();
 
@@ -151,10 +168,10 @@ impl DynPages {
                     frame_number
                 );
             }
-            .inspect_err(|e| {
+            .inspect_err(|error| {
                 printk!(
                     "unmap range failed! error: {:?}, start: {}, offset: {}, order: {:?}\n",
-                    e,
+                    error,
                     self.start_addr(),
                     offset,
                     order
@@ -163,7 +180,32 @@ impl DynPages {
             offset += order.to_count().get();
         }
 
-        self.frame_count = 0;
+        unsafe {
+            self.pointer.as_mut().frame_count = 0;
+        }
         Ok(())
+    }
+}
+
+impl Drop for DynPages {
+    fn drop(&mut self) {
+        let start = self.start_addr();
+        if let Err(error) = self.unmap() {
+            printk!(
+                "WARNING: failed to release DynPages at {:?}: {:?}; keeping VmapNode allocated\n",
+                start,
+                error
+            );
+            return;
+        }
+
+        let mut pointer = self.pointer;
+        if let Err(error) = get_vmap().as_mut().deallocate(unsafe { pointer.as_mut() }) {
+            printk!(
+                "WARNING: failed to return VmapNode at {:?}: {:?}\n",
+                start,
+                error
+            );
+        }
     }
 }

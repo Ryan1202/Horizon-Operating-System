@@ -3,7 +3,6 @@
  */
 #include "kernel/device.h"
 #include "kernel/driver.h"
-#include "kernel/thread.h"
 #include "multiple_return.h"
 #include "stdint.h"
 #include <driver/storage/storage_dm.h>
@@ -25,15 +24,14 @@ bool storage_check_request_size(
 // 将过大的请求分割成多个小请求
 DriverResult storage_generate_request(
 	StorageDevice *device, int rw, void *buf, size_t position, size_t count,
-	DEF_MRET(StorageRequest *, last_request)) {
+	DEF_MRET(StorageRequest *, request_list)) {
 	// 计算需要分割成几个请求
 	uint32_t num_requests = DIV_ROUND_UP(count, device->max_block_per_request);
 	uint32_t remaining_blocks = count;
 	uint32_t current_position = position;
 
 	StorageRequest *first_request = NULL;
-	StorageRequest *request;
-	struct task_s  *cur_thread = get_current_thread();
+	StorageRequest *last_request  = NULL;
 
 	// uint32_t t, t0, t1, t2, t3;
 	// 分割请求
@@ -43,8 +41,15 @@ DriverResult storage_generate_request(
 			MIN(remaining_blocks, device->max_block_per_request);
 
 		// 创建新的请求
-		request = kzalloc(sizeof(StorageRequest));
-		if (request == NULL && first_request != NULL) {
+		StorageRequest *request = kzalloc(sizeof(StorageRequest));
+		if (request == NULL || !completion_init(&request->completion)) {
+			if (request != NULL) kfree(request);
+			while (first_request != NULL) {
+				StorageRequest *next = first_request->batch_next;
+				completion_deinit(&first_request->completion);
+				kfree(first_request);
+				first_request = next;
+			}
 			return DRIVER_ERROR_OUT_OF_MEMORY;
 		}
 
@@ -55,20 +60,29 @@ DriverResult storage_generate_request(
 		request->is_finished		 = 0;
 		request->storage_device		 = device;
 		request->next_merged_request = NULL;
-		request->thread				 = cur_thread;
+		request->batch_next           = NULL;
 
 		// 分配或指向原始缓冲区中对应的部分
 		request->buf =
 			buf + i * device->max_block_per_request * device->block_size;
 
-		storage_add_request(device, request);
-
 		// 更新剩余块和当前位置
 		remaining_blocks -= current_count;
 		current_position += current_count;
-		if (first_request == NULL) { first_request = request; }
+		if (last_request == NULL) {
+			first_request = request;
+		} else {
+			last_request->batch_next = request;
+		}
+		last_request = request;
 	}
-	MRET(last_request) = request;
+
+	for (StorageRequest *request = first_request; request != NULL;
+		 request = request->batch_next) {
+		storage_add_request(device, request);
+	}
+
+	MRET(request_list) = first_request;
 	return DRIVER_OK;
 }
 
@@ -94,26 +108,25 @@ TransferResult storage_transfer(
 	}
 	LogicalDevice *device = object->value.device.logical;
 
-	StorageRequest *request;
+	StorageRequest *requests;
 	StorageDevice  *storage_device = device->dm_ext;
-
-	thread_set_status(TASK_INTERRUPTIBLE);
-	wait_queue_add(&storage_device->wq);
 
 	DriverResult result = storage_generate_request(
 		storage_device, (direction == TRANSFER_IN) ? 0 : 1, buf, position,
-		count, &request);
+		count, &requests);
 	if (result != DRIVER_OK) {
-		wait_queue_del(&storage_device->wq);
 		return TRANSFER_ERROR_FAILED;
 	}
 
-	thread_wait();
-	while (!request->is_finished) {
-		thread_set_status(TASK_INTERRUPTIBLE);
-		wait_queue_add(&storage_device->wq);
-		thread_wait();
+	for (StorageRequest *request = requests; request != NULL;
+		 request = request->batch_next) {
+		completion_wait(&request->completion);
 	}
+	/*
+	 * StorageRequest 的所有权仍由旧存储队列协议决定。完成只表示 I/O
+	 * 已结束，不足以证明驱动和合并请求已经不再持有该指针；在该协议
+	 * 被单独重构前，这里保持旧实现的生命周期，不主动回收请求。
+	 */
 
 	return TRANSFER_OK;
 }
@@ -134,7 +147,13 @@ TransferResult storage_is_transfer_done(
 	if (req->storage_device != storage_device || done == NULL) {
 		return TRANSFER_ERROR_INVALID_PARAMETER;
 	}
-	*done = req->is_finished;
+	*done = true;
+	for (; req != NULL; req = req->batch_next) {
+		if (!req->is_finished) {
+			*done = false;
+			break;
+		}
+	}
 
 	return TRANSFER_OK;
 }

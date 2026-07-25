@@ -36,7 +36,8 @@ typedef size_t (*syscall2_func_t)(size_t, size_t);
 typedef size_t (*syscall3_func_t)(size_t, size_t, size_t);
 
 int sys_getpid(void) {
-	return get_current_thread()->pid;
+	// 进程/PID 尚未接入新线程子系统。
+	return 0;
 }
 
 int sys_putchar(char c) {

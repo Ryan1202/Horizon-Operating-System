@@ -18,9 +18,7 @@
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/spinlock.h>
-#include <kernel/sync.h>
 #include <kernel/thread.h>
-#include <kernel/wait_queue.h>
 #include <objects/object.h>
 #include <result.h>
 
@@ -182,10 +180,17 @@ PeriodicTask driver_periodic_task = {
 
 DriverResult driver_start_all(void) {
 	struct Thread *thread = thread_create("Start Devices", start_devices, NULL);
-	thread_run(thread);
-	while (!(list_empty(&new_bus_lh) && list_empty(&new_device_lh))) {
-		try_yield();
+	if (thread == NULL) return DRIVER_ERROR_OUT_OF_MEMORY;
+
+	struct Thread *handle = thread_get(thread);
+	if (handle == NULL) return DRIVER_ERROR_OTHER;
+	if (!thread_run(thread)) {
+		thread_put(handle);
+		return DRIVER_ERROR_OTHER;
 	}
+
+	thread_join(handle);
+	thread_put(handle);
 
 	periodic_task_add(&driver_periodic_task);
 

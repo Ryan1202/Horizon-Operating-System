@@ -233,12 +233,13 @@ impl Scheduler {
         let current = guard.current();
         assert!(!self.is_idle(current), "idle thread must not exit");
 
+        // 从发布 Dead 开始一直关闭中断，直到在 next 的上下文中完成切换收尾。
+        // finish 必须在 ready queue 锁外执行，因为唤醒 joiner 会重新获取该锁。
+        let _interrupt = ArchInterrupt::save_and_disable();
+        current.finish();
+
         let next = {
             let mut ready_queue = self.ready_queue().lock_irqsave_pinned();
-
-            current
-                .transition_to(ThreadState::Dead)
-                .expect("running thread must transition to Dead");
 
             if let Some(next) = ready_queue.as_ref().next() {
                 // SAFETY: Ready 线程由 ThreadManager 持有，并且 ready queue
@@ -254,8 +255,6 @@ impl Scheduler {
                 idle
             }
         };
-
-        let _interrupt = ArchInterrupt::save_and_disable();
 
         self.pending_exit
             .compare_exchange(
@@ -274,7 +273,9 @@ impl Scheduler {
     }
 
     /// 执行线程切换
-    fn schedule(self: Pin<&Self>, guard: &mut PreemptGuard<'_>) {
+    ///
+    /// 切换成功返回 Some(())，否则返回 None
+    fn schedule(self: Pin<&Self>, guard: &mut PreemptGuard<'_>) -> Option<()> {
         self.resched.store(false, Ordering::Relaxed);
 
         let current = guard.current();
@@ -283,9 +284,7 @@ impl Scheduler {
             let mut ready_queue = self.ready_queue().lock_irqsave_pinned();
 
             let Some(next) = ready_queue.as_ref().next() else {
-                // 如果没有就绪线程，则继续运行当前线程，并积极尝试在下一次抢占点进行调度。
-                self.resched.store(true, Ordering::Relaxed);
-                return;
+                return None;
             };
 
             // SAFETY: 所有就绪线程都由 ThreadManager 持有；PreemptGuard 保证
@@ -316,6 +315,7 @@ impl Scheduler {
         // SAFETY: 已关闭中断，两个线程都由调度器独占，
         // 且 PreemptGuard 会跨越架构上下文切换保持有效。
         let _ = unsafe { guard.switch_thread(next) };
+        Some(())
     }
 
     /// 在下一个线程的栈上移除已经退出线程的 manager 引用。

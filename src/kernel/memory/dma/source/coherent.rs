@@ -1,4 +1,4 @@
-use core::ptr::NonNull;
+use core::{mem::ManuallyDrop, ptr::NonNull};
 
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
@@ -44,12 +44,11 @@ impl CoherentAllocator {
         constraints: &Constraints,
         order: FrameOrder,
     ) -> Result<(VirtAddr, PhysAddr), MemoryError> {
-        let mut page = self.options.order(order).allocate()?;
+        let page = ManuallyDrop::new(self.options.order(order).allocate()?);
 
         let vaddr = page.start_addr();
         let paddr = page
-            .get_first_frame()
-            .map(|f| f.start_addr())
+            .start_paddr()
             .expect("Allocation successed but first frame not exists");
 
         let alloc_size = order.to_count().get() * ArchPageTable::PAGE_SIZE;

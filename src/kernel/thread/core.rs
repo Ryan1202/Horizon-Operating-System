@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::{
     cell::SyncUnsafeCell,
     ffi::{CStr, c_void},
@@ -14,11 +15,18 @@ use crate::{
             MemoryError,
             arch::ArchMemory,
             frame::buddy::FrameOrder,
+            kmalloc::Kmalloc,
             page::{Pages, options::PageAllocOptions},
         },
-        thread::{scheduler::scheduler, wait_queue::Waiter},
+        thread::{
+            scheduler::scheduler,
+            wait_queue::{WaitCondition, WaitQueue, Waiter},
+        },
     },
-    lib::rust::{list::ListNode, spinlock::Spinlock},
+    lib::rust::{
+        list::ListNode,
+        spinlock::{SpinIrqGuard, Spinlock},
+    },
 };
 
 static NEXT_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
@@ -64,6 +72,7 @@ pub struct Thread {
 
     run_node: SyncUnsafeCell<ListNode<Thread>>,
     waiter: Waiter,
+    join_waiters: Pin<Box<WaitQueue, Kmalloc>>,
 
     // context 只能由持有调度器全局锁且禁止抢占的代码修改，不能通过普通
     // Thread API 取得可变引用。
@@ -83,12 +92,14 @@ impl Thread {
     ) -> Result<Self, MemoryError> {
         let mut stack = KernelStack::new()?;
         let context = unsafe { ArchThreadContext::new_kernel(&mut stack, entry, argument) };
+        let join_waiters = WaitQueue::try_new()?;
 
         Ok(Self {
             id: ThreadId::new(),
             name,
             run_node: SyncUnsafeCell::new(ListNode::new()),
             waiter: Waiter::new(),
+            join_waiters,
             context: SyncUnsafeCell::new(context),
             _kernel_stack: stack,
             inner: Spinlock::new(ThreadInner::new()),
@@ -116,6 +127,41 @@ impl Thread {
 
     pub(super) fn transition_to(&self, new_state: ThreadState) -> Result<(), ThreadError> {
         self.inner.lock().transition_to(new_state)
+    }
+
+    /// 等待该线程退出。
+    ///
+    /// 线程退出是永久状态，因此允许多个持有者同时或先后等待。调用方必须持有
+    /// 保证 `self` 在本次调用期间存活的强引用。
+    pub fn join(&self) {
+        assert!(
+            crate::kernel::interrupt::in_thread(),
+            "Thread::join outside thread context"
+        );
+
+        let scheduler = scheduler();
+        assert!(
+            !ptr::eq(scheduler.current(), self),
+            "thread cannot join itself"
+        );
+        assert!(!scheduler.is_idle(self), "idle thread cannot be joined");
+        assert!(
+            scheduler.can_preempt(),
+            "Thread::join while preemption is disabled"
+        );
+
+        let condition = JoinCondition { thread: self };
+        let _ = self.join_waiters.as_ref().wait(&condition);
+    }
+
+    /// 发布永久退出状态并唤醒所有 joiner。
+    ///
+    /// 调用方必须已经关闭中断并持有可切换的 PreemptGuard，但不能持有 ready
+    /// queue 锁，因为唤醒 Blocked joiner 需要重新获取该锁。
+    pub(super) fn finish(&self) {
+        self.transition_to(ThreadState::Dead)
+            .expect("running thread must transition to Dead");
+        self.join_waiters.as_ref().wake_all();
     }
 
     /// 切换架构上下文。仅供调度器在禁止抢占并独占上下文时调用。
@@ -157,6 +203,22 @@ impl Thread {
     /// `waiter` 必须指向一个仍然存活的 Thread 的 `waiter` 字段。
     pub(super) unsafe fn from_waiter(waiter: NonNull<Waiter>) -> NonNull<Self> {
         crate::container_of!(waiter, Thread, waiter)
+    }
+}
+
+struct JoinCondition<'a> {
+    thread: &'a Thread,
+}
+
+impl WaitCondition for JoinCondition<'_> {
+    type State = ThreadInner;
+
+    fn condition_lock(&self) -> &Spinlock<Self::State> {
+        &self.thread.inner
+    }
+
+    fn is_satisfied(&self, guard: &SpinIrqGuard<'_, &mut Self::State>) -> bool {
+        guard.state == ThreadState::Dead
     }
 }
 

@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use core::{
     cell::SyncUnsafeCell,
+    ffi::{c_int, c_void},
     marker::PhantomPinned,
     mem::offset_of,
     pin::Pin,
@@ -229,6 +230,91 @@ impl WaitQueue {
     fn waiters_irqsave(self: Pin<&Self>) -> SpinIrqGuard<'_, Pin<&mut WaitQueueInner>> {
         self.inner().lock_irqsave_pinned()
     }
+}
+
+pub(super) fn into_raw(queue: Pin<Box<WaitQueue, Kmalloc>>) -> *mut WaitQueue {
+    let queue = unsafe { Pin::into_inner_unchecked(queue) };
+    Box::leak(queue)
+}
+
+/// 从 C 持有的队列头指针恢复固定地址引用。
+///
+/// # Safety
+///
+/// `queue` 必须来自 [`into_raw`]，并且尚未通过 [`drop_raw`] 释放。
+pub(super) unsafe fn from_raw<'a>(queue: *mut WaitQueue) -> Pin<&'a WaitQueue> {
+    assert!(!queue.is_null(), "null WaitQueue");
+    unsafe { Pin::new_unchecked(&*queue) }
+}
+
+/// 释放由 C 持有的队列头。
+///
+/// # Safety
+///
+/// `queue` 必须来自 [`into_raw`]，且只能调用一次。调用方必须保证队列中
+/// 已经没有 waiter。
+pub(super) unsafe fn drop_raw(queue: *mut WaitQueue) {
+    assert!(!queue.is_null(), "null WaitQueue");
+    let _ = unsafe { Box::<WaitQueue, Kmalloc>::from_raw_in(queue, Kmalloc::default()) };
+}
+
+type CTryCondition = extern "C" fn(*mut c_void) -> c_int;
+
+struct CWaitCondition {
+    lock: *const Spinlock<()>,
+    try_condition: CTryCondition,
+    context: *mut c_void,
+}
+
+impl WaitCondition for CWaitCondition {
+    type State = ();
+
+    fn condition_lock(&self) -> &Spinlock<Self::State> {
+        unsafe { &*self.lock }
+    }
+
+    fn is_satisfied(&self, _guard: &SpinIrqGuard<'_, &mut Self::State>) -> bool {
+        (self.try_condition)(self.context) != 0
+    }
+}
+
+#[unsafe(export_name = "wait_queue_create")]
+extern "C" fn create_c() -> *mut WaitQueue {
+    WaitQueue::try_new().map_or(ptr::null_mut(), into_raw)
+}
+
+#[unsafe(export_name = "wait_queue_destroy")]
+extern "C" fn destroy_c(queue: *mut WaitQueue) {
+    if queue.is_null() {
+        return;
+    }
+    unsafe { drop_raw(queue) };
+}
+
+#[unsafe(export_name = "wait_queue_wait")]
+extern "C" fn wait_c(
+    queue: *mut WaitQueue,
+    condition_lock: *mut Spinlock<()>,
+    try_condition: Option<CTryCondition>,
+    context: *mut c_void,
+) {
+    assert!(!condition_lock.is_null(), "null WaitQueue condition lock");
+    let condition = CWaitCondition {
+        lock: condition_lock,
+        try_condition: try_condition.expect("null WaitQueue condition callback"),
+        context,
+    };
+    let _ = unsafe { from_raw(queue) }.wait(&condition);
+}
+
+#[unsafe(export_name = "wait_queue_wake_one")]
+extern "C" fn wake_one_c(queue: *mut WaitQueue) {
+    unsafe { from_raw(queue) }.wake_one();
+}
+
+#[unsafe(export_name = "wait_queue_wake_all")]
+extern "C" fn wake_all_c(queue: *mut WaitQueue) {
+    unsafe { from_raw(queue) }.wake_all();
 }
 
 impl Drop for WaitQueue {

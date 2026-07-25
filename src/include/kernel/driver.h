@@ -3,7 +3,6 @@
 
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
-#include <kernel/wait_queue.h>
 #include <objects/attr.h>
 #include <objects/permission.h>
 #include <result.h>

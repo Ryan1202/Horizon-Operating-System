@@ -1,7 +1,7 @@
 #ifndef _PAGE_H
 #define _PAGE_H
 
-#include <kernel/thread.h>
+#include <kernel/memory.h>
 #include <stdint.h>
 
 #ifdef ARCH_X86
@@ -51,14 +51,6 @@ void		*kmalloc_pages(int pages);
 int			 kfree_pages(size_t vaddr);
 
 void assign_frames(size_t paddr, size_t page_cnt);
-
-// void		*thread_get_page(struct task_s *thread, uint32_t vaddr);
-// uint32_t	 thread_alloc_vir_page(struct task_s *thread);
-// uint32_t	 thread_free_vir_page(struct task_s *thread, uint32_t addr);
-// void		*thread_alloc_page(struct task_s *thread, int pages);
-// void		 thread_free_page(struct task_s *thread, uint32_t vaddr, int pages);
-// MemoryResult thread_use_page(
-// 	struct task_s *thread, uint32_t vaddr, uint32_t addr, int pages);
 
 void *ioremap(size_t paddr, size_t size, uint8_t cache_type);
 

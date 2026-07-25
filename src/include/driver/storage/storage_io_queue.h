@@ -2,6 +2,7 @@
 #define _STORAGE_IO_QUEUE_H
 
 #include "driver/storage/storage_dm.h"
+#include "kernel/completion.h"
 #include "kernel/list.h"
 #include "stdint.h"
 #include "types.h"
@@ -15,12 +16,13 @@ typedef struct StorageRequest {
 	uint64_t	   position;
 	uint32_t	   count;
 	bool		   is_finished;
-	struct task_s *thread;
+	CCompletion   completion;
 
 	uint32_t t0l, t0h;
 	uint32_t t1l, t1h;
 
 	struct StorageRequest *next_merged_request;
+	struct StorageRequest *batch_next;
 } StorageRequest;
 
 void storage_add_request(

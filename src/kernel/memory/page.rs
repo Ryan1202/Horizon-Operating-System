@@ -15,7 +15,6 @@ use crate::{
             buddy::FrameOrder,
             reference::{SharedFrames, UniqueFrames},
         },
-        kmalloc::Kmalloc,
         page::{dyn_pages::DynPages, options::PageAllocOptions},
         vmalloc::vfree,
     },
@@ -31,7 +30,6 @@ pub mod table;
 mod tlb;
 pub(super) mod vmap;
 
-use alloc::boxed::Box;
 pub use flags::PageFlags;
 pub use table::{
     MappingChunk, PageEntrySlot, PageTable, PageTableEntry, PageTableError, PageTableOps,
@@ -96,7 +94,7 @@ const impl Sub<usize> for PageNumber {
 
 pub enum Pages {
     Linear(UniqueFrames),
-    Dynamic(Box<DynPages, Kmalloc>),
+    Dynamic(DynPages),
 }
 
 impl Pages {
@@ -107,22 +105,15 @@ impl Pages {
         }
     }
 
-    pub fn get_ptr<T>(&self) -> NonNull<T> {
-        NonNull::new(self.start_addr().as_mut_ptr()).unwrap()
-    }
-
-    pub fn get_first_frame(&mut self) -> Option<&mut UniqueFrames> {
+    pub fn start_paddr(&self) -> Option<PhysAddr> {
         match self {
-            Pages::Linear(frame) => Some(frame),
-            Pages::Dynamic(pages) => pages.first_frame.as_mut(),
-        }
-    }
-
-    pub fn take(self) -> Option<UniqueFrames> {
-        match self {
-            Pages::Linear(frame) => Some(frame),
+            Pages::Linear(frame) => Some(frame.start_addr()),
             Pages::Dynamic(_) => None,
         }
+    }
+
+    pub fn get_ptr<T>(&self) -> NonNull<T> {
+        NonNull::new(self.start_addr().as_mut_ptr()).unwrap()
     }
 
     pub fn into_frame(self) -> Option<UniqueFrames> {
@@ -135,7 +126,7 @@ impl Pages {
     pub const fn get_count(&self) -> usize {
         match self {
             Pages::Linear(frame) => frame.order().to_count().get(),
-            Pages::Dynamic(vpages) => vpages.frame_count,
+            Pages::Dynamic(vpages) => vpages.frame_count(),
         }
     }
 }

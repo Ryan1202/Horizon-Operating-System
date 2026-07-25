@@ -46,12 +46,30 @@ BlockCache *block_cache_create(
 	list_init(&cache->lru_lh);
 	for (int i = 0; i < count; i++) {
 		BlockCacheEntry *entry = &cache->entries[i];
-		rwlock_init(&entry->lock);
+		if (rwlock_init(&entry->lock) != DRIVER_OK) {
+			for (int j = 0; j < i; j++) {
+				rwlock_destroy(&cache->entries[j].lock);
+				kfree(cache->entries[j].data);
+			}
+			kfree(cache->entries);
+			kfree(cache);
+			return NULL;
+		}
 		entry->list.prev = NULL;
 		entry->list.next = NULL;
 		entry->cache	 = cache;
 		entry->position	 = -1;
 		entry->data		 = kmalloc(cache->size);
+		if (entry->data == NULL) {
+			rwlock_destroy(&entry->lock);
+			for (int j = 0; j < i; j++) {
+				rwlock_destroy(&cache->entries[j].lock);
+				kfree(cache->entries[j].data);
+			}
+			kfree(cache->entries);
+			kfree(cache);
+			return NULL;
+		}
 		list_add_tail(&entry->lru_node, &cache->lru_lh);
 	}
 	return cache;
@@ -59,19 +77,17 @@ BlockCache *block_cache_create(
 
 void block_cache_destroy(BlockCache *cache) {
 	// 释放所有缓存项
-	BlockCacheEntry *entry;
-	list_t			*pos, *next;
-	list_for_each_safe(pos, next, &cache->lru_lh) {
-		entry = (BlockCacheEntry *)((char *)pos -
-									offsetof(BlockCacheEntry, lru_node));
+	for (int i = 0; i < cache->count; i++) {
+		BlockCacheEntry *entry = &cache->entries[i];
 		if (entry->dirty) {
 			cache->write(entry, cache->size, cache->private_data);
-			list_del(&entry->list);
+			if (list_in_list(&entry->list)) list_del(&entry->list);
 		}
-		list_del(&entry->lru_node);
+		if (list_in_list(&entry->lru_node)) list_del(&entry->lru_node);
+		rwlock_destroy(&entry->lock);
 		kfree(entry->data);
-		kfree(entry);
 	}
+	kfree(cache->entries);
 	kfree(cache);
 }
 

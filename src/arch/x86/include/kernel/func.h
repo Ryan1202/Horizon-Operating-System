@@ -145,7 +145,6 @@ void irq_entry13(void);
 void irq_entry14(void);
 void irq_entry15(void);
 
-void kernel_thread_entry(void);
 void switch_to(size_t **cur, size_t **next);
 
 #endif

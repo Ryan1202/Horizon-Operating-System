@@ -12,7 +12,6 @@
 #include "driver/network/protocols/protocols.h"
 #include "kernel/memory.h"
 #include "kernel/spinlock.h"
-#include "kernel/thread.h"
 #include <driver/network/conn.h>
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <driver/network/protocols/udp.h>
@@ -63,14 +62,11 @@ void udp_register(NetworkConnection *conn) {
 }
 
 void udp_enqueue_packet(NetworkConnection *conn, NetBuffer *net_buffer) {
-	disable_preempt();
 	spin_lock(&conn->recv_lock);
 
 	list_add_tail(&net_buffer->list, &conn->recv_lh);
 
 	spin_unlock(&conn->recv_lock);
-	thread_unblock(conn->thread);
-	enable_preempt();
 }
 
 /*

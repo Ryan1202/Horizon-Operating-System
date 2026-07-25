@@ -164,12 +164,11 @@ impl PageAllocOptions {
         if remaining == 0 {
             // 完全满足需求
             let start = pages.start_addr().to_page_number();
-            let end = start + pages.frame_count - 1;
+            let end = start + pages.frame_count() - 1;
             ArchFlushTlb::flush_range(start, end);
             Ok(())
         } else if first.is_some() {
-            // 部分成功但未满足需求，返回错误（避免返回残留的链表）
-            pages.unmap()?;
+            // 部分成功时由 DynPages::drop 统一解除映射并归还 VmapNode。
             Err(MemoryError::OutOfMemory)
         } else {
             // 完全失败
@@ -195,7 +194,7 @@ impl PageAllocOptions {
                 v.map(frame, self.cache_type)?;
 
                 let start = v.start_addr().to_page_number();
-                let end = start + v.frame_count - 1;
+                let end = start + v.frame_count() - 1;
                 ArchFlushTlb::flush_range(start, end);
 
                 Ok(Pages::Dynamic(v))

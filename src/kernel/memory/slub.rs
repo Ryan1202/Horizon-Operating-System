@@ -130,7 +130,7 @@ impl Slub {
             freelist.byte_add(user_ptr_offset(config.align))
         };
 
-        let mut frame = ManuallyDrop::new(pages.take().unwrap());
+        let mut frame = ManuallyDrop::new(pages.into_frame().unwrap());
 
         let slub_info = Slub {
             list: SyncUnsafeCell::new(ListNode::new()),

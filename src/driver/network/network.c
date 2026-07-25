@@ -8,6 +8,7 @@
 #include <driver/network/net_queue.h>
 #include <driver/network/network_dm.h>
 #include <kernel/driver.h>
+#include <kernel/thread.h>
 #include <objects/handle.h>
 #include <objects/object.h>
 #include <objects/transfer.h>

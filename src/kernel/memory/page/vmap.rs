@@ -7,7 +7,10 @@ use crate::{
     kernel::memory::{
         MemoryError,
         kmalloc::{Atomic, Kmalloc},
-        page::{dyn_pages::DynPages, range::VmRange},
+        page::{
+            dyn_pages::{DynPages, VmapNode},
+            range::VmRange,
+        },
     },
     lib::rust::{
         list::ListHead,
@@ -49,7 +52,7 @@ impl Vmap {
                 rbtree.init();
 
                 let pages = Box::leak(Box::new_in(
-                    DynPages::kernel(),
+                    VmapNode::kernel(),
                     Kmalloc::<Atomic>::default(),
                 ));
 
@@ -67,27 +70,28 @@ impl Vmap {
         }
     }
 
-    fn pool_put(self: &Pin<&mut Self>, pages: &mut DynPages) {
-        let count = pages.rb_node.get_key().get_count();
-        if count >= MAX_VMAP_POOL_PAGES {
-            return;
-        }
+    fn pool_index(count: NonZeroUsize) -> Option<usize> {
+        let index = count.get() - 1;
+        (index < MAX_VMAP_POOL_PAGES).then_some(index)
+    }
+
+    fn pool_put(self: &Pin<&mut Self>, node: &mut VmapNode) {
+        let count = NonZeroUsize::new(node.rb_node.get_key().get_count()).unwrap();
+        let index = Self::pool_index(count).expect("oversized VmapNode passed to pool_put");
+
         let mut list_head = unsafe {
             self.as_ref()
-                .map_unchecked(|vmap| &vmap.pools.get_unchecked(count).list_head)
+                .map_unchecked(|vmap| &vmap.pools.get_unchecked(index).list_head)
         }
         .lock_pinned();
 
-        let node = pages.rb_node.augment.get_list();
+        let node = node.rb_node.augment.get_list();
 
         list_head.add_tail(node);
     }
 
-    fn pool_get(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<Box<DynPages, Kmalloc>> {
-        let index = count.get() - 1;
-        if index >= MAX_VMAP_POOL_PAGES {
-            return None;
-        }
+    fn pool_get(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<NonNull<VmapNode>> {
+        let index = Self::pool_index(count)?;
 
         let pool = unsafe { self.pools.get_unchecked(index) };
         if pool.list_head.get_relaxed().is_empty() {
@@ -107,19 +111,16 @@ impl Vmap {
             .expect("List is empty after checked!");
 
         // 通过 linked_node -> rbnode -> pages 的层级关系获取 pages
-        let pages = container_of!(rb_node, DynPages, rb_node);
+        let pages = container_of!(rb_node, VmapNode, rb_node);
 
         unsafe {
             let mut list_head = Pin::new_unchecked(list_head.deref_mut());
             list_head.delete(rb_node.as_mut().augment.get_list());
         }
-        Some(unsafe { Box::from_non_null_in(pages, Kmalloc::default()) })
+        Some(pages)
     }
 
-    pub fn allocate(
-        self: Pin<&mut Self>,
-        count: NonZeroUsize,
-    ) -> Result<Box<DynPages, Kmalloc>, MemoryError> {
+    pub fn allocate(self: Pin<&mut Self>, count: NonZeroUsize) -> Result<DynPages, MemoryError> {
         // 先从快速池获取
         let mut pages = self
             .pool_get(count)
@@ -130,17 +131,15 @@ impl Vmap {
         unsafe { self.as_ref().map_unchecked(|vmap| &vmap.allocated) }
             .lock_pinned()
             .as_mut()
-            .insert(&mut pages.rb_node);
-        Ok(pages)
+            .insert(unsafe { &mut pages.as_mut().rb_node });
+
+        Ok(unsafe { DynPages::new(pages) })
     }
 
     /// 从红黑树中查找并分配满足条件的虚拟页块
     /// 查找策略：优先左子树（smaller but sufficient），精确匹配或分割
-    fn allocate_from_tree(
-        self: &Pin<&mut Self>,
-        count: NonZeroUsize,
-    ) -> Option<Box<DynPages, Kmalloc>> {
-        let tree = free_map_tree();
+    fn allocate_from_tree(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<NonNull<VmapNode>> {
+        let mut tree = free_map_tree();
         let mut node = tree.root?;
 
         // 根节点不满足要求，整棵树都不够大
@@ -163,14 +162,17 @@ impl Vmap {
             // 当前节点满足需求
             let node_count = node_ref.get_key().get_count();
             if node_count >= count.get() {
-                let mut pages = container_of!(node, DynPages, rb_node);
+                let mut pages = container_of!(node, VmapNode, rb_node);
 
                 return if node_count > count.get() {
-                    // 需要分割：从 pages 中切出 count 个页，剩余部分重新插入树
-                    unsafe { pages.as_mut().split(count) }
+                    tree.as_mut().delete_node(node);
+                    let allocated = unsafe { pages.as_mut().split(count) };
+                    tree.as_mut().insert(unsafe { &mut pages.as_mut().rb_node });
+
+                    allocated.map(|node| NonNull::from_mut(Box::leak(node)))
                 } else {
-                    free_map_tree().as_mut().delete_node(node);
-                    Some(unsafe { Box::from_non_null_in(pages, Kmalloc::default()) })
+                    tree.as_mut().delete_node(node);
+                    Some(pages)
                 };
             }
 
@@ -181,30 +183,40 @@ impl Vmap {
         }
     }
 
-    pub fn search_allocated(self: &Pin<&mut Self>, range: &VmRange) -> Option<NonNull<DynPages>> {
+    pub(in crate::kernel::memory) fn search_allocated(
+        self: &Pin<&mut Self>,
+        range: &VmRange,
+    ) -> Option<NonNull<VmapNode>> {
         let node = unsafe { self.as_ref().map_unchecked(|vmap| &vmap.allocated) }
             .lock_pinned()
             .as_ref()
             .search_exact(range, VmRange::cmp)?;
 
-        let pages = container_of!(node, DynPages, rb_node);
-        Some(pages)
+        let node = container_of!(node, VmapNode, rb_node);
+        Some(node)
     }
 
-    pub fn deallocate(self: &Pin<&mut Self>, pages: &mut DynPages) -> Result<(), MemoryError> {
+    pub(in crate::kernel::memory) fn deallocate(
+        self: &Pin<&mut Self>,
+        pages: &mut VmapNode,
+    ) -> Result<(), MemoryError> {
+        debug_assert_eq!(
+            pages.frame_count, 0,
+            "releasing a VmapNode with mapped frames"
+        );
+
         unsafe { self.as_ref().map_unchecked(|vmap| &vmap.allocated) }
             .lock_pinned()
             .as_mut()
             .delete_node(NonNull::from(&pages.rb_node));
 
-        let node = &mut pages.rb_node;
+        let count = NonZeroUsize::new(pages.rb_node.get_key().get_count()).unwrap();
 
-        if node.get_key().get_count() >= MAX_VMAP_POOL_PAGES {
-            free_map_tree().as_mut().insert(node);
-        } else {
+        if Self::pool_index(count).is_some() {
             self.pool_put(pages);
+        } else {
+            free_map_tree().as_mut().insert(&mut pages.rb_node);
         }
-
         Ok(())
     }
 }

@@ -8,7 +8,6 @@
 #include <kernel/list.h>
 #include <kernel/periodic_task.h>
 #include <kernel/spinlock.h>
-#include <kernel/wait_queue.h>
 #include <objects/object.h>
 #include <stdint.h>
 #include <string.h>
@@ -46,7 +45,6 @@ typedef struct StorageDevice {
 	spinlock_t	 queue_lock;
 	PeriodicTask periodic_task;
 	list_t		 io_queue_lh;
-	WaitQueue	 wq;
 
 	uint8_t *superblock;
 

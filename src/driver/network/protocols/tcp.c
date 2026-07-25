@@ -22,7 +22,7 @@
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/spinlock.h>
-#include <kernel/thread.h>
+#include <kernel/wait_queue.h>
 #include <math.h>
 #include <random.h>
 #include <stdint.h>
@@ -88,8 +88,25 @@ uint16_t tcp_checksum(
 
 void tcp_register(NetworkConnection *conn) {
 	conn->trans_protocol = TRANS_PROTO_TCP;
-	if (conn->tcp.info == NULL) { conn->tcp.info = kzalloc(sizeof(Tcp)); }
+	if (conn->tcp.info == NULL) {
+		Tcp *tcp = kzalloc(sizeof(Tcp));
+		if (tcp == NULL) return;
+		tcp->state_waiters = wait_queue_create();
+		if (tcp->state_waiters == NULL) {
+			kfree(tcp);
+			return;
+		}
+		conn->tcp.info = tcp;
+	}
 	NET_BUF_RESV_HEAD(conn, sizeof(TcpHeader));
+}
+
+static int tcp_handshake_finished(void *context) {
+	Tcp *tcp = context;
+	return tcp->state == TCP_STATE_ESTABLISHED ||
+		   tcp->conn->state == CONN_STATE_CLOSED ||
+		   tcp->conn->state == CONN_STATE_NET_UNREACHABLE ||
+		   tcp->conn->state == CONN_STATE_HOST_UNREACHABLE;
 }
 
 uint32_t tcp_generate_isn(void *ip_port_pair, int len) {
@@ -160,8 +177,7 @@ ProtocolResult tcp_bind(NetworkConnection *conn, uint16_t port) {
 	tcp->timeout_timer.callback = tcp_timeout_handler;
 	tcp->timeout_timer.arg		= tcp;
 
-	conn->tcp.info->conn   = conn;
-	conn->tcp.info->thread = get_current_thread();
+	conn->tcp.info->conn = conn;
 
 	list_add_tail(&conn->ipv4.conn_info.list, &tcp_lh);
 	spin_unlock(&tcp_lock);
@@ -229,8 +245,8 @@ ProtocolResult tcp_connect(
 	timer_callback_enable(&tcp->timeout_timer);
 	NETWORK_SEND(conn->net_device, conn);
 
-	thread_set_status(TASK_INTERRUPTIBLE);
-	thread_wait();
+	wait_queue_wait(
+		tcp->state_waiters, &tcp_lock, tcp_handshake_finished, tcp);
 
 	if (tcp->state != TCP_STATE_ESTABLISHED) return PROTO_ERROR_CONNECT_FAILED;
 	// 建立连接后再真正分配发送窗口
@@ -268,10 +284,12 @@ ProtocolResult tcp_listen(NetworkConnection *conn) {
 	timer_init(&tcp->timeout_timer);
 	tcp->timeout_timer.callback = tcp_timeout_handler;
 	tcp->timeout_timer.arg		= tcp;
+	conn->state                 = CONN_STATE_OPENING;
 	conn_wrap(conn, PROTO_LEVEL_NETWORK);
 
-	thread_set_status(TASK_INTERRUPTIBLE);
-	thread_wait();
+	wait_queue_wait(
+		tcp->state_waiters, &tcp_lock, tcp_handshake_finished, tcp);
+	if (tcp->state != TCP_STATE_ESTABLISHED) return PROTO_ERROR_CONNECT_FAILED;
 
 	tcp->send.unack		 = 0;
 	tcp->send.next		 = 0;
@@ -420,7 +438,9 @@ void tcp_reset(NetworkConnection *conn) {
 	if (conn == NULL) return;
 	if (conn->trans_protocol != TRANS_PROTO_TCP) return;
 	Tcp *tcp = conn->tcp.info;
+	spin_lock(&tcp_lock);
 	tcp_reset_conn(conn, tcp);
+	spin_unlock(&tcp_lock);
 }
 
 void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
@@ -428,6 +448,7 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 
 	net_buffer_clean_data(conn->buffer);
 	tcp->state			  = TCP_STATE_CLOSED;
+	conn->state           = CONN_STATE_CLOSED;
 	TcpHeader *tcp_header = tcp->header;
 	tcp_header->flags	  = TCP_FLAG_RST;
 	tcp_header->ack		  = 0;
@@ -438,6 +459,7 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 	kfree(tcp->recv_window);
 
 	NETWORK_SEND(conn->net_device, conn);
+	wait_queue_wake_all(tcp->state_waiters);
 }
 
 void tcp_send_packet(
@@ -528,6 +550,7 @@ void tcp_ack_handler(
 void tcp_timeout_handler(void *arg) {
 	if (arg == NULL) return;
 	Tcp *tcp = arg;
+	spin_lock(&tcp_lock);
 
 	switch (tcp->state) { // 超时重传
 	case TCP_STATE_SYN_SENT:
@@ -564,6 +587,8 @@ void tcp_timeout_handler(void *arg) {
 	default:
 		break;
 	}
+	wait_queue_wake_all(tcp->state_waiters);
+	spin_unlock(&tcp_lock);
 }
 
 void tcp_options_handler(
@@ -680,7 +705,6 @@ void tcp_rx_handler(
 		}
 		net_buffer_clean_data(tcp->conn->buffer);
 		tcp_ack(conn, tcp, 0, extra_flags);
-		thread_unblock(tcp->thread);
 		break;
 	case TCP_STATE_SYN_RECEIVED:
 		if (indexes[TOI_MSS] < TOI_MAX) {
@@ -700,7 +724,6 @@ void tcp_rx_handler(
 			tcp->state	 = TCP_STATE_ESTABLISHED;
 		}
 		net_buffer_clean_data(tcp->conn->buffer);
-		thread_unblock(tcp->thread);
 		break;
 	case TCP_STATE_ESTABLISHED:
 		tcp_ack_handler(tcp, tcp_header, net_buffer, length);
@@ -771,7 +794,7 @@ void tcp_rx_handler(
 		tcp_reset_conn(conn, tcp);
 		break;
 	}
-	thread_unblock(tcp->thread);
+	wait_queue_wake_all(tcp->state_waiters);
 }
 
 ProtocolResult tcp_recv(
@@ -844,6 +867,7 @@ void tcp_notify_unreachable(
 	if (!flag) return;
 
 	conn = container_of(info, NetworkConnection, ipv4.conn_info);
+	spin_lock(&tcp_lock);
 	switch (code) {
 	case ICMP_UNREACHABLE_NET:
 		tcp_reset_conn(conn, conn->tcp.info);
@@ -856,6 +880,8 @@ void tcp_notify_unreachable(
 	default:
 		break;
 	}
+	wait_queue_wake_all(conn->tcp.info->state_waiters);
+	spin_unlock(&tcp_lock);
 }
 
 void tcp_update_mtu(uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int mtu) {

@@ -1,22 +1,20 @@
 #ifndef _WAIT_QUEUE_H
 #define _WAIT_QUEUE_H
 
-#include "types.h"
-#include <kernel/list.h>
 #include <kernel/spinlock.h>
+#include <stddef.h>
 
-typedef struct {
-	spinlock_t lock;
-	list_t	   list_head;
-} WaitQueue;
+typedef struct WaitQueue WaitQueue;
+typedef int (*wait_queue_try_fn)(void *context);
 
-void		   wait_queue_init(WaitQueue *wq);
-bool		   wait_queue_empty(WaitQueue *wq);
-void		   wait_queue_add(WaitQueue *wq);
-void		   wait_queue_del(WaitQueue *wq);
-struct task_s *wait_queue_first(WaitQueue *wq);
-void		   wait_queue_wakeup_thread(WaitQueue *wq, struct task_s *thread);
-void		   wait_queue_wakeup(WaitQueue *wq);
-void		   wait_queue_wakeup_all(WaitQueue *wq);
+WaitQueue *wait_queue_create(void);
+void       wait_queue_destroy(WaitQueue *queue);
+
+void wait_queue_wait(
+	WaitQueue *queue, spinlock_t *condition_lock,
+	wait_queue_try_fn try_condition, void *context);
+
+void wait_queue_wake_one(WaitQueue *queue);
+void wait_queue_wake_all(WaitQueue *queue);
 
 #endif

@@ -3,7 +3,6 @@
 #include "driver/network/protocols/protocols.h"
 #include "kernel/list.h"
 #include "kernel/spinlock.h"
-#include "kernel/thread.h"
 #include "objects/object.h"
 #include <driver/network/buffer.h>
 #include <driver/network/conn.h>
@@ -19,8 +18,6 @@ NetworkConnection *net_create_conn(Object *object) {
 	conn->handle	 = object_handle_create(object);
 	conn->net_device = object->value.device.logical->dm_ext;
 	conn->state		 = CONN_STATE_INIT;
-
-	conn->thread = get_current_thread();
 
 	conn->phy_protocol	 = PHY_PROTO_NONE;
 	conn->dl_protocol	 = DL_PROTO_NONE;

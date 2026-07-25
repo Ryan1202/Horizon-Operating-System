@@ -3,6 +3,7 @@
 
 #include <driver/network/conn.h>
 #include <driver/timer/timer_dm.h>
+#include <kernel/wait_queue.h>
 #include <stdint.h>
 
 #define TCP_FLAG_FIN 0x01
@@ -105,7 +106,7 @@ typedef struct Tcp {
 	TcpHeader		  *header;
 	int				   mss;
 
-	struct task_s *thread;
+	WaitQueue *state_waiters;
 
 	// Send Sequence Space
 	//      1         2          3          4

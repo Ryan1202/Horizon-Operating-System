@@ -545,8 +545,9 @@ impl FrameAllocator for BuddyAllocator {
         ALLOCATED_PAGES.fetch_sub(count, Ordering::Relaxed);
 
         let frame_number = frame.frame_number().get();
-        let max_order = FrameOrder::new(frame_number.trailing_zeros() as u8);
-        let max_order = max_order.min(MAX_ORDER);
+
+        let max_order = (frame_number.trailing_zeros() as u8).min(MAX_ORDER.get() as u8);
+        let max_order = FrameOrder::new(max_order);
 
         let range = (zone_start, zone_end);
 

@@ -55,7 +55,12 @@ DriverResult pcm_register_stream(
 	s->host_period_ptr	 = 0;
 	s->host_ptr			 = 0;
 	spinlock_init(&s->lock);
-	wait_queue_init(&s->wq);
+	s->wq = wait_queue_create();
+	if (s->wq == NULL) {
+		kfree(s);
+		*stream = NULL;
+		return DRIVER_ERROR_OUT_OF_MEMORY;
+	}
 
 	return DRIVER_OK;
 }
@@ -150,6 +155,10 @@ int sound_pcm_left_space(PcmStream *stream) {
 	return left_space;
 }
 
+static int pcm_has_space(void *context) {
+	return sound_pcm_left_space(context) != 0;
+}
+
 void pcm_interleaved2noninterleaved(
 	PcmStream *stream, uint8_t *in, uint8_t *out, uint32_t frame_count) {
 	PcmDevice *pcm = stream->pcm;
@@ -234,13 +243,10 @@ DriverResult pcm_transfer(
 	size_t size, left_size = frame_count * stream->frame_bytes;
 	while (left_size > 0) {
 		while (left_space == 0) {
-			thread_set_status(TASK_INTERRUPTIBLE);
-			wait_queue_add(&stream->wq);
 			spin_unlock_irqrestore(&stream->lock, flags);
-
-			thread_wait();
-
-			spin_lock_irqsave(&stream->lock);
+			wait_queue_wait(
+				stream->wq, &stream->lock, pcm_has_space, stream);
+			flags = spin_lock_irqsave(&stream->lock);
 			left_space = sound_pcm_left_space(stream);
 		}
 		dma_buf_cur = dma_buf + stream->host_ptr;
@@ -347,7 +353,7 @@ DriverResult sound_pcm_done(PcmStream *stream) {
 	// 	stream->pcm->status = PCM_STATUS_PAUSED;
 	// }
 
-	wait_queue_wakeup(&stream->wq);
+	wait_queue_wake_one(stream->wq);
 	spin_unlock_irqrestore(&stream->lock, flags);
 
 	return DRIVER_OK;

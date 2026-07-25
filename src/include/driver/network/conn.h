@@ -7,7 +7,6 @@
 #include <driver/network/protocols/ipv4/ipv4.h>
 #include <kernel/list.h>
 #include <kernel/spinlock.h>
-#include <kernel/thread.h>
 #include <objects/handle.h>
 #include <objects/object.h>
 #include <stdint.h>
@@ -41,8 +40,6 @@ typedef struct NetworkConnection {
 	} state;
 
 	NetBuffer *buffer;
-
-	struct task_s *thread;
 
 	// physical layer protocol
 	enum {

@@ -11,7 +11,6 @@ use crate::{
         },
         frame::{buddy::FrameOrder, options::FrameAllocOptions},
         page::options::PageAllocOptions,
-        vmalloc::vfree,
     },
 };
 
@@ -95,7 +94,6 @@ impl BounceSync {
                     direction,
                 );
 
-                vfree(cpu_addr)?;
                 copied += chunk;
             }
         }

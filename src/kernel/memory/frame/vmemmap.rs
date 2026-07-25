@@ -1,4 +1,6 @@
-use core::{mem::ManuallyDrop, num::NonZeroUsize, ops::ControlFlow, sync::atomic::Ordering};
+use core::{
+    mem::ManuallyDrop, num::NonZeroUsize, ops::ControlFlow, ptr::NonNull, sync::atomic::Ordering,
+};
 
 use crate::{
     arch::{ArchFlushTlb, ArchPageTable, PhysAddr},
@@ -13,7 +15,7 @@ use crate::{
         },
         page::{
             FlushTlb, PageFlags, PageNumber, PageTableOps, current_root_pt,
-            dyn_pages::DynPages,
+            dyn_pages::{DynPages, VmapNode},
             iter::{PageTableIter, PtStep},
             linear_table_ptr,
             lock::{NormalPtLock, PtPage},
@@ -38,7 +40,9 @@ fn map_vmemmap_page(page: PageNumber) -> Result<(), MemoryError> {
     let ptr = (KLINEAR_BASE + paddr.as_usize()).as_mut_ptr::<u8>();
     unsafe { ptr.write_bytes(0, ArchPageTable::PAGE_SIZE) };
 
-    let mut pages = DynPages::fixed(page, const { NonZeroUsize::new(1).unwrap() });
+    let mut node = VmapNode::fixed(page, const { NonZeroUsize::new(1).unwrap() });
+    let mut pages = ManuallyDrop::new(unsafe { DynPages::new(NonNull::from_mut(&mut node)) });
+
     PageTableOps::map(
         current_root_pt(),
         &mut pages,

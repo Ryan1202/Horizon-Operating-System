@@ -39,6 +39,7 @@ typedef struct {
 	PeriodicTask periodic_task;
 
 	spinlock_t lock;
+	bool       initialized;
 } FrameBufferConsoleBackend;
 
 void fb_console_backend_init(void *context);
