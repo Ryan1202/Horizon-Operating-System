@@ -29,8 +29,7 @@ impl Spinlock<PartialList> {
             while let Some(mut slub) = iter.next() {
                 drop(iter);
 
-                let mut head =
-                    unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
+                let head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
                 head.delete(unsafe { slub.as_mut().get_list() });
 
                 unsafe { guard.as_mut().get_unchecked_mut().count -= 1 };
@@ -55,7 +54,7 @@ impl Spinlock<PartialList> {
         }
 
         partial.count += 1;
-        let mut head = unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
+        let head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
         head.add_tail(slub.get_list());
     }
 }
@@ -84,14 +83,13 @@ impl MemCacheNode {
             });
 
             list.as_ref().init_with_pinned(|mut v| {
-                let mut head = v.as_mut().map_unchecked_mut(|list| &mut list.list_head);
+                let head = &mut v.as_mut().get_unchecked_mut().list_head;
                 head.init();
 
                 if let Some(mut slub) = slub {
                     let slub = slub.as_mut().get_list();
                     head.add_tail(slub);
 
-                    drop(head);
                     v.get_unchecked_mut().count += 1;
                 }
             })
@@ -168,9 +166,9 @@ impl MemCacheNode {
     pub fn try_destroy(self: Pin<&Self>, options: &PageAllocOptions) -> Option<()> {
         let mut guard = unsafe { self.map_unchecked(|node| &node.partial_list) }.lock_pinned();
 
-        let mut list_head = unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
+        let list_head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
 
-        for mut slub in list_head.as_ref().iter(Slub::list_offset()) {
+        for mut slub in list_head.iter(Slub::list_offset()) {
             let slub = unsafe { slub.as_mut() };
             {
                 list_head.delete(slub.get_list());

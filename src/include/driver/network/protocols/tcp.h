@@ -106,7 +106,7 @@ typedef struct Tcp {
 	TcpHeader		  *header;
 	int				   mss;
 
-	WaitQueue *state_waiters;
+	WaitQueue state_waiters;
 
 	// Send Sequence Space
 	//      1         2          3          4

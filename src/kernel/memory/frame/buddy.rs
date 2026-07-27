@@ -131,9 +131,8 @@ impl Buddy {
         offset_of!(Buddy, list)
     }
 
-    fn get_list(&mut self) -> Pin<&mut ListNode<Buddy>> {
-        let list = self.list.get_mut();
-        unsafe { Pin::new_unchecked(list) }
+    fn get_list(&mut self) -> &mut ListNode<Buddy> {
+        self.list.get_mut()
     }
 
     pub fn replace_frame(self, frame: &mut Frame) {
@@ -160,8 +159,8 @@ pub struct Zone {
 }
 
 impl Zone {
-    pub fn get_free_list(self: Pin<&mut Self>, order: FrameOrder) -> Pin<&mut ListHead<Buddy>> {
-        unsafe { self.map_unchecked_mut(|zone| &mut zone.free_frames[order.get()]) }
+    pub fn get_free_list(&mut self, order: FrameOrder) -> &mut ListHead<Buddy> {
+        &mut self.free_frames[order.get()]
     }
 }
 
@@ -237,7 +236,7 @@ impl BuddyAllocator {
             unsafe {
                 self.zones[i].init_with(|v| {
                     for free in v.free_frames.iter_mut() {
-                        Pin::new_unchecked(free).init();
+                        free.init();
                     }
                 })
             };
@@ -395,8 +394,10 @@ impl BuddyAllocator {
             let node = Buddy::get_list((*next_frame).deref_mut().try_into().unwrap());
 
             {
-                let mut zone = self.get_zone(zone_type).lock_pinned();
-                let mut head = zone.as_mut().get_free_list(split_order);
+                let mut guard = self.get_zone(zone_type).lock_pinned();
+
+                let zone = unsafe { guard.as_mut().get_unchecked_mut() };
+                let head = zone.get_free_list(split_order);
 
                 head.add_tail(node);
             }
@@ -422,8 +423,10 @@ impl BuddyAllocator {
 
             let node = Buddy::get_list(left.deref_mut().try_into().unwrap());
 
-            let mut zone = self.get_zone(zone_type).lock_pinned();
-            let mut head = zone.as_mut().get_free_list(FrameOrder(new_order));
+            let mut guard = self.get_zone(zone_type).lock_pinned();
+
+            let zone = guard.as_mut().get_unchecked_mut();
+            let head = zone.get_free_list(FrameOrder(new_order));
 
             head.add_head(node);
         }
@@ -475,8 +478,10 @@ impl BuddyAllocator {
         zone: Pin<&Spinlock<Zone>>,
     ) -> Result<(), FrameError> {
         let node = Buddy::get_list(frame.try_into()?);
-        let mut zone = zone.lock_pinned();
-        let mut head = zone.as_mut().get_free_list(order);
+        let mut guard = zone.lock_pinned();
+
+        let zone = unsafe { guard.as_mut().get_unchecked_mut() };
+        let head = zone.get_free_list(order);
 
         head.add_head(node);
 
@@ -490,19 +495,22 @@ impl FrameAllocator for BuddyAllocator {
         let target_order = order;
 
         while order <= MAX_ORDER {
-            let mut zone = self.get_zone(zone_type).lock_pinned();
-            let list_head = zone.as_mut().get_free_list(order);
-            let iter = list_head.as_ref().iter(Buddy::list_offset()).next();
+            let mut guard = self.get_zone(zone_type).lock_pinned();
+
+            let zone = unsafe { guard.as_mut().get_unchecked_mut() };
+            let list_head = zone.get_free_list(order);
+
+            let iter = list_head.iter(Buddy::list_offset()).next();
 
             if let Some(mut buddy) = iter {
                 let buddy = unsafe { buddy.as_mut() };
 
-                zone.as_mut().get_free_list(order).delete(buddy.get_list());
+                zone.get_free_list(order).delete(buddy.get_list());
 
                 let frame = unsafe { NonNull::from(Frame::from_child(buddy)) };
                 let frame = UniqueFrames::from_allocator(frame, order, self.get_ref()).unwrap();
                 let mut frame = ManuallyDrop::into_inner(frame);
-                drop(zone);
+                drop(guard);
 
                 if order != target_order {
                     self.split(zone_type, order, target_order, &mut frame);

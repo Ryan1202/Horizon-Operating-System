@@ -46,7 +46,6 @@ DriverResult storage_generate_request(
 			if (request != NULL) kfree(request);
 			while (first_request != NULL) {
 				StorageRequest *next = first_request->batch_next;
-				completion_deinit(&first_request->completion);
 				kfree(first_request);
 				first_request = next;
 			}
@@ -60,7 +59,7 @@ DriverResult storage_generate_request(
 		request->is_finished		 = 0;
 		request->storage_device		 = device;
 		request->next_merged_request = NULL;
-		request->batch_next           = NULL;
+		request->batch_next			 = NULL;
 
 		// 分配或指向原始缓冲区中对应的部分
 		request->buf =
@@ -78,7 +77,7 @@ DriverResult storage_generate_request(
 	}
 
 	for (StorageRequest *request = first_request; request != NULL;
-		 request = request->batch_next) {
+		 request				 = request->batch_next) {
 		storage_add_request(device, request);
 	}
 
@@ -114,12 +113,10 @@ TransferResult storage_transfer(
 	DriverResult result = storage_generate_request(
 		storage_device, (direction == TRANSFER_IN) ? 0 : 1, buf, position,
 		count, &requests);
-	if (result != DRIVER_OK) {
-		return TRANSFER_ERROR_FAILED;
-	}
+	if (result != DRIVER_OK) { return TRANSFER_ERROR_FAILED; }
 
 	for (StorageRequest *request = requests; request != NULL;
-		 request = request->batch_next) {
+		 request				 = request->batch_next) {
 		completion_wait(&request->completion);
 	}
 	/*

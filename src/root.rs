@@ -15,7 +15,6 @@
 #![feature(allocator_api)]
 #![feature(const_default)]
 #![feature(abi_custom)]
-#![feature(const_convert)]
 
 extern crate alloc;
 

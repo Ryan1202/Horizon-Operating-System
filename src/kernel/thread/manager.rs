@@ -36,6 +36,8 @@ impl ThreadManager {
         let thread = ThreadArc::try_new_in(thread, Kmalloc::default())
             .map_err(|_| MemoryError::OutOfMemory)?;
 
+        thread.init();
+
         thread
             .as_ref()
             .transition_to(ThreadState::Registered)

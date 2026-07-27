@@ -54,8 +54,8 @@ impl Scheduler {
         }
     }
 
-    fn ready_queue(self: Pin<&Self>) -> Pin<&Spinlock<ReadyQueue>> {
-        unsafe { self.map_unchecked(|s| &s.ready) }
+    fn ready_queue(&self) -> Pin<&Spinlock<ReadyQueue>> {
+        unsafe { Pin::new_unchecked(&self.ready) }
     }
 
     pub(super) fn init(self: Pin<&Self>, current: &'static Thread, idle: &'static Thread) {
@@ -68,12 +68,12 @@ impl Scheduler {
         self.preempt_count.store(1, Ordering::Relaxed);
 
         let mut ready = self.ready_queue().lock_irqsave_pinned();
-        ready.as_mut().init();
+        unsafe { ready.as_mut().get_unchecked_mut() }.init();
     }
 
-    pub(super) fn enqueue(self: Pin<&Self>, thread: &Thread) -> Result<(), ThreadError> {
+    pub(super) fn enqueue(&self, thread: &Thread) -> Result<(), ThreadError> {
         let mut ready = self.ready_queue().lock_irqsave_pinned();
-        unsafe { ready.as_mut().enqueue(thread) }
+        unsafe { ready.as_mut().get_unchecked_mut().enqueue(thread) }
     }
 
     /// 将当前线程从 Blocking 正式提交为 Blocked，并选择下一个运行线程。
@@ -82,20 +82,21 @@ impl Scheduler {
     ///
     /// 调用方必须持有当前线程所在 WaitQueue 的锁、关闭中断并持有可切换的
     /// PreemptGuard。
-    pub(super) unsafe fn commit_block(self: Pin<&Self>) -> &'static Thread {
+    pub(super) unsafe fn commit_block(&self) -> &'static Thread {
         let current = self.current();
 
-        let mut ready_queue = self.ready_queue().lock_pinned();
+        let mut guard = self.ready_queue().lock_pinned();
+        let ready_queue = unsafe { guard.as_mut().get_unchecked_mut() };
 
         current
             .transition_to(ThreadState::Blocked)
             .expect("current must transition from Blocking to Blocked");
 
-        let next = if let Some(next) = ready_queue.as_ref().next() {
+        let next = if let Some(next) = ready_queue.next() {
             // SAFETY: Ready 线程由 ThreadManager 持有，ready queue 锁保证
             // 本次访问期间节点和对象保持有效。
             let next: &'static Thread = unsafe { &*next.as_ptr() };
-            unsafe { ready_queue.as_mut().dequeue(next, ThreadState::Running) }
+            unsafe { ready_queue.dequeue(next, ThreadState::Running) }
                 .expect("ready thread must transition to Running");
             next
         } else {
@@ -117,7 +118,8 @@ impl Scheduler {
     /// 且它的 run node 当前未链接。
     pub(super) unsafe fn enqueue_woken(self: Pin<&Self>, thread: &Thread) {
         let mut ready = self.ready_queue().lock_pinned();
-        unsafe { ready.as_mut().enqueue(thread) }.expect("Blocked thread must transition to Ready");
+        unsafe { ready.as_mut().get_unchecked_mut().enqueue(thread) }
+            .expect("Blocked thread must transition to Ready");
     }
 
     pub(super) fn request_resched(&self) {
@@ -239,13 +241,14 @@ impl Scheduler {
         current.finish();
 
         let next = {
-            let mut ready_queue = self.ready_queue().lock_irqsave_pinned();
+            let mut guard = self.ready_queue().lock_irqsave_pinned();
+            let ready_queue = unsafe { guard.as_mut().get_unchecked_mut() };
 
-            if let Some(next) = ready_queue.as_ref().next() {
+            if let Some(next) = ready_queue.next() {
                 // SAFETY: Ready 线程由 ThreadManager 持有，并且 ready queue
                 // 的锁保证节点在本次访问期间保持有效。
                 let next: &'static Thread = unsafe { &*next.as_ptr() };
-                unsafe { ready_queue.as_mut().dequeue(next, ThreadState::Running) }
+                unsafe { ready_queue.dequeue(next, ThreadState::Running) }
                     .expect("ready thread must transition to Running");
                 next
             } else {
@@ -275,15 +278,16 @@ impl Scheduler {
     /// 执行线程切换
     ///
     /// 切换成功返回 Some(())，否则返回 None
-    fn schedule(self: Pin<&Self>, guard: &mut PreemptGuard<'_>) -> Option<()> {
+    fn schedule(&self, guard: &mut PreemptGuard<'_>) -> Option<()> {
         self.resched.store(false, Ordering::Relaxed);
 
         let current = guard.current();
 
         let next = {
-            let mut ready_queue = self.ready_queue().lock_irqsave_pinned();
+            let mut guard = self.ready_queue().lock_irqsave_pinned();
+            let ready_queue = unsafe { guard.as_mut().get_unchecked_mut() };
 
-            let Some(next) = ready_queue.as_ref().next() else {
+            let Some(next) = ready_queue.next() else {
                 return None;
             };
 
@@ -301,11 +305,11 @@ impl Scheduler {
                     .transition_to(ThreadState::Idle)
                     .expect("running idle thread must transition back to Idle");
             } else {
-                unsafe { ready_queue.as_mut().enqueue(current) }
+                unsafe { ready_queue.enqueue(current) }
                     .expect("running thread must transition back to Ready");
             }
 
-            unsafe { ready_queue.as_mut().dequeue(next, ThreadState::Running) }
+            unsafe { ready_queue.dequeue(next, ThreadState::Running) }
                 .expect("ready thread must transition to Running");
 
             next
@@ -460,35 +464,23 @@ impl ReadyQueue {
         }
     }
 
-    fn init(self: Pin<&mut Self>) {
-        unsafe { self.map_unchecked_mut(|q| &mut q.head) }.init();
+    fn init(&mut self) {
+        self.head.init();
     }
 
-    unsafe fn enqueue(self: Pin<&mut Self>, thread: &Thread) -> Result<(), ThreadError> {
+    unsafe fn enqueue(&mut self, thread: &Thread) -> Result<(), ThreadError> {
         thread.transition_to(ThreadState::Ready)?;
-        unsafe {
-            self.map_unchecked_mut(|q| &mut q.head)
-                .add_tail(thread.get_run_node())
-        };
+        unsafe { self.head.add_tail(thread.get_run_node()) };
         Ok(())
     }
 
-    unsafe fn dequeue(
-        self: Pin<&mut Self>,
-        thread: &Thread,
-        state: ThreadState,
-    ) -> Result<(), ThreadError> {
+    unsafe fn dequeue(&mut self, thread: &Thread, state: ThreadState) -> Result<(), ThreadError> {
         thread.transition_to(state)?;
-        unsafe {
-            self.map_unchecked_mut(|q| &mut q.head)
-                .delete(thread.get_run_node())
-        };
+        unsafe { self.head.delete(thread.get_run_node()) };
         Ok(())
     }
 
-    fn next(self: Pin<&Self>) -> Option<NonNull<Thread>> {
-        unsafe { self.map_unchecked(|q| &q.head) }
-            .iter(Thread::run_node_offset())
-            .next()
+    fn next(&self) -> Option<NonNull<Thread>> {
+        self.head.iter(Thread::run_node_offset()).next()
     }
 }

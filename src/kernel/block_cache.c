@@ -48,7 +48,6 @@ BlockCache *block_cache_create(
 		BlockCacheEntry *entry = &cache->entries[i];
 		if (rwlock_init(&entry->lock) != DRIVER_OK) {
 			for (int j = 0; j < i; j++) {
-				rwlock_destroy(&cache->entries[j].lock);
 				kfree(cache->entries[j].data);
 			}
 			kfree(cache->entries);
@@ -61,9 +60,7 @@ BlockCache *block_cache_create(
 		entry->position	 = -1;
 		entry->data		 = kmalloc(cache->size);
 		if (entry->data == NULL) {
-			rwlock_destroy(&entry->lock);
 			for (int j = 0; j < i; j++) {
-				rwlock_destroy(&cache->entries[j].lock);
 				kfree(cache->entries[j].data);
 			}
 			kfree(cache->entries);
@@ -84,7 +81,6 @@ void block_cache_destroy(BlockCache *cache) {
 			if (list_in_list(&entry->list)) list_del(&entry->list);
 		}
 		if (list_in_list(&entry->lru_node)) list_del(&entry->lru_node);
-		rwlock_destroy(&entry->lock);
 		kfree(entry->data);
 	}
 	kfree(cache->entries);

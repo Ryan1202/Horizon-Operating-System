@@ -2,8 +2,9 @@
 #define _SPINLOCK_H
 
 #include <kernel/driver_interface.h>
+#include <stddef.h>
 
-typedef volatile int spinlock_t;
+typedef volatile size_t spinlock_t;
 
 #define SPINLOCK(lock) spinlock_t lock = 0;
 
@@ -17,7 +18,7 @@ static inline void spinlock_init(spinlock_t *lock) {
 #define SPINLOCK_GET(lock) *lock
 static inline void spin_lock(spinlock_t *lock) {
 	// 使用__atomic内建函数实现原子操作，并显式指定内存序
-	int expected;
+	size_t expected;
 	for (;;) {
 		expected = 0;
 		if (__atomic_compare_exchange_n(
@@ -31,10 +32,10 @@ static inline void spin_lock(spinlock_t *lock) {
 }
 
 static inline int spin_try_lock(spinlock_t *lock) {
-	int expected = 0;
-	int ret		 = __atomic_compare_exchange_n(
-		 &SPINLOCK_GET(lock), &expected, 1, 0, __ATOMIC_ACQUIRE,
-		 __ATOMIC_RELAXED);
+	size_t expected = 0;
+	int	   ret		= __atomic_compare_exchange_n(
+		&SPINLOCK_GET(lock), &expected, 1, 0, __ATOMIC_ACQUIRE,
+		__ATOMIC_RELAXED);
 	return ret;
 }
 

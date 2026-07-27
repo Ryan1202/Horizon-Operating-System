@@ -91,11 +91,9 @@ void tcp_register(NetworkConnection *conn) {
 	if (conn->tcp.info == NULL) {
 		Tcp *tcp = kzalloc(sizeof(Tcp));
 		if (tcp == NULL) return;
-		tcp->state_waiters = wait_queue_create();
-		if (tcp->state_waiters == NULL) {
-			kfree(tcp);
-			return;
-		}
+
+		wait_queue_init(&tcp->state_waiters);
+
 		conn->tcp.info = tcp;
 	}
 	NET_BUF_RESV_HEAD(conn, sizeof(TcpHeader));
@@ -246,7 +244,7 @@ ProtocolResult tcp_connect(
 	NETWORK_SEND(conn->net_device, conn);
 
 	wait_queue_wait(
-		tcp->state_waiters, &tcp_lock, tcp_handshake_finished, tcp);
+		&tcp->state_waiters, &tcp_lock, tcp_handshake_finished, tcp);
 
 	if (tcp->state != TCP_STATE_ESTABLISHED) return PROTO_ERROR_CONNECT_FAILED;
 	// 建立连接后再真正分配发送窗口
@@ -284,11 +282,11 @@ ProtocolResult tcp_listen(NetworkConnection *conn) {
 	timer_init(&tcp->timeout_timer);
 	tcp->timeout_timer.callback = tcp_timeout_handler;
 	tcp->timeout_timer.arg		= tcp;
-	conn->state                 = CONN_STATE_OPENING;
+	conn->state					= CONN_STATE_OPENING;
 	conn_wrap(conn, PROTO_LEVEL_NETWORK);
 
 	wait_queue_wait(
-		tcp->state_waiters, &tcp_lock, tcp_handshake_finished, tcp);
+		&tcp->state_waiters, &tcp_lock, tcp_handshake_finished, tcp);
 	if (tcp->state != TCP_STATE_ESTABLISHED) return PROTO_ERROR_CONNECT_FAILED;
 
 	tcp->send.unack		 = 0;
@@ -448,7 +446,7 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 
 	net_buffer_clean_data(conn->buffer);
 	tcp->state			  = TCP_STATE_CLOSED;
-	conn->state           = CONN_STATE_CLOSED;
+	conn->state			  = CONN_STATE_CLOSED;
 	TcpHeader *tcp_header = tcp->header;
 	tcp_header->flags	  = TCP_FLAG_RST;
 	tcp_header->ack		  = 0;
@@ -459,7 +457,7 @@ void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
 	kfree(tcp->recv_window);
 
 	NETWORK_SEND(conn->net_device, conn);
-	wait_queue_wake_all(tcp->state_waiters);
+	wait_queue_wake_all(&tcp->state_waiters);
 }
 
 void tcp_send_packet(
@@ -587,7 +585,7 @@ void tcp_timeout_handler(void *arg) {
 	default:
 		break;
 	}
-	wait_queue_wake_all(tcp->state_waiters);
+	wait_queue_wake_all(&tcp->state_waiters);
 	spin_unlock(&tcp_lock);
 }
 
@@ -794,7 +792,7 @@ void tcp_rx_handler(
 		tcp_reset_conn(conn, tcp);
 		break;
 	}
-	wait_queue_wake_all(tcp->state_waiters);
+	wait_queue_wake_all(&tcp->state_waiters);
 }
 
 ProtocolResult tcp_recv(
@@ -880,7 +878,7 @@ void tcp_notify_unreachable(
 	default:
 		break;
 	}
-	wait_queue_wake_all(conn->tcp.info->state_waiters);
+	wait_queue_wake_all(&conn->tcp.info->state_waiters);
 	spin_unlock(&tcp_lock);
 }
 

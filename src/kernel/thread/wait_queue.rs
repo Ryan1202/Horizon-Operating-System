@@ -44,8 +44,8 @@ impl Waiter {
     /// # Safety
     ///
     /// Waiter 必须内嵌于仍然存活且地址稳定的 Thread 中。
-    pub(super) unsafe fn node(&self) -> Pin<&mut ListNode<Waiter>> {
-        unsafe { Pin::new_unchecked(&mut *self.node.get()) }
+    pub(super) unsafe fn node(&self) -> &mut ListNode<Waiter> {
+        unsafe { &mut *self.node.get() }
     }
 
     pub(super) const fn node_offset() -> usize {
@@ -69,17 +69,30 @@ pub trait WaitCondition {
     fn is_satisfied(&self, guard: &SpinIrqGuard<'_, &mut Self::State>) -> bool;
 }
 
+#[repr(C)]
 pub struct WaitQueue {
     inner: Spinlock<WaitQueueInner>,
     _pin: PhantomPinned,
 }
 
+#[repr(C)]
 struct WaitQueueInner {
     waiters: ListHead<Waiter>,
     initialized: bool,
 }
 
 impl WaitQueue {
+    pub const fn new() -> Self {
+        Self {
+            inner: Spinlock::new(WaitQueueInner::new()),
+            _pin: PhantomPinned,
+        }
+    }
+
+    pub fn init(&self) {
+        unsafe { self.inner.init_with(|inner| inner.init()) };
+    }
+
     /// 分配并初始化一个地址稳定的等待队列。
     pub fn try_new() -> Result<Pin<Box<Self, Kmalloc>>, MemoryError> {
         let queue = Box::try_new_in(
@@ -90,14 +103,14 @@ impl WaitQueue {
             Kmalloc::default(),
         )
         .map_err(|_| MemoryError::OutOfMemory)?;
-        let queue = Box::into_pin(queue);
 
         // SAFETY: queue 已经固定在 Box 中，初始化后不会再移动；当前尚未发布，
         // 不存在并发访问。
         unsafe {
-            let inner = queue.as_ref().map_unchecked(|queue| &queue.inner);
-            inner.init_with_pinned(|inner| inner.init());
+            queue.inner.init_with(|inner| inner.init());
         }
+
+        let queue = Box::into_pin(queue);
 
         Ok(queue)
     }
@@ -106,7 +119,7 @@ impl WaitQueue {
     ///
     /// 唤醒只表示 condition 可能已经改变；若条件仍不成立，本函数会重新
     /// 进入等待流程。
-    pub fn wait<'a, C>(self: Pin<&Self>, condition: &'a C) -> SpinIrqGuard<'a, &'a mut C::State>
+    pub fn wait<'a, C>(&self, condition: &'a C) -> SpinIrqGuard<'a, &'a mut C::State>
     where
         C: WaitCondition + ?Sized,
     {
@@ -141,7 +154,7 @@ impl WaitQueue {
                 current
                     .transition_to(ThreadState::Blocking)
                     .expect("only a Running thread can begin waiting");
-                waiters.enqueue(current.waiter());
+                unsafe { waiters.as_mut().get_unchecked_mut() }.enqueue(current.waiter());
             }
 
             // condition_guard 的 Drop 完整执行 unlock + irqrestore。此后中断可以
@@ -185,10 +198,11 @@ impl WaitQueue {
     }
 
     /// 唤醒 FIFO 队首的一个 waiter。
-    pub fn wake_one(self: Pin<&Self>) -> bool {
+    pub fn wake_one(&self) -> bool {
         let mut waiters = self.waiters_irqsave();
 
-        let Some(made_ready) = waiters.wake_first() else {
+        let Some(made_ready) = (unsafe { waiters.as_mut().get_unchecked_mut().wake_first() })
+        else {
             return false;
         };
         if made_ready {
@@ -198,12 +212,12 @@ impl WaitQueue {
     }
 
     /// 唤醒当前队列中的全部 waiter，返回从队列移除的数量。
-    pub fn wake_all(self: Pin<&Self>) -> usize {
+    pub fn wake_all(&self) -> usize {
         let mut waiters = self.waiters_irqsave();
         let mut count = 0;
         let mut made_ready = false;
 
-        while let Some(ready) = waiters.wake_first() {
+        while let Some(ready) = unsafe { waiters.as_mut().get_unchecked_mut().wake_first() } {
             count += 1;
             made_ready |= ready;
         }
@@ -213,53 +227,28 @@ impl WaitQueue {
         count
     }
 
-    pub fn is_empty(self: Pin<&Self>) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.waiters_irqsave().is_empty()
     }
 
-    fn inner(self: Pin<&Self>) -> Pin<&Spinlock<WaitQueueInner>> {
+    fn inner(&self) -> &Spinlock<WaitQueueInner> {
         // SAFETY: inner 固定内嵌于已经被 Pin 的 WaitQueue 中。
-        unsafe { self.map_unchecked(|queue| &queue.inner) }
+        &self.inner
     }
 
     /// 调用方已经通过 condition 的 SpinIrqGuard 或 InterruptGuard 关闭中断。
-    fn waiters(self: Pin<&Self>) -> SpinGuard<'_, Pin<&mut WaitQueueInner>> {
-        self.inner().lock_pinned()
+    fn waiters(&self) -> SpinGuard<'_, Pin<&mut WaitQueueInner>> {
+        unsafe { Pin::new_unchecked(self.inner()).lock_pinned() }
     }
 
-    fn waiters_irqsave(self: Pin<&Self>) -> SpinIrqGuard<'_, Pin<&mut WaitQueueInner>> {
-        self.inner().lock_irqsave_pinned()
+    fn waiters_irqsave(&self) -> SpinIrqGuard<'_, Pin<&mut WaitQueueInner>> {
+        unsafe { Pin::new_unchecked(self.inner()).lock_irqsave_pinned() }
     }
-}
-
-pub(super) fn into_raw(queue: Pin<Box<WaitQueue, Kmalloc>>) -> *mut WaitQueue {
-    let queue = unsafe { Pin::into_inner_unchecked(queue) };
-    Box::leak(queue)
-}
-
-/// 从 C 持有的队列头指针恢复固定地址引用。
-///
-/// # Safety
-///
-/// `queue` 必须来自 [`into_raw`]，并且尚未通过 [`drop_raw`] 释放。
-pub(super) unsafe fn from_raw<'a>(queue: *mut WaitQueue) -> Pin<&'a WaitQueue> {
-    assert!(!queue.is_null(), "null WaitQueue");
-    unsafe { Pin::new_unchecked(&*queue) }
-}
-
-/// 释放由 C 持有的队列头。
-///
-/// # Safety
-///
-/// `queue` 必须来自 [`into_raw`]，且只能调用一次。调用方必须保证队列中
-/// 已经没有 waiter。
-pub(super) unsafe fn drop_raw(queue: *mut WaitQueue) {
-    assert!(!queue.is_null(), "null WaitQueue");
-    let _ = unsafe { Box::<WaitQueue, Kmalloc>::from_raw_in(queue, Kmalloc::default()) };
 }
 
 type CTryCondition = extern "C" fn(*mut c_void) -> c_int;
 
+/// C 语言中使用的等待条件。
 struct CWaitCondition {
     lock: *const Spinlock<()>,
     try_condition: CTryCondition,
@@ -278,17 +267,11 @@ impl WaitCondition for CWaitCondition {
     }
 }
 
-#[unsafe(export_name = "wait_queue_create")]
-extern "C" fn create_c() -> *mut WaitQueue {
-    WaitQueue::try_new().map_or(ptr::null_mut(), into_raw)
-}
-
-#[unsafe(export_name = "wait_queue_destroy")]
-extern "C" fn destroy_c(queue: *mut WaitQueue) {
-    if queue.is_null() {
-        return;
-    }
-    unsafe { drop_raw(queue) };
+#[unsafe(export_name = "wait_queue_init")]
+extern "C" fn create_c(queue: *mut WaitQueue) {
+    let wq = unsafe { queue.as_mut() }.expect("null WaitQueue from C");
+    *wq = WaitQueue::new();
+    wq.init();
 }
 
 #[unsafe(export_name = "wait_queue_wait")]
@@ -298,23 +281,30 @@ extern "C" fn wait_c(
     try_condition: Option<CTryCondition>,
     context: *mut c_void,
 ) {
+    let wq = unsafe { queue.as_mut() }.expect("null WaitQueue from C");
     assert!(!condition_lock.is_null(), "null WaitQueue condition lock");
+
     let condition = CWaitCondition {
         lock: condition_lock,
         try_condition: try_condition.expect("null WaitQueue condition callback"),
         context,
     };
-    let _ = unsafe { from_raw(queue) }.wait(&condition);
+
+    let _ = wq.wait(&condition);
 }
 
 #[unsafe(export_name = "wait_queue_wake_one")]
 extern "C" fn wake_one_c(queue: *mut WaitQueue) {
-    unsafe { from_raw(queue) }.wake_one();
+    unsafe { queue.as_mut() }
+        .expect("null WaitQueue from C")
+        .wake_one();
 }
 
 #[unsafe(export_name = "wait_queue_wake_all")]
 extern "C" fn wake_all_c(queue: *mut WaitQueue) {
-    unsafe { from_raw(queue) }.wake_all();
+    unsafe { queue.as_mut() }
+        .expect("null WaitQueue from C")
+        .wake_all();
 }
 
 impl Drop for WaitQueue {
@@ -334,15 +324,9 @@ impl WaitQueueInner {
         }
     }
 
-    fn init(mut self: Pin<&mut Self>) {
-        unsafe {
-            self.as_mut()
-                .map_unchecked_mut(|inner| {
-                    inner.initialized = true;
-                    &mut inner.waiters
-                })
-                .init()
-        };
+    fn init(&mut self) {
+        self.initialized = true;
+        self.waiters.init();
     }
 
     fn is_empty(&self) -> bool {
@@ -350,33 +334,31 @@ impl WaitQueueInner {
         self.waiters.is_empty()
     }
 
-    fn enqueue(self: &mut Pin<&mut Self>, waiter: &Waiter) {
+    fn enqueue(&mut self, waiter: &Waiter) {
         assert!(self.initialized, "WaitQueue used before initialization");
         assert!(!waiter.is_linked(), "Waiter added to two queues");
 
-        let mut waiters = unsafe { self.as_mut().map_unchecked_mut(|inner| &mut inner.waiters) };
+        let waiters = &mut self.waiters;
         unsafe { waiters.add_tail(waiter.node()) };
     }
 
-    fn first(self: &Pin<&Self>) -> Option<NonNull<Waiter>> {
+    fn first(&self) -> Option<NonNull<Waiter>> {
         assert!(self.initialized, "WaitQueue used before initialization");
 
-        let waiters = unsafe { self.map_unchecked(|inner| &inner.waiters) };
-        waiters.iter(Waiter::node_offset()).next()
+        self.waiters.iter(Waiter::node_offset()).next()
     }
 
-    fn remove(self: &mut Pin<&mut Self>, waiter: &Waiter) {
+    fn remove(&mut self, waiter: &Waiter) {
         assert!(self.initialized, "WaitQueue used before initialization");
         assert!(waiter.is_linked(), "removing an unlinked Waiter");
 
-        let mut waiters = unsafe { self.as_mut().map_unchecked_mut(|inner| &mut inner.waiters) };
-        unsafe { waiters.delete(waiter.node()) };
+        unsafe { self.waiters.delete(waiter.node()) };
     }
 
     /// 返回该 waiter 是否被加入 ready queue。Blocking waiter 仍是 current，
     /// 只需取消阻塞，不得重复加入 ready queue。
-    fn wake_first(self: &mut Pin<&mut Self>) -> Option<bool> {
-        let waiter_ptr = self.as_ref().first()?;
+    fn wake_first(&mut self) -> Option<bool> {
+        let waiter_ptr = self.first()?;
         let waiter = unsafe { waiter_ptr.as_ref() };
         let thread = unsafe { Thread::from_waiter(waiter_ptr).as_ref() };
 

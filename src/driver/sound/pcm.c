@@ -1,6 +1,4 @@
-#include "kernel/console.h"
 #include "kernel/spinlock.h"
-#include "kernel/thread.h"
 #include "kernel/wait_queue.h"
 #include "stdint.h"
 #include <driver/sound/pcm.h>
@@ -55,12 +53,7 @@ DriverResult pcm_register_stream(
 	s->host_period_ptr	 = 0;
 	s->host_ptr			 = 0;
 	spinlock_init(&s->lock);
-	s->wq = wait_queue_create();
-	if (s->wq == NULL) {
-		kfree(s);
-		*stream = NULL;
-		return DRIVER_ERROR_OUT_OF_MEMORY;
-	}
+	wait_queue_init(&s->wq);
 
 	return DRIVER_OK;
 }
@@ -244,9 +237,8 @@ DriverResult pcm_transfer(
 	while (left_size > 0) {
 		while (left_space == 0) {
 			spin_unlock_irqrestore(&stream->lock, flags);
-			wait_queue_wait(
-				stream->wq, &stream->lock, pcm_has_space, stream);
-			flags = spin_lock_irqsave(&stream->lock);
+			wait_queue_wait(&stream->wq, &stream->lock, pcm_has_space, stream);
+			flags	   = spin_lock_irqsave(&stream->lock);
 			left_space = sound_pcm_left_space(stream);
 		}
 		dma_buf_cur = dma_buf + stream->host_ptr;
@@ -353,7 +345,7 @@ DriverResult sound_pcm_done(PcmStream *stream) {
 	// 	stream->pcm->status = PCM_STATUS_PAUSED;
 	// }
 
-	wait_queue_wake_one(stream->wq);
+	wait_queue_wake_one(&stream->wq);
 	spin_unlock_irqrestore(&stream->lock, flags);
 
 	return DRIVER_OK;

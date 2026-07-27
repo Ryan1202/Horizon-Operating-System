@@ -1,9 +1,7 @@
-use alloc::boxed::Box;
 use core::{
     cell::SyncUnsafeCell,
     ffi::{CStr, c_void},
     mem::offset_of,
-    pin::Pin,
     ptr::{self, NonNull},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -15,7 +13,6 @@ use crate::{
             MemoryError,
             arch::ArchMemory,
             frame::buddy::FrameOrder,
-            kmalloc::Kmalloc,
             page::{Pages, options::PageAllocOptions},
         },
         thread::{
@@ -72,7 +69,7 @@ pub struct Thread {
 
     run_node: SyncUnsafeCell<ListNode<Thread>>,
     waiter: Waiter,
-    join_waiters: Pin<Box<WaitQueue, Kmalloc>>,
+    join_waiters: WaitQueue,
 
     // context 只能由持有调度器全局锁且禁止抢占的代码修改，不能通过普通
     // Thread API 取得可变引用。
@@ -92,7 +89,7 @@ impl Thread {
     ) -> Result<Self, MemoryError> {
         let mut stack = KernelStack::new()?;
         let context = unsafe { ArchThreadContext::new_kernel(&mut stack, entry, argument) };
-        let join_waiters = WaitQueue::try_new()?;
+        let join_waiters = WaitQueue::new();
 
         Ok(Self {
             id: ThreadId::new(),
@@ -104,6 +101,10 @@ impl Thread {
             _kernel_stack: stack,
             inner: Spinlock::new(ThreadInner::new()),
         })
+    }
+
+    pub fn init(&self) {
+        self.join_waiters.init();
     }
 
     pub(super) fn prepare_first_thread(thread: &Self) {
@@ -151,7 +152,7 @@ impl Thread {
         );
 
         let condition = JoinCondition { thread: self };
-        let _ = self.join_waiters.as_ref().wait(&condition);
+        let _ = self.join_waiters.wait(&condition);
     }
 
     /// 发布永久退出状态并唤醒所有 joiner。
@@ -161,7 +162,7 @@ impl Thread {
     pub(super) fn finish(&self) {
         self.transition_to(ThreadState::Dead)
             .expect("running thread must transition to Dead");
-        self.join_waiters.as_ref().wake_all();
+        self.join_waiters.wake_all();
     }
 
     /// 切换架构上下文。仅供调度器在禁止抢占并独占上下文时调用。
@@ -184,8 +185,8 @@ impl Thread {
     /// # Safety
     ///
     /// 该线程必须已经被 ThreadManager 注册
-    pub(super) unsafe fn get_run_node(&self) -> Pin<&mut ListNode<Thread>> {
-        unsafe { Pin::new_unchecked(&mut *self.run_node.get()) }
+    pub(super) unsafe fn get_run_node(&self) -> &mut ListNode<Thread> {
+        unsafe { &mut *self.run_node.get() }
     }
 
     pub(super) const fn run_node_offset() -> usize {

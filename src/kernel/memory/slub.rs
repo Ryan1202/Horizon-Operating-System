@@ -8,7 +8,6 @@ use core::{
     mem::{ManuallyDrop, offset_of},
     num::NonZeroU16,
     ops::DerefMut,
-    pin::Pin,
     ptr::NonNull,
 };
 
@@ -207,8 +206,8 @@ impl Slub {
         self.inner.lock().deallocate(obj);
     }
 
-    fn get_list(&mut self) -> Pin<&mut ListNode<Self>> {
-        unsafe { Pin::new_unchecked(self.list.get_mut()) }
+    fn get_list(&mut self) -> &mut ListNode<Self> {
+        self.list.get_mut()
     }
 
     const fn list_offset() -> usize {

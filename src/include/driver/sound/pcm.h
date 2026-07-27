@@ -84,7 +84,7 @@ typedef struct PcmStream {
 	uint8_t		channel;
 
 	spinlock_t lock;
-	WaitQueue *wq;
+	WaitQueue  wq;
 
 	uint16_t frame_bytes; // 一个帧的大小
 	size_t	 frame_per_period;

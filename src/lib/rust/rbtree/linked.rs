@@ -1,4 +1,4 @@
-use core::{cmp, marker::PhantomData, mem::offset_of, pin::Pin, ptr::NonNull};
+use core::{cmp, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
 use crate::{
     container_of,
@@ -53,7 +53,7 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
     }
     fn unlink_ext(&mut self, tree: &mut LinkedRbTreeBase<K, A, NA>) {
         let list_node = self.augment.get_list();
-        unsafe { Pin::new_unchecked(&mut tree.augment.list_head) }.delete(list_node);
+        tree.augment.list_head.delete(list_node);
     }
 }
 
@@ -61,8 +61,7 @@ impl<K: Sized, A, NA> AugmentLinkHead<K, LinkedIter, LinkedHead<K, A, NA>, Linke
     for LinkedRbTreeBase<K, A, NA>
 {
     fn init(&mut self, node: &mut RbNodeBase<K, LinkedIter, Linked<K, NA>>) {
-        unsafe { Pin::new_unchecked(&mut self.augment.list_head) }
-            .add_head(node.augment.get_list());
+        self.augment.list_head.add_head(node.augment.get_list());
     }
 }
 
@@ -92,14 +91,14 @@ impl<K, A: Default> Default for Linked<K, A> {
 }
 
 impl<K, A> Linked<K, A> {
-    pub fn get_list(&mut self) -> Pin<&mut ListNode<LinkedRbNodeBase<K, A>>> {
-        unsafe { Pin::new_unchecked(&mut self.list_node) }
+    pub fn get_list(&mut self) -> &mut ListNode<LinkedRbNodeBase<K, A>> {
+        &mut self.list_node
     }
 }
 
 impl<K, A, NA> LinkedHead<K, A, NA> {
     pub fn iter(&self) -> ListIterator<LinkedRbNodeBase<K, NA>> {
-        unsafe { Pin::new_unchecked(&self.list_head) }
+        self.list_head
             .iter(LinkedRbTreeBase::<K, A, NA>::linked_offset())
     }
 }
@@ -112,7 +111,7 @@ impl<K, A, NA> LinkedRbTreeBase<K, A, NA> {
     pub fn _linked_init(&mut self, augment: A) {
         self._init();
         self.augment.augment = augment;
-        unsafe { Pin::new_unchecked(&mut self.augment.list_head) }.init();
+        self.augment.list_head.init();
     }
 
     pub const fn _empty(augment: A) -> Self {
@@ -210,8 +209,9 @@ impl<'a, K: Ord + Sized, A, NA> LinkedRbTreeBase<K, A, NA> {
             }
         };
 
-        let list_head = unsafe { Pin::new_unchecked(&self.augment.list_head) };
-        let first_node = list_head
+        let first_node = self
+            .augment
+            .list_head
             .iter(offset_of!(LinkedHead<K, A, NA>, list_head))
             .next();
         let first_node = match first_node {

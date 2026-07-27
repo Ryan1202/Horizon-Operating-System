@@ -10,13 +10,13 @@
 typedef struct StorageRequest {
 	StorageDevice *storage_device;
 
-	list_t		   list;
-	bool		   rw;
-	uint8_t		  *buf;
-	uint64_t	   position;
-	uint32_t	   count;
-	bool		   is_finished;
-	CCompletion   completion;
+	list_t	   list;
+	bool	   rw;
+	uint8_t	  *buf;
+	uint64_t   position;
+	uint32_t   count;
+	bool	   is_finished;
+	Completion completion;
 
 	uint32_t t0l, t0h;
 	uint32_t t1l, t1h;

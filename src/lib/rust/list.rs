@@ -1,7 +1,6 @@
 use core::{
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
-    pin::Pin,
     ptr::NonNull,
 };
 
@@ -41,48 +40,36 @@ impl<Owner> ListHead<Owner> {
     }
 
     #[inline(always)]
-    pub fn init(self: &mut Pin<&mut Self>) {
-        let ptr = self.as_ref().as_ptr();
+    pub fn init(&mut self) {
+        let ptr = NonNull::from_ref(unsafe { self.link.assume_init_ref() });
         let link = Link {
             prev: ptr,
             next: ptr,
             _phantom: (PhantomData, PhantomPinned),
         };
-        unsafe { self.as_mut().get_unchecked_mut().link.write(link) };
+        self.link.write(link);
     }
 
-    pub const fn as_ptr(self: &Pin<&Self>) -> NonNull<Link<Owner>> {
-        NonNull::from_ref(self.get_ref()).cast()
+    pub const fn as_ptr(&self) -> NonNull<Link<Owner>> {
+        NonNull::from_ref(unsafe { self.link.assume_init_ref() }).cast()
     }
 
     #[inline(always)]
-    pub fn add_head(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
-        let prev = self.as_ref().as_ptr();
-        let next = unsafe {
-            self.as_mut()
-                .get_unchecked_mut()
-                .link
-                .assume_init_mut()
-                .next
-        };
+    pub fn add_head(&mut self, node: &mut ListNode<Owner>) {
+        let prev = NonNull::from_ref(unsafe { self.link.assume_init_ref() });
+        let next = unsafe { self.link.assume_init_mut().next };
         unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
-    pub fn add_tail(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
-        let prev = unsafe {
-            self.as_mut()
-                .get_unchecked_mut()
-                .link
-                .assume_init_mut()
-                .prev
-        };
-        let next = self.as_ref().as_ptr();
+    pub fn add_tail(&mut self, node: &mut ListNode<Owner>) {
+        let prev = unsafe { self.link.assume_init_mut().prev };
+        let next = NonNull::from_ref(unsafe { self.link.assume_init_ref() });
         unsafe { node.add(prev, next) };
     }
 
     #[inline(always)]
-    pub fn delete(self: &mut Pin<&mut Self>, node: Pin<&mut ListNode<Owner>>) {
+    pub fn delete(&mut self, node: &mut ListNode<Owner>) {
         node.delete();
     }
 
@@ -102,10 +89,12 @@ pub struct ListIterator<Owner> {
 }
 
 impl<Owner> ListHead<Owner> {
-    pub fn iter(self: &Pin<&Self>, offset: usize) -> ListIterator<Owner> {
-        let head = self.as_ptr();
+    pub fn iter(&self, offset: usize) -> ListIterator<Owner> {
+        let head = unsafe { self.link.assume_init_ref() };
+        let first = head.next;
 
-        let first = unsafe { self.link.assume_init_ref().next };
+        let head = NonNull::from_ref(head);
+
         ListIterator {
             head,
             next: if first != head { Some(first) } else { None },
@@ -141,26 +130,20 @@ impl<Owner> ListNode<Owner> {
         Self { link: None }
     }
 
-    pub fn init(self: Pin<&mut Self>) {
+    pub fn init(&mut self) {
         // SAFETY: 只改链表指针，不移动节点
-        let this = unsafe { self.get_unchecked_mut() };
-        this.link = None;
+        self.link = None;
     }
 
     #[inline(always)]
-    const fn as_ptr(self: &Pin<&Self>) -> NonNull<Link<Owner>> {
-        NonNull::from_ref(self.get_ref()).cast()
+    const fn as_ptr(&self) -> NonNull<Link<Owner>> {
+        NonNull::from_ref(self).cast()
     }
 
     #[inline(always)]
-    unsafe fn add(
-        self: Pin<&mut Self>,
-        mut prev: NonNull<Link<Owner>>,
-        mut next: NonNull<Link<Owner>>,
-    ) {
+    unsafe fn add(&mut self, mut prev: NonNull<Link<Owner>>, mut next: NonNull<Link<Owner>>) {
         let (_prev, _next) = unsafe { (prev.as_mut(), next.as_mut()) };
-        let _self = self.as_ref().as_ptr();
-        let self_ref = unsafe { self.get_unchecked_mut() };
+        let _self = self.as_ptr();
 
         _next.prev = _self;
         _prev.next = _self;
@@ -169,20 +152,19 @@ impl<Owner> ListNode<Owner> {
             next,
             _phantom: (PhantomData, PhantomPinned),
         };
-        self_ref.link = Some(link);
+        self.link = Some(link);
     }
 
     /// 将当前节点添加到`node`节点之后
     #[inline(always)]
-    pub fn add_after(self: Pin<&mut Self>, node: Pin<&mut Self>) {
-        let prev = node.as_ref().as_ptr();
-
+    pub fn add_after(&mut self, node: &mut Self) {
         unsafe {
             let node = node
-                .get_unchecked_mut()
                 .link
                 .as_mut()
                 .expect("Trying to add_after on an unlinked node!");
+
+            let prev = NonNull::from_ref(node);
 
             let next = node.next;
 
@@ -192,15 +174,14 @@ impl<Owner> ListNode<Owner> {
 
     /// 将当前节点添加到`node`节点之前
     #[inline(always)]
-    pub fn add_before(self: Pin<&mut Self>, node: Pin<&mut Self>) {
-        let next = node.as_ref().as_ptr();
-
+    pub fn add_before(&mut self, node: &mut Self) {
         unsafe {
             let node = node
-                .get_unchecked_mut()
                 .link
                 .as_mut()
                 .expect("Trying to add_after on an unlinked node!");
+
+            let next = NonNull::from_ref(node);
 
             let prev = node.prev;
 
@@ -209,9 +190,9 @@ impl<Owner> ListNode<Owner> {
     }
 
     #[inline(always)]
-    fn delete(self: Pin<&mut Self>) {
+    fn delete(&mut self) {
         unsafe {
-            let link = &mut self.get_unchecked_mut().link;
+            let link = &mut self.link;
 
             let (mut prev, mut next) = {
                 let link = link

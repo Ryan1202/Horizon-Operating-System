@@ -1,4 +1,4 @@
-use core::{mem, num::NonZeroUsize, ops::DerefMut, pin::Pin, ptr::NonNull};
+use core::{mem, num::NonZeroUsize, pin::Pin, ptr::NonNull};
 
 use alloc::boxed::Box;
 
@@ -63,8 +63,7 @@ impl Vmap {
         unsafe {
             let pools = &mut self.as_mut().get_unchecked_mut().pools;
             for pool in pools.iter_mut() {
-                pool.list_head
-                    .init_with(|list_head| Pin::new_unchecked(list_head).init());
+                pool.list_head.init_with(|list_head| list_head.init());
             }
             self.allocated.init_with(|rbtree| rbtree.init());
         }
@@ -75,19 +74,16 @@ impl Vmap {
         (index < MAX_VMAP_POOL_PAGES).then_some(index)
     }
 
-    fn pool_put(self: &Pin<&mut Self>, node: &mut VmapNode) {
+    fn pool_put(&self, node: &mut VmapNode) {
         let count = NonZeroUsize::new(node.rb_node.get_key().get_count()).unwrap();
         let index = Self::pool_index(count).expect("oversized VmapNode passed to pool_put");
 
-        let mut list_head = unsafe {
-            self.as_ref()
-                .map_unchecked(|vmap| &vmap.pools.get_unchecked(index).list_head)
-        }
-        .lock_pinned();
+        let mut list_head =
+            unsafe { Pin::new_unchecked(&self.pools.get_unchecked(index).list_head) }.lock_pinned();
 
         let node = node.rb_node.augment.get_list();
 
-        list_head.add_tail(node);
+        unsafe { list_head.as_mut().get_unchecked_mut() }.add_tail(node);
     }
 
     fn pool_get(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<NonNull<VmapNode>> {
@@ -98,14 +94,12 @@ impl Vmap {
             return None;
         }
 
-        let mut list_head = unsafe {
-            self.as_ref()
-                .map_unchecked(|vmap| &vmap.pools.get_unchecked(index).list_head)
-        }
-        .lock_pinned();
+        let mut guard =
+            unsafe { Pin::new_unchecked(&self.pools.get_unchecked(index).list_head) }.lock_pinned();
+
+        let list_head = unsafe { guard.as_mut().get_unchecked_mut() };
 
         let mut rb_node = list_head
-            .as_ref()
             .iter(RbTree::linked_offset())
             .next()
             .expect("List is empty after checked!");
@@ -114,7 +108,6 @@ impl Vmap {
         let pages = container_of!(rb_node, VmapNode, rb_node);
 
         unsafe {
-            let mut list_head = Pin::new_unchecked(list_head.deref_mut());
             list_head.delete(rb_node.as_mut().augment.get_list());
         }
         Some(pages)

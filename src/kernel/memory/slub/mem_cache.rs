@@ -78,6 +78,7 @@ impl MemCaches {
             global_caches()
                 .map_unchecked(|caches| &caches.list_head)
                 .init_with_pinned(|mut head| {
+                    let head = head.as_mut().get_unchecked_mut();
                     head.init();
 
                     head.add_head(mem_cache_node.as_mut().get_list());
@@ -91,12 +92,14 @@ impl MemCaches {
         }
     }
 
-    pub fn add_cache(self: Pin<&Self>, cache: Pin<&mut MemCache>) {
-        let mut list_head = unsafe { self.map_unchecked(|cache| &cache.list_head) }.lock_pinned();
+    /// 向 MemCaches 中添加一个新的 MemCache。
+    pub fn add_cache(&self, cache: &mut MemCache) {
+        let mut list_head = unsafe { Pin::new_unchecked(&self.list_head) }.lock_pinned();
         unsafe {
             list_head
                 .as_mut()
-                .add_head(cache.map_unchecked_mut(|v| &mut *v.list.get()))
+                .get_unchecked_mut()
+                .add_head(cache.get_list())
         };
     }
 
@@ -187,8 +190,8 @@ impl MemCache {
         }
     }
 
-    fn get_list(&mut self) -> Pin<&mut ListNode<MemCache>> {
-        unsafe { Pin::new_unchecked(self.list.get_mut()) }
+    fn get_list(&mut self) -> &mut ListNode<MemCache> {
+        self.list.get_mut()
     }
 
     /// 不依赖全局变量的实现，可以在初始化时简化调用
@@ -226,14 +229,12 @@ impl MemCache {
     pub fn new(config: CacheConfig, options: PageAllocOptions) -> Option<NonNull<Self>> {
         let caches = global_caches();
 
-        unsafe {
-            Self::new_raw(config, caches.node_mem_cache, caches.mem_cache, options).and_then(
-                |mut mem_cache| {
-                    caches.add_cache(Pin::new_unchecked(mem_cache.as_mut()));
-                    Some(mem_cache)
-                },
-            )
-        }
+        Self::new_raw(config, caches.node_mem_cache, caches.mem_cache, options).and_then(
+            |mut mem_cache| unsafe {
+                caches.add_cache(mem_cache.as_mut());
+                Some(mem_cache)
+            },
+        )
     }
 
     /// 将 Slub 保存
@@ -312,7 +313,7 @@ impl MemCache {
         let mut head = global_caches().list_head().lock_pinned();
 
         let list = mem_cache.get_list();
-        head.as_mut().delete(list);
+        unsafe { head.as_mut().get_unchecked_mut() }.delete(list);
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));
