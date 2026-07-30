@@ -1,17 +1,14 @@
-use core::{
-    ffi::{CStr, c_void},
-    mem::ManuallyDrop,
-    ptr::null,
-};
+目前大部分的代码还是使用 C 写的，所以线程子系统还是要保留一套给 C 设计的接口
 
-use alloc::sync::Arc;
+# Thread
 
-use crate::kernel::{
-    interrupt::{self, PreemptPoint},
-    memory::kmalloc::Kmalloc,
-    thread::{THREAD_MANAGER, Thread, ThreadArc, scheduler::scheduler},
-};
+得益于之前将线程创建和运行分开的设计，C 侧的强引用/弱引用管理及其使用便利性可以兼顾
 
+## 创建
+
+创建一个还不能运行的线程
+
+```rust
 /// 创建一个由 ThreadManager 持有、尚未加入运行队列的线程。
 ///
 /// 返回值是 borrowed pointer；若 C 需要在线程运行后继续持有它，必须在
@@ -31,7 +28,17 @@ extern "C" fn thread_create_c(
 
     thread.as_ref()
 }
+```
 
+返回的指针是借用指针，不计入 C 侧引用计数；ThreadManager 保留自己的强引用，
+直到线程退出并完成切换收尾。C 侧若要跨越 `thread_run` 或线程运行期保存它，
+必须先调用 `thread_get`，并最终调用 `thread_put`。
+
+## 获取强引用
+
+如果 C 侧需要保证线程不会随时被释放，则需要在线程运行前先获取其强引用
+
+```rust
 /// 为 thread_create 返回的 borrowed pointer 获取一个 owning handle。
 #[unsafe(export_name = "thread_get")]
 extern "C" fn thread_get_c(thread: *const Thread) -> *const Thread {
@@ -51,7 +58,32 @@ extern "C" fn thread_get_c(thread: *const Thread) -> *const Thread {
 
     thread
 }
+```
 
+由于不需要实际使用引用，直接增加一个强引用计数
+
+## 释放强引用
+
+```rust
+/// 释放一个由 thread_get 返回的 owning handle。
+#[unsafe(export_name = "thread_put")]
+extern "C" fn thread_put_c(thread: *const Thread) {
+    if thread.is_null() {
+        return;
+    }
+
+    assert!(interrupt::in_thread(), "thread_put outside thread context");
+
+    // SAFETY: C 调用方必须传入一个 owning handle，并且每个 handle 只调用一次。
+    let _: ThreadArc = unsafe { Arc::from_raw_in(thread, Kmalloc::default()) };
+}
+```
+
+将指针转换回 `Arc` 并 drop
+
+## 运行线程
+
+```rust
 /// 将一个由 thread_create 创建的 Registered 线程加入运行队列。
 #[unsafe(export_name = "thread_run")]
 extern "C" fn thread_run_c(thread: *const Thread) -> bool {
@@ -75,20 +107,13 @@ extern "C" fn thread_run_c(thread: *const Thread) -> bool {
     assert!(interrupt::in_thread(), "thread_run outside thread context");
     scheduler().enqueue(thread).is_ok()
 }
+```
 
-/// 释放一个由 thread_get 返回的 owning handle。
-#[unsafe(export_name = "thread_put")]
-extern "C" fn thread_put_c(thread: *const Thread) {
-    if thread.is_null() {
-        return;
-    }
+由于这里不能影响引用计数，所以使用了 `ManuallyDrop` 避免自动 drop `Arc`
 
-    assert!(interrupt::in_thread(), "thread_put outside thread context");
+## 等待线程退出
 
-    // SAFETY: C 调用方必须传入一个 owning handle，并且每个 handle 只调用一次。
-    let _: ThreadArc = unsafe { Arc::from_raw_in(thread, Kmalloc::default()) };
-}
-
+```rust
 /// 等待 owning handle 指向的线程退出，不消费该引用。
 #[unsafe(export_name = "thread_join")]
 extern "C" fn thread_join_c(thread: *const Thread) {
@@ -96,39 +121,17 @@ extern "C" fn thread_join_c(thread: *const Thread) {
         .expect("null thread handle")
         .join();
 }
+```
 
+就是 `join` 的包装
+
+## 退出线程
+
+```rust
 #[unsafe(export_name = "thread_exit")]
 extern "C" fn thread_exit_c() -> ! {
     scheduler().exit_self()
 }
+```
 
-#[unsafe(no_mangle)]
-extern "C" fn disable_preempt() {
-    // SAFETY: C 调用方负责在同一 CPU 上通过 enable_preempt 配平。
-    unsafe { scheduler().disable_preempt() };
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn enable_preempt() {
-    // SAFETY: C 调用方必须已经在同一 CPU 上调用过 disable_preempt。
-    unsafe { scheduler().enable_preempt() };
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn can_preempt() -> bool {
-    scheduler().can_preempt() && interrupt::in_thread()
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn scheduler_tick(elapsed_ms: u16) {
-    scheduler().tick(elapsed_ms);
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn try_yield() {
-    let Some(point) = PreemptPoint::new() else {
-        return;
-    };
-
-    scheduler().try_yield(point);
-}
+只能结束自己

@@ -2,25 +2,24 @@ use alloc::boxed::Box;
 use core::{
     cell::SyncUnsafeCell,
     ffi::{c_int, c_void},
-    marker::PhantomPinned,
     mem::offset_of,
     pin::Pin,
-    ptr::{self, NonNull},
+    ptr::NonNull,
+    sync::atomic::Ordering,
 };
 
 use crate::{
-    arch::ArchInterrupt,
     kernel::{
-        interrupt::{self, Interrupt},
+        interrupt::{self},
         memory::{MemoryError, kmalloc::Kmalloc},
         thread::{
             Thread, ThreadState,
-            scheduler::{PreemptGuard, scheduler},
+            scheduler::{PreemptGuard, Schedule, scheduler},
         },
     },
     lib::rust::{
         list::{ListHead, ListNode},
-        spinlock::{SpinGuard, SpinIrqGuard, Spinlock},
+        spinlock::{SpinIrqGuard, Spinlock},
     },
 };
 
@@ -72,7 +71,6 @@ pub trait WaitCondition {
 #[repr(C)]
 pub struct WaitQueue {
     inner: Spinlock<WaitQueueInner>,
-    _pin: PhantomPinned,
 }
 
 #[repr(C)]
@@ -82,10 +80,9 @@ struct WaitQueueInner {
 }
 
 impl WaitQueue {
-    pub const fn new() -> Self {
+    pub const fn new_uninit() -> Self {
         Self {
             inner: Spinlock::new(WaitQueueInner::new()),
-            _pin: PhantomPinned,
         }
     }
 
@@ -95,14 +92,8 @@ impl WaitQueue {
 
     /// 分配并初始化一个地址稳定的等待队列。
     pub fn try_new() -> Result<Pin<Box<Self, Kmalloc>>, MemoryError> {
-        let queue = Box::try_new_in(
-            Self {
-                inner: Spinlock::new(WaitQueueInner::new()),
-                _pin: PhantomPinned,
-            },
-            Kmalloc::default(),
-        )
-        .map_err(|_| MemoryError::OutOfMemory)?;
+        let queue = Box::try_new_in(Self::new_uninit(), Kmalloc::default())
+            .map_err(|_| MemoryError::OutOfMemory)?;
 
         // SAFETY: queue 已经固定在 Box 中，初始化后不会再移动；当前尚未发布，
         // 不存在并发访问。
@@ -134,6 +125,8 @@ impl WaitQueue {
                 return condition_guard;
             }
 
+            let (condition_guard, _interrupt) = condition_guard.downgrade();
+
             let scheduler = scheduler();
             let mut preempt = PreemptGuard::new(&scheduler);
             assert!(
@@ -145,7 +138,11 @@ impl WaitQueue {
             assert!(!scheduler.is_idle(current), "idle thread must not wait");
 
             {
-                let mut waiters = self.waiters();
+                let mut waiters = self.waiters().lock_pinned();
+
+                // downgrade 后 condition_guard 只负责解锁；_interrupt 继续保持
+                // 本地中断关闭，直到本次等待提交或早期唤醒处理完成。
+                drop(condition_guard);
 
                 assert!(
                     !current.waiter().is_linked(),
@@ -154,55 +151,49 @@ impl WaitQueue {
                 current
                     .transition_to(ThreadState::Blocking)
                     .expect("only a Running thread can begin waiting");
-                unsafe { waiters.as_mut().get_unchecked_mut() }.enqueue(current.waiter());
+                waiters.as_mut().enqueue(current.waiter());
             }
 
-            // condition_guard 的 Drop 完整执行 unlock + irqrestore。此后中断可以
-            // 唤醒仍处于 Blocking 的 current，但 PreemptGuard 保证它不会被切走。
-            drop(condition_guard);
-
-            let interrupt = ArchInterrupt::save_and_disable();
-            let next = {
-                let _waiters = self.waiters();
-
+            {
+                let _waiters = self.waiters().lock_pinned();
                 match current.state() {
                     ThreadState::Running => {
                         assert!(
                             !current.waiter().is_linked(),
                             "early-woken thread is still in WaitQueue"
                         );
-                        None
+                        continue;
                     }
                     ThreadState::Blocking => {
                         assert!(
                             current.waiter().is_linked(),
                             "Blocking thread is missing its Waiter"
                         );
-                        Some(unsafe { scheduler.commit_block() })
+                        current.transition_to(ThreadState::Blocked).expect(
+                            "Blocking thread must transition to Blocked before context switch",
+                        );
                     }
                     state => panic!("invalid current state while committing wait: {state:?}"),
                 }
-            };
-
-            let Some(next) = next else {
-                continue;
-            };
+            }
 
             // SAFETY: IRQ 已关闭，current 已经提交为 Blocked，next 已经成为
             // Running，且 PreemptGuard 跨越上下文切换保持有效。
+            let next = scheduler.get_next(&mut preempt).unwrap_or(scheduler.idle());
+            next.transition_to(ThreadState::Running)
+                .expect("next thread must transition to Running");
             let _exited = unsafe { preempt.switch_thread(next) };
 
             // 先恢复中断再释放 _exited，避免阻塞中断处理
-            drop(interrupt);
+            drop(_interrupt);
         }
     }
 
     /// 唤醒 FIFO 队首的一个 waiter。
     pub fn wake_one(&self) -> bool {
-        let mut waiters = self.waiters_irqsave();
+        let mut waiters = self.waiters().lock_irqsave_pinned();
 
-        let Some(made_ready) = (unsafe { waiters.as_mut().get_unchecked_mut().wake_first() })
-        else {
+        let Some(made_ready) = WaitQueueInner::wake_first(&mut waiters) else {
             return false;
         };
         if made_ready {
@@ -213,11 +204,11 @@ impl WaitQueue {
 
     /// 唤醒当前队列中的全部 waiter，返回从队列移除的数量。
     pub fn wake_all(&self) -> usize {
-        let mut waiters = self.waiters_irqsave();
+        let mut waiters = self.waiters().lock_irqsave_pinned();
         let mut count = 0;
         let mut made_ready = false;
 
-        while let Some(ready) = unsafe { waiters.as_mut().get_unchecked_mut().wake_first() } {
+        while let Some(ready) = WaitQueueInner::wake_first(&mut waiters) {
             count += 1;
             made_ready |= ready;
         }
@@ -228,7 +219,7 @@ impl WaitQueue {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.waiters_irqsave().is_empty()
+        self.waiters().lock_pinned().is_empty()
     }
 
     fn inner(&self) -> &Spinlock<WaitQueueInner> {
@@ -237,12 +228,8 @@ impl WaitQueue {
     }
 
     /// 调用方已经通过 condition 的 SpinIrqGuard 或 InterruptGuard 关闭中断。
-    fn waiters(&self) -> SpinGuard<'_, Pin<&mut WaitQueueInner>> {
-        unsafe { Pin::new_unchecked(self.inner()).lock_pinned() }
-    }
-
-    fn waiters_irqsave(&self) -> SpinIrqGuard<'_, Pin<&mut WaitQueueInner>> {
-        unsafe { Pin::new_unchecked(self.inner()).lock_irqsave_pinned() }
+    fn waiters(&self) -> Pin<&Spinlock<WaitQueueInner>> {
+        unsafe { Pin::new_unchecked(self.inner()) }
     }
 }
 
@@ -270,7 +257,7 @@ impl WaitCondition for CWaitCondition {
 #[unsafe(export_name = "wait_queue_init")]
 extern "C" fn create_c(queue: *mut WaitQueue) {
     let wq = unsafe { queue.as_mut() }.expect("null WaitQueue from C");
-    *wq = WaitQueue::new();
+    *wq = WaitQueue::new_uninit();
     wq.init();
 }
 
@@ -326,7 +313,7 @@ impl WaitQueueInner {
 
     fn init(&mut self) {
         self.initialized = true;
-        self.waiters.init();
+        unsafe { self.waiters.init() };
     }
 
     fn is_empty(&self) -> bool {
@@ -334,12 +321,14 @@ impl WaitQueueInner {
         self.waiters.is_empty()
     }
 
-    fn enqueue(&mut self, waiter: &Waiter) {
+    fn enqueue(self: Pin<&mut Self>, waiter: &Waiter) {
         assert!(self.initialized, "WaitQueue used before initialization");
         assert!(!waiter.is_linked(), "Waiter added to two queues");
 
-        let waiters = &mut self.waiters;
-        unsafe { waiters.add_tail(waiter.node()) };
+        unsafe {
+            let waiters = &mut self.get_unchecked_mut().waiters;
+            waiters.add_tail(waiter.node())
+        };
     }
 
     fn first(&self) -> Option<NonNull<Waiter>> {
@@ -348,36 +337,39 @@ impl WaitQueueInner {
         self.waiters.iter(Waiter::node_offset()).next()
     }
 
-    fn remove(&mut self, waiter: &Waiter) {
+    fn remove(self: Pin<&mut Self>, waiter: &Waiter) {
         assert!(self.initialized, "WaitQueue used before initialization");
         assert!(waiter.is_linked(), "removing an unlinked Waiter");
 
-        unsafe { self.waiters.delete(waiter.node()) };
+        unsafe { self.get_unchecked_mut().waiters.delete(waiter.node()) };
     }
 
+    /// 唤醒列表里第一个线程
+    ///
     /// 返回该 waiter 是否被加入 ready queue。Blocking waiter 仍是 current，
     /// 只需取消阻塞，不得重复加入 ready queue。
-    fn wake_first(&mut self) -> Option<bool> {
-        let waiter_ptr = self.first()?;
+    fn wake_first<'a>(guard: &mut SpinIrqGuard<'a, Pin<&'a mut Self>>) -> Option<bool> {
+        let waiter_ptr = guard.first()?;
         let waiter = unsafe { waiter_ptr.as_ref() };
         let thread = unsafe { Thread::from_waiter(waiter_ptr).as_ref() };
 
         match thread.state() {
             ThreadState::Blocking => {
-                assert!(
-                    ptr::eq(scheduler().current(), thread),
-                    "a non-current thread is in Blocking state"
-                );
-                self.remove(waiter);
+                guard.as_mut().remove(waiter);
                 thread
                     .transition_to(ThreadState::Running)
                     .expect("Blocking thread must return to Running");
                 Some(false)
             }
             ThreadState::Blocked => {
-                self.remove(waiter);
-                unsafe { scheduler().enqueue_woken(thread) };
-                Some(true)
+                guard.as_mut().remove(waiter);
+                thread
+                    .transition_to(ThreadState::Waking)
+                    .expect("Blocked thread must transition to Waking");
+
+                let made_ready =
+                    !thread.on_cpu.load(Ordering::Acquire) && scheduler().try_enqueue_woken(thread);
+                Some(made_ready)
             }
             state => panic!("Waiter belongs to a non-waiting thread: {state:?}"),
         }

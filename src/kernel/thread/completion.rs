@@ -8,16 +8,17 @@ use crate::{
 /// 可计数的单次完成事件。
 ///
 /// 每次 `complete` 发布一次完成，每次 `wait` 消费一次完成。
+#[repr(C)]
 pub struct Completion {
-    state: Spinlock<usize>,
     wait_queue: WaitQueue,
+    state: Spinlock<usize>,
 }
 
 impl Completion {
     pub const fn new() -> Self {
         Self {
             state: Spinlock::new(0),
-            wait_queue: WaitQueue::new(),
+            wait_queue: WaitQueue::new_uninit(),
         }
     }
 
@@ -58,7 +59,7 @@ extern "C" fn init_c(completion: *mut Completion) -> c_int {
     unsafe {
         completion.write(Completion {
             state: Spinlock::new(0),
-            wait_queue: WaitQueue::new(),
+            wait_queue: WaitQueue::new_uninit(),
         });
 
         completion.as_mut().unwrap().wait_queue.init();

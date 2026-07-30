@@ -6,9 +6,9 @@
 #include <types.h>
 
 typedef struct Completion {
+	WaitQueue  wait_queue;
 	size_t	   state;
 	spinlock_t state_lock;
-	WaitQueue  wait_queue;
 } Completion;
 
 bool completion_init(Completion *completion);

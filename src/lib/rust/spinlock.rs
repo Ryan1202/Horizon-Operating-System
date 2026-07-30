@@ -14,6 +14,9 @@ use core::pin::Pin;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use crate::arch::ArchInterrupt;
+use crate::kernel::interrupt::InterruptGuard;
+
 unsafe extern "C" {
     // 架构相关的辅助函数在其他地方提供（C/汇编）。
     fn save_eflags_cli() -> c_int;
@@ -151,9 +154,19 @@ pub struct SpinGuard<'a, T: Deref> {
 }
 
 pub struct SpinIrqGuard<'a, T: Deref> {
-    lock: &'a SpinlockRaw,
-    _inner: T,
-    status: usize,
+    spin_guard: SpinGuard<'a, T>,
+    interrupt_guard: InterruptGuard<'a, ArchInterrupt>,
+}
+
+impl<'a, T: Deref> SpinIrqGuard<'a, T> {
+    pub fn downgrade(self) -> (SpinGuard<'a, T>, InterruptGuard<'a, ArchInterrupt>) {
+        let SpinIrqGuard {
+            spin_guard,
+            interrupt_guard,
+        } = self;
+
+        (spin_guard, interrupt_guard)
+    }
 }
 
 /// RwSpinlock 是一个读写自旋锁，允许多个读者或一个写者访问受保护的数据。
@@ -235,9 +248,11 @@ impl<T> Spinlock<T> {
         // 禁用中断并获取锁，返回带有中断状态的`Guard`
         let status = self.lock.lock_irqsave();
         SpinIrqGuard {
-            lock: &self.lock,
-            _inner: unsafe { &mut *self._inner.get() },
-            status: status as usize,
+            spin_guard: SpinGuard {
+                lock: &self.lock,
+                _inner: unsafe { &mut *self._inner.get() },
+            },
+            interrupt_guard: InterruptGuard::new(status as usize),
         }
     }
 
@@ -247,9 +262,11 @@ impl<T> Spinlock<T> {
         let lock = &this.lock;
         let _inner = unsafe { Pin::new_unchecked(&mut *this._inner.get()) };
         SpinIrqGuard {
-            lock,
-            _inner,
-            status: status as usize,
+            spin_guard: SpinGuard {
+                lock,
+                _inner: unsafe { Pin::new_unchecked(&mut *this._inner.get()) },
+            },
+            interrupt_guard: InterruptGuard::new(status as usize),
         }
     }
 
@@ -366,13 +383,13 @@ impl<'a, T> Deref for SpinIrqGuard<'a, &mut T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self._inner
+        self.spin_guard._inner
     }
 }
 
 impl<'a, T> DerefMut for SpinIrqGuard<'a, &mut T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self._inner
+        self.spin_guard._inner
     }
 }
 
@@ -380,13 +397,13 @@ impl<'a, T> Deref for SpinIrqGuard<'a, Pin<&'a mut T>> {
     type Target = Pin<&'a mut T>;
 
     fn deref(&self) -> &Self::Target {
-        &self._inner
+        &self.spin_guard._inner
     }
 }
 
 impl<'a, T> DerefMut for SpinIrqGuard<'a, Pin<&'a mut T>> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self._inner
+        &mut self.spin_guard._inner
     }
 }
 
@@ -394,13 +411,6 @@ impl<'a, T: Deref> Drop for SpinGuard<'a, T> {
     fn drop(&mut self) {
         // 在 Guard 被丢弃时释放锁（确保不会忘记释放）
         self.lock.unlock();
-    }
-}
-
-impl<'a, T: Deref> Drop for SpinIrqGuard<'a, T> {
-    fn drop(&mut self) {
-        // 在 Guard 被丢弃时释放锁并恢复中断状态
-        self.lock.unlock_irqrestore(self.status as c_int);
     }
 }
 

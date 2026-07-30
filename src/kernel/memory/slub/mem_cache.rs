@@ -78,8 +78,9 @@ impl MemCaches {
             global_caches()
                 .map_unchecked(|caches| &caches.list_head)
                 .init_with_pinned(|mut head| {
+                    head.as_mut().init_pinned();
+
                     let head = head.as_mut().get_unchecked_mut();
-                    head.init();
 
                     head.add_head(mem_cache_node.as_mut().get_list());
                     head.add_head(mem_cache.as_mut().get_list());
@@ -313,7 +314,7 @@ impl MemCache {
         let mut head = global_caches().list_head().lock_pinned();
 
         let list = mem_cache.get_list();
-        unsafe { head.as_mut().get_unchecked_mut() }.delete(list);
+        head.as_mut().delete_pinned(list);
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));

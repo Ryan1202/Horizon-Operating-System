@@ -1,63 +1,79 @@
-use core::{
-    ffi::{CStr, c_void},
-    ptr,
-};
+use core::{mem::ManuallyDrop, pin::Pin};
 
-use alloc::vec::Vec;
+use alloc::sync::Arc;
 
 use crate::{
     kernel::{
         memory::{MemoryError, kmalloc::Kmalloc},
         thread::{
             ThreadArc,
-            core::{KernelThreadEntry, Thread, ThreadState},
+            core::{Thread, ThreadState},
         },
     },
-    lib::rust::spinlock::Spinlock,
+    lib::rust::{list::ListHead, spinlock::Spinlock},
 };
 
 pub static THREAD_MANAGER: ThreadManager = ThreadManager {
-    all: Spinlock::new(Vec::new_in(Kmalloc::default())),
+    all: Spinlock::new(ListHead::empty()),
 };
 
 pub struct ThreadManager {
-    all: Spinlock<Vec<ThreadArc, Kmalloc>>,
+    all: Spinlock<ListHead<Thread>>,
 }
 
 impl ThreadManager {
-    /// 创建并持有一个已注册但尚不可调度的内核线程。
-    pub fn try_new(
-        &self,
-        name: &'static CStr,
-        entry: KernelThreadEntry,
-        argument: *mut c_void,
-    ) -> Result<ThreadArc, MemoryError> {
-        let thread = Thread::new_kernel(name, entry, argument)?;
-        let thread = ThreadArc::try_new_in(thread, Kmalloc::default())
+    pub(super) fn init() {
+        unsafe {
+            let all = Pin::new_unchecked(&THREAD_MANAGER.all);
+            all.lock_pinned().as_mut().init_pinned();
+        }
+    }
+
+    /// 创建并持有一个已注册但尚不可调度的内核线程
+    pub fn register(&self, thread: Thread) -> Result<ThreadArc, MemoryError> {
+        let mut thread = ThreadArc::try_new_in(thread, Kmalloc::default())
             .map_err(|_| MemoryError::OutOfMemory)?;
 
-        thread.init();
+        {
+            let thread = Arc::get_mut(&mut thread).unwrap();
 
-        thread
-            .as_ref()
-            .transition_to(ThreadState::Registered)
-            .expect("new manager-owned thread must be in New state");
+            thread.init();
 
-        self.all.lock().push(thread.clone());
+            thread
+                .transition_to(ThreadState::Registered)
+                .expect("new manager-owned thread must be in New state");
+
+            unsafe {
+                let all = Pin::new_unchecked(&self.all);
+                all.lock_pinned()
+                    .as_mut()
+                    .get_unchecked_mut()
+                    .add_tail(thread.get_thread_node());
+            };
+        }
+
+        let _ = ManuallyDrop::new(thread.clone());
 
         Ok(thread)
     }
 
-    /// 移除已经退出调度系统的线程，并返回 manager 持有的强引用。
+    /// 移除已经退出调度系统的线程，并返回 manager 持有的强引用
     ///
-    /// 返回值必须在 manager 锁外、且不再运行于该线程的内核栈上时释放。
+    /// 返回值必须在 manager 锁外、且不再运行于该线程的内核栈上时释放
     pub(super) fn remove(&self, thread: &Thread) -> ThreadArc {
-        let mut all = self.all.lock();
-        let position = all
-            .iter()
-            .position(|candidate| ptr::eq(candidate.as_ref(), thread))
-            .expect("dead thread must be registered in ThreadManager");
+        assert!(
+            thread.state() == ThreadState::Dead,
+            "only exited thread can be removed"
+        );
+        unsafe {
+            // SAFETY: THREAD_MANAGER 是全局变量，是 Pin 的，且在整个系统生命周期内不会被释放
+            let all = Pin::new_unchecked(&self.all);
+            let mut all = all.lock_pinned();
 
-        all.swap_remove(position)
+            all.as_mut().delete_pinned(thread.get_thread_node());
+
+            // SAFETY: 只要 thread 在 ThreadManager 的 all 链表中，它就一定是由 ThreadManager 持有的 Arc
+            Arc::from_raw_in(thread, Kmalloc::default())
+        }
     }
 }

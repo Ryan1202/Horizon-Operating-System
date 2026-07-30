@@ -24,19 +24,18 @@ pub type ThreadArc = Arc<Thread, Kmalloc>;
 
 #[unsafe(no_mangle)]
 extern "C" fn thread_manager_init(entry: KernelThreadEntry) {
-    let current_arc = THREAD_MANAGER
-        .try_new(c"main", entry, null_mut())
+    ThreadManager::init();
+
+    let current = Thread::new_kernel(c"main", entry, null_mut())
+        .and_then(|thread| THREAD_MANAGER.register(thread))
         .expect("thread manager initialization failed");
-    let idle_arc = THREAD_MANAGER
-        .try_new(c"idle", idle, null_mut())
+    let idle = Thread::new_kernel(c"idle", idle, null_mut())
+        .and_then(|thread| THREAD_MANAGER.register(thread))
         .expect("idle thread initialization failed");
 
-    let current_ptr = Arc::as_ptr(&current_arc);
-    let idle_ptr = Arc::as_ptr(&idle_arc);
-
     // SAFETY: ThreadManager 在两个线程可被调度期间持有强引用。
-    let current = unsafe { &*current_ptr };
-    let idle = unsafe { &*idle_ptr };
+    let current = unsafe { &*Arc::as_ptr(&current) };
+    let idle = unsafe { &*Arc::as_ptr(&idle) };
 
     // idle 线程有一个单独的状态 Idle
     idle.transition_to(ThreadState::Idle).unwrap();

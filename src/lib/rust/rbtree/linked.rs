@@ -111,7 +111,7 @@ impl<K, A, NA> LinkedRbTreeBase<K, A, NA> {
     pub fn _linked_init(&mut self, augment: A) {
         self._init();
         self.augment.augment = augment;
-        self.augment.list_head.init();
+        unsafe { self.augment.list_head.init() };
     }
 
     pub const fn _empty(augment: A) -> Self {

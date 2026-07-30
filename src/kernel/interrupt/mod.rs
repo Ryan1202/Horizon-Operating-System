@@ -48,6 +48,10 @@ impl<'a, T: Interrupt> InterruptGuard<'a, T> {
             _phantom: PhantomData,
         }
     }
+
+    pub const fn status(&self) -> &T::Status {
+        &self.status
+    }
 }
 
 impl<'a, T: Interrupt> Drop for InterruptGuard<'a, T> {

@@ -75,7 +75,9 @@ DriverResult create_bus(Bus **bus, BusDriver *bus_driver, BusOps *ops) {
 	b->object =
 		create_object_directory(bus_driver->object, &name, base_obj_sys_attr);
 
+	int flags = spin_lock_irqsave(&new_bus_lock);
 	list_add_tail(&b->new_bus_list, &new_bus_lh);
+	spin_unlock_irqrestore(&new_bus_lock, flags);
 
 	return DRIVER_OK;
 }

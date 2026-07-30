@@ -1,6 +1,7 @@
 use core::{
     marker::{PhantomData, PhantomPinned},
     mem::MaybeUninit,
+    pin::Pin,
     ptr::NonNull,
 };
 
@@ -40,7 +41,7 @@ impl<Owner> ListHead<Owner> {
     }
 
     #[inline(always)]
-    pub fn init(&mut self) {
+    pub unsafe fn init(&mut self) {
         let ptr = NonNull::from_ref(unsafe { self.link.assume_init_ref() });
         let link = Link {
             prev: ptr,
@@ -48,6 +49,11 @@ impl<Owner> ListHead<Owner> {
             _phantom: (PhantomData, PhantomPinned),
         };
         self.link.write(link);
+    }
+
+    #[inline(always)]
+    pub fn init_pinned(self: Pin<&mut Self>) {
+        unsafe { self.get_unchecked_mut().init() };
     }
 
     pub const fn as_ptr(&self) -> NonNull<Link<Owner>> {
@@ -71,6 +77,11 @@ impl<Owner> ListHead<Owner> {
     #[inline(always)]
     pub fn delete(&mut self, node: &mut ListNode<Owner>) {
         node.delete();
+    }
+
+    #[inline(always)]
+    pub fn delete_pinned(self: Pin<&mut Self>, node: &mut ListNode<Owner>) {
+        unsafe { Pin::get_unchecked_mut(self) }.delete(node);
     }
 
     #[inline(always)]
