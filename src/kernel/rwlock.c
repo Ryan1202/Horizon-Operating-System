@@ -1,6 +1,7 @@
 #include "kernel/wait_queue.h"
 #include "types.h"
 #include <kernel/rwlock.h>
+#include <kernel/thread.h>
 
 static int rwlock_try_read(void *context) {
 	rwlock_t *lock = context;
@@ -34,12 +35,14 @@ void rwlock_read_lock(rwlock_t *lock) {
 }
 
 void rwlock_read_unlock(rwlock_t *lock) {
+	disable_preempt();
 	spin_lock(&lock->status_lock);
 	lock->read_count--;
 	if (lock->read_count == 0 && lock->write_waiting > 0) {
 		wait_queue_wake_one(&lock->writers);
 	}
 	spin_unlock(&lock->status_lock);
+	enable_preempt();
 }
 
 bool rwlock_write_try_lock(rwlock_t *lock) {
@@ -62,6 +65,7 @@ void rwlock_write_lock(rwlock_t *lock) {
 }
 
 void rwlock_write_unlock(rwlock_t *lock) {
+	disable_preempt();
 	spin_lock(&lock->status_lock);
 	lock->write_count--;
 	if (lock->write_waiting > 0) {
@@ -70,4 +74,5 @@ void rwlock_write_unlock(rwlock_t *lock) {
 		wait_queue_wake_all(&lock->readers);
 	}
 	spin_unlock(&lock->status_lock);
+	enable_preempt();
 }

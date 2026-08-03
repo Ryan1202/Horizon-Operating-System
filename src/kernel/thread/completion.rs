@@ -1,7 +1,7 @@
 use core::ffi::c_int;
 
 use crate::{
-    kernel::thread::{WaitCondition, WaitQueue},
+    kernel::thread::{WaitCondition, WaitQueue, scheduler::PreemptGuard},
     lib::rust::spinlock::{SpinIrqGuard, Spinlock},
 };
 
@@ -34,9 +34,13 @@ impl Completion {
 
     /// 发布一次完成，并至多唤醒一个等待线程。
     pub fn complete(&self) {
-        let mut state = self.state.lock_irqsave();
-        *state = state.saturating_add(1);
-        self.wait_queue.wake_one();
+        {
+            let mut state = self.state.lock_irqsave();
+            *state = state.saturating_add(1);
+        }
+
+        let preempt = PreemptGuard::new();
+        self.wait_queue.wake_one(&preempt);
     }
 }
 

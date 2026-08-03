@@ -11,6 +11,9 @@
 #![feature(allocator_api)]
 #![feature(const_default)]
 #![feature(abi_custom)]
+#![feature(negative_impls)]
+#![feature(macro_metavar_expr_concat)]
+#![feature(decl_macro)]
 
 extern crate alloc;
 

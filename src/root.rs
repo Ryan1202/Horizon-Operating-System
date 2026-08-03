@@ -15,6 +15,9 @@
 #![feature(allocator_api)]
 #![feature(const_default)]
 #![feature(abi_custom)]
+#![feature(negative_impls)]
+#![feature(macro_metavar_expr_concat)]
+#![feature(decl_macro)]
 
 extern crate alloc;
 
@@ -58,11 +61,11 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 // Auto-generated module declarations
-pub mod lib {
-    pub mod rust;
-}
 pub mod kernel {
     pub mod interrupt;
     pub mod memory;
     pub mod thread;
+}
+pub mod lib {
+    pub mod rust;
 }

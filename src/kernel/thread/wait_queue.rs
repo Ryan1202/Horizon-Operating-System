@@ -14,7 +14,10 @@ use crate::{
         memory::{MemoryError, kmalloc::Kmalloc},
         thread::{
             Thread, ThreadState,
-            scheduler::{PreemptGuard, Schedule, scheduler},
+            scheduler::{
+                PreemptGuard, Scheduler, can_preempt, request_reschedule, scheduler,
+                scheduler_unchecked,
+            },
         },
     },
     lib::rust::{
@@ -127,15 +130,15 @@ impl WaitQueue {
 
             let (condition_guard, _interrupt) = condition_guard.downgrade();
 
-            let scheduler = scheduler();
-            let mut preempt = PreemptGuard::new(&scheduler);
+            let preempt = PreemptGuard::new();
             assert!(
                 preempt.can_switch(),
                 "WaitQueue::wait while preemption is disabled"
             );
 
-            let current = preempt.current();
-            assert!(!scheduler.is_idle(current), "idle thread must not wait");
+            let scheduler = scheduler(&preempt);
+            let current = scheduler.get_current();
+            assert!(!scheduler.is_idle(&current), "idle thread must not wait");
 
             {
                 let mut waiters = self.waiters().lock_pinned();
@@ -177,43 +180,50 @@ impl WaitQueue {
                 }
             }
 
-            // SAFETY: IRQ 已关闭，current 已经提交为 Blocked，next 已经成为
-            // Running，且 PreemptGuard 跨越上下文切换保持有效。
-            let next = scheduler.get_next(&mut preempt).unwrap_or(scheduler.idle());
-            next.transition_to(ThreadState::Running)
-                .expect("next thread must transition to Running");
-            let _exited = unsafe { preempt.switch_thread(next) };
-
-            // 先恢复中断再释放 _exited，避免阻塞中断处理
-            drop(_interrupt);
+            drop(scheduler);
+            Scheduler::switch_blocked(preempt, current, _interrupt);
         }
     }
 
     /// 唤醒 FIFO 队首的一个 waiter。
-    pub fn wake_one(&self) -> bool {
+    ///
+    /// `preempt` 必须覆盖调用者希望延迟到外层锁释放之后的调度。
+    pub fn wake_one(&self, preempt: &PreemptGuard) -> bool {
+        let scheduler = scheduler(preempt);
+        self.wake_one_on(&scheduler)
+    }
+
+    fn wake_one_on(&self, scheduler: &Scheduler) -> bool {
         let mut waiters = self.waiters().lock_irqsave_pinned();
 
-        let Some(made_ready) = WaitQueueInner::wake_first(&mut waiters) else {
+        let Some(made_ready) = WaitQueueInner::wake_first(&mut waiters, scheduler) else {
             return false;
         };
         if made_ready {
-            scheduler().request_resched();
+            request_reschedule();
         }
         true
     }
 
     /// 唤醒当前队列中的全部 waiter，返回从队列移除的数量。
-    pub fn wake_all(&self) -> usize {
+    ///
+    /// `preempt` 必须覆盖调用者希望延迟到外层锁释放之后的调度。
+    pub fn wake_all(&self, preempt: &PreemptGuard) -> usize {
+        let scheduler = scheduler(preempt);
+        self.wake_all_on(&scheduler)
+    }
+
+    fn wake_all_on(&self, scheduler: &Scheduler) -> usize {
         let mut waiters = self.waiters().lock_irqsave_pinned();
         let mut count = 0;
         let mut made_ready = false;
 
-        while let Some(ready) = WaitQueueInner::wake_first(&mut waiters) {
+        while let Some(ready) = WaitQueueInner::wake_first(&mut waiters, scheduler) {
             count += 1;
             made_ready |= ready;
         }
         if made_ready {
-            scheduler().request_resched();
+            request_reschedule();
         }
         count
     }
@@ -230,6 +240,28 @@ impl WaitQueue {
     /// 调用方已经通过 condition 的 SpinIrqGuard 或 InterruptGuard 关闭中断。
     fn waiters(&self) -> Pin<&Spinlock<WaitQueueInner>> {
         unsafe { Pin::new_unchecked(self.inner()) }
+    }
+
+    /// C 调用者已经通过 `disable_preempt()` 固定了当前 CPU。
+    fn wake_one_c(&self) -> bool {
+        assert!(
+            !can_preempt(),
+            "C wait_queue_wake_one requires preemption to be disabled"
+        );
+        // SAFETY: C wrapper 的调用者契约保证当前 CPU 在整个调用期间不会切换。
+        let scheduler = unsafe { scheduler_unchecked() };
+        self.wake_one_on(scheduler)
+    }
+
+    /// C 调用者已经通过 `disable_preempt()` 固定了当前 CPU。
+    fn wake_all_c(&self) -> usize {
+        assert!(
+            !can_preempt(),
+            "C wait_queue_wake_all requires preemption to be disabled"
+        );
+        // SAFETY: C wrapper 的调用者契约保证当前 CPU 在整个调用期间不会切换。
+        let scheduler = unsafe { scheduler_unchecked() };
+        self.wake_all_on(scheduler)
     }
 }
 
@@ -284,14 +316,14 @@ extern "C" fn wait_c(
 extern "C" fn wake_one_c(queue: *mut WaitQueue) {
     unsafe { queue.as_mut() }
         .expect("null WaitQueue from C")
-        .wake_one();
+        .wake_one_c();
 }
 
 #[unsafe(export_name = "wait_queue_wake_all")]
 extern "C" fn wake_all_c(queue: *mut WaitQueue) {
     unsafe { queue.as_mut() }
         .expect("null WaitQueue from C")
-        .wake_all();
+        .wake_all_c();
 }
 
 impl Drop for WaitQueue {
@@ -348,27 +380,30 @@ impl WaitQueueInner {
     ///
     /// 返回该 waiter 是否被加入 ready queue。Blocking waiter 仍是 current，
     /// 只需取消阻塞，不得重复加入 ready queue。
-    fn wake_first<'a>(guard: &mut SpinIrqGuard<'a, Pin<&'a mut Self>>) -> Option<bool> {
-        let waiter_ptr = guard.first()?;
+    fn wake_first<'a>(
+        waiters: &mut SpinIrqGuard<'a, Pin<&'a mut Self>>,
+        scheduler: &Scheduler,
+    ) -> Option<bool> {
+        let waiter_ptr = waiters.first()?;
         let waiter = unsafe { waiter_ptr.as_ref() };
         let thread = unsafe { Thread::from_waiter(waiter_ptr).as_ref() };
 
         match thread.state() {
             ThreadState::Blocking => {
-                guard.as_mut().remove(waiter);
+                waiters.as_mut().remove(waiter);
                 thread
                     .transition_to(ThreadState::Running)
                     .expect("Blocking thread must return to Running");
                 Some(false)
             }
             ThreadState::Blocked => {
-                guard.as_mut().remove(waiter);
+                waiters.as_mut().remove(waiter);
                 thread
                     .transition_to(ThreadState::Waking)
                     .expect("Blocked thread must transition to Waking");
 
                 let made_ready =
-                    !thread.on_cpu.load(Ordering::Acquire) && scheduler().try_enqueue_woken(thread);
+                    !thread.on_cpu.load(Ordering::Acquire) && scheduler.try_enqueue_woken(thread);
                 Some(made_ready)
             }
             state => panic!("Waiter belongs to a non-waiting thread: {state:?}"),

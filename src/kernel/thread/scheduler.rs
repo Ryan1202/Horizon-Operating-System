@@ -1,13 +1,19 @@
 use core::{
+    cell::Cell,
     pin::Pin,
-    ptr::{self, null_mut},
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU16, Ordering},
+    ptr::{self, NonNull, null_mut},
+    sync::atomic::{AtomicU16, Ordering},
 };
 
 use crate::{
-    arch::ArchInterrupt,
+    arch::{ArchCpuLocal, ArchInterrupt},
+    cpu_local,
     kernel::{
-        interrupt::{self, Interrupt, PreemptPoint},
+        interrupt::{Interrupt, InterruptGuard},
+        memory::{
+            kmalloc::Kmalloc,
+            percpu::{CpuLocal, CpuLocalGuard, PerCpuInit, PerCpuReadWrite},
+        },
         thread::{
             THREAD_MANAGER, Thread, ThreadArc, ThreadState, core::ThreadError,
             scheduler::ready_queue::ReadyQueue,
@@ -20,13 +26,30 @@ mod preempt_guard;
 mod ready_queue;
 
 pub use preempt_guard::PreemptGuard;
+pub(in crate::kernel::thread) use preempt_guard::{can_preempt, disable_preempt, enable_preempt};
 
 const TIME_SLICE_MS: u16 = 100;
 
-static SCHEDULER: Scheduler = Scheduler::new();
+cpu_local! {
+    static SCHEDULER: Scheduler = Scheduler::new();
+    /// 调度器是否需要重新调度
+    ///
+    /// `bool` 的操作数类型没有保证，因此使用 `u8` 代替
+    static RESCHED: u8 = 0;
+}
 
-pub fn scheduler() -> &'static Scheduler {
-    &SCHEDULER
+pub fn scheduler<'a>(guard: &'a PreemptGuard) -> CpuLocalGuard<'a, Scheduler> {
+    SCHEDULER.get_local(guard)
+}
+
+/// 在调用方已经证明当前 CPU 不会发生抢占或上下文切换时获取调度器。
+///
+/// # Safety
+///
+/// 返回的引用整个使用期间，当前 CPU 必须保持固定，且不得发生上下文切换。
+/// C wait-queue bridge 通过外部 `disable_preempt()` 满足这一条件。
+pub(in crate::kernel::thread) unsafe fn scheduler_unchecked() -> &'static Scheduler {
+    unsafe { &*ArchCpuLocal::get_ptr(&SCHEDULER) }
 }
 
 pub trait Schedule {
@@ -34,43 +57,167 @@ pub trait Schedule {
     ///
     /// 返回 None 只表示 ready queue 为空；调用方根据当前线程状态决定继续运行
     /// 还是切换到 idle。返回的线程仍处于 Ready，尚未提交为 Running。
-    fn get_next(&self, guard: &mut PreemptGuard) -> Option<&'static Thread>;
+    fn get_next(&self) -> Option<&'static Thread>;
 }
 
 pub struct Scheduler {
     /// 就绪队列，存放所有处于 Ready 状态的线程
     ready: Spinlock<ReadyQueue>,
     /// 当前正在运行的线程
-    current: AtomicPtr<Thread>,
-    /// 已经切离 CPU、等待新线程完成切换收尾的线程。
+    current: Cell<*mut Thread>,
+    /// 已经切离 CPU、等待新线程完成切换收尾的线程
     ///
     /// 切换前写入，切换后的线程在自己的栈上取走。禁止抢占和关闭本地中断
-    /// 保证同一 CPU 上同时最多只有一个尚未完成的交接。
-    previous: AtomicPtr<Thread>,
+    /// 保证同一 CPU 上同时最多只有一个尚未完成的交接
+    previous: Cell<*mut Thread>,
     /// 空闲线程，永远不会被调度器抢占
     ///
     /// 当需要切换到 idle 线程时，该字段会被设置为空，避免出现多个引用
-    idle: AtomicPtr<Thread>,
-    /// 已经退出调度系统、等待在下一个线程栈上释放 manager 引用的线程。
-    pending_exit: AtomicPtr<Thread>,
-    /// 抢占计数，当计数为 0 时，当前线程可以被抢占
-    preempt_count: AtomicU8,
-    resched: AtomicBool,
+    idle: Cell<*mut Thread>,
+    /// 已经退出调度系统、等待在下一个线程栈上释放 manager 引用的线程
+    pending_exit: Cell<*mut Thread>,
     slice_ms: AtomicU16,
 }
+
+unsafe impl PerCpuInit for Scheduler {}
 
 impl Scheduler {
     const fn new() -> Self {
         Self {
             ready: Spinlock::new(ReadyQueue::new()),
-            current: AtomicPtr::new(null_mut()),
-            previous: AtomicPtr::new(null_mut()),
-            idle: AtomicPtr::new(null_mut()),
-            pending_exit: AtomicPtr::new(null_mut()),
-            preempt_count: AtomicU8::new(0),
-            resched: AtomicBool::new(false),
+            current: Cell::new(null_mut()),
+            previous: Cell::new(null_mut()),
+            idle: Cell::new(null_mut()),
+            pending_exit: Cell::new(null_mut()),
             slice_ms: AtomicU16::new(TIME_SLICE_MS),
         }
+    }
+
+    pub(super) fn start_first(guard: PreemptGuard, thread: &'static Thread) -> ! {
+        assert!(
+            guard.can_switch(),
+            "initial thread requires switch capability"
+        );
+        guard.into_raw();
+        Thread::prepare_first_thread(thread)
+    }
+
+    pub(super) fn finish_first_switch() -> (PreemptGuard, Option<ThreadArc>) {
+        // SAFETY: start_first 和上下文切换路径均在恢复目标栈前留下唯一的 raw 状态
+        let guard = unsafe { PreemptGuard::from_raw() };
+        let exited = scheduler(&guard).finish_switch();
+        (guard, exited)
+    }
+
+    /// 当前线程已经提交为 Blocked，选择目标并完成切换
+    pub(super) fn switch_blocked(
+        guard: PreemptGuard,
+        current: ThreadArc,
+        interrupt: InterruptGuard<'_, ArchInterrupt>,
+    ) {
+        let next = {
+            let scheduler = scheduler(&guard);
+
+            let next = scheduler.get_next().unwrap_or(scheduler.idle());
+            next.transition_to(ThreadState::Running)
+                .expect("next thread must transition to Running");
+
+            scheduler.prepare_switch(next);
+            next
+        };
+
+        guard.into_raw();
+
+        unsafe { Thread::switch_context(current.as_ref(), next) };
+
+        // SAFETY: 恢复当前栈的调度路径在切换前留下了唯一的 raw 状态
+        let guard = unsafe { PreemptGuard::from_raw() };
+        let _exited = scheduler(&guard).finish_switch();
+
+        drop(guard);
+        drop(interrupt);
+        // _exited 需要最后释放
+    }
+
+    /// 执行一次普通线程调度；成功切换返回 Some，否则返回 None
+    fn schedule(guard: PreemptGuard) -> Option<()> {
+        RESCHED.write(0);
+
+        let (current, next, interrupt) = {
+            let scheduler = scheduler(&guard);
+            let current = scheduler.get_current();
+            let next = scheduler.get_next().unwrap_or(scheduler.idle());
+
+            if scheduler.is_idle(current.as_ref()) {
+                if scheduler.is_idle(next) {
+                    return None;
+                } else {
+                    current
+                        .transition_to(ThreadState::Idle)
+                        .expect("idle thread must transition to Idle");
+                }
+            } else {
+                scheduler
+                    .enqueue(current.as_ref())
+                    .expect("running thread must transition back to Ready");
+            }
+
+            next.transition_to(ThreadState::Running)
+                .expect("next thread must transition to Running");
+
+            let interrupt = ArchInterrupt::save_and_disable();
+
+            scheduler.prepare_switch(next);
+
+            (current, next, interrupt)
+        };
+
+        guard.into_raw();
+
+        unsafe { Thread::switch_context(current.as_ref(), next) };
+
+        // SAFETY: 恢复当前栈的调度路径在切换前留下了唯一的 raw 状态
+        let guard = unsafe { PreemptGuard::from_raw() };
+        let _exited = scheduler(&guard).finish_switch();
+
+        drop(guard);
+        drop(interrupt);
+
+        // _exited 需要最后释放
+        Some(())
+    }
+
+    /// 退出当前线程并永久切换到下一个线程
+    fn exit_current(guard: PreemptGuard) -> ! {
+        let _interrupt = ArchInterrupt::save_and_disable();
+
+        let (current, next) = {
+            let scheduler = scheduler(&guard);
+            let current = NonNull::from(scheduler.current());
+
+            // finish 必须在 ready queue 锁外执行，因为唤醒 joiner 会重新获取该锁
+            unsafe { current.as_ref().finish(&guard) };
+
+            // finish 中的唤醒已经被本次调度消费，随后选取目标时能够看到新入队的 joiner
+            RESCHED.write(0);
+
+            let next = scheduler.get_next().unwrap_or(scheduler.idle());
+            next.transition_to(ThreadState::Running)
+                .expect("next thread must transition to Running");
+
+            let old = scheduler.pending_exit.replace(current.as_ptr());
+            assert!(old.is_null(), "pending_exit must be empty before exit_self");
+
+            scheduler.prepare_switch(next);
+
+            (current, next)
+        };
+
+        guard.into_raw();
+
+        unsafe { Thread::switch_context(current.as_ref(), next) };
+
+        panic!("Dead thread resumed after context switch");
     }
 
     fn ready_queue(&self) -> Pin<&Spinlock<ReadyQueue>> {
@@ -78,13 +225,9 @@ impl Scheduler {
     }
 
     pub(super) fn init(&self, current: &'static Thread, idle: &'static Thread) {
-        self.current
-            .store(current as *const Thread as *mut Thread, Ordering::Relaxed);
+        self.current.set(current as *const Thread as *mut Thread);
 
-        self.idle
-            .store(idle as *const Thread as *mut Thread, Ordering::Relaxed);
-
-        self.preempt_count.store(1, Ordering::Relaxed);
+        self.idle.set(idle as *const Thread as *mut Thread);
 
         let mut ready = self.ready_queue().lock_irqsave_pinned();
         ready.as_mut().init();
@@ -99,10 +242,10 @@ impl Scheduler {
         }
     }
 
-    /// 尝试取得一个 Waking 线程的入队权。
+    /// 尝试取得一个 Waking 线程的入队权
     ///
     /// 唤醒 CPU 和原运行 CPU 的切换收尾都可能到达这里；状态转换与链表插入
-    /// 在同一个 ready queue 临界区完成，只有仍处于 Waking 的一方能够成功。
+    /// 在同一个 ready queue 临界区完成，只有仍处于 Waking 的一方能够成功
     pub(super) fn try_enqueue_woken(&self, thread: &Thread) -> bool {
         unsafe {
             self.ready_queue()
@@ -110,61 +253,6 @@ impl Scheduler {
                 .as_mut()
                 .enqueue_woken(thread)
         }
-    }
-
-    pub(super) fn request_resched(&self) {
-        self.resched.store(true, Ordering::Relaxed);
-    }
-
-    /// 手动禁止抢占，并返回调用前的抢占计数。
-    ///
-    /// # Safety
-    ///
-    /// 必须保证随后存在同一 CPU 上配对的 `enable_from_c`。
-    pub(super) unsafe fn disable_preempt(&self) -> u8 {
-        self.preempt_count
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-                count.checked_add(1)
-            })
-            .expect("preempt count overflow")
-    }
-
-    /// 手动恢复抢占。
-    ///
-    /// # Safety
-    ///
-    /// 必须保证此前存在同一 CPU 上配对的 `disable_from_c`。
-    pub(super) unsafe fn enable_preempt(&self) {
-        let previous = self
-            .preempt_count
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
-                count.checked_sub(1)
-            })
-            .expect("unbalanced enable_preempt");
-
-        // 如果之前的计数为 1，说明当前线程已经可以被抢占了，并且有调度请求挂起，那么就尝试进行抢占。
-        if previous == 1 && self.resched.load(Ordering::Relaxed) {
-            if let Some(point) = PreemptPoint::new() {
-                point.try_preempt();
-            }
-        }
-    }
-
-    /// 完成新线程首次上下文切换时遗留的退出清理和抢占计数配平。
-    ///
-    /// # Safety
-    ///
-    /// 必须保证当前线程是首次上下文切换的目标线程，并且在调用期间禁止抢占。
-    pub(super) unsafe fn finish_first_switch(&self) {
-        let mut guard = unsafe { PreemptGuard::from_first_switch(self) };
-        let _ = self.finish_switch(&mut guard);
-
-        ArchInterrupt::enable();
-    }
-
-    /// 检查当前线程是否可以被抢占。
-    pub(super) fn can_preempt(&self) -> bool {
-        self.preempt_count.load(Ordering::Relaxed) == 0
     }
 
     /// 处理调度器时钟中断
@@ -184,136 +272,29 @@ impl Scheduler {
             });
 
         if previous <= elapsed_ms {
-            self.resched.store(true, Ordering::Relaxed);
+            RESCHED.write(1);
         }
     }
 
-    /// 在需要重新调度时，尝试在当前线程的安全抢占点进行抢占。
-    pub fn try_preempt(&self, _point: PreemptPoint) {
-        if !self.resched.load(Ordering::Relaxed) {
-            return;
-        }
-
-        let mut guard = PreemptGuard::new(self);
-        if !guard.can_switch() {
-            return;
-        }
-
-        self.schedule(&mut guard);
-    }
-
-    /// 主动让出当前 CPU，可能失败
-    pub(super) fn try_yield(&self, _point: PreemptPoint) {
-        let mut guard = PreemptGuard::new(self);
-        if !guard.can_switch() {
-            return;
-        }
-
-        self.schedule(&mut guard);
-    }
-
-    /// 退出当前线程。线程进入 Dead 后不会再次成为调度候选。
-    pub(super) fn exit_self(&self) -> ! {
-        assert!(interrupt::in_thread(), "thread_exit outside thread context");
-
-        let mut guard = PreemptGuard::new(self);
-        assert!(
-            guard.can_switch(),
-            "thread_exit while preemption is disabled"
-        );
-
-        let current = guard.current();
-
-        let next = self.get_next(&mut guard).unwrap_or(self.idle());
-        next.transition_to(ThreadState::Running)
-            .expect("next thread must transition to Running");
-
-        // 从发布 Dead 开始一直关闭中断，直到在 next 的上下文中完成切换收尾。
-        // finish 必须在 ready queue 锁外执行，因为唤醒 joiner 会重新获取该锁。
-        let _interrupt = ArchInterrupt::save_and_disable();
-        unsafe { current.finish() };
-
-        self.pending_exit
-            .compare_exchange(
-                null_mut(),
-                current as *const Thread as *mut Thread,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            )
-            .expect("previous exited thread has not been handled");
-
-        self.resched.store(false, Ordering::Relaxed);
-
-        // SAFETY: InterruptGuard 关闭了中断；guard 证明当前 CPU 已禁止抢占；
-        // next 已经转换为 Running，current 已经转换为 Dead。
-        unsafe { guard.exit_to(next) }
-    }
-
-    /// 执行线程切换
-    ///
-    /// 切换成功返回 Some(())，否则返回 None
-    fn schedule(&self, guard: &mut PreemptGuard<'_>) -> Option<()> {
-        self.resched.store(false, Ordering::Relaxed);
-
-        let current = guard.current();
-        let next = self.get_next(guard);
-
-        let next = if self.is_idle(current) {
-            match next {
-                Some(next) => {
-                    current
-                        .transition_to(ThreadState::Idle)
-                        .expect("running idle thread must transition back to Idle");
-                    next
-                }
-                None => return None,
-            }
-        } else {
-            self.enqueue(current)
-                .expect("running thread must transition back to Ready");
-
-            next.unwrap_or(self.idle())
-        };
-
-        next.transition_to(ThreadState::Running)
-            .expect("next thread must transition to Running");
-
-        let _interrupt = ArchInterrupt::save_and_disable();
-
-        // SAFETY: 已关闭中断，两个线程都由调度器独占，
-        // 且 PreemptGuard 会跨越架构上下文切换保持有效。
-        let _ = unsafe { guard.switch_thread(next) };
-        Some(())
-    }
-
-    /// 在下一个线程的栈上移除已经退出线程的 manager 引用。
+    /// 在下一个线程的栈上移除已经退出线程的 manager 引用
     ///
     /// `pending_exit` 必须在 PreemptGuard 释放前处理，确保单槽状态不会在
-    /// 清理完成前被下一次上下文切换覆盖。
-    fn finish_switch(&self, guard: &mut PreemptGuard<'_>) -> Option<ThreadArc> {
-        assert!(
-            ptr::eq(guard.scheduler, self),
-            "PreemptGuard belongs to another scheduler"
-        );
-        assert!(
-            guard.can_switch(),
-            "pending exit handled without switch capability"
-        );
-
+    /// 清理完成前被下一次上下文切换覆盖
+    fn finish_switch(&self) -> Option<ThreadArc> {
         self.slice_ms.store(TIME_SLICE_MS, Ordering::Relaxed);
 
         let current = self.current();
         current.on_cpu.store(true, Ordering::Relaxed);
 
-        let previous = self.previous.swap(null_mut(), Ordering::Relaxed);
+        let previous = self.previous.take();
         if let Some(previous) = unsafe { previous.as_ref() } {
             previous.on_cpu.store(false, Ordering::Release);
             if self.try_enqueue_woken(previous) {
-                self.request_resched();
+                RESCHED.write(1);
             }
         }
 
-        let exited = self.pending_exit.swap(null_mut(), Ordering::Relaxed);
+        let exited = self.pending_exit.take();
         let exited = unsafe { exited.as_ref() }?;
 
         assert_eq!(exited.state(), ThreadState::Dead);
@@ -321,35 +302,44 @@ impl Scheduler {
         Some(THREAD_MANAGER.remove(exited))
     }
 
-    /// 在关闭本地中断且禁止抢占的切换窗口中发布 CPU 所有权交接。
-    fn prepare_switch(&self, current: &'static Thread, next: &'static Thread) {
-        debug_assert!(ptr::eq(self.current(), current));
+    /// 在关闭本地中断且禁止抢占的切换窗口中发布 CPU 所有权交接
+    fn prepare_switch(&self, next: &Thread) {
+        let current = self.current.get();
         debug_assert!(!ptr::eq(current, next));
 
-        self.previous
-            .compare_exchange(
-                null_mut(),
-                current as *const Thread as *mut Thread,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            )
-            .expect("previous context switch has not been finished");
+        let old = self
+            .previous
+            .replace(current as *const Thread as *mut Thread);
+        assert!(
+            old.is_null(),
+            "previous context switch has not been finished"
+        );
 
         // next 已从 ready queue 移除并由本 CPU 独占。先声明 CPU 所有权，
-        // 再发布 current，随后才真正恢复它的上下文。
+        // 再发布 current，随后才真正恢复它的上下文
         next.on_cpu.store(true, Ordering::Relaxed);
-        self.current
-            .store(next as *const Thread as *mut Thread, Ordering::Relaxed);
+        self.current.set(next as *const Thread as *mut Thread);
     }
 
-    pub(super) fn current(&self) -> &'static Thread {
+    /// 获取当前正在运行的线程
+    ///
+    /// 由于返回的引用生命周期依赖于 `self`，长时间持有 `CpuLocalGuard`
+    /// 可能会阻塞其他线程的调度。请尽量使用 get_current 获取 owning handle
+    pub(super) fn current(&self) -> &Thread {
         // SAFETY: init 在调度开始前保存由 ThreadManager 持有的线程；
         // 后续写入的线程都具有相同的生命周期保证。
+        unsafe { &*self.current.get() }
+    }
+
+    /// 获取当前正在运行的线程的 owning handle
+    pub(super) fn get_current(&self) -> ThreadArc {
+        let current = self.current.get();
+
+        // SAFETY: current 始终由 ThreadManager 持有；先增加强引用计数，再把新增
+        // 的计数恢复成 owning handle
         unsafe {
-            self.current
-                .load(Ordering::Relaxed)
-                .as_ref()
-                .expect("scheduler is not initialized")
+            ThreadArc::increment_strong_count_in(current, Kmalloc::default());
+            ThreadArc::from_raw_in(current, Kmalloc::default())
         }
     }
 
@@ -361,7 +351,7 @@ impl Scheduler {
         // SAFETY: idle 在线程管理器初始化期间注册，并且永远不会退出。
         unsafe {
             self.idle
-                .load(Ordering::Relaxed)
+                .get()
                 .as_ref()
                 .expect("scheduler idle thread is not initialized")
         }
@@ -369,8 +359,8 @@ impl Scheduler {
 }
 
 impl Schedule for Scheduler {
-    fn get_next(&self, guard: &mut PreemptGuard) -> Option<&'static Thread> {
-        let current = guard.current();
+    fn get_next(&self) -> Option<&'static Thread> {
+        let current = self.current();
 
         let mut queue = self.ready_queue().lock_irqsave_pinned();
 
@@ -393,4 +383,8 @@ impl Schedule for Scheduler {
 
         Some(next)
     }
+}
+
+pub fn request_reschedule() {
+    RESCHED.write(1);
 }

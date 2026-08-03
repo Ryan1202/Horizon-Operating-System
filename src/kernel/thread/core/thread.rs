@@ -15,7 +15,7 @@ use crate::{
         thread::{
             KernelThreadEntry, ThreadId, ThreadState, WaitCondition, WaitQueue,
             core::{KernelStack, ThreadContext, ThreadError},
-            scheduler::scheduler,
+            scheduler::{PreemptGuard, can_preempt, scheduler},
             wait_queue::Waiter,
         },
     },
@@ -74,11 +74,11 @@ impl Thread {
         self.join_waiters.init();
     }
 
-    pub(in super::super) fn prepare_first_thread(thread: &Self) {
+    pub(in super::super) fn prepare_first_thread(thread: &Self) -> ! {
         let context = unsafe { &*thread.context.get() };
 
         thread.transition_to(ThreadState::Running).unwrap();
-        unsafe { ArchThreadContext::prepare_first_thread(context) };
+        unsafe { ArchThreadContext::prepare_first_thread(context) }
     }
 
     pub const fn id(&self) -> ThreadId {
@@ -120,15 +120,21 @@ impl Thread {
     pub fn join(&self) {
         assert!(in_thread(), "Thread::join outside thread context");
 
-        let scheduler = scheduler();
-        let current = scheduler.current();
+        let state = self.state();
+        assert!(state != ThreadState::Idle, "idle thread cannot be joined");
+        assert!(can_preempt(), "Thread::join while preemption is disabled");
 
-        assert!(!ptr::eq(current, self), "thread cannot join itself");
-        assert!(!scheduler.is_idle(self), "idle thread cannot be joined");
-        assert!(
-            scheduler.can_preempt(),
-            "Thread::join while preemption is disabled"
-        );
+        if state == ThreadState::Dead {
+            return;
+        }
+
+        {
+            let preempt = PreemptGuard::new();
+            assert!(
+                !ptr::eq(scheduler(&preempt).current(), self),
+                "thread cannot join itself"
+            );
+        }
 
         let condition = JoinCondition { thread: self };
         let _ = self.join_waiters.wait(&condition);
@@ -142,14 +148,10 @@ impl Thread {
     /// 因为唤醒 Blocked joiner 需要重新获取该锁
     ///
     /// 必须由即将退出的线程调用
-    pub(in super::super) unsafe fn finish(&self) {
-        assert!(
-            ptr::eq(scheduler().current(), self),
-            "Thread::finish must be called by the exiting thread"
-        );
+    pub(in super::super) unsafe fn finish(&self, preempt: &PreemptGuard) {
         self.transition_to(ThreadState::Dead)
             .expect("running thread must transition to Dead");
-        self.join_waiters.wake_all();
+        self.join_waiters.wake_all(preempt);
     }
 
     /// 切换架构上下文。仅供调度器在禁止抢占并独占上下文时调用

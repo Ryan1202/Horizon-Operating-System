@@ -4,7 +4,11 @@ use alloc::sync::Arc;
 
 use crate::{
     arch::ArchInterrupt,
-    kernel::{interrupt::Interrupt, memory::kmalloc::Kmalloc, thread::scheduler::scheduler},
+    kernel::{
+        interrupt::Interrupt,
+        memory::kmalloc::Kmalloc,
+        thread::scheduler::{PreemptGuard, Scheduler, scheduler},
+    },
 };
 
 mod completion;
@@ -40,10 +44,11 @@ extern "C" fn thread_manager_init(entry: KernelThreadEntry) {
     // idle 线程有一个单独的状态 Idle
     idle.transition_to(ThreadState::Idle).unwrap();
 
-    scheduler().init(current, idle);
+    let guard = PreemptGuard::new();
+    scheduler(&guard).init(current, idle);
     current.transition_to(ThreadState::Ready).unwrap();
 
-    Thread::prepare_first_thread(current);
+    Scheduler::start_first(guard, current)
 }
 
 extern "C" fn idle(_argument: *mut c_void) {

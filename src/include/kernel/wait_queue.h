@@ -20,6 +20,7 @@ void wait_queue_wait(
 	WaitQueue *queue, spinlock_t *condition_lock,
 	wait_queue_try_fn try_condition, void *context);
 
+// 调用者必须先 disable_preempt()，并在释放所有外层锁后 enable_preempt()。
 void wait_queue_wake_one(WaitQueue *queue);
 void wait_queue_wake_all(WaitQueue *queue);
 

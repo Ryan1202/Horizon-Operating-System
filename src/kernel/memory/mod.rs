@@ -11,6 +11,7 @@ pub mod dma;
 pub mod frame;
 pub mod kmalloc;
 pub mod page;
+pub mod percpu;
 pub mod slub;
 pub mod vmalloc;
 

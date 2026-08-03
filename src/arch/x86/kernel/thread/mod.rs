@@ -84,7 +84,7 @@ impl ThreadContext for X86ThreadContext {
         }
     }
 
-    unsafe fn prepare_first_thread(context: &X86ThreadContext) {
+    unsafe fn prepare_first_thread(context: &X86ThreadContext) -> ! {
         unsafe {
             asm!(
                 "mov rsp, {stack}",

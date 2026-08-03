@@ -1,16 +1,22 @@
 //! 硬件 IRQ 深度、softirq 分发与调度器交接。
 
-use core::{
-    ffi::c_int,
-    marker::PhantomData,
-    sync::atomic::{AtomicU8, Ordering},
-};
+use core::{ffi::c_int, marker::PhantomData};
 
-use crate::{arch::ArchInterrupt, kernel::thread::scheduler::scheduler};
+use crate::{
+    arch::ArchInterrupt,
+    cpu_local,
+    kernel::{
+        memory::percpu::{PerCpuReadWrite, PerCpuScalar},
+        thread::scheduler::PreemptGuard,
+    },
+};
 
 mod softirq;
 
-static BOOT_CPU_INTERRUPT: InterruptState = InterruptState::new();
+cpu_local!(
+    static HARDIRQ_DEPTH: u8 = 0;
+    static SOFTIRQ_DEPTH: u8 = 0;
+);
 
 unsafe extern "C" {
     fn device_irq_handler(irq: c_int);
@@ -60,92 +66,60 @@ impl<'a, T: Interrupt> Drop for InterruptGuard<'a, T> {
     }
 }
 
-/// 当前 CPU 的中断状态。单核阶段暂时返回启动 CPU 的全局实例；
-/// 引入 per-CPU 后只需要替换此访问入口。
-fn current() -> &'static InterruptState {
-    &BOOT_CPU_INTERRUPT
+fn enter_hardirq() -> u8 {
+    assert!(HARDIRQ_DEPTH.read() < u8::MAX, "hardirq depth overflow");
+    HARDIRQ_DEPTH.fetch_add(1)
 }
 
-struct InterruptState {
-    hardirq_depth: AtomicU8,
-    softirq_depth: AtomicU8,
+fn leave_hardirq() {
+    assert!(HARDIRQ_DEPTH.read() > 0, "unbalanced hardirq guard");
+    HARDIRQ_DEPTH.decrease();
 }
 
-impl InterruptState {
-    const fn new() -> Self {
-        Self {
-            hardirq_depth: AtomicU8::new(0),
-            softirq_depth: AtomicU8::new(0),
-        }
-    }
+fn enter_softirq() -> u8 {
+    assert!(SOFTIRQ_DEPTH.read() < u8::MAX, "softirq depth overflow");
+    SOFTIRQ_DEPTH.fetch_add(1)
+}
 
-    fn enter_hardirq(&self) -> u8 {
-        self.hardirq_depth
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
-                depth.checked_add(1)
-            })
-            .expect("hardirq depth overflow")
-    }
+fn leave_softirq() {
+    assert!(SOFTIRQ_DEPTH.read() > 0, "unbalanced softirq guard");
+    SOFTIRQ_DEPTH.decrease();
+}
 
-    fn leave_hardirq(&self) {
-        self.hardirq_depth
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
-                depth.checked_sub(1)
-            })
-            .expect("unbalanced hardirq guard");
-    }
+fn hardirq_active() -> bool {
+    HARDIRQ_DEPTH.read() != 0
+}
 
-    fn enter_softirq(&self) -> u8 {
-        self.softirq_depth
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
-                depth.checked_add(1)
-            })
-            .expect("softirq depth overflow")
-    }
+fn softirq_active() -> bool {
+    SOFTIRQ_DEPTH.read() != 0
+}
 
-    fn leave_softirq(&self) {
-        self.softirq_depth
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
-                depth.checked_sub(1)
-            })
-            .expect("unbalanced softirq guard");
-    }
+fn in_softirq() -> bool {
+    !hardirq_active() && softirq_active()
+}
 
-    fn softirq_active(&self) -> bool {
-        self.softirq_depth.load(Ordering::Relaxed) != 0
-    }
-
-    fn in_softirq(&self) -> bool {
-        self.hardirq_depth.load(Ordering::Relaxed) == 0 && self.softirq_active()
-    }
-
-    fn in_thread(&self) -> bool {
-        self.hardirq_depth.load(Ordering::Relaxed) == 0 && !self.softirq_active()
-    }
+pub fn in_thread() -> bool {
+    !hardirq_active() && !softirq_active()
 }
 
 #[must_use = "a hard IRQ must finish device dispatch and EOI"]
 struct HardIrqGuard {
-    state: &'static InterruptState,
     outermost: bool,
     interrupted_softirq: bool,
 }
 
 impl HardIrqGuard {
     fn new() -> Self {
-        let state = current();
-        let interrupted_softirq = state.softirq_active();
-        let depth = state.enter_hardirq();
+        let interrupted_softirq = softirq_active();
+        let depth = enter_hardirq();
 
         Self {
-            state,
             outermost: depth == 0,
             interrupted_softirq,
         }
     }
 
     fn into_softirq(self) -> Option<SoftIrqGuard> {
-        let state = self.state;
         let run_softirq = self.outermost && !self.interrupted_softirq;
         drop(self);
 
@@ -153,29 +127,28 @@ impl HardIrqGuard {
             return None;
         }
 
-        assert_eq!(
-            state.enter_softirq(),
-            0,
-            "softirq guard created while softirq is active"
-        );
-        Some(SoftIrqGuard { state })
+        let depth = enter_softirq();
+        assert_eq!(depth, 0, "softirq guard created while softirq is active");
+        Some(SoftIrqGuard {
+            _phantom: PhantomData,
+        })
     }
 }
 
 impl Drop for HardIrqGuard {
     fn drop(&mut self) {
-        self.state.leave_hardirq();
+        leave_hardirq();
     }
 }
 
 #[must_use = "softirq must drain pending work and produce a preemption point"]
 struct SoftIrqGuard {
-    state: &'static InterruptState,
+    _phantom: PhantomData<()>,
 }
 
 impl Drop for SoftIrqGuard {
     fn drop(&mut self) {
-        self.state.leave_softirq();
+        leave_softirq();
     }
 }
 
@@ -187,7 +160,7 @@ pub struct PreemptPoint {
 
 impl PreemptPoint {
     pub fn new() -> Option<Self> {
-        current().in_thread().then_some(Self {
+        in_thread().then_some(Self {
             _phantom: PhantomData,
         })
     }
@@ -198,8 +171,8 @@ impl PreemptPoint {
         }
     }
 
-    pub fn try_preempt(self) {
-        scheduler().try_preempt(self);
+    pub fn try_preempt(self, guard: PreemptGuard) {
+        guard.try_preempt(self);
     }
 }
 
@@ -234,14 +207,6 @@ pub fn handle(irq: u8) {
     }
 
     if let Some(softirq) = hardirq.into_softirq() {
-        run_softirq(softirq).try_preempt();
+        run_softirq(softirq).try_preempt(PreemptGuard::new());
     }
-}
-
-pub fn in_thread() -> bool {
-    current().in_thread()
-}
-
-pub fn in_softirq() -> bool {
-    current().in_softirq()
 }

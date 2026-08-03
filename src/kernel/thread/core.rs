@@ -1,15 +1,16 @@
 use core::{ffi::c_void, ptr::NonNull};
 
 use crate::{
-    arch::ArchPageTable,
+    arch::{ArchInterrupt, ArchPageTable},
     kernel::{
+        interrupt::Interrupt,
         memory::{
             MemoryError,
             arch::ArchMemory,
             frame::buddy::FrameOrder,
             page::{Pages, options::PageAllocOptions},
         },
-        thread::scheduler::scheduler,
+        thread::scheduler::{PreemptGuard, Scheduler},
     },
 };
 
@@ -53,14 +54,17 @@ pub trait ThreadContext: Sized {
     /// # Safety
     ///
     /// 只能在构造第一个线程时使用，否则会破坏当前线程的上下文
-    unsafe fn prepare_first_thread(context: &Self);
+    unsafe fn prepare_first_thread(context: &Self) -> !;
 }
 
 pub extern "C" fn thread_entry_wrapper(entry: KernelThreadEntry, argument: *mut c_void) -> ! {
-    let scheduler = scheduler();
-    unsafe { scheduler.finish_first_switch() };
+    let (guard, exited) = Scheduler::finish_first_switch();
+    ArchInterrupt::enable();
+    drop(guard);
+    drop(exited);
+
     entry(argument);
-    scheduler.exit_self()
+    PreemptGuard::new().exit_current()
 }
 
 #[derive(Debug)]

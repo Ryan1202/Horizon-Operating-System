@@ -8,6 +8,9 @@ PHDRS
     data PT_LOAD FLAGS(6); /* R_W: 可读 + 可写 */
 }
 
+PAGE_SIZE = 4096;
+CACHELINE_SIZE = 64;
+
 VIR_BASE = 0xffffffff80000000;
 KERNEL_PHY_BASE = 0x00100000;
 
@@ -52,13 +55,19 @@ SECTIONS {
 		PROVIDE(__exitcall_end = .);
 	} : text
 
-    .data..percpu ALIGN(64) : AT(ADDR(.data..percpu) - VIR_BASE)
+    .data..percpu ALIGN(PAGE_SIZE) : AT(ADDR(.data..percpu) - VIR_BASE)
     {
-        . = ALIGN(64);
-        PROVIDE(__percpu_start = .);
-        *(.data..percpu)
-        . = ALIGN(64);
-        PROVIDE(__percpu_end = .);
+        __percpu_start = .;
+
+        . = ALIGN(PAGE_SIZE);
+        KEEP(*(.data..percpu..page_aligned))
+        KEEP(*(.data..percpu..page_aligned.*))
+
+        . = ALIGN(CACHELINE_SIZE);
+        KEEP(*(.data..percpu))
+        KEEP(*(.data..percpu.*))
+
+        __percpu_end = .;
     } : data
 
     .rodata : AT(ADDR(.rodata) - VIR_BASE) {

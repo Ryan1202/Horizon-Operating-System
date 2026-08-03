@@ -4,6 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::kernel::memory::frame::frame_manager;
 use crate::kernel::memory::frame::page_table::PageTable;
 use crate::kernel::memory::frame::vmemmap::early_create_vmemmap;
+use crate::kernel::memory::percpu::percpu_init;
 use crate::kernel::memory::{EARLY_ROOT_PT_VIR, KERNEL_END, KLINEAR_END, VMEMMAP_END};
 use crate::{
     arch::{ArchPageTable, PhysAddr},
@@ -54,6 +55,8 @@ pub extern "C" fn page_init(blocks: *const E820Ards, block_count: u16, kernel_st
     Frame::init(blocks, block_count, kernel_range);
 
     frame_manager().init();
+
+    percpu_init(1);
 }
 
 // 内核启动早期分配的页都是不会释放的，如页表结构等

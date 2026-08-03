@@ -22,6 +22,7 @@
 #include <kernel/list.h>
 #include <kernel/memory.h>
 #include <kernel/spinlock.h>
+#include <kernel/thread.h>
 #include <kernel/wait_queue.h>
 #include <math.h>
 #include <random.h>
@@ -436,9 +437,11 @@ void tcp_reset(NetworkConnection *conn) {
 	if (conn == NULL) return;
 	if (conn->trans_protocol != TRANS_PROTO_TCP) return;
 	Tcp *tcp = conn->tcp.info;
+	disable_preempt();
 	spin_lock(&tcp_lock);
 	tcp_reset_conn(conn, tcp);
 	spin_unlock(&tcp_lock);
+	enable_preempt();
 }
 
 void tcp_reset_conn(NetworkConnection *conn, Tcp *tcp) {
@@ -548,6 +551,7 @@ void tcp_ack_handler(
 void tcp_timeout_handler(void *arg) {
 	if (arg == NULL) return;
 	Tcp *tcp = arg;
+	disable_preempt();
 	spin_lock(&tcp_lock);
 
 	switch (tcp->state) { // 超时重传
@@ -587,6 +591,7 @@ void tcp_timeout_handler(void *arg) {
 	}
 	wait_queue_wake_all(&tcp->state_waiters);
 	spin_unlock(&tcp_lock);
+	enable_preempt();
 }
 
 void tcp_options_handler(
@@ -817,6 +822,7 @@ ProtocolResult tcp_recv(
 		goto drop;
 	}
 	Ipv4ConnInfo *info, *next;
+	disable_preempt();
 	spin_lock(&tcp_lock);
 	list_for_each_owner_safe (info, next, &tcp_lh, list) {
 		if (info->local.port == BE2HOST_WORD(tcp_header->dest_port) &&
@@ -831,11 +837,14 @@ ProtocolResult tcp_recv(
 					conn, tcp_header, net_buffer, data_length, src_ip, ip_len);
 
 				spin_unlock(&tcp_lock);
+				enable_preempt();
 				return PROTO_OK;
 			}
 		}
 	}
 	// 没有找到匹配的连接，丢弃数据包
+	spin_unlock(&tcp_lock);
+	enable_preempt();
 drop:
 	// TODO: 改成发送RST
 	kfree(net_buffer->ptr);
@@ -865,6 +874,7 @@ void tcp_notify_unreachable(
 	if (!flag) return;
 
 	conn = container_of(info, NetworkConnection, ipv4.conn_info);
+	disable_preempt();
 	spin_lock(&tcp_lock);
 	switch (code) {
 	case ICMP_UNREACHABLE_NET:
@@ -880,6 +890,7 @@ void tcp_notify_unreachable(
 	}
 	wait_queue_wake_all(&conn->tcp.info->state_waiters);
 	spin_unlock(&tcp_lock);
+	enable_preempt();
 }
 
 void tcp_update_mtu(uint8_t *src_ip, uint8_t *dst_ip, int ip_len, int mtu) {

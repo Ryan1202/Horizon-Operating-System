@@ -9,7 +9,10 @@ use alloc::sync::Arc;
 use crate::kernel::{
     interrupt::{self, PreemptPoint},
     memory::kmalloc::Kmalloc,
-    thread::{THREAD_MANAGER, Thread, ThreadArc, scheduler::scheduler},
+    thread::{
+        THREAD_MANAGER, Thread, ThreadArc,
+        scheduler::{PreemptGuard, can_preempt, disable_preempt, enable_preempt, scheduler},
+    },
 };
 
 /// 创建一个由 ThreadManager 持有、尚未加入运行队列的线程。
@@ -73,7 +76,7 @@ extern "C" fn thread_run_c(thread: *const Thread) -> bool {
     }
 
     assert!(interrupt::in_thread(), "thread_run outside thread context");
-    scheduler().enqueue(thread).is_ok()
+    scheduler(&PreemptGuard::new()).enqueue(thread).is_ok()
 }
 
 /// 释放一个由 thread_get 返回的 owning handle。
@@ -99,29 +102,33 @@ extern "C" fn thread_join_c(thread: *const Thread) {
 
 #[unsafe(export_name = "thread_exit")]
 extern "C" fn thread_exit_c() -> ! {
-    scheduler().exit_self()
+    PreemptGuard::new().exit_current()
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn disable_preempt() {
+#[unsafe(export_name = "disable_preempt")]
+extern "C" fn disable_preempt_c() {
     // SAFETY: C 调用方负责在同一 CPU 上通过 enable_preempt 配平。
-    unsafe { scheduler().disable_preempt() };
+    unsafe {
+        disable_preempt();
+    };
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn enable_preempt() {
+#[unsafe(export_name = "enable_preempt")]
+extern "C" fn enable_preempt_c() {
     // SAFETY: C 调用方必须已经在同一 CPU 上调用过 disable_preempt。
-    unsafe { scheduler().enable_preempt() };
+    unsafe {
+        enable_preempt();
+    };
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn can_preempt() -> bool {
-    scheduler().can_preempt() && interrupt::in_thread()
+#[unsafe(export_name = "can_preempt")]
+extern "C" fn can_preempt_c() -> bool {
+    can_preempt() && interrupt::in_thread()
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn scheduler_tick(elapsed_ms: u16) {
-    scheduler().tick(elapsed_ms);
+    scheduler(&PreemptGuard::new()).tick(elapsed_ms);
 }
 
 #[unsafe(no_mangle)]
@@ -130,5 +137,5 @@ extern "C" fn try_yield() {
         return;
     };
 
-    scheduler().try_yield(point);
+    PreemptGuard::new().try_yield(point);
 }

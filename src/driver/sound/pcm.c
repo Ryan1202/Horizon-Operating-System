@@ -11,6 +11,7 @@
 #include <objects/handle.h>
 #include <objects/object.h>
 #include <objects/transfer.h>
+#include <kernel/thread.h>
 #include <string.h>
 
 TransferResult sound_pcm_transfer(
@@ -320,6 +321,7 @@ DriverResult sound_pcm_done(PcmStream *stream) {
 	size_t	   old_period_ptr = stream->device_period_ptr;
 	position -= position % stream->period_bytes;
 
+	disable_preempt();
 	int flags = spin_lock_irqsave(&stream->lock);
 
 	size_t new_device_base = stream->device_ptr_base;
@@ -347,6 +349,7 @@ DriverResult sound_pcm_done(PcmStream *stream) {
 
 	wait_queue_wake_one(&stream->wq);
 	spin_unlock_irqrestore(&stream->lock, flags);
+	enable_preempt();
 
 	return DRIVER_OK;
 }
