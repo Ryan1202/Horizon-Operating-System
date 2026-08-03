@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -34,14 +34,14 @@ enum ModuleType {
 #[derive(Debug)]
 struct ModuleNode {
     module_type: ModuleType,
-    children: HashMap<String, ModuleNode>,
+    children: BTreeMap<String, ModuleNode>,
 }
 
 impl ModuleNode {
     fn new(module_type: ModuleType) -> Self {
         ModuleNode {
             module_type,
-            children: HashMap::new(),
+            children: BTreeMap::new(),
         }
     }
 
