@@ -27,7 +27,6 @@ macro_rules! impl_percpu_init {
 
 impl_percpu_init!(
     (),
-    bool,
     u8,
     u16,
     u32,

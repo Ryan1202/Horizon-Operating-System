@@ -10,6 +10,7 @@ pub(super) static PERCPU_AREA: SyncUnsafeCell<MaybeUninit<PercpuArea>> =
 
 pub struct PercpuArea {
     frame: UniqueFrames,
+    /// 该区域中包含的 CPU 核心数量
     count: usize,
 }
 
@@ -48,8 +49,8 @@ impl PercpuArea {
         }
     }
 
-    pub fn index(&self, cpu_id: usize) -> *mut u8 {
-        assert!(cpu_id < self.count);
+    pub fn index(&self, index: usize) -> *mut u8 {
+        assert!(index < self.count);
 
         let start = self
             .frame
@@ -57,6 +58,6 @@ impl PercpuArea {
             .try_to_virt()
             .unwrap()
             .as_mut_ptr::<u8>();
-        unsafe { start.add(cpu_id * percpu_stride()) }
+        unsafe { start.add(index * percpu_stride()) }
     }
 }
