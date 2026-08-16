@@ -1,9 +1,9 @@
-//! 内核自旋锁的 Rust 实现并导出给 C 使用。
+//! 内核自旋锁的 Rust 实现并导出给 C 使用
 //!
 //! 该模块提供与 `src/include/kernel/spinlock.h` 中内联函数对应的
 //! C 可调用接口。实现直接操作底层的整数锁字（lock word），因此
 //! 对于简单的 `volatile int` 版本和调试用的 `struct { int lock; ... }`
-//! 版本均兼容（两者的首字段都是锁字）。
+//! 版本均兼容（两者的首字段都是锁字）
 
 use core::cell::UnsafeCell;
 use core::ffi::c_int;
@@ -18,7 +18,7 @@ use crate::arch::ArchInterrupt;
 use crate::kernel::interrupt::InterruptGuard;
 
 unsafe extern "C" {
-    // 架构相关的辅助函数在其他地方提供（C/汇编）。
+    // 架构相关的辅助函数在其他地方提供（C/汇编）
     fn save_eflags_cli() -> c_int;
     fn io_store_eflags(flags: c_int);
 }
@@ -28,10 +28,10 @@ pub struct CSpinlock {
 }
 
 impl CSpinlock {
-    /// 从原始指针创建 `CSpinlock`，如果指针为 null 则返回 None。
+    /// 从原始指针创建 `CSpinlock`，如果指针为 null 则返回 None
     ///
     /// # Safety
-    /// 调用者必须确保传入的指针有效且指向一个 `SpinlockRaw` 结构，否则行为未定义。
+    /// 调用者必须确保传入的指针有效且指向一个 `SpinlockRaw` 结构，否则行为未定义
     pub unsafe fn from_ptr(ptr: *mut SpinlockRaw) -> Option<Self> {
         NonNull::new(ptr).map(|ptr| CSpinlock { ptr })
     }
@@ -55,14 +55,14 @@ pub struct SpinlockRaw {
 }
 
 impl SpinlockRaw {
-    /// 创建一个未加锁的自旋锁值（适用于静态初始化，例如 `Spinlock { lock: 0 }`）。
+    /// 创建一个未加锁的自旋锁值（适用于静态初始化，例如 `Spinlock { lock: 0 }`）
     pub const fn new_unlocked() -> Self {
         SpinlockRaw {
             lock: AtomicU32::new(0),
         }
     }
 
-    /// 创建一个已加锁的自旋锁初始值。
+    /// 创建一个已加锁的自旋锁初始值
     pub const fn new_locked() -> Self {
         SpinlockRaw {
             lock: AtomicU32::new(1),
@@ -89,7 +89,7 @@ impl SpinlockRaw {
     pub fn lock(&self) {
         // TTAS（test-then-test-and-set）模式：先做短时间的 Relaxed 轮询，
         // 在看到为未加锁时再尝试通过弱 CAS 获取锁。弱 CAS 允许虚假失败，
-        // 因此放在循环中是合理且高效的。
+        // 因此放在循环中是合理且高效的
         loop {
             while self.lock.load(Ordering::Relaxed) != 0 {
                 spin_loop();
@@ -169,7 +169,7 @@ impl<'a, T: Deref> SpinIrqGuard<'a, T> {
     }
 }
 
-/// RwSpinlock 是一个读写自旋锁，允许多个读者或一个写者访问受保护的数据。
+/// RwSpinlock 是一个读写自旋锁，允许多个读者或一个写者访问受保护的数据
 ///
 /// 考虑到读写锁一般用于缓冲区，所以不将数据保存在内部
 #[repr(C)]
@@ -218,10 +218,10 @@ impl<T> Spinlock<T> {
         }
     }
 
-    /// 锁住自旋锁保护的可移动数据。
+    /// 锁住自旋锁保护的可移动数据
     ///
     /// `T: Unpin` 保证该入口不会破坏通过 [`Self::lock_pinned`]
-    /// 建立的地址稳定性。
+    /// 建立的地址稳定性
     pub fn lock(&self) -> SpinGuard<'_, &mut T>
     where
         T: Unpin,
@@ -275,12 +275,12 @@ impl<T> Spinlock<T> {
         unsafe { &*self._inner.get() }
     }
 
-    /// 在受保护上下文中初始化内部数据。
+    /// 在受保护上下文中初始化内部数据
     ///
     /// # Safety
     ///
     /// 调用者必须确保在非并发环境调用此方法。对于 `!Unpin`
-    /// 数据，调用者还必须确保尚未建立 Pin 不变量，因为回调可以移动内部值。
+    /// 数据，调用者还必须确保尚未建立 Pin 不变量，因为回调可以移动内部值
     pub unsafe fn init_with<F>(&self, f: F)
     where
         F: FnOnce(&mut T),
@@ -290,12 +290,12 @@ impl<T> Spinlock<T> {
         f(inner);
     }
 
-    /// 在受保护上下文中初始化内部数据。
+    /// 在受保护上下文中初始化内部数据
     ///
     /// # Safety
     ///
     /// 调用者必须确保在非并发环境调用此方法，且 `self`
-    /// 在内部数据的 Pin 不变量有效期内不再移动。
+    /// 在内部数据的 Pin 不变量有效期内不再移动
     pub unsafe fn init_with_pinned<F>(self: Pin<&Self>, f: F)
     where
         F: FnOnce(Pin<&mut T>),

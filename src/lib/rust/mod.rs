@@ -1,3 +1,4 @@
+pub mod bitmap;
 pub mod list;
 pub mod rbtree;
 pub mod spinlock;

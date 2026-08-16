@@ -3,7 +3,7 @@ use core::{ops::Deref, ptr::NonNull};
 use crate::{
     arch::ArchCpuLocal,
     kernel::{
-        memory::percpu::{CpuLocal, PerCpu, PerCpuInit},
+        memory::percpu::{CpuLocal, PerCpu, PerCpuDyn, PerCpuInit},
         thread::scheduler::PreemptGuard,
     },
 };
@@ -19,6 +19,17 @@ impl<'a, T: Sized> CpuLocalGuard<'a, T> {
         T: PerCpuInit,
     {
         let inner = NonNull::new(ArchCpuLocal::get_ptr(percpu) as *mut T).unwrap();
+        Self {
+            preempt_guard,
+            inner,
+        }
+    }
+
+    pub fn new_dyn(preempt_guard: &'a PreemptGuard, percpu: &'a PerCpuDyn<T>) -> Self
+    where
+        T: PerCpuInit,
+    {
+        let inner = NonNull::new(ArchCpuLocal::get_ptr_dyn(percpu) as *mut T).unwrap();
         Self {
             preempt_guard,
             inner,

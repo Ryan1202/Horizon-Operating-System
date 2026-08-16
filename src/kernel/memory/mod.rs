@@ -62,6 +62,8 @@ pub enum MemoryError {
     InvalidVirtualAddress(VirtAddr),
     InvalidPhysicalAddress(PhysAddr),
     InvalidSize(usize),
+    InvalidAllocationOffset(usize),
+    NotInitialized,
     FrameError(FrameError),
     PageTableError(PageTableError),
     OtherError,

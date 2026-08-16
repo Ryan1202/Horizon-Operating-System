@@ -12,7 +12,7 @@ impl Interrupt for X86Interrupt {
     #[inline]
     fn get_status() -> Self::Status {
         let flags: usize;
-        // SAFETY: 读取 RFLAGS 寄存器不会破坏程序状态。
+        // SAFETY: 读取 RFLAGS 寄存器不会破坏程序状态
         unsafe { asm!("pushfq; pop {}", out(reg) flags, options(nomem, preserves_flags)) };
         flags
     }
@@ -20,21 +20,21 @@ impl Interrupt for X86Interrupt {
     #[inline]
     fn enable() {
         // SAFETY: 调用时 IRQ 控制器已经收到 EOI，通用阶段也已经进入
-        // softirq 处理阶段。
+        // softirq 处理阶段
         unsafe { asm!("sti", options(nomem, nostack)) };
     }
 
     #[inline]
     fn disable() {
         // SAFETY: softirq 收尾需要在关闭中断的状态下完成最终 pending 检查
-        // 和 guard 释放，避免遗漏被 hardirq 新增的工作。
+        // 和 guard 释放，避免遗漏被 hardirq 新增的工作
         unsafe { asm!("cli", options(nomem, nostack)) };
     }
 
     #[inline]
     fn wait() {
         // SAFETY: sti 后紧接 hlt，CPU 会在下一次可屏蔽中断到来时继续执行，
-        // 不会在开启中断与休眠之间留下可丢失唤醒的指令窗口。
+        // 不会在开启中断与休眠之间留下可丢失唤醒的指令窗口
         unsafe { asm!("sti; hlt", options(nomem, nostack)) };
     }
 
@@ -55,7 +55,7 @@ impl Interrupt for X86Interrupt {
 
     #[inline]
     fn restore(status: &Self::Status) {
-        // SAFETY: 恢复中断状态不会破坏程序状态。
+        // SAFETY: 恢复中断状态不会破坏程序状态
         unsafe { asm!("push {}; popfq", in(reg) *status, options(nomem)) };
     }
 }

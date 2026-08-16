@@ -43,6 +43,7 @@ void init_memory(void) {
 	mem_caches_init();
 
 	vmap_init();
+	percpu_init(1);
 	swiotlb_init();
 }
 

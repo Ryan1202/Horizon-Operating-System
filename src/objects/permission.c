@@ -1,7 +1,6 @@
 #include <kernel/list.h>
 #include <objects/object.h>
 #include <objects/permission.h>
-#include <stdint.h>
 
 Permission *get_permission_info(ObjectAttr *attr) {
 	// 当前阶段只有系统主体；用户身份将在进程层接入。

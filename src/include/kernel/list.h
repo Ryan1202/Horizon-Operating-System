@@ -103,7 +103,7 @@ static inline void list_replace(struct list *old, struct list *_new) {
 
 static inline void list_replace_init(struct list *old, struct list *_new) {
 	/*
-	先把old取代，然后把old节点初始化，使它完全脱离链表。
+	先把old取代，然后把old节点初始化，使它完全脱离链表
 	*/
 	list_replace(old, _new);
 	list_init(old);

@@ -122,7 +122,7 @@ TransferResult storage_transfer(
 	/*
 	 * StorageRequest 的所有权仍由旧存储队列协议决定。完成只表示 I/O
 	 * 已结束，不足以证明驱动和合并请求已经不再持有该指针；在该协议
-	 * 被单独重构前，这里保持旧实现的生命周期，不主动回收请求。
+	 * 被单独重构前，这里保持旧实现的生命周期，不主动回收请求
 	 */
 
 	return TRANSFER_OK;
