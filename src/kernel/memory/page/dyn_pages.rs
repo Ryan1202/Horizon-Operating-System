@@ -1,4 +1,4 @@
-use core::{mem, num::NonZeroUsize, ptr::NonNull};
+use core::{field::field_of, mem, num::NonZeroUsize, ptr::NonNull};
 
 use alloc::boxed::Box;
 
@@ -17,9 +17,14 @@ use crate::{
             vmap::get_vmap,
         },
     },
-    lib::rust::rbtree::linked::LinkedRbNodeBase,
+    lib::rust::{
+        field::Then,
+        rbtree::linked::{LinkedRbNodeBase, RbListMember},
+    },
     linked_augment,
 };
+
+pub(super) type VmapNodeMember = Then<field_of!(VmapNode, rb_node), RbListMember<VmRange, usize>>;
 
 pub(in crate::kernel::memory) struct VmapNode {
     pub(super) rb_node: LinkedRbNodeBase<VmRange, usize>,

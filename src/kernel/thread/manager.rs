@@ -1,4 +1,4 @@
-use core::{mem::ManuallyDrop, pin::Pin};
+use core::{field::field_of, mem::ManuallyDrop, pin::Pin};
 
 use alloc::sync::Arc;
 
@@ -14,11 +14,11 @@ use crate::{
 };
 
 pub static THREAD_MANAGER: ThreadManager = ThreadManager {
-    all: Spinlock::new(ListHead::empty()),
+    all: Spinlock::new(ListHead::default()),
 };
 
 pub struct ThreadManager {
-    all: Spinlock<ListHead<Thread>>,
+    all: Spinlock<ListHead<field_of!(Thread, thread_node)>>,
 }
 
 impl ThreadManager {
@@ -48,7 +48,7 @@ impl ThreadManager {
                 all.lock_pinned()
                     .as_mut()
                     .get_unchecked_mut()
-                    .add_tail(thread.get_thread_node());
+                    .add_tail(thread);
             };
         }
 
@@ -70,7 +70,7 @@ impl ThreadManager {
             let all = Pin::new_unchecked(&self.all);
             let mut all = all.lock_pinned();
 
-            all.as_mut().delete_pinned(thread.get_thread_node());
+            all.as_mut().delete_ref_pinned(thread);
 
             // SAFETY: 只要 thread 在 ThreadManager 的 all 链表中，它就一定是由 ThreadManager 持有的 Arc
             Arc::from_raw_in(thread, Kmalloc::default())

@@ -1,4 +1,4 @@
-use core::{mem, num::NonZeroUsize, pin::Pin, ptr::NonNull};
+use core::{num::NonZeroUsize, pin::Pin, ptr::NonNull};
 
 use alloc::boxed::Box;
 
@@ -8,16 +8,13 @@ use crate::{
         MemoryError,
         kmalloc::{Atomic, Kmalloc},
         page::{
-            dyn_pages::{DynPages, VmapNode},
+            dyn_pages::{DynPages, VmapNode, VmapNodeMember},
             range::VmRange,
         },
     },
     lib::rust::{
         list::ListHead,
-        rbtree::{
-            RbSearch,
-            linked::{LinkedRbNodeBase, LinkedRbTreeBase},
-        },
+        rbtree::{RbSearch, linked::LinkedRbTreeBase},
         spinlock::{SpinGuard, Spinlock},
     },
     linked_augment,
@@ -26,10 +23,20 @@ use crate::{
 const MAX_VMAP_POOL_PAGES: usize = 256;
 
 type RbTree = LinkedRbTreeBase<VmRange, (), usize>;
-type RbNode = LinkedRbNodeBase<VmRange, usize>;
+
+static VMAP: Spinlock<Vmap> = Spinlock::new(Vmap::default());
+static FREE_VMAP_TREE: Spinlock<RbTree> = Spinlock::new(LinkedRbTreeBase::default());
 
 pub(super) struct VmapPool {
-    pub(super) list_head: Spinlock<ListHead<RbNode>>,
+    pub(super) list_head: Spinlock<ListHead<VmapNodeMember>>,
+}
+
+const impl Default for VmapPool {
+    fn default() -> Self {
+        Self {
+            list_head: Spinlock::new(ListHead::default()),
+        }
+    }
 }
 
 pub struct Vmap {
@@ -38,11 +45,17 @@ pub struct Vmap {
     pub(super) allocated: Spinlock<RbTree>,
 }
 
-static VMAP: Spinlock<Vmap> = Spinlock::new(unsafe { mem::zeroed() });
-static FREE_VMAP_TREE: Spinlock<RbTree> = Spinlock::new(LinkedRbTreeBase::empty());
-
 pub fn get_vmap<'a>() -> SpinGuard<'a, Pin<&'a mut Vmap>> {
     unsafe { Pin::new_unchecked(&VMAP).lock_pinned() }
+}
+
+const impl Default for Vmap {
+    fn default() -> Self {
+        Self {
+            pools: [const { VmapPool::default() }; MAX_VMAP_POOL_PAGES],
+            allocated: Spinlock::new(LinkedRbTreeBase::default()),
+        }
+    }
 }
 
 impl Vmap {
@@ -81,36 +94,26 @@ impl Vmap {
         let mut list_head =
             unsafe { Pin::new_unchecked(&self.pools.get_unchecked(index).list_head) }.lock_pinned();
 
-        let node = node.rb_node.augment.get_list();
-
-        unsafe { list_head.as_mut().get_unchecked_mut() }.add_tail(node);
+        unsafe { list_head.as_mut().get_unchecked_mut().add_tail(node) };
     }
 
     fn pool_get(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<NonNull<VmapNode>> {
         let index = Self::pool_index(count)?;
-
-        let pool = unsafe { self.pools.get_unchecked(index) };
-        if pool.list_head.get_relaxed().is_empty() {
-            return None;
-        }
 
         let mut guard =
             unsafe { Pin::new_unchecked(&self.pools.get_unchecked(index).list_head) }.lock_pinned();
 
         let list_head = unsafe { guard.as_mut().get_unchecked_mut() };
 
-        let mut rb_node = list_head
-            .iter(RbTree::linked_offset())
-            .next()
-            .expect("List is empty after checked!");
+        let mut rb_node = unsafe { list_head.iter() }.next()?;
 
         // 通过 linked_node -> rbnode -> pages 的层级关系获取 pages
-        let pages = container_of!(rb_node, VmapNode, rb_node);
+        // let pages = unsafe { container_of!(rb_node, VmapNode, rb_node) };
 
         unsafe {
-            list_head.delete(rb_node.as_mut().augment.get_list());
+            list_head.delete(rb_node.as_mut());
         }
-        Some(pages)
+        Some(rb_node)
     }
 
     pub fn allocate(self: Pin<&mut Self>, count: NonZeroUsize) -> Result<DynPages, MemoryError> {
@@ -155,7 +158,7 @@ impl Vmap {
             // 当前节点满足需求
             let node_count = node_ref.get_key().get_count();
             if node_count >= count.get() {
-                let mut pages = container_of!(node, VmapNode, rb_node);
+                let mut pages = unsafe { container_of!(node, VmapNode, rb_node) };
 
                 return if node_count > count.get() {
                     tree.as_mut().delete_node(node);
@@ -185,7 +188,7 @@ impl Vmap {
             .as_ref()
             .search_exact(range, VmRange::cmp)?;
 
-        let node = container_of!(node, VmapNode, rb_node);
+        let node = unsafe { container_of!(node, VmapNode, rb_node) };
         Some(node)
     }
 

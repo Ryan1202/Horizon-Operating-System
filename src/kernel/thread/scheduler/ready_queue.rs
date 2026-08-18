@@ -1,4 +1,4 @@
-use core::{pin::Pin, ptr::NonNull};
+use core::{field::field_of, pin::Pin, ptr::NonNull};
 
 use crate::{
     kernel::thread::{Thread, ThreadState, core::ThreadError},
@@ -6,13 +6,13 @@ use crate::{
 };
 
 pub struct ReadyQueue {
-    head: ListHead<Thread>,
+    head: ListHead<field_of!(Thread, run_node)>,
 }
 
 impl ReadyQueue {
     pub const fn new() -> Self {
         Self {
-            head: ListHead::empty(),
+            head: ListHead::default(),
         }
     }
 
@@ -39,18 +39,14 @@ impl ReadyQueue {
     }
 
     unsafe fn link(self: Pin<&mut Self>, thread: &Thread) {
-        unsafe {
-            self.get_unchecked_mut()
-                .head
-                .add_tail(thread.get_run_node())
-        };
+        unsafe { self.get_unchecked_mut().head.add_tail_ref(thread) };
     }
 
     pub unsafe fn dequeue(self: Pin<&mut Self>, thread: &Thread) {
-        unsafe { self.get_unchecked_mut().head.delete(thread.get_run_node()) };
+        unsafe { self.get_unchecked_mut().head.delete_ref(thread) };
     }
 
     pub fn next(self: Pin<&Self>) -> Option<NonNull<Thread>> {
-        self.get_ref().head.iter(Thread::run_node_offset()).next()
+        unsafe { self.get_ref().head.iter() }.next()
     }
 }

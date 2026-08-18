@@ -1,4 +1,5 @@
 pub mod bitmap;
+pub mod field;
 pub mod list;
 pub mod rbtree;
 pub mod spinlock;
@@ -10,7 +11,7 @@ macro_rules! container_of {
 
         let _ptr: NonNull<_> = $ptr;
         let offset = offset_of!($container, $field);
-        unsafe { _ptr.byte_offset(-(offset as isize)).cast::<$container>() }
+        _ptr.byte_offset(-(offset as isize)).cast::<$container>()
     }};
 }
 

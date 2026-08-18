@@ -1,4 +1,4 @@
-use core::{num::NonZeroU16, pin::Pin, ptr::NonNull};
+use core::{field::field_of, num::NonZeroU16, pin::Pin, ptr::NonNull};
 
 use crate::{
     kernel::memory::{
@@ -15,22 +15,22 @@ pub struct MemCacheNode {
 }
 
 struct PartialList {
-    list_head: ListHead<Slub>,
+    list_head: ListHead<field_of!(Slub, list)>,
     count: usize,
 }
 
 impl Spinlock<PartialList> {
     fn get(&self, config: &CacheConfig, options: PageAllocOptions) -> Option<NonNull<Slub>> {
-        if !self.get_relaxed().list_head.is_empty() {
+        {
             let mut guard = unsafe { Pin::new_unchecked(self) }.lock_pinned();
 
             let head = unsafe { guard.as_ref().map_unchecked(|list| &list.list_head) };
-            let mut iter = head.iter(Slub::list_offset());
+            let mut iter = unsafe { head.iter() };
             while let Some(mut slub) = iter.next() {
                 drop(iter);
 
                 let head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
-                head.delete(unsafe { slub.as_mut().get_list() });
+                unsafe { head.delete(slub.as_mut()) };
 
                 unsafe { guard.as_mut().get_unchecked_mut().count -= 1 };
                 return Some(slub);
@@ -55,7 +55,7 @@ impl Spinlock<PartialList> {
 
         partial.count += 1;
         let head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
-        head.add_tail(slub.get_list());
+        head.add_tail(slub);
     }
 }
 
@@ -74,7 +74,7 @@ impl MemCacheNode {
             let list = self.as_mut().map_unchecked_mut(|node| {
                 *node = Self {
                     partial_list: Spinlock::new(PartialList {
-                        list_head: ListHead::empty(),
+                        list_head: ListHead::default(),
                         count: 0,
                     }),
                     object_size: config.object_size,
@@ -87,7 +87,7 @@ impl MemCacheNode {
                 head.init();
 
                 if let Some(mut slub) = slub {
-                    let slub = slub.as_mut().get_list();
+                    let slub = slub.as_mut();
                     head.add_tail(slub);
 
                     v.get_unchecked_mut().count += 1;
@@ -168,11 +168,11 @@ impl MemCacheNode {
 
         let list_head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
 
-        for mut slub in list_head.iter(Slub::list_offset()) {
-            let slub = unsafe { slub.as_mut() };
-            {
-                list_head.delete(slub.get_list());
-            }
+        loop {
+            let next = unsafe { list_head.iter() }.next();
+            let Some(mut slub) = next else { break };
+            let slub: &mut Slub = unsafe { slub.as_mut() };
+            unsafe { list_head.delete(slub) };
 
             slub.try_destroy(options)?;
         }

@@ -1,9 +1,9 @@
 use core::{cmp, marker::PhantomData, mem::offset_of, ptr::NonNull};
 
-use crate::{
-    container_of,
-    lib::rust::{list::ListIterator, rbtree::augment::AugmentLinkHead},
-    list_owner,
+use crate::lib::rust::{
+    field::field_path,
+    list::{ListIterator, ListMember},
+    rbtree::augment::AugmentLinkHead,
 };
 
 use super::{
@@ -29,6 +29,11 @@ pub type LinkedRbTreeBase<K, A, NA> =
     RbTreeBase<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K, NA>>;
 pub type LinkedRbTree<K> = LinkedRbTreeBase<K, (), ()>;
 
+pub type RbListMember<K, A> = field_path!(
+    LinkedRbNodeBase<K, A> => augment,
+    Linked<K, A> => list_node,
+);
+
 impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K, NA>>
     for LinkedRbNodeBase<K, NA>
 {
@@ -41,10 +46,10 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
         let cur = self.augment.get_list();
         match order {
             cmp::Ordering::Less => {
-                new_node.augment.get_list().add_before(cur);
+                unsafe { new_node.augment.get_list().add_before(cur) };
             }
             cmp::Ordering::Greater => {
-                new_node.augment.get_list().add_after(cur);
+                unsafe { new_node.augment.get_list().add_after(cur) };
             }
             cmp::Ordering::Equal => {
                 unreachable!("Duplicate keys are not allowed in RbTree");
@@ -52,8 +57,7 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
         }
     }
     fn unlink_ext(&mut self, tree: &mut LinkedRbTreeBase<K, A, NA>) {
-        let list_node = self.augment.get_list();
-        tree.augment.list_head.delete(list_node);
+        unsafe { tree.augment.list_head.delete(self) };
     }
 }
 
@@ -61,23 +65,23 @@ impl<K: Sized, A, NA> AugmentLinkHead<K, LinkedIter, LinkedHead<K, A, NA>, Linke
     for LinkedRbTreeBase<K, A, NA>
 {
     fn init(&mut self, node: &mut RbNodeBase<K, LinkedIter, Linked<K, NA>>) {
-        self.augment.list_head.add_head(node.augment.get_list());
+        self.augment.list_head.add_head(node);
     }
 }
 
 impl<K> Augment for LinkedRbNodeBase<K, ()> {}
 
 #[repr(C)]
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub struct Linked<K, A> {
-    list_node: ListNode<LinkedRbNodeBase<K, A>>,
+    list_node: ListNode<RbListMember<K, A>>,
     pub augment: A,
 }
 
 #[repr(C)]
 #[derive(Default, Debug)]
 pub struct LinkedHead<K, A, NA> {
-    pub list_head: ListHead<LinkedRbNodeBase<K, NA>>,
+    pub list_head: ListHead<RbListMember<K, NA>>,
     pub augment: A,
 }
 
@@ -91,15 +95,14 @@ impl<K, A: Default> Default for Linked<K, A> {
 }
 
 impl<K, A> Linked<K, A> {
-    pub fn get_list(&mut self) -> &mut ListNode<LinkedRbNodeBase<K, A>> {
+    pub fn get_list(&mut self) -> &mut ListNode<RbListMember<K, A>> {
         &mut self.list_node
     }
 }
 
 impl<K, A, NA> LinkedHead<K, A, NA> {
-    pub fn iter(&self) -> ListIterator<LinkedRbNodeBase<K, NA>> {
-        self.list_head
-            .iter(LinkedRbTreeBase::<K, A, NA>::linked_offset())
+    pub unsafe fn iter(&self) -> ListIterator<'_, RbListMember<K, NA>> {
+        unsafe { self.list_head.iter() }
     }
 }
 
@@ -113,11 +116,13 @@ impl<K, A, NA> LinkedRbTreeBase<K, A, NA> {
         self.augment.augment = augment;
         unsafe { self.augment.list_head.init() };
     }
+}
 
-    pub const fn _empty(augment: A) -> Self {
+const impl<K, I: const Default, A> Default for LinkedRbTreeBase<K, I, A> {
+    fn default() -> Self {
         Self::_new(LinkedHead {
-            list_head: ListHead::empty(),
-            augment,
+            list_head: ListHead::default(),
+            augment: I::default(),
         })
     }
 }
@@ -125,10 +130,6 @@ impl<K, A, NA> LinkedRbTreeBase<K, A, NA> {
 impl<K, A> LinkedRbTreeBase<K, (), A> {
     pub fn init(&mut self) {
         self._linked_init(());
-    }
-
-    pub const fn empty() -> Self {
-        Self::_empty(())
     }
 }
 
@@ -154,17 +155,12 @@ impl<'a, K: Ord + Sized, A> Iterator for RbNodeIter<'a, K, LinkedIter, Linked<K,
     type Item = &'a mut LinkedRbNodeBase<K, A>;
     fn next(&mut self) -> Option<Self::Item> {
         let mut next_node = self.next?;
-        let link = unsafe { next_node.as_mut() }
+
+        let next = unsafe { next_node.as_mut() }
             .augment
             .list_node
-            .link
-            .as_ref();
-
-        let next = link
-            .map(|current| current.next)
-            .map(|next| container_of!(next, ListNode<LinkedRbNodeBase<K, A>>, link))
-            .map(|next| list_owner!(next, Linked<K, A>, list_node))
-            .map(|next| container_of!(next, LinkedRbNodeBase<K, A>, augment));
+            .next()
+            .map(|next| unsafe { <RbListMember<K, A> as ListMember>::owner_of(next) });
 
         self.next = next;
 
@@ -209,11 +205,7 @@ impl<'a, K: Ord + Sized, A, NA> LinkedRbTreeBase<K, A, NA> {
             }
         };
 
-        let first_node = self
-            .augment
-            .list_head
-            .iter(offset_of!(LinkedHead<K, A, NA>, list_head))
-            .next();
+        let first_node = unsafe { self.augment.list_head.iter() }.next();
         let first_node = match first_node {
             Some(v) => v,
             None => {

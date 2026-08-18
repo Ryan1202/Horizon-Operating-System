@@ -1,6 +1,7 @@
 use core::{
     cell::SyncUnsafeCell,
     ffi::{CStr, c_char, c_void},
+    field::field_of,
     mem::{MaybeUninit, transmute},
     num::NonZeroU16,
     pin::Pin,
@@ -30,7 +31,7 @@ use crate::{
 
 #[repr(C)]
 pub struct MemCaches {
-    pub list_head: Spinlock<ListHead<MemCache>>,
+    pub list_head: Spinlock<ListHead<field_of!(MemCache, list)>>,
     pub mem_cache: &'static MemCache,
     pub node_mem_cache: &'static MemCache,
 }
@@ -55,7 +56,7 @@ impl MemCaches {
         unsafe {
             let caches_uninit = &mut *CACHES.get();
             let caches = caches_uninit.write(MemCaches {
-                list_head: Spinlock::new(ListHead::empty()),
+                list_head: Spinlock::new(ListHead::default()),
                 mem_cache: mem_cache.as_ref(),
                 node_mem_cache: mem_cache_node.as_ref(),
             });
@@ -82,12 +83,12 @@ impl MemCaches {
 
                     let head = head.as_mut().get_unchecked_mut();
 
-                    head.add_head(mem_cache_node.as_mut().get_list());
-                    head.add_head(mem_cache.as_mut().get_list());
+                    head.add_head(mem_cache_node.as_mut());
+                    head.add_head(mem_cache.as_mut());
 
                     for cache in 0..DEFAULT_CACHE_COUNT {
                         let mut cache = get_cache_unchecked(cache);
-                        head.add_tail(cache.as_mut().get_list());
+                        head.add_tail(cache.as_mut());
                     }
                 });
         }
@@ -96,15 +97,10 @@ impl MemCaches {
     /// 向 MemCaches 中添加一个新的 MemCache。
     pub fn add_cache(&self, cache: &mut MemCache) {
         let mut list_head = unsafe { Pin::new_unchecked(&self.list_head) }.lock_pinned();
-        unsafe {
-            list_head
-                .as_mut()
-                .get_unchecked_mut()
-                .add_head(cache.get_list())
-        };
+        unsafe { list_head.as_mut().get_unchecked_mut().add_head(cache) };
     }
 
-    fn list_head(self: Pin<&Self>) -> Pin<&Spinlock<ListHead<MemCache>>> {
+    fn list_head(self: Pin<&Self>) -> Pin<&Spinlock<ListHead<field_of!(MemCache, list)>>> {
         unsafe { self.map_unchecked(|cache| &cache.list_head) }
     }
 }
@@ -118,6 +114,7 @@ pub fn global_caches() -> Pin<&'static MemCaches> {
 /// 顶层 MemCache
 pub struct MemCache {
     /// 链表节点，连接到 MemCaches 的 list_head
+    #[allow(dead_code)] // Accessed through field_of! by the intrusive-list implementation.
     list: SyncUnsafeCell<ListNode<MemCache>>,
     /// 配置
     pub config: CacheConfig,
@@ -189,10 +186,6 @@ impl MemCache {
 
             mem_cache
         }
-    }
-
-    fn get_list(&mut self) -> &mut ListNode<MemCache> {
-        self.list.get_mut()
     }
 
     /// 不依赖全局变量的实现，可以在初始化时简化调用
@@ -313,8 +306,7 @@ impl MemCache {
 
         let mut head = global_caches().list_head().lock_pinned();
 
-        let list = mem_cache.get_list();
-        head.as_mut().delete_pinned(list);
+        unsafe { head.as_mut().delete_pinned(mem_cache) };
 
         let _ = kfree(mem_cache.node).inspect_err(|e| printk!("Free MemCacheNode failed: {:?}", e));
         let _ = kfree(ptr).inspect_err(|e| printk!("Free MemCache failed: {:?}", e));

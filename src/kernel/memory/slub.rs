@@ -3,13 +3,7 @@
 // - 使用从 C 导入的自旋锁（见 src/include/kernel/spinlock.h）
 // 这是最小实现：结构体和基本方法（init/alloc/free stub），便于后续扩展。
 
-use core::{
-    cell::SyncUnsafeCell,
-    mem::{ManuallyDrop, offset_of},
-    num::NonZeroU16,
-    ops::DerefMut,
-    ptr::NonNull,
-};
+use core::{cell::SyncUnsafeCell, mem::ManuallyDrop, num::NonZeroU16, ops::DerefMut, ptr::NonNull};
 
 use crate::{
     CACHELINE_SIZE,
@@ -204,14 +198,6 @@ impl Slub {
     #[inline]
     pub fn deallocate(&self, obj: NonNull<u8>) {
         self.inner.lock().deallocate(obj);
-    }
-
-    fn get_list(&mut self) -> &mut ListNode<Self> {
-        self.list.get_mut()
-    }
-
-    const fn list_offset() -> usize {
-        offset_of!(Self, list)
     }
 }
 

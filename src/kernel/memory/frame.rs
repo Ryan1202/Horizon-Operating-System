@@ -117,7 +117,7 @@ pub enum FrameTag {
 const _: () = assert!(size_of::<Frame>() <= MAX_METADATA_SIZE);
 
 /// Buddy 分配器的虚拟地址存储位置
-static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::empty();
+static FRAME_MANAGER: BuddyAllocator = BuddyAllocator::default();
 
 pub fn frame_manager() -> Pin<&'static BuddyAllocator> {
     unsafe { Pin::new_unchecked(&FRAME_MANAGER) }

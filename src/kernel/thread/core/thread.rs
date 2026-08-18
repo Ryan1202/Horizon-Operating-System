@@ -1,7 +1,6 @@
 use core::{
     cell::SyncUnsafeCell,
     ffi::{CStr, c_void},
-    mem::offset_of,
     ptr::{self, NonNull},
     sync::atomic::AtomicBool,
 };
@@ -29,8 +28,10 @@ pub struct Thread {
     id: ThreadId,
     name: &'static CStr,
 
-    run_node: SyncUnsafeCell<ListNode<Thread>>,
-    thread_node: SyncUnsafeCell<ListNode<Thread>>,
+    #[allow(dead_code)] // Accessed through field_of! by intrusive queues.
+    pub(in crate::kernel::thread) run_node: SyncUnsafeCell<ListNode<Thread>>,
+    #[allow(dead_code)] // Accessed through field_of! by intrusive queues.
+    pub(in crate::kernel::thread) thread_node: SyncUnsafeCell<ListNode<Thread>>,
     waiter: Waiter,
     join_waiters: WaitQueue,
 
@@ -169,28 +170,6 @@ impl Thread {
         unsafe { current_context.switch_to(next_context) };
     }
 
-    /// 获取线程在调度器就绪队列中的节点。仅供调度器在禁止抢占并独占上下文时调用。
-    ///
-    /// # Safety
-    ///
-    /// 该线程必须已经被 ThreadManager 注册
-    pub(in super::super) unsafe fn get_run_node(&self) -> &mut ListNode<Thread> {
-        unsafe { &mut *self.run_node.get() }
-    }
-
-    /// 获取线程在调度器就绪队列中的节点。仅供调度器在禁止抢占并独占上下文时调用。
-    ///
-    /// # Safety
-    ///
-    /// 该线程必须已经被 ThreadManager 注册
-    pub(in super::super) unsafe fn get_thread_node(&self) -> &mut ListNode<Thread> {
-        unsafe { &mut *self.thread_node.get() }
-    }
-
-    pub(in super::super) const fn run_node_offset() -> usize {
-        offset_of!(Thread, run_node)
-    }
-
     pub(in super::super) const fn waiter(&self) -> &Waiter {
         &self.waiter
     }
@@ -201,7 +180,7 @@ impl Thread {
     ///
     /// `waiter` 必须指向一个仍然存活的 Thread 的 `waiter` 字段。
     pub(in super::super) unsafe fn from_waiter(waiter: NonNull<Waiter>) -> NonNull<Self> {
-        container_of!(waiter, Thread, waiter)
+        unsafe { container_of!(waiter, Thread, waiter) }
     }
 }
 pub struct ThreadInner {

@@ -18,6 +18,8 @@
 #![feature(negative_impls)]
 #![feature(macro_metavar_expr_concat)]
 #![feature(decl_macro)]
+#![allow(incomplete_features)]
+#![feature(field_projections)]
 
 extern crate alloc;
 

@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use core::{
     cell::SyncUnsafeCell,
     ffi::{c_int, c_void},
-    mem::offset_of,
+    field::field_of,
     pin::Pin,
     ptr::NonNull,
     sync::atomic::Ordering,
@@ -31,6 +31,7 @@ use crate::{
 /// Waiter 固定内嵌于 Thread，但等待队列只管理 Waiter，不直接管理 Thread
 /// 的运行队列节点。当前阶段一条线程同时只能进入一个等待队列。
 pub struct Waiter {
+    #[allow(unused)]
     node: SyncUnsafeCell<ListNode<Waiter>>,
 }
 
@@ -39,19 +40,6 @@ impl Waiter {
         Self {
             node: SyncUnsafeCell::new(ListNode::new()),
         }
-    }
-
-    /// 获取等待队列节点。调用方必须持有对应 WaitQueue 的锁。
-    ///
-    /// # Safety
-    ///
-    /// Waiter 必须内嵌于仍然存活且地址稳定的 Thread 中。
-    pub(super) unsafe fn node(&self) -> &mut ListNode<Waiter> {
-        unsafe { &mut *self.node.get() }
-    }
-
-    pub(super) const fn node_offset() -> usize {
-        offset_of!(Waiter, node)
     }
 
     /// 调用方必须持有 Waiter 所在 WaitQueue 的锁。
@@ -78,7 +66,7 @@ pub struct WaitQueue {
 
 #[repr(C)]
 struct WaitQueueInner {
-    waiters: ListHead<Waiter>,
+    waiters: ListHead<field_of!(Waiter, node)>,
     initialized: bool,
 }
 
@@ -338,7 +326,7 @@ impl Drop for WaitQueue {
 impl WaitQueueInner {
     const fn new() -> Self {
         Self {
-            waiters: ListHead::empty(),
+            waiters: ListHead::default(),
             initialized: false,
         }
     }
@@ -359,21 +347,21 @@ impl WaitQueueInner {
 
         unsafe {
             let waiters = &mut self.get_unchecked_mut().waiters;
-            waiters.add_tail(waiter.node())
+            waiters.add_tail_ref(waiter)
         };
     }
 
     fn first(&self) -> Option<NonNull<Waiter>> {
         assert!(self.initialized, "WaitQueue used before initialization");
 
-        self.waiters.iter(Waiter::node_offset()).next()
+        unsafe { self.waiters.iter() }.next()
     }
 
     fn remove(self: Pin<&mut Self>, waiter: &Waiter) {
         assert!(self.initialized, "WaitQueue used before initialization");
         assert!(waiter.is_linked(), "removing an unlinked Waiter");
 
-        unsafe { self.get_unchecked_mut().waiters.delete(waiter.node()) };
+        unsafe { self.get_unchecked_mut().waiters.delete_ref(waiter) };
     }
 
     /// 唤醒列表里第一个线程
