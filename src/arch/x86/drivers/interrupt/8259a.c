@@ -59,8 +59,6 @@ InterruptDevice	 pic_interrupt_device = {
 DriverResult register_pic(void) {
 	ObjectAttr attr = device_object_attr;
 
-	if (use_apic) return DRIVER_OK;
-
 	DRIVER_RESULT_PASS(
 		register_device_driver(&core_driver, &pic_device_driver));
 
@@ -84,8 +82,8 @@ DriverResult i8259a_init(void *device) {
 	io_out_byte(PIC0_IMR, 0xff); // 屏蔽主PIC的所有中断
 	io_out_byte(PIC1_IMR, 0xff); // 屏蔽从PIC的所有中断
 
-	io_out_byte(PIC0_ICW1, 0x11); // 级联，边沿触发
-	io_out_byte(PIC0_ICW2, 0x20); // 起始中断向量号位0x20(0x00~0x1f为内部中断)
+	io_out_byte(PIC0_ICW1, 0x11);	// 级联，边沿触发
+	io_out_byte(PIC0_ICW2, 0x20);	// 起始中断向量号位0x20(0x00~0x1f为内部中断)
 	io_out_byte(PIC0_ICW3, 1 << 2); // IRQ2用于连接从PIC
 	// 全嵌套模式，非缓冲模式，手动结束中断，x86处理器
 	io_out_byte(PIC0_ICW4, 0x01);

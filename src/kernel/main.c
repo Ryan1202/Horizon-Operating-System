@@ -4,6 +4,7 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "drivers/acpi.h"
 #include "objects/transfer.h"
 #include <bios_emu/bios_emu.h>
 #include <bios_emu/exceptions.h>
@@ -110,6 +111,9 @@ void thread_main(void *arg);
 
 int main() {
 	init_memory();
+
+	acpi_init();
+
 	init_object_tree();
 	init_device_managers();
 	init_bus_manager();

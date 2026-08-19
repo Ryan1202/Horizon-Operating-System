@@ -93,7 +93,6 @@
 
 extern struct PhysicalDevice *apic_device;
 extern struct TimerDevice	 *apic_timer_device;
-extern bool					  use_apic;
 
 DriverResult register_apic(void);
 

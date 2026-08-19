@@ -1,4 +1,5 @@
 #include "multiboot2.h"
+#include <drivers/acpi.h>
 #include <drivers/vesa_display.h>
 #include <kernel/ards.h>
 #include <kernel/font.h>
@@ -93,6 +94,16 @@ void __multiboot2 multiboot2_loader(uint32_t magic, uint32_t ptr) {
 					sizeof(struct ards));
 			}
 			*((uint16_t *)ARDS_NR) = entry_count;
+			break;
+		}
+		case MBIT_ACPI_OLD_RSDP: {
+			void *rsdp = (void *)((size_t)&RSDP - 0xffffffff80000000);
+			multiboot2_memcpy(rsdp, p + 2, size);
+			break;
+		}
+		case MBIT_ACPI_NEW_RSDP: {
+			void *rsdp = (void *)((size_t)&RSDP - 0xffffffff80000000);
+			multiboot2_memcpy(rsdp, p + 2, size);
 			break;
 		}
 		case MBIT_END: {

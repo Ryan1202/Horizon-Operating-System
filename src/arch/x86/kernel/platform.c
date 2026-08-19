@@ -20,6 +20,7 @@
 #include <kernel/feature.h>
 #include <kernel/func.h>
 #include <kernel/list.h>
+#include <kernel/platform.h>
 #include <objects/object.h>
 #include <random.h>
 #include <stdint.h>
@@ -79,12 +80,14 @@ DriverResult platform_init() {
 
 	bios_emu_init();
 
+	acpi_update_boot_capabilities();
+
 	register_serial();
 	result = register_vesa_display();
 	result = register_apic();
-	result = register_pic();
+	if (x86_boot_capabilities.has_pic) result = register_pic();
 	result = register_pit();
-	result = register_cmos();
+	if (x86_boot_capabilities.use_rtc) result = register_cmos();
 
 	dma_init();
 
@@ -99,7 +102,8 @@ void serial_receive(uint8_t data) {
 
 void platform_start_devices() {
 	init_and_start_physical_device(i8254_device);
-	init_and_start_physical_device(cmos_device);
+	if (x86_boot_capabilities.use_rtc)
+		init_and_start_physical_device(cmos_device);
 
 	Object *serial_object;
 	framebuffer_start_all();
@@ -118,8 +122,9 @@ void platform_start_devices() {
 	// if (use_apic)
 	// 	DRV_RESULT_PRINT_CALL(
 	// 		init_and_start_logical_device(apic_timer_device->device));
-	DRV_RESULT_PRINT_CALL(
-		init_and_start_logical_device(rtc_time_device->device));
+	if (x86_boot_capabilities.use_rtc)
+		DRV_RESULT_PRINT_CALL(
+			init_and_start_logical_device(rtc_time_device->device));
 
 	// platform_bus_driver.subdriver.state = SUBDRIVER_STATE_READY;
 }

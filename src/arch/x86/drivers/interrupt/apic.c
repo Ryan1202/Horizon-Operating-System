@@ -71,8 +71,6 @@ struct ioapic {
 	uint32_t data;
 };
 
-bool use_apic;
-
 uint32_t lapic_write(int index, int value) {
 	apic_info.lapic_mmio[index / 4] = value;
 	return apic_info.lapic_mmio[APIC_ID / 4];
@@ -128,8 +126,6 @@ void io_apic_write(uint32_t reg, uint32_t data) {
 DriverResult register_apic(void) {
 	register_device_driver(&core_driver, &apic_device_driver);
 
-	if (!use_apic) return DRIVER_ERROR_NOT_EXIST;
-
 	ObjectAttr attr = device_object_attr;
 	DRIVER_RESULT_PASS(
 		create_physical_device(&apic_device, platform_bus, &attr));
@@ -149,7 +145,7 @@ void x2apic_init(struct DeviceDriver *driver) {
 	uint32_t low, high;
 	read_msr(APIC_BASE_MSR, &low, &high);
 
-	apic_info.apic_base		 = 0xfee00000;
+	apic_info.apic_base		 = x86_boot_capabilities.lapic_address;
 	apic_info.apic_base_high = low >> 12;
 
 	size_t tmp;
@@ -167,7 +163,7 @@ void x2apic_init(struct DeviceDriver *driver) {
 
 void xapic_init(struct DeviceDriver *driver) {
 	apic_info.apic_type = APIC_TYPE_XAPIC;
-	apic_info.apic_base = 0xfee00000;
+	apic_info.apic_base = x86_boot_capabilities.lapic_address;
 
 	DRV_RESULT_PRINT_CALL(driver_remap_memory(
 		&core_driver, apic_info.apic_base, 0x3ff,
@@ -185,15 +181,13 @@ DriverResult apic_driver_init(struct DeviceDriver *driver) {
 	 * 所有文档都说要先屏蔽8259a的中断，直到我无数次触发#DF才知道为什么...
 	 * 防止apic完成初始化前触发中断无法正确处理导致异常
 	 */
-	use_apic = true;
 	if (cpu_check_feature(CPUID_FEAT_X2APIC)) {
-		mask_8259a();
+		if (x86_boot_capabilities.has_pic) mask_8259a();
 		x2apic_init(driver);
 	} else if (cpu_check_feature(CPUID_FEAT_APIC)) {
-		mask_8259a();
+		if (x86_boot_capabilities.has_pic) mask_8259a();
 		xapic_init(driver);
 	} else {
-		use_apic = false;
 		return DRIVER_ERROR_NOT_EXIST;
 	}
 	return DRIVER_OK;

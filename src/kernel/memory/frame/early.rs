@@ -82,7 +82,7 @@ fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
     let tag = match e820_type {
         0 => FrameTag::SystemReserved,
         1 => FrameTag::Free,
-        // 2 | 3 | 4 => FrameTag::HardwareReserved,
+        2 | 3 | 4 => FrameTag::HardwareReserved,
         _ => FrameTag::BadMemory,
     };
 
@@ -93,6 +93,10 @@ fn fill_range(start: FrameNumber, end: FrameNumber, e820_type: u32) {
             TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
         }
         FrameTag::SystemReserved => {
+            TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
+            ALLOCATED_PAGES.fetch_add(count, Ordering::Relaxed);
+        }
+        FrameTag::HardwareReserved => {
             TOTAL_PAGES.fetch_add(count, Ordering::Relaxed);
             ALLOCATED_PAGES.fetch_add(count, Ordering::Relaxed);
         }
@@ -135,7 +139,7 @@ impl Frame {
             let block_end =
                 PhysAddr::new(block.base_addr as usize).to_frame_number() + frame_count(length);
 
-            if block.block_type != 1 || block_start >= block_end {
+            if block.block_type >= 5 || block_start >= block_end {
                 continue;
             }
 

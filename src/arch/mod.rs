@@ -1,6 +1,7 @@
 #[cfg(target_arch = "x86_64")]
 pub mod x86 {
     pub mod kernel {
+        pub mod acpi;
         pub mod interrupt;
         mod msr;
         pub mod page;
@@ -11,6 +12,7 @@ pub mod x86 {
 
 #[cfg(target_arch = "x86_64")]
 pub use x86::kernel::{
+    acpi::X86Acpi as ArchAcpi,
     interrupt::X86Interrupt as ArchInterrupt,
     page::{
         addr::{PhysAddr, VirtAddr},

@@ -6,7 +6,6 @@
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
 #include <kernel/driver.h>
-#include <kernel/platform.h>
 #include <stdint.h>
 
 #define SERIAL_COM1_BASE 0x3F8

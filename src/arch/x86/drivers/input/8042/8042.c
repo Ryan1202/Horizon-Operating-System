@@ -282,14 +282,16 @@ DriverResult i8042_destroy(void *_device) {
 }
 
 static __init void i8042_driver_entry(void) {
-	register_device_driver(&core_driver, &i8042_device_driver);
+	if (x86_boot_capabilities.use_i8042) {
+		register_device_driver(&core_driver, &i8042_device_driver);
 
-	ObjectAttr attr = device_object_attr;
-	create_physical_device(&i8042_device, platform_bus, &attr);
-	register_physical_device(i8042_device, &i8042_device_ops);
+		ObjectAttr attr = device_object_attr;
+		create_physical_device(&i8042_device, platform_bus, &attr);
+		register_physical_device(i8042_device, &i8042_device_ops);
 
-	I8042Device *i8042		   = kzalloc(sizeof(I8042Device));
-	i8042_device->private_data = i8042;
+		I8042Device *i8042		   = kzalloc(sizeof(I8042Device));
+		i8042_device->private_data = i8042;
+	}
 }
 
 driver_initcall(i8042_driver_entry);

@@ -90,8 +90,9 @@ info_tag_start:
 	dd	MULTIBOOT2_TAG_MMAP
 	dd	MULTIBOOT2_TAG_FRAMEBUFFER
 	dd	MULTIBOOT2_TAG_VBE
+	dd	MULTIBOOT2_TAG_ACPI_NEW
 info_tag_end:
-	dd	0	;对齐8字节
+	align 8
 framebuffer_tag_start:
     dw  MULTIBOOT2_HEADER_TAG_FRAMEBUFFER
     dw  0

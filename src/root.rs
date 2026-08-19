@@ -20,11 +20,13 @@
 #![feature(decl_macro)]
 #![allow(incomplete_features)]
 #![feature(field_projections)]
+#![feature(const_convert)]
 
 extern crate alloc;
 
 use core::{fmt, panic::PanicInfo};
 
+pub mod acpi;
 pub mod arch;
 
 const CACHELINE_SIZE: usize = 64;

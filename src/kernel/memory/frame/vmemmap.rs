@@ -14,7 +14,7 @@ use crate::{
             options::FrameAllocOptions,
         },
         page::{
-            FlushTlb, PageFlags, PageNumber, PageTableOps, current_root_pt,
+            FlushTlb, PageFlags, PageNumber, PageTableError, PageTableOps, current_root_pt,
             dyn_pages::{DynPages, VmapNode},
             iter::{PageTableIter, PtStep},
             linear_table_ptr,
@@ -173,13 +173,17 @@ pub(super) fn early_create_vmemmap(
             )
         };
 
-        if result.is_err() {
-            printk!(
-                "WARNING: early mapping failed for block {:#x} - {:#x}, skipping\n",
-                block_start.get(),
-                block_end.get()
-            );
-            return ControlFlow::Break(());
+        match result {
+            Ok(_) => {}
+            Err(PageTableError::EntryAlreadyMapped) => {}
+            Err(_) => {
+                printk!(
+                    "WARNING: early mapping failed for block {:#x} - {:#x}, skipping\n",
+                    block_start.get(),
+                    block_end.get()
+                );
+                return ControlFlow::Break(());
+            }
         }
     }
     ControlFlow::Continue(())
