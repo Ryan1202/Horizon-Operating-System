@@ -1,10 +1,11 @@
 use core::ptr::NonNull;
 
-use crate::lib::rust::spinlock::{SpinGuard, Spinlock};
+use crate::{
+    acpi::tables::{RsdpV1, TableManager},
+    lib::rust::spinlock::{SpinGuard, Spinlock},
+};
 
-mod tables;
-
-pub use tables::{RSDP_SIGNATURE, RsdpV1, TableCheck, TableManager};
+pub mod tables;
 
 static ACPI: Spinlock<Option<Acpi>> = Spinlock::new(None);
 

@@ -1,7 +1,7 @@
 use core::{ptr::NonNull, slice};
 
-mod fadt;
-mod madt;
+pub mod fadt;
+pub mod madt;
 mod rsdp;
 mod xsdt;
 
@@ -11,7 +11,7 @@ use crate::{
     acpi::{
         AcpiArchInterface,
         tables::{
-            fadt::{FADT_SIGNATURE, Fadt, IapcBootCapabilities},
+            fadt::{FADT_SIGNATURE, Fadt},
             madt::{MADT_SIGNATURE, Madt},
             rsdp::{RSDP, RsdpV2},
             xsdt::{Rsdt, Xsdt},
@@ -154,30 +154,12 @@ impl TableManager {
         }
     }
 
-    #[cfg(target_arch = "x86_64")]
-    pub const fn get_boot_capabilities(&self) -> Option<IapcBootCapabilities> {
-        if let Some(fadt) = self.fadt {
-            Some(fadt.get_iapc_capabilities())
-        } else {
-            None
-        }
+    pub const fn fadt(&self) -> Option<&'static Fadt> {
+        self.fadt
     }
 
-    /// 获取本地中断控制器地址
-    pub const fn get_local_ic_address(&self) -> Option<u32> {
-        if let Some(madt) = self.madt {
-            Some(madt.get_local_ic_address())
-        } else {
-            None
-        }
-    }
-
-    pub const fn is_pic_pcat_compat(&self) -> bool {
-        if let Some(madt) = self.madt {
-            madt.is_pcat_compat()
-        } else {
-            false
-        }
+    pub const fn madt(&self) -> Option<&'static Madt> {
+        self.madt
     }
 }
 

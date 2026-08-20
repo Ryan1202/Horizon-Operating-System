@@ -1,3 +1,4 @@
+#include "drivers/bus/isa/isa.h"
 #include <driver/interrupt/interrupt_dm.h>
 #include <driver/serial/serial_dm.h>
 #include <drivers/serial.h>
@@ -200,7 +201,7 @@ DriverResult serial_init(void *_device) {
 
 	register_device_irq(
 		&serial->irq, device->physical_device, serial->device, serial->irq_num,
-		serial_irq_handler, IRQ_MODE_SHARED);
+		&isa_irq_domain, serial_irq_handler, IRQ_MODE_SHARED);
 
 	serial->console_backend.init	   = NULL;
 	serial->console_backend.put_string = serial_console_backend_put_string;

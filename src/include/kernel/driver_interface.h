@@ -61,7 +61,8 @@ typedef enum {
 typedef struct DeviceIrq {
 	list_t	list;
 	list_t	irq_list;
-	int		irq;
+	int		hw_irq;
+	int		global_irq;
 	IrqMode mode;
 
 	void				  *arg;
@@ -77,9 +78,11 @@ typedef struct DriverRemappedMemory {
 } DriverRemappedMemory;
 
 struct Driver;
+struct IrqDomain;
 enum DriverResult register_device_irq(
 	DEF_MRET(DeviceIrq *, device_irq), struct PhysicalDevice *physical_device,
-	void *arg, int irq, DeviceIrqHandler irq_handler, IrqMode mode);
+	void *arg, int irq, struct IrqDomain *domain, DeviceIrqHandler irq_handler,
+	IrqMode mode);
 enum DriverResult unregister_device_irq(DeviceIrq *dev_irq);
 enum DriverResult enable_device_irq(DeviceIrq *dev_irq);
 enum DriverResult disable_device_irq(DeviceIrq *dev_irq);

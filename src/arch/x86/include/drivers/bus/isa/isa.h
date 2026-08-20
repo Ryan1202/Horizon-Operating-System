@@ -1,6 +1,7 @@
 #ifndef _ISA_H
 #define _ISA_H
 
+#include "driver/interrupt/interrupt_dm.h"
 #include "kernel/bus_driver.h"
 #include "kernel/device_driver.h"
 #include "kernel/driver.h"
@@ -19,6 +20,8 @@ typedef struct IsaDeviceDriver {
 	BusDriver *bus_driver;
 	Bus		  *bus;
 } IsaDeviceDriver;
+
+extern IrqDomain isa_irq_domain;
 
 DriverResult isa_register_device_driver(
 	DeviceDriver *device_driver, IsaOps *ops);

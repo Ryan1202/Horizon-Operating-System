@@ -22,7 +22,7 @@
 #include <string.h>
 
 DriverResult i8259a_init(void *device);
-int			 pic_redirect_irq(InterruptDevice *device, int irq);
+int pic_redirect_irq(InterruptDevice *device, int irq, IrqDomain *domain);
 DriverResult pic_enable_irq(InterruptDevice *device, int irq);
 DriverResult pic_disable_irq(InterruptDevice *device, int irq);
 void		 pic_eoi(InterruptDevice *device, int irq);
@@ -99,7 +99,7 @@ DriverResult i8259a_init(void *device) {
 	return DRIVER_OK;
 }
 
-int pic_redirect_irq(InterruptDevice *device, int irq) {
+int pic_redirect_irq(InterruptDevice *device, int irq, IrqDomain *domain) {
 	return irq;
 }
 

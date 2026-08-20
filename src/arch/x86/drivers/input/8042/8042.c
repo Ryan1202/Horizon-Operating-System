@@ -5,6 +5,7 @@
  * @version 0.1
  * @date 2021-06
  */
+#include "drivers/bus/isa/isa.h"
 #include <drivers/8042.h>
 #include <kernel/console.h>
 #include <kernel/device.h>
@@ -147,8 +148,8 @@ DriverResult i8042_init(void *_device) {
 	} else {
 		i8042->is_p1_avail = true;
 		register_device_irq(
-			&i8042->irq[0], i8042_device, NULL, ps2_irqs[0], i8042_irq_handler,
-			IRQ_MODE_SHARED);
+			&i8042->irq[0], i8042_device, NULL, ps2_irqs[0], &isa_irq_domain,
+			i8042_irq_handler, IRQ_MODE_SHARED);
 	}
 	if (i8042->is_dual_channel) {
 		i8042_send_cmd(I8042_CMD_TEST_P2);
@@ -159,7 +160,7 @@ DriverResult i8042_init(void *_device) {
 			i8042->is_p2_avail = true;
 			register_device_irq(
 				&i8042->irq[1], i8042_device, NULL, ps2_irqs[1],
-				i8042_irq_handler, IRQ_MODE_SHARED);
+				&isa_irq_domain, i8042_irq_handler, IRQ_MODE_SHARED);
 		}
 	}
 

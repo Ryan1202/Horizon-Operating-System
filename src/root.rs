@@ -69,6 +69,7 @@ pub mod kernel {
     pub mod interrupt;
     pub mod memory;
     pub mod thread;
+    pub mod topology;
 }
 pub mod lib {
     pub mod rust;

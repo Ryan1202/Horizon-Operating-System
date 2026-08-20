@@ -5,10 +5,12 @@
  * @version 0.1
  * @date 2025-09
  */
+#include "drivers/bus/isa/isa.h"
 #include <bits.h>
 #include <driver/interrupt/interrupt_dm.h>
 #include <driver/timer/timer_dm.h>
 #include <drivers/8259a.h>
+#include <drivers/acpi.h>
 #include <drivers/apic.h>
 #include <drivers/cmos.h>
 #include <drivers/msr.h>
@@ -34,7 +36,7 @@ DriverResult apic_init(void *device);
 DriverResult apic_start(void *device);
 DriverResult apic_stop(void *device);
 DriverResult apic_driver_init(struct DeviceDriver *driver);
-int			 apic_redirect_irq(InterruptDevice *device, int irq);
+int apic_redirect_irq(InterruptDevice *device, int irq, IrqDomain *domain);
 DriverResult apic_enable_irq(InterruptDevice *device, int irq);
 DriverResult apic_disable_irq(InterruptDevice *device, int irq);
 DriverResult apic_timer_init(void *device);
@@ -46,6 +48,8 @@ TimerResult	 apic_timer_set_frequency(
 void apic_timer_irq_handler(void *device);
 
 extern Driver core_driver;
+
+IrqDomain apic_irq_domain;
 
 typedef struct ApicInfo {
 	enum {
@@ -61,14 +65,22 @@ typedef struct ApicInfo {
 	uint32_t  *lapic_mmio;
 	DeviceIrq *device_irq;
 
-	volatile struct ioapic *ioapic;
+	size_t				ioapic_count;
+	struct ioapic_info *ioapic;
 } ApicInfo;
 ApicInfo apic_info;
 
-struct ioapic {
-	uint32_t reg;
-	uint32_t pad[3];
-	uint32_t data;
+struct ioapic_info {
+	uint32_t id;
+	uint32_t gsi_base;
+
+	struct ioapic_mmio *mmio;
+};
+
+struct ioapic_mmio {
+	volatile uint32_t reg;
+	uint32_t		  pad[3];
+	volatile uint32_t data;
 };
 
 uint32_t lapic_write(int index, int value) {
@@ -113,14 +125,14 @@ PhysicalDevice	*apic_device;
 InterruptDevice *apic_interrupt_device;
 TimerDevice		*apic_timer_device;
 
-uint32_t io_apic_read(uint32_t reg) {
-	apic_info.ioapic->reg = reg;
-	return apic_info.ioapic->data;
+uint32_t io_apic_read(size_t index, uint32_t reg) {
+	apic_info.ioapic[index].mmio->reg = reg;
+	return apic_info.ioapic[index].mmio->data;
 }
 
-void io_apic_write(uint32_t reg, uint32_t data) {
-	apic_info.ioapic->reg  = reg;
-	apic_info.ioapic->data = data;
+void io_apic_write(size_t index, uint32_t reg, uint32_t data) {
+	apic_info.ioapic[index].mmio->reg  = reg;
+	apic_info.ioapic[index].mmio->data = data;
 }
 
 DriverResult register_apic(void) {
@@ -152,9 +164,34 @@ void x2apic_init(struct DeviceDriver *driver) {
 	DRV_RESULT_PRINT_CALL(
 		driver_remap_memory(&core_driver, apic_info.apic_base, 0x3ff, &tmp));
 	apic_info.lapic_mmio = (uint32_t *)tmp;
-	DRV_RESULT_PRINT_CALL(
-		driver_remap_memory(&core_driver, 0xfec00000, 0xfff00, &tmp));
-	apic_info.ioapic = (struct ioapic *)tmp;
+
+	uint32_t count = acpi_get_ioapic_count();
+	if (count > 0) {
+		apic_info.ioapic_count = count;
+		apic_info.ioapic	   = (struct ioapic_info *)kmalloc(
+			  sizeof(struct ioapic_info) * apic_info.ioapic_count);
+		for (int i = 0; i < apic_info.ioapic_count; i++) {
+			X86IoApic ioapic;
+			acpi_get_ioapic_info(i, &ioapic);
+
+			DRV_RESULT_PRINT_CALL(driver_remap_memory(
+				&core_driver, ioapic.address, 0xfff00, &tmp));
+			apic_info.ioapic[i].mmio = (struct ioapic_mmio *)tmp;
+
+			apic_info.ioapic[i].id		 = ioapic.id;
+			apic_info.ioapic[i].gsi_base = ioapic.gsi_base;
+		}
+	} else {
+		apic_info.ioapic_count = 1;
+		apic_info.ioapic	   = (struct ioapic_info *)kmalloc(
+			  sizeof(struct ioapic_info) * apic_info.ioapic_count);
+
+		DRV_RESULT_PRINT_CALL(
+			driver_remap_memory(&core_driver, 0xfec00000, 0xfff00, &tmp));
+		apic_info.ioapic[0].mmio	 = (struct ioapic_mmio *)tmp;
+		apic_info.ioapic[0].gsi_base = 0;
+		apic_info.ioapic[0].id		 = io_apic_read(0, IOAPIC_ID) >> 24;
+	}
 
 	read_msr(X2APIC_ID_MSR, &apic_info.apic_id, &apic_info.apic_id_high);
 	apic_info.version =
@@ -168,8 +205,36 @@ void xapic_init(struct DeviceDriver *driver) {
 	DRV_RESULT_PRINT_CALL(driver_remap_memory(
 		&core_driver, apic_info.apic_base, 0x3ff,
 		(size_t *)&apic_info.lapic_mmio));
-	DRV_RESULT_PRINT_CALL(driver_remap_memory(
-		&core_driver, 0xfec00000, 0xfff00, (size_t *)&apic_info.ioapic));
+
+	uint32_t count = acpi_get_ioapic_count();
+	if (count > 0) {
+		size_t tmp;
+		apic_info.ioapic_count = count;
+		apic_info.ioapic	   = (struct ioapic_info *)kmalloc(
+			  sizeof(struct ioapic_info) * apic_info.ioapic_count);
+		for (int i = 0; i < apic_info.ioapic_count; i++) {
+			X86IoApic ioapic;
+			acpi_get_ioapic_info(i, &ioapic);
+
+			DRV_RESULT_PRINT_CALL(driver_remap_memory(
+				&core_driver, ioapic.address, 0xfff00, &tmp));
+			apic_info.ioapic[i].mmio = (struct ioapic_mmio *)tmp;
+
+			apic_info.ioapic[i].id		 = ioapic.id;
+			apic_info.ioapic[i].gsi_base = ioapic.gsi_base;
+		}
+	} else {
+		size_t tmp;
+		apic_info.ioapic_count = 1;
+		apic_info.ioapic	   = (struct ioapic_info *)kmalloc(
+			  sizeof(struct ioapic_info) * apic_info.ioapic_count);
+
+		DRV_RESULT_PRINT_CALL(
+			driver_remap_memory(&core_driver, 0xfec00000, 0xfff00, &tmp));
+		apic_info.ioapic[0].mmio	 = (struct ioapic_mmio *)tmp;
+		apic_info.ioapic[0].gsi_base = 0;
+		apic_info.ioapic[0].id		 = io_apic_read(0, IOAPIC_ID) >> 24;
+	}
 
 	apic_info.apic_id		= lapic_read(APIC_ID) >> 24;
 	apic_info.version		= (lapic_read(APIC_Ver) & 0xff);
@@ -311,7 +376,7 @@ DriverResult apic_start(void *device) {
 DriverResult apic_timer_start(void *device) {
 	register_device_irq(
 		&apic_info.device_irq, apic_device, device, LAPIC_TIMER_IRQ,
-		apic_timer_irq_handler, IRQ_MODE_EXCLUSIVE);
+		&apic_irq_domain, apic_timer_irq_handler, IRQ_MODE_EXCLUSIVE);
 	enable_device_irq(apic_info.device_irq);
 	uint32_t data = lapic_read(APIC_LVT_TIMER);
 	lapic_write(APIC_LVT_TIMER, BIN_DIS(data, BIT(16)));
@@ -331,25 +396,39 @@ DriverResult apic_timer_stop(void *device) {
 	return DRIVER_OK;
 }
 
-int apic_redirect_irq(InterruptDevice *device, int irq) {
-	if (irq == PIC_PIT_IRQ) {
-		irq = APIC_PIT_IRQ;
-	} else if (irq == 2) {
-		irq = 0;
+int apic_redirect_irq(InterruptDevice *device, int irq, IrqDomain *domain) {
+	if (domain == &isa_irq_domain) {
+		IrqOverride out;
+		if (x86_acpi_get_isa_irq_route(irq, &out) == 0) { return out.gsi; }
 	}
 	return irq;
 }
 
-DriverResult apic_enable_irq(InterruptDevice *device, int irq) {
-	io_apic_write(IOAPIC_TBL + irq * 2, BIN_DIS(0x20 + irq, BIT(16)));
-	io_apic_write(IOAPIC_TBL + irq * 2 + 1, 0);
-	return DRIVER_OK;
+DriverResult apic_enable_irq(InterruptDevice *device, int gsi) {
+	for (size_t i = 0; i < apic_info.ioapic_count; i++) {
+		if (gsi >= apic_info.ioapic[i].gsi_base &&
+			gsi < apic_info.ioapic[i].gsi_base + 24) {
+			int irq = gsi - apic_info.ioapic[i].gsi_base;
+			io_apic_write(
+				i, IOAPIC_TBL + irq * 2, BIN_DIS(0x20 + irq, BIT(16)));
+			io_apic_write(i, IOAPIC_TBL + irq * 2 + 1, 0);
+			return DRIVER_OK;
+		}
+	}
+	return DRIVER_ERROR_NOT_EXIST;
 }
 
-DriverResult apic_disable_irq(InterruptDevice *device, int irq) {
-	io_apic_write(IOAPIC_TBL + irq * 2, BIN_EN(0x20 + irq, BIT(16)));
-	io_apic_write(IOAPIC_TBL + irq * 2 + 1, 0);
-	return DRIVER_OK;
+DriverResult apic_disable_irq(InterruptDevice *device, int gsi) {
+	for (size_t i = 0; i < apic_info.ioapic_count; i++) {
+		if (gsi >= apic_info.ioapic[i].gsi_base &&
+			gsi < apic_info.ioapic[i].gsi_base + 24) {
+			int irq = gsi - apic_info.ioapic[i].gsi_base;
+			io_apic_write(i, IOAPIC_TBL + irq * 2, BIN_EN(0x20 + irq, BIT(16)));
+			io_apic_write(i, IOAPIC_TBL + irq * 2 + 1, 0);
+			return DRIVER_OK;
+		}
+	}
+	return DRIVER_ERROR_NOT_EXIST;
 }
 
 void apic_eoi(InterruptDevice *device, int irq) {

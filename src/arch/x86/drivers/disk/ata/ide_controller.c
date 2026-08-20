@@ -1,4 +1,5 @@
 #include "include/ide_controller.h"
+#include "drivers/bus/isa/isa.h"
 #include "include/ata_driver.h"
 #include "include/ide.h"
 #include <bits.h>
@@ -84,8 +85,8 @@ void ide_controller_setup_legacy_mode(
 							  : ATA_PRIMARY_CONTROL_PORT);
 	register_device_irq(
 		&channel->irq, physical_device, channel,
-		(channel->channel_num ? IDE_IRQ1 : IDE_IRQ0), ide_irq_handler,
-		IRQ_MODE_SHARED);
+		(channel->channel_num ? IDE_IRQ1 : IDE_IRQ0), &isa_irq_domain,
+		ide_irq_handler, IRQ_MODE_SHARED);
 }
 
 void ide_controller_setup_pci_mode(PciDevice *pci_device, IdeChannel *channel) {
@@ -96,7 +97,7 @@ void ide_controller_setup_pci_mode(PciDevice *pci_device, IdeChannel *channel) {
 	pci_enable_io_space(pci_device);
 	register_device_irq(
 		&channel->irq, pci_device->device, channel, pci_device->irqline,
-		ide_irq_handler, IRQ_MODE_SHARED);
+		&isa_irq_domain, ide_irq_handler, IRQ_MODE_SHARED);
 }
 
 DriverResult ide_controller_init(void *_device) {

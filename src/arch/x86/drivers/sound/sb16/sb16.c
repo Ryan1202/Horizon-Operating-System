@@ -236,7 +236,7 @@ DriverResult sb16_init(void *_device) {
 	// io_out8(info->ports.mixer_data, 0x02 /* IRQ5 */);
 
 	register_device_irq(
-		&info->irq, device->physical_device, device->dm_ext, 5,
+		&info->irq, device->physical_device, device->dm_ext, 5, &isa_irq_domain,
 		sb16_irq_handler, IRQ_MODE_SHARED);
 
 	spinlock_init(&info->lock);

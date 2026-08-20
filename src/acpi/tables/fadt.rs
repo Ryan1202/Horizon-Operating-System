@@ -1,4 +1,4 @@
-use core::{num::NonZero, ptr::NonNull};
+use core::num::NonZero;
 
 use crate::acpi::tables::{DescriptionTable, GenericAddress, TableHeader};
 

@@ -166,10 +166,10 @@ DriverResult interrupt_dm_start() {
 	return DRIVER_ERROR_NOT_EXIST;
 }
 
-uint32_t interrupt_redirect_irq(int irq) {
+uint32_t interrupt_redirect_irq(int irq, IrqDomain *domain) {
 	InterruptDevice *interrupt_device = interrupt_dm_ext.current_device;
 
-	return interrupt_device->ops->redirect_irq(interrupt_device, irq);
+	return interrupt_device->ops->redirect_irq(interrupt_device, irq, domain);
 }
 
 DriverResult interrupt_enable_irq(int irq) {

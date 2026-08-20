@@ -1,5 +1,6 @@
 #include "kernel/initcall.h"
 #include <driver/bus_dm.h>
+#include <driver/interrupt/interrupt_dm.h>
 #include <drivers/bus/isa/dma.h>
 #include <drivers/bus/isa/isa.h>
 #include <kernel/bus_driver.h>
@@ -15,6 +16,8 @@ LIST_HEAD(isa_driver_lh);
 DriverResult isa_driver_init(Driver *driver);
 DriverResult isa_probe(BusDriver *bus_driver, Bus *bus);
 DriverResult isa_init_bus(BusDriver *bus_driver);
+
+IrqDomain isa_irq_domain;
 
 BusOps isa_bus_ops = {
 	.scan_bus	  = NULL,

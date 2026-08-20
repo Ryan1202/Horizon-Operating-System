@@ -1,10 +1,7 @@
 use core::ptr::NonNull;
 
 use crate::{
-    acpi::{
-        TableCheck,
-        tables::{DescriptionTable, TableHeader},
-    },
+    acpi::tables::{DescriptionTable, TableCheck, TableHeader},
     arch::PhysAddr,
 };
 

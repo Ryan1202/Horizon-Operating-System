@@ -20,4 +20,4 @@ c = [
     "softirq.c",
     "syscall.c",
 ]
-rust = ["thread/mod.rs", "interrupt/mod.rs", "memory/mod.rs"]
+rust = ["thread/mod.rs", "interrupt/mod.rs", "memory/mod.rs", "topology/mod.rs"]

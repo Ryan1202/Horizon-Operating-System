@@ -1,3 +1,4 @@
+#include "drivers/acpi.h"
 #include "drivers/msr.h"
 #include <bios_emu/bios_emu.h>
 #include <driver/framebuffer/fb_dm.h>
@@ -81,6 +82,7 @@ DriverResult platform_init() {
 	bios_emu_init();
 
 	acpi_update_boot_capabilities();
+	acpi_init_x86_topology();
 
 	register_serial();
 	result = register_vesa_display();

@@ -11,6 +11,7 @@ use crate::{
     },
 };
 
+pub mod irq;
 mod softirq;
 
 cpu_local!(

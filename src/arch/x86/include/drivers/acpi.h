@@ -1,7 +1,7 @@
 #ifndef ACPI_H
 #define ACPI_H
 
-// #include <stdint.h>
+#include <stdint.h>
 
 // struct ACPI_RSDP {
 //     char     Signature[8];
@@ -111,7 +111,28 @@
 // void init_acpi(void);
 // void acpi_test_shutdown(void);
 
-void acpi_init(void);
+typedef struct {
+	uint32_t id;
+	uint32_t address;
+	uint32_t gsi_base;
+} X86IoApic;
+
+typedef struct {
+	uint32_t gsi;
+	uint8_t	 active_low;
+	uint8_t	 level_triggered;
+} IrqOverride;
+
+enum {
+	X86_ACPI_IRQ_ACTIVE_LOW = 1 << 0,
+	X86_ACPI_IRQ_LEVEL		= 1 << 1,
+};
+
+void   acpi_init(void);
+void   acpi_init_x86_topology(void);
+size_t acpi_get_ioapic_count(void);
+int	   acpi_get_ioapic_info(size_t index, X86IoApic *out);
+int	   x86_acpi_get_isa_irq_route(uint32_t irq, IrqOverride *out);
 
 extern void *RSDP;
 

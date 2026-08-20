@@ -24,7 +24,8 @@ list_t device_irq_lists[NR_IRQ] = {
 
 DriverResult register_device_irq(
 	DEF_MRET(DeviceIrq *, device_irq), PhysicalDevice *physical_device,
-	void *arg, int irq, DeviceIrqHandler irq_handler, IrqMode mode) {
+	void *arg, int irq, IrqDomain *domain, DeviceIrqHandler irq_handler,
+	IrqMode mode) {
 	if (irq < 0 || irq >= NR_IRQ) {
 		print_error(
 			"DeviceIrq", "invalid irq number:%d, device %s\n", irq,
@@ -48,7 +49,8 @@ DriverResult register_device_irq(
 	device_irq->arg				= arg;
 	device_irq->physical_device = physical_device;
 	device_irq->handler			= irq_handler;
-	device_irq->irq				= interrupt_redirect_irq(irq);
+	device_irq->hw_irq			= irq;
+	device_irq->global_irq		= interrupt_redirect_irq(irq, domain);
 
 	MRET(device_irq) = device_irq;
 	return DRIVER_OK;
@@ -63,17 +65,17 @@ DriverResult unregister_device_irq(DeviceIrq *dev_irq) {
 }
 
 DriverResult enable_device_irq(DeviceIrq *dev_irq) {
-	bool empty = list_empty(&device_irq_lists[dev_irq->irq]);
+	bool empty = list_empty(&device_irq_lists[dev_irq->global_irq]);
 	if (!list_in_list(&dev_irq->list))
-		list_add_tail(&dev_irq->list, &device_irq_lists[dev_irq->irq]);
-	if (empty) { return interrupt_enable_irq(dev_irq->irq); }
+		list_add_tail(&dev_irq->list, &device_irq_lists[dev_irq->global_irq]);
+	if (empty) { return interrupt_enable_irq(dev_irq->global_irq); }
 	return DRIVER_OK;
 }
 
 DriverResult disable_device_irq(DeviceIrq *dev_irq) {
 	if (list_in_list(&dev_irq->list)) list_del(&dev_irq->list);
-	if (list_empty(&device_irq_lists[dev_irq->irq])) {
-		return interrupt_disable_irq(dev_irq->irq);
+	if (list_empty(&device_irq_lists[dev_irq->global_irq])) {
+		return interrupt_disable_irq(dev_irq->global_irq);
 	}
 	return DRIVER_OK;
 }

@@ -1,4 +1,5 @@
 #include "rtl8139.h"
+#include "drivers/bus/isa/isa.h"
 #include "kernel/platform.h"
 #include <bits.h>
 #include <driver/interrupt/interrupt_dm.h>
@@ -309,7 +310,8 @@ DriverResult rtl8139_start(void *_device) {
 
 	register_device_irq(
 		&rtl_device->irq, device->physical_device, rtl_device,
-		rtl_device->pci_device->irqline, rtl8139_handler, IRQ_MODE_SHARED);
+		rtl_device->pci_device->irqline, &isa_irq_domain, rtl8139_handler,
+		IRQ_MODE_SHARED);
 
 	rtl_device->net_rx.handler = rtl8139_net_rx_handler;
 	rtl_device->net_rx.data	   = rtl_device;

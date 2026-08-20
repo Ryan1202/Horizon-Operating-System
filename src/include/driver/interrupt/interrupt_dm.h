@@ -10,11 +10,15 @@
 struct InterruptDevice;
 
 typedef struct InterruptDeviceOps {
-	int (*redirect_irq)(struct InterruptDevice *device, int irq);
+	int (*redirect_irq)(
+		struct InterruptDevice *device, int irq, struct IrqDomain *domain);
 	DriverResult (*enable_irq)(struct InterruptDevice *device, int irq);
 	DriverResult (*disable_irq)(struct InterruptDevice *device, int irq);
 	void (*eoi)(struct InterruptDevice *device, int irq);
 } InterruptDeviceOps;
+
+typedef struct IrqDomain {
+} IrqDomain;
 
 typedef struct InterruptDevice {
 	LogicalDevice	   *device;
@@ -30,7 +34,7 @@ DriverResult create_interrupt_device(
 extern struct DeviceManager interrupt_dm;
 
 DriverResult interrupt_dm_start();
-uint32_t	 interrupt_redirect_irq(int irq);
+uint32_t	 interrupt_redirect_irq(int irq, IrqDomain *domain);
 DriverResult interrupt_enable_irq(int irq);
 DriverResult interrupt_disable_irq(int irq);
 void		 interrupt_eoi(int irq);

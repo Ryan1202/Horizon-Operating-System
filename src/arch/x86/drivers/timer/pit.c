@@ -4,6 +4,7 @@
  * @brief PIT（Programmable Interval Timer）驱动
  * @date 2022-07-31
  */
+#include "drivers/bus/isa/isa.h"
 #include <driver/interrupt/interrupt_dm.h>
 #include <driver/timer/timer_dm.h>
 #include <drivers/8259a.h>
@@ -81,7 +82,7 @@ DriverResult pit_init(void *device) {
 
 	return register_device_irq(
 		&pit_device_irq, i8254_device, pit_timer_device->device, PIC_PIT_IRQ,
-		pit_irq_handler, IRQ_MODE_EXCLUSIVE);
+		&isa_irq_domain, pit_irq_handler, IRQ_MODE_EXCLUSIVE);
 }
 
 TimerResult pit_set_frequency(TimerDevice *timer_device, uint32_t frequency) {
