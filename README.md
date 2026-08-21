@@ -33,6 +33,8 @@ Horizon 已从早期的 32 位内核逐步迁移为 x86_64 高半区内核，并
 
 ## Roadmap
 
+### 其他
+
 - [x] GRUB2 / Multiboot2
 - [ ] Boot Abstraction / BootInfo
   - [ ] Kernel Core
@@ -40,24 +42,6 @@ Horizon 已从早期的 32 位内核逐步迁移为 x86_64 高半区内核，并
 - [x] per-CPU
   - [x] static
   - [x] dynamic
-- [ ] ACPI
-  - [ ] Tables：RSDP / RSDT / XSDT / Table Manager
-  - [ ] AML：DSDT / SSDT / Namespace / Interpreter
-  - [ ] OS Services：OperationRegion / Mutex / Global Lock / EC
-  - [ ] Device：Enumeration / Identification / Resources / PCI Routing
-  - [ ] Events：SCI / Fixed Events / GPE / Notify
-  - [ ] Power：System Sleep / Device Power / CPU Power / Thermal
-  - [ ] Platform：MADT / FADT / HPET / MCFG / SRAT / SLIT / DMAR
-  - [ ] Compatibility：QEMU / OVMF / Real Hardware
-
-- 多核
-
-  - [x] APIC
-  - [ ] x2APIC
-
-  - [ ] SMP
-  - [ ] IPI
-  - [ ] TLB shootdown
 
 - [ ] Scheduler framework
   - [ ] CFS-like
@@ -65,30 +49,144 @@ Horizon 已从早期的 32 位内核逐步迁移为 x86_64 高半区内核，并
 - [ ] PCIe
   - [ ] MSI-X
   - [ ] DMA
-- VirtIO
-  - [ ] VirtIO blk
-  - [ ] VirtIO net
-- [ ] NVMe
-
-- USB
-
-  - [x] UHCI
-
-  - [ ] OHCI
-
-  - [ ] EHCI
-
-  - [ ] XHCI
-
-  - [ ] USB Core
 
 - [ ] SCSI
+- [ ] NVMe
 - [ ] VFS
 - [ ] cache
 - [ ] ext2
   - [ ] ext 3 / 4
 - [ ] Network subsystem v2
   - [ ] 新 TCP-IP 协议栈
+
+### ACPI
+
+1. #### Core / Table Infrastructure
+
+   - [x] RSDP
+
+   - [x] RSDT / XSDT
+
+   - [x] SDT validation
+
+   - [x] Table Manager
+
+   - [ ] FADT
+
+   - [ ] FACS
+
+   - [ ] DSDT / SSDT discovery & loading
+
+   - [ ] Generic table lookup / mapping
+
+2. #### AML Runtime
+
+   - [ ] AML Parser
+
+   - [ ] Namespace
+
+   - [ ] Object Model
+   - [ ] Interpreter
+   - [ ] Method Execution
+   - [ ] OperationRegion
+   - [ ] Field / BankField / IndexField
+   - [ ] Mutex / synchronization
+   - [ ] Global Lock
+
+3. #### Device Model
+
+   - [ ] Namespace Enumeration
+   - [ ] `_HID / _CID / _UID`
+   - [ ] `_STA`
+   - [ ] `_ADR`
+   - [ ] `_CRS / _PRS / _SRS`
+   - [ ] `_DEP / _DSD`
+   - [ ] ACPI Device abstraction
+   - [ ] Driver binding
+   - [ ] PCI Routing (`_PRT`)
+   - [ ] PCI Link Devices
+
+4. #### Events
+
+   - [ ] SCI
+   - [ ] Fixed Events
+   - [ ] GPE
+   - [ ] `_Lxx / _Exx`
+   - [ ] Notify
+   - [ ] `_REG`
+   - [ ] Event → AML → Device dispatch
+
+5. #### Power & Thermal
+
+   - [ ] Reset / Reboot
+   - [ ] System Sleep (`_S0.._S5`)
+   - [ ] Sleep transition methods
+   - [ ] Wakeup
+   - [ ] Device Power (`_PRx / _PSx`)
+   - [ ] Power Resources
+   - [ ] CPU Idle (`_CST`, LPI)
+   - [ ] CPU Performance / CPPC (`_CPC`)
+   - [ ] Thermal Zones (`_TMP / _CRT / _PSV / _ACx`)
+
+6. #### Embedded / Platform Control
+
+   - [ ] Generic Address Structure access
+   - [ ] System I/O / System Memory regions
+   - [ ] PCI Config OperationRegion
+   - [ ] EC
+   - [ ] SMBus / GPIO / GenericSerialBus OperationRegion（按需求）
+   - [ ] PCC / PCCT（按需求）
+
+7. #### Architecture / Platform Description
+
+   - [ ] MADT → interrupt-controller discovery
+
+   - [ ] MCFG → PCIe ECAM
+
+   - [ ] HPET → timer
+
+   - [ ] PPTT → CPU topology source
+
+   - [ ] SRAT → CPU / memory affinity
+
+   - [ ] SLIT → NUMA distance
+
+   - [ ] HMAT → memory performance topology
+
+   - [ ] DMAR → x86 IOMMU
+
+   - [ ] TPM2
+
+   - [ ] SPCR / DBG2
+
+### 多核
+
+- [x] APIC
+- [ ] x2APIC
+
+- [ ] SMP
+- [ ] IPI
+- [ ] TLB shootdown
+
+### VirtIO
+
+- [ ] VirtIO blk
+- [ ] VirtIO net
+
+### USB
+
+- [x] UHCI
+
+- [ ] OHCI
+
+- [ ] EHCI
+
+- [ ] XHCI
+
+- [ ] USB Core
+
+
+
 
 路线图表示计划中的依赖顺序和演进方向，不承诺具体发布时间。Native UEFI Loader 与 Kernel Core 将在统一的 BootInfo 边界下并行演进。
 
