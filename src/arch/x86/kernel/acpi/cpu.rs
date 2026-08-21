@@ -10,12 +10,13 @@ pub enum CpuState {
 
 pub struct Cpu {
     id: ApicId,
-    state: CpuState,
+    _state: CpuState,
 }
 
 impl Cpu {
     pub fn from_local_apic(local_apic: &ProcessorLocalApic) -> Self {
         let id = ApicId::new(local_apic.apic_id as u32);
+
         let flags = unsafe { read_unaligned(&raw const local_apic.flags) };
         let state = if flags.enabled() {
             CpuState::Online
@@ -24,14 +25,14 @@ impl Cpu {
         } else {
             CpuState::Unusable
         };
-        Self { id, state }
+        Self { id, _state: state }
     }
 
-    pub fn id(&self) -> ApicId {
+    pub const fn id(&self) -> ApicId {
         self.id
     }
 
-    pub fn state(&self) -> &CpuState {
-        &self.state
+    pub const fn _state(&self) -> &CpuState {
+        &self._state
     }
 }

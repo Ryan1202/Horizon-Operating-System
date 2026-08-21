@@ -241,6 +241,17 @@ void xapic_init(struct DeviceDriver *driver) {
 	apic_info.max_lvt_entry = (lapic_read(APIC_Ver) >> 16) & 0xff;
 }
 
+int get_local_cpu_id(void) {
+	if (apic_info.apic_type == APIC_TYPE_X2APIC) {
+		uint32_t low, high;
+		read_msr(X2APIC_ID_MSR, &low, &high);
+		return low;
+	} else if (apic_info.apic_type == APIC_TYPE_XAPIC) {
+		return lapic_read(APIC_ID) >> 24;
+	}
+	return -1;
+}
+
 DriverResult apic_driver_init(struct DeviceDriver *driver) {
 	/**
 	 * 所有文档都说要先屏蔽8259a的中断，直到我无数次触发#DF才知道为什么...

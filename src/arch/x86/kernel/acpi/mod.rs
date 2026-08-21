@@ -1,10 +1,11 @@
 use core::{
     cell::SyncUnsafeCell,
+    mem::MaybeUninit,
     ops::Range,
     ptr::{NonNull, read_unaligned},
 };
 
-use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 use crate::{
     acpi::{
@@ -15,28 +16,35 @@ use crate::{
         PhysAddr,
         x86::kernel::acpi::{
             cpu::Cpu,
-            interrupt::{Gsi, IoApic, IrqOverride, IrqRouting},
+            interrupt::{ApicId, Gsi, IoApic, IrqOverride, IrqRouting},
         },
     },
-    kernel::memory::kmalloc::Kmalloc,
+    kernel::{
+        memory::kmalloc::Kmalloc,
+        topology::{CpuHardwareId, CpuRegistry},
+    },
 };
 
 mod cpu;
 mod interrupt;
 
+unsafe extern "C" {
+    fn get_local_cpu_id() -> i32;
+}
+
 const RSDP_RANGE: [Range<usize>; 2] = [0x009FC000..0x00A00000, 0x000E0000..0x00100000];
 
 static X86_TOPOLOGY: SyncUnsafeCell<X86Topology> = SyncUnsafeCell::new(X86Topology {
-    cpus: Vec::new_in(Kmalloc::default()),
-    io_apic: Vec::new_in(Kmalloc::default()),
+    cpus: MaybeUninit::uninit(),
+    io_apic: MaybeUninit::uninit(),
     irq_routing: None,
 });
 
 pub struct X86Acpi;
 
 pub struct X86Topology {
-    cpus: Vec<Cpu, Kmalloc>,
-    io_apic: Vec<IoApic, Kmalloc>,
+    cpus: MaybeUninit<Box<[Cpu], Kmalloc>>,
+    io_apic: MaybeUninit<Box<[IoApic], Kmalloc>>,
     irq_routing: Option<IrqRouting>,
 }
 
@@ -53,13 +61,30 @@ impl X86Topology {
         if let Some(acpi) = acpi().as_ref()
             && let Some(madt) = acpi.tables().madt()
         {
+            let (lapic_count, ioapic_count) = madt.iter_entries().fold(
+                (0, 0),
+                |(lapic_count, ioapic_count), entry| match entry {
+                    InterruptController::LocalApic(_) => (lapic_count + 1, ioapic_count),
+                    InterruptController::IoApic(_) => (lapic_count, ioapic_count + 1),
+                    _ => (lapic_count, ioapic_count),
+                },
+            );
+
+            let mut cpus = Box::new_uninit_slice_in(lapic_count, Kmalloc::default());
+            let mut ioapics = Box::new_uninit_slice_in(ioapic_count, Kmalloc::default());
+
+            let mut cpu_index = 0;
+            let mut ioapic_index = 0;
             for entry in madt.iter_entries() {
                 match entry {
                     InterruptController::LocalApic(local_apic) => {
-                        topology.cpus.push(Cpu::from_local_apic(local_apic));
+                        let cpu = Cpu::from_local_apic(local_apic);
+                        cpus[cpu_index].write(cpu);
+                        cpu_index += 1;
                     }
                     InterruptController::IoApic(io_apic) => {
-                        topology.io_apic.push(IoApic::from_ioapic(io_apic));
+                        ioapics[ioapic_index].write(IoApic::from_ioapic(io_apic));
+                        ioapic_index += 1;
                     }
                     InterruptController::InterruptSourceOverride(irq_override) => {
                         let irq = irq_override.source as usize;
@@ -73,8 +98,24 @@ impl X86Topology {
                     _ => {}
                 }
             }
+            topology.irq_routing = Some(irq_routing);
+
+            let cpus = unsafe { cpus.assume_init() };
+            let ioapics = unsafe { ioapics.assume_init() };
+
+            topology.cpus = MaybeUninit::new(cpus);
+            topology.io_apic = MaybeUninit::new(ioapics);
         }
-        topology.irq_routing = Some(irq_routing);
+    }
+
+    #[unsafe(export_name = "acpi_register_cpus")]
+    pub fn register_cpus() {
+        let topology = unsafe { &mut *X86_TOPOLOGY.get() };
+        let cpus = unsafe { topology.cpus.assume_init_mut() };
+
+        let bsp_id = unsafe { u32::try_from(get_local_cpu_id()).expect("BSP CPU ID is invalid") };
+        let bsp_id = ApicId::new(bsp_id);
+        CpuRegistry::register(cpus, bsp_id.into(), |cpu| cpu.id().into());
     }
 }
 
@@ -148,7 +189,7 @@ pub extern "C" fn acpi_update_boot_capabilities() {
 #[unsafe(no_mangle)]
 pub extern "C" fn acpi_get_ioapic_count() -> usize {
     let topology = X86Topology::get();
-    topology.io_apic.len()
+    unsafe { topology.io_apic.assume_init_ref() }.len()
 }
 
 #[repr(C)]
@@ -161,12 +202,13 @@ pub struct X86IoApic {
 #[unsafe(no_mangle)]
 pub extern "C" fn acpi_get_ioapic_info(index: usize, out: *mut X86IoApic) -> i32 {
     let topology = X86Topology::get();
+    let io_apic = unsafe { topology.io_apic.assume_init_ref() };
 
-    if topology.io_apic.is_empty() || index >= topology.io_apic.len() {
+    if io_apic.is_empty() || index >= io_apic.len() {
         return -1;
     }
 
-    let io_apic = &topology.io_apic[index];
+    let io_apic = &io_apic[index];
     unsafe {
         *out = X86IoApic {
             id: io_apic.id.get(),

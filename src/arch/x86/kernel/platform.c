@@ -112,6 +112,8 @@ void platform_start_devices() {
 	init_console();
 	interrupt_dm_start(); // 启动由interrupt_dm选择的中断控制器
 
+	acpi_register_cpus();
+
 	ObjectResult result;
 	result = open_object_by_path("\\Device\\Serial0", &serial_object);
 	if (result == OBJECT_OK) {

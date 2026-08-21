@@ -1,6 +1,6 @@
 use core::array;
 
-use crate::acpi::tables::madt;
+use crate::{acpi::tables::madt, kernel::topology::CpuHardwareId};
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -13,6 +13,18 @@ impl ApicId {
 
     pub const fn get(&self) -> u32 {
         self.0
+    }
+}
+
+impl From<CpuHardwareId> for ApicId {
+    fn from(hardware_id: CpuHardwareId) -> Self {
+        Self::new(hardware_id.get_raw())
+    }
+}
+
+impl Into<CpuHardwareId> for ApicId {
+    fn into(self) -> CpuHardwareId {
+        CpuHardwareId::new(self.get())
     }
 }
 

@@ -2,11 +2,14 @@ use core::{alloc::Layout, cell::SyncUnsafeCell, mem::MaybeUninit};
 
 use crate::{
     CACHELINE_SIZE,
-    kernel::memory::{
-        MemoryError,
-        frame::reference::UniqueFrames,
-        page::Pages,
-        percpu::{__percpu_start, PerCpuDynHandle, chunk::PerCpuChunk, percpu_template_size},
+    kernel::{
+        memory::{
+            MemoryError,
+            frame::reference::UniqueFrames,
+            page::Pages,
+            percpu::{__percpu_start, PerCpuDynHandle, chunk::PerCpuChunk, percpu_template_size},
+        },
+        topology::CpuId,
     },
 };
 
@@ -18,7 +21,7 @@ pub(super) static PERCPU_AREA: SyncUnsafeCell<MaybeUninit<PercpuArea>> =
 pub struct PercpuArea {
     first_chunk: PerCpuChunk,
     /// 当前 per-CPU 区域的 CPU 核心数量
-    count: usize,
+    count: u32,
     /// 每个 CPU unit 的实际大小，单位为字节
     unit_size: usize,
 }
@@ -53,19 +56,19 @@ impl PercpuArea {
         let first_chunk = PerCpuChunk::try_new(Pages::Linear(frame), dynamic_start, unit_size)?;
         Ok(Self {
             first_chunk,
-            count: nr_cpu_limit,
+            count: nr_cpu_limit as u32,
             unit_size,
         })
     }
 
-    pub fn index(&self, cpu_id: usize) -> *mut u8 {
-        assert!(cpu_id < self.count);
+    pub fn index(&self, cpu_id: CpuId) -> *mut u8 {
+        assert!(cpu_id.get() < self.count);
 
         let start: *mut u8 = self.first_chunk.get_mut_ptr();
-        unsafe { start.byte_add(cpu_id * self.unit_size) }
+        unsafe { start.byte_add(cpu_id.get() as usize * self.unit_size) }
     }
 
-    pub const fn count(&self) -> usize {
+    pub const fn count(&self) -> u32 {
         self.count
     }
 

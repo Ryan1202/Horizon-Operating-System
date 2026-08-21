@@ -132,6 +132,7 @@ void   acpi_init(void);
 void   acpi_init_x86_topology(void);
 size_t acpi_get_ioapic_count(void);
 int	   acpi_get_ioapic_info(size_t index, X86IoApic *out);
+void   acpi_register_cpus(void);
 int	   x86_acpi_get_isa_irq_route(uint32_t irq, IrqOverride *out);
 
 extern void *RSDP;

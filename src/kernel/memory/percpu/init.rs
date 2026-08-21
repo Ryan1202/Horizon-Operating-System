@@ -6,22 +6,26 @@ use core::sync::atomic::{
 use crate::{
     CACHELINE_SIZE,
     arch::ArchCpuLocal,
-    kernel::memory::{
-        MemoryError,
-        frame::{
-            FrameAllocator, buddy::FrameOrder, frame_manager, reference::UniqueFrames,
-            zone::ZoneType,
+    kernel::{
+        memory::{
+            MemoryError,
+            frame::{
+                FrameAllocator, buddy::FrameOrder, frame_manager, reference::UniqueFrames,
+                zone::ZoneType,
+            },
+            percpu::{
+                CPU_DELTA, CpuLocal, PercpuArea, area::PERCPU_AREA, chunk::DYNAMIC_TARGET_SIZE,
+                percpu_template_size,
+            },
         },
-        percpu::{
-            CPU_DELTA, CpuLocal, PercpuArea, area::PERCPU_AREA, chunk::DYNAMIC_TARGET_SIZE,
-            percpu_template_size,
-        },
+        topology::{CpuId, CpuRegistry},
     },
 };
 
 /// 允许的最大 CPU 数量
-pub const NR_CPUS_MAX: usize = 256;
-pub static PERCPU_DELTAS: [AtomicUsize; NR_CPUS_MAX] = [const { AtomicUsize::new(0) }; NR_CPUS_MAX];
+pub const NR_CPUS_MAX: u32 = 256;
+pub static PERCPU_DELTAS: [AtomicUsize; NR_CPUS_MAX as usize] =
+    [const { AtomicUsize::new(0) }; NR_CPUS_MAX as usize];
 
 const PERCPU_UNINITIALIZED: u8 = 0;
 const PERCPU_INITIALIZING: u8 = 1;
@@ -82,7 +86,7 @@ fn allocate_backing(nr_cpus: usize, dynamic_start: usize) -> Result<UniqueFrames
 }
 
 pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
-    if nr_cpus == 0 || nr_cpus > NR_CPUS_MAX {
+    if nr_cpus == 0 || nr_cpus > NR_CPUS_MAX as usize {
         return Err(MemoryError::ViolateConstraint);
     }
 
@@ -95,7 +99,7 @@ pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
     PERCPU_STATE.store(PERCPU_INITIALIZING, Ordering::Relaxed);
 
     for cpu_id in 0..nr_cpus {
-        let delta = ArchCpuLocal::delta_for(area.index(cpu_id));
+        let delta = ArchCpuLocal::delta_for(area.index(CpuId::new(cpu_id as u32)));
 
         // SAFETY: delta 由该 CPU unit 的有效起点计算，目标是模板复制后的 CPU_DELTA 实例
         let cpu_delta = unsafe { ArchCpuLocal::get_ptr_for(&CPU_DELTA, delta) as *mut usize };
@@ -108,8 +112,11 @@ pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
     unsafe {
         // SAFETY: area 在 Ready 发布前一次性写入，之后只通过不可变引用访问。
         PERCPU_AREA.get().write(core::mem::MaybeUninit::new(area));
+
+        let bsp_id = CpuRegistry::get().bsp_id();
+
         // SAFETY: CPU0 unit 已复制模板并写入 CPU_DELTA，可以安全作为 BSP 的 GS 基准。
-        ArchCpuLocal::activate((*PERCPU_AREA.get()).assume_init_ref().index(0));
+        ArchCpuLocal::activate((*PERCPU_AREA.get()).assume_init_ref().index(bsp_id));
     }
 
     PERCPU_STATE.store(PERCPU_READY, Ordering::Relaxed);

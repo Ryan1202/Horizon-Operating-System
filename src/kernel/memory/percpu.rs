@@ -16,6 +16,7 @@ use crate::{
             },
         },
         thread::scheduler::PreemptGuard,
+        topology::CpuId,
     },
 };
 
@@ -122,7 +123,7 @@ impl<T: PerCpuInit> PerCpu<T> {
         CpuLocalGuard::new(preempt, self)
     }
 
-    pub fn get_remote(&self, cpu_id: usize) -> Result<*const T, MemoryError>
+    pub fn get_remote(&self, cpu_id: CpuId) -> Result<*const T, MemoryError>
     where
         T: Sync,
     {
@@ -165,13 +166,14 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
         }
     }
 
-    pub fn try_new_with(mut init: impl FnMut(usize) -> T) -> Result<Self, MemoryError> {
+    pub fn try_new_with(mut init: impl FnMut(CpuId) -> T) -> Result<Self, MemoryError> {
         let area = percpu_area()?;
         let layout = Layout::new::<T>();
         let handle = area.allocate(layout)?;
         let percpu = Self::new_in(handle);
 
         for cpu_id in 0..area.count() {
+            let cpu_id = CpuId::new(cpu_id);
             let delta = percpu_delta(area, cpu_id)?;
             // SAFETY: handle 由 area 分配，delta 指向已发布的 CPU unit，且每个实例只在此处初始化一次。
             let ptr = unsafe { ArchCpuLocal::get_ptr_dyn_for(&percpu, delta) as *mut T };
@@ -190,7 +192,7 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
         CpuLocalGuard::new_dyn(preempt, self)
     }
 
-    pub fn get_remote(&self, cpu_id: usize) -> Result<*const T, MemoryError>
+    pub fn get_remote(&self, cpu_id: CpuId) -> Result<*const T, MemoryError>
     where
         T: Sync,
     {
@@ -206,6 +208,7 @@ impl<T: PerCpuInit> Drop for PerCpuDyn<T> {
         let area = percpu_area().expect("动态 per-CPU 对象析构时区域未初始化");
 
         for cpu_id in 0..area.count() {
+            let cpu_id = CpuId::new(cpu_id);
             let delta = percpu_delta(area, cpu_id).expect("动态 per-CPU 对象析构时 CPU unit 无效");
             // SAFETY: handle 在当前析构前仍有效，且调用方必须保证不存在并发的远程访问。
             let ptr = unsafe { ArchCpuLocal::get_ptr_dyn_for(self, delta) as *mut T };
@@ -229,12 +232,12 @@ pub(super) fn percpu_area() -> Result<&'static PercpuArea, MemoryError> {
     Ok(unsafe { (*PERCPU_AREA.get()).assume_init_ref() })
 }
 
-pub(super) fn percpu_delta(area: &PercpuArea, cpu_id: usize) -> Result<usize, MemoryError> {
-    if cpu_id >= area.count() || cpu_id >= NR_CPUS_MAX {
+pub(super) fn percpu_delta(area: &PercpuArea, cpu_id: CpuId) -> Result<usize, MemoryError> {
+    if cpu_id.get() >= area.count() || cpu_id.get() >= NR_CPUS_MAX {
         return Err(MemoryError::ViolateConstraint);
     }
 
-    let delta = PERCPU_DELTAS[cpu_id].load(Ordering::Acquire);
+    let delta = PERCPU_DELTAS[cpu_id.get() as usize].load(Ordering::Acquire);
     if delta == 0 {
         return Err(MemoryError::ViolateConstraint);
     }
