@@ -1,5 +1,6 @@
 use core::{ptr::NonNull, slice};
 
+pub mod dsdt;
 pub mod fadt;
 pub mod madt;
 mod rsdp;
@@ -11,6 +12,7 @@ use crate::{
     acpi::{
         AcpiArchInterface,
         tables::{
+            dsdt::Dsdt,
             fadt::{FADT_SIGNATURE, Fadt},
             madt::{MADT_SIGNATURE, Madt},
             rsdp::{RSDP, RsdpV2},
@@ -160,6 +162,19 @@ impl TableManager {
 
     pub const fn madt(&self) -> Option<&'static Madt> {
         self.madt
+    }
+
+    pub fn dsdt(&self) -> Option<&'static Dsdt> {
+        let ptr = unsafe {
+            NonNull::new_unchecked(
+                self.fadt()
+                    .map(|fadt| fadt.dsdt())?
+                    .try_to_virt()?
+                    .as_mut_ptr(),
+            )
+        };
+        let dsdt = unsafe { ptr.as_ref() };
+        Dsdt::check(dsdt).then_some(dsdt)
     }
 }
 

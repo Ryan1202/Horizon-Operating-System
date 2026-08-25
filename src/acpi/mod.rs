@@ -1,10 +1,14 @@
 use core::ptr::NonNull;
 
 use crate::{
-    acpi::tables::{RsdpV1, TableManager},
+    acpi::{
+        aml::namespace::{NameSpace, init_namespace},
+        tables::{RsdpV1, TableManager},
+    },
     lib::rust::spinlock::{SpinGuard, Spinlock},
 };
 
+pub mod aml;
 pub mod tables;
 
 static ACPI: Spinlock<Option<Acpi>> = Spinlock::new(None);
@@ -21,6 +25,16 @@ impl Acpi {
     pub fn new() -> Option<Self> {
         let mut table_manager = TableManager::new()?;
         table_manager.parse();
+
+        init_namespace();
+
+        let dsdt = table_manager.dsdt()?;
+        let bytecode = aml::Bytecode::from_bytes(dsdt.aml_bytes());
+
+        let guard = NameSpace::root().lock_pinned();
+        let mut parser = aml::Parser::new(bytecode, guard.as_ref().get_ref());
+        let _ = parser.parse();
+        guard.as_ref().get_ref().print_tree();
 
         Some(Self { table_manager })
     }

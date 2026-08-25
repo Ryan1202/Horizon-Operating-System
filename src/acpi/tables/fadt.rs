@@ -1,6 +1,9 @@
-use core::num::NonZero;
+use core::{num::NonZero, ptr::read_unaligned};
 
-use crate::acpi::tables::{DescriptionTable, GenericAddress, TableHeader};
+use crate::{
+    acpi::tables::{DescriptionTable, GenericAddress, TableHeader},
+    arch::PhysAddr,
+};
 
 pub const FADT_SIGNATURE: &[u8; 4] = b"FACP";
 
@@ -72,6 +75,12 @@ pub struct Fadt {
     iapc_boot_arch: u16,
     reserved2: u8,
     flags: u32,
+    extend: FadtExtend,
+}
+
+#[allow(unused)]
+#[repr(C, packed)]
+pub struct FadtExtend {
     /// 重置寄存器的地址
     reset_reg: GenericAddress,
     /// 用于写入重置寄存器来重置系统的值
@@ -118,6 +127,22 @@ impl Fadt {
     #[cfg(target_arch = "x86_64")]
     pub const fn get_iapc_capabilities(&self) -> IapcBootCapabilities {
         self.iapc_boot_arch.into()
+    }
+
+    const fn extend_info(&self) -> Option<&FadtExtend> {
+        if self.header.length as usize == size_of::<Fadt>() {
+            Some(&self.extend)
+        } else {
+            None
+        }
+    }
+
+    pub fn dsdt(&self) -> PhysAddr {
+        let dsdt = self
+            .extend_info()
+            .and_then(|e| unsafe { read_unaligned(&raw const e.x_dsdt) })
+            .map_or(self.dsdt as usize, |x_dsdt| x_dsdt.get() as usize);
+        PhysAddr::new(dsdt)
     }
 }
 
