@@ -1,56 +1,63 @@
 use crate::acpi::aml::{
     Parser,
+    namespace::objects::CreateFieldType,
     parser::{
         namespace::{Alias, Name, Scope},
-        object::fields::{Device, Field, Method, Mutex, OpRegion, PowerRes, Processor},
+        object::named::{
+            BankField, CreateField, DataRegion, Device, Field, Method, Mutex, OpRegion, PowerRes,
+            Processor, ThermalZone,
+        },
         op::Opcode,
     },
 };
 
 pub mod field_element;
-pub mod fields;
+pub mod named;
 
-pub enum Object {
-    DefAlias(Alias),
-    DefName(Name),
-    DefScope(Scope),
-    NamedObject(NamedObject),
-}
+pub struct Object;
 
 impl Object {
-    pub fn parse<'a>(parser: &mut Parser<'a>, opcode: Opcode) -> Option<Self> {
+    pub fn parse<'a>(parser: &mut Parser<'a>, opcode: Opcode) -> Option<()> {
         match opcode {
-            Opcode::Alias => Some(Object::DefAlias(Alias::from_bytes(&mut parser.bytecode)?)),
-            Opcode::Name => Some(Object::DefName(Name::parse(parser)?)),
-            Opcode::Scope => Some(Object::DefScope(Scope::parse(parser)?)),
-            _ => NamedObject::parse(parser, opcode).map(Object::NamedObject),
+            Opcode::Alias => Alias::parse(parser)?,
+            Opcode::Name => Name::parse(parser)?,
+            Opcode::Scope => Scope::parse(parser)?,
+            _ => {
+                return NamedObject::parse(parser, opcode);
+            }
         }
+        Some(())
     }
 }
 
-pub enum NamedObject {
-    DefBankField,
-    DefOpRegion(OpRegion),
-    DefField(Field),
-    DefMethod(Method),
-    DefDevice(Device),
-    DefMutex(Mutex),
-    DefProccessor(Processor),
-    DefPowerRes(PowerRes),
-}
+pub struct NamedObject;
 
 impl NamedObject {
-    pub fn parse<'a>(parser: &mut Parser<'a>, opcode: Opcode) -> Option<Self> {
+    pub fn parse<'a>(parser: &mut Parser<'a>, opcode: Opcode) -> Option<()> {
         match opcode {
-            Opcode::OpRegion => Some(NamedObject::DefOpRegion(OpRegion::parse(parser)?)),
-            Opcode::Field => Some(NamedObject::DefField(Field::parse(parser)?)),
-            Opcode::Method => Some(NamedObject::DefMethod(Method::parse(parser)?)),
-            Opcode::Device => Some(NamedObject::DefDevice(Device::parse(parser)?)),
-            Opcode::Mutex => Some(NamedObject::DefMutex(Mutex::parse(parser)?)),
-            Opcode::PowerRes => Some(NamedObject::DefPowerRes(PowerRes::parse(parser)?)),
-            Opcode::Processor => Some(NamedObject::DefProccessor(Processor::parse(parser)?)),
-            _ => None,
+            Opcode::BankField => BankField::parse(parser)?,
+            Opcode::CreateBitField => CreateField::parse_fixed(parser, CreateFieldType::Bit)?,
+            Opcode::CreateByteField => CreateField::parse_fixed(parser, CreateFieldType::Byte)?,
+            Opcode::CreateWordField => CreateField::parse_fixed(parser, CreateFieldType::Word)?,
+            Opcode::CreateDwordField => CreateField::parse_fixed(parser, CreateFieldType::Dword)?,
+            Opcode::CreateQwordField => CreateField::parse_fixed(parser, CreateFieldType::Qword)?,
+            Opcode::CreateField => CreateField::parse_arbitrary(parser)?,
+            Opcode::DataRegion => DataRegion::parse(parser)?,
+            Opcode::Event => named::Event::parse(parser)?,
+            Opcode::External => named::External::parse(parser)?,
+            Opcode::OpRegion => OpRegion::parse(parser)?,
+            Opcode::Field => Field::parse(parser)?,
+            Opcode::Method => Method::parse(parser)?,
+            Opcode::Device => Device::parse(parser)?,
+            Opcode::Mutex => Mutex::parse(parser)?,
+            Opcode::PowerRes => PowerRes::parse(parser)?,
+            Opcode::Processor => Processor::parse(parser)?,
+            Opcode::ThermalZone => ThermalZone::parse(parser)?,
+            _ => {
+                return None;
+            }
         }
+        Some(())
     }
 }
 

@@ -60,10 +60,6 @@ impl<'rootref> Parser<'rootref> {
         };
         ParserSlice::new(self, slice_parser, length)
     }
-
-    fn enter_object<'parser>(&'parser mut self, namespace: &'rootref NameSpace) {
-        self.current = namespace;
-    }
 }
 
 struct ParserSlice<'parser, 'rootref> {

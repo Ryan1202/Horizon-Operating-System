@@ -1,7 +1,3 @@
-#![allow(unused)]
-
-use core::slice::Iter;
-
 use crate::acpi::aml::{Bytecode, parser::prefix};
 
 pub const ZERO_OP: u8 = 0x00;
@@ -114,9 +110,17 @@ pub mod ext {
     pub const DATA_REGION_OP: u8 = 0x88;
 }
 
+#[derive(Clone, Copy)]
 pub enum Opcode {
     Zero,
     One,
+
+    Byte,
+    Word,
+    Dword,
+    Qword,
+    String,
+
     Alias,
     Name,
     Scope,
@@ -125,21 +129,8 @@ pub enum Opcode {
     VarPackage,
     Method,
     External,
-    Local0,
-    Local1,
-    Local2,
-    Local3,
-    Local4,
-    Local5,
-    Local6,
-    Local7,
-    Arg0,
-    Arg1,
-    Arg2,
-    Arg3,
-    Arg4,
-    Arg5,
-    Arg6,
+    Local(u8),
+    Arg(u8),
     Store,
     RefOf,
     Add,
@@ -233,6 +224,11 @@ impl Opcode {
                 let ext_byte = bytecode.next()?;
                 Opcode::from_ext(ext_byte)
             }
+            prefix::BYTE_PREFIX => Some(Opcode::Byte),
+            prefix::WORD_PREFIX => Some(Opcode::Word),
+            prefix::DWORD_PREFIX => Some(Opcode::Dword),
+            prefix::QWORD_PREFIX => Some(Opcode::Qword),
+            prefix::STRING_PREFIX => Some(Opcode::String),
             ZERO_OP => Some(Opcode::Zero),
             ONE_OP => Some(Opcode::One),
             ALIAS_OP => Some(Opcode::Alias),
@@ -243,21 +239,21 @@ impl Opcode {
             VAR_PACKAGE_OP => Some(Opcode::VarPackage),
             METHOD_OP => Some(Opcode::Method),
             EXTERNAL_OP => Some(Opcode::External),
-            LOCAL0_OP => Some(Opcode::Local0),
-            LOCAL1_OP => Some(Opcode::Local1),
-            LOCAL2_OP => Some(Opcode::Local2),
-            LOCAL3_OP => Some(Opcode::Local3),
-            LOCAL4_OP => Some(Opcode::Local4),
-            LOCAL5_OP => Some(Opcode::Local5),
-            LOCAL6_OP => Some(Opcode::Local6),
-            LOCAL7_OP => Some(Opcode::Local7),
-            ARG0_OP => Some(Opcode::Arg0),
-            ARG1_OP => Some(Opcode::Arg1),
-            ARG2_OP => Some(Opcode::Arg2),
-            ARG3_OP => Some(Opcode::Arg3),
-            ARG4_OP => Some(Opcode::Arg4),
-            ARG5_OP => Some(Opcode::Arg5),
-            ARG6_OP => Some(Opcode::Arg6),
+            LOCAL0_OP => Some(Opcode::Local(0)),
+            LOCAL1_OP => Some(Opcode::Local(1)),
+            LOCAL2_OP => Some(Opcode::Local(2)),
+            LOCAL3_OP => Some(Opcode::Local(3)),
+            LOCAL4_OP => Some(Opcode::Local(4)),
+            LOCAL5_OP => Some(Opcode::Local(5)),
+            LOCAL6_OP => Some(Opcode::Local(6)),
+            LOCAL7_OP => Some(Opcode::Local(7)),
+            ARG0_OP => Some(Opcode::Arg(0)),
+            ARG1_OP => Some(Opcode::Arg(1)),
+            ARG2_OP => Some(Opcode::Arg(2)),
+            ARG3_OP => Some(Opcode::Arg(3)),
+            ARG4_OP => Some(Opcode::Arg(4)),
+            ARG5_OP => Some(Opcode::Arg(5)),
+            ARG6_OP => Some(Opcode::Arg(6)),
             STORE_OP => Some(Opcode::Store),
             REF_OF_OP => Some(Opcode::RefOf),
             ADD_OP => Some(Opcode::Add),

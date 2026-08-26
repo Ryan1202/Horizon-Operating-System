@@ -1,11 +1,14 @@
-use crate::acpi::aml::{Bytecode, parser::prefix};
+use core::slice::Iter;
 
-pub(in crate::acpi) enum NamePath {
-    Null,
-    Single(&'static [u8]),
-    Dual(&'static [u8]),
-    Multi(&'static [u8]),
-}
+use alloc::boxed::Box;
+
+use crate::{
+    acpi::aml::{Bytecode, namespace, parser::prefix},
+    kernel::memory::kmalloc::Kmalloc,
+};
+
+#[derive(Clone)]
+pub(in crate::acpi) struct NamePath(pub &'static [[u8; 4]]);
 
 impl NamePath {
     pub fn from_bytes(bytecode: &mut Bytecode) -> Option<Self> {
@@ -14,109 +17,64 @@ impl NamePath {
         match first {
             0x00 => {
                 bytecode.next()?;
-                Some(Self::Null)
+                Some(Self(&[]))
             }
             prefix::DUAL_NAME_PREFIX => {
                 let _ = bytecode.next();
 
-                Some(Self::Dual(bytecode.read(8)))
+                Some(Self(unsafe { bytecode.read(8).as_chunks_unchecked() }))
             }
             prefix::MULTI_NAME_PREFIX => {
                 let _ = bytecode.next();
                 let length = bytecode.next()?;
 
-                Some(Self::Multi(bytecode.read(length as usize * 4)))
+                Some(Self(unsafe {
+                    bytecode.read(length as usize * 4).as_chunks_unchecked()
+                }))
             }
-            b'A'..=b'Z' | b'_' => Some(Self::Single(bytecode.read(4))),
+            b'A'..=b'Z' | b'_' => Some(Self(unsafe { bytecode.read(4).as_chunks_unchecked() })),
             _ => None,
         }
     }
 
     pub const fn count(&self) -> usize {
-        match self {
-            NamePath::Null => 0,
-            NamePath::Single(_) => 1,
-            NamePath::Dual(_) => 2,
-            NamePath::Multi(names) => names.len() / 4,
-        }
+        self.0.len()
     }
 
-    pub fn last_name(&self) -> Option<&[u8]> {
-        match self {
-            NamePath::Null => None,
-            NamePath::Single(name) => Some(name),
-            NamePath::Dual(names) => Some(&names[4..8]),
-            NamePath::Multi(names) => {
-                let left = names.len() - 4;
-                Some(&names[left..])
-            }
-        }
+    pub fn last_name(&self) -> Option<&[u8; 4]> {
+        self.0.iter().last()
     }
 
     pub const fn bytecode_length(&self) -> usize {
-        match self {
-            NamePath::Null => 1,
-            NamePath::Single(_) => 4,
-            NamePath::Dual(_) => 9,
-            NamePath::Multi(names) => 2 + names.len(),
+        match self.count() {
+            0 => 1,
+            1 => 4,
+            2 => 9,
+            n => 2 + n * 4,
         }
+    }
+
+    pub fn to_boxed(self) -> Box<[namespace::Name], Kmalloc> {
+        let len = self.0.len();
+
+        let mut boxed = Box::new_uninit_slice_in(len, Kmalloc::default());
+        for (i, name) in self.0.iter().enumerate() {
+            boxed[i].write(namespace::Name::new(*name));
+        }
+        unsafe { boxed.assume_init() }
     }
 }
 
 impl<'a> IntoIterator for &'a NamePath {
-    type Item = &'a [u8];
-    type IntoIter = NamePathIter<'a>;
+    type Item = &'a [u8; 4];
+    type IntoIter = Iter<'a, [u8; 4]>;
 
     fn into_iter(self) -> Self::IntoIter {
-        NamePathIter {
-            path: self,
-            index: 0,
-        }
+        self.0.into_iter()
     }
 }
 
-pub(in crate::acpi) struct NamePathIter<'a> {
-    path: &'a NamePath,
-    index: usize,
-}
-
-impl<'a> Iterator for NamePathIter<'a> {
-    type Item = &'a [u8];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.path {
-            NamePath::Null => None,
-            NamePath::Single(name) => {
-                if self.index == 0 {
-                    self.index += 1;
-                    Some(name)
-                } else {
-                    None
-                }
-            }
-            NamePath::Dual(names) => {
-                if self.index < 2 {
-                    let name = &names[self.index * 4..(self.index + 1) * 4];
-                    self.index += 1;
-                    Some(name)
-                } else {
-                    None
-                }
-            }
-            NamePath::Multi(names) => {
-                let length = names.len() / 4;
-                if self.index < length {
-                    let name = &names[self.index * 4..(self.index + 1) * 4];
-                    self.index += 1;
-                    Some(name)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
-
+#[derive(Clone)]
 pub(in crate::acpi) enum Namestring {
     Root(NamePath),
     Relative { level: u8, path: NamePath },
@@ -141,7 +99,7 @@ impl Namestring {
         }
     }
 
-    pub fn last_name(&self) -> Option<&[u8]> {
+    pub fn last_name(&self) -> Option<&[u8; 4]> {
         match self {
             Namestring::Root(path) => path.last_name(),
             Namestring::Relative { path, .. } => path.last_name(),

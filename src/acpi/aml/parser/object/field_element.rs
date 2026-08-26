@@ -1,19 +1,23 @@
+use core::ptr::NonNull;
+
+use alloc::boxed::Box;
+
 use crate::{
     acpi::aml::{
-        Bytecode, Parser,
+        Parser,
+        evaluator::Evaluatable,
         namespace::{
             self,
-            objects::{FieldAccessType, FieldUnit, FieldUpdateRule},
+            objects::{self, FieldAccessType, FieldUnit, FieldUpdateRule},
         },
         parser::{
             data::PkgLength,
             namestring::{NamePath, Namestring},
         },
     },
+    kernel::memory::kmalloc::Kmalloc,
     lib::rust::spinlock::SpinlockRaw,
 };
-
-pub struct FieldFlags(pub u8);
 
 pub struct NamedField;
 
@@ -23,39 +27,31 @@ impl NamedField {
         let name = bytecode.read(4);
         let pkg_length = PkgLength::from_bytes(bytecode)?;
 
-        let object = namespace::Object::FieldUnit(attribute.get_object(pkg_length.raw_len()));
+        let field = attribute.get_object(pkg_length.length());
+        let object = match attribute.bank.clone() {
+            Some((bank_name, bank_value)) => {
+                let bank = parser.current.get(parser.root, &bank_name)?.0;
+                namespace::Object::BankField(Box::new_in(
+                    objects::BankField {
+                        bank: NonNull::from_ref(bank),
+                        bank_value,
+                        field,
+                    },
+                    Kmalloc::default(),
+                ))
+            }
+            None => namespace::Object::FieldUnit(field),
+        };
         let _ = parser.current.get_or_insert(
             parser.root,
             &Namestring::Relative {
                 level: 0,
-                path: NamePath::Single(name),
+                path: NamePath(unsafe { name.as_chunks_unchecked() }),
             },
             object,
         )?;
 
         Some(Self)
-    }
-}
-
-pub struct ExtendedAccessAttribute(u8);
-
-pub struct ExtendedAccessField {
-    access_type: u8,
-    attribute: ExtendedAccessAttribute,
-    length: u8,
-}
-
-impl ExtendedAccessField {
-    pub fn parse(bytecode: &mut Bytecode) -> Option<Self> {
-        let access_type = bytecode.next()?;
-        let attribute = ExtendedAccessAttribute(bytecode.next()?);
-        let length = bytecode.next()?;
-
-        Some(ExtendedAccessField {
-            access_type,
-            attribute,
-            length,
-        })
     }
 }
 
@@ -70,7 +66,7 @@ impl FieldElement {
             0x00 => {
                 let _ = bytecode.next();
                 let pkg_length = PkgLength::from_bytes(bytecode)?;
-                attribute.offset += pkg_length.raw_len();
+                attribute.offset += pkg_length.length();
                 Some(Self)
             }
             0x01 => {
@@ -95,48 +91,17 @@ impl FieldElement {
     }
 }
 
-#[derive(Clone)]
-enum AccessType {
-    Any,
-    Byte,
-    Word,
-    Dword,
-    Qword,
-    Block,
-}
-
-#[derive(Clone)]
-enum UpdateRule {
-    Preserve,
-    WriteAsOnes,
-    WriteAsZeros,
-}
-
-#[derive(Clone)]
 pub struct FieldUnitAttribute {
+    operation_region: NonNull<namespace::NameSpace>,
     offset: usize,
-    access_type: AccessType,
+    access_type: FieldAccessType,
     lock_rule: bool,
-    update_rule: UpdateRule,
+    update_rule: FieldUpdateRule,
+    bank: Option<(Namestring, Evaluatable)>,
 }
 
 impl FieldUnitAttribute {
     fn get_object(&mut self, length: usize) -> FieldUnit {
-        let access_type = match self.access_type {
-            AccessType::Any => FieldAccessType::Any,
-            AccessType::Byte => FieldAccessType::Byte,
-            AccessType::Word => FieldAccessType::Word,
-            AccessType::Dword => FieldAccessType::Dword,
-            AccessType::Qword => FieldAccessType::Qword,
-            AccessType::Block => FieldAccessType::Block,
-        };
-
-        let update_rule = match self.update_rule {
-            UpdateRule::Preserve => FieldUpdateRule::Preserve,
-            UpdateRule::WriteAsOnes => FieldUpdateRule::WriteAsOnes,
-            UpdateRule::WriteAsZeros => FieldUpdateRule::WriteAsZeros,
-        };
-
         let lock = if self.lock_rule {
             Some(SpinlockRaw::new_unlocked())
         } else {
@@ -146,62 +111,45 @@ impl FieldUnitAttribute {
         self.offset += length;
 
         FieldUnit {
-            access_type,
+            region: self.operation_region,
+            access_type: self.access_type,
             lock,
-            update_rule,
+            update_rule: self.update_rule,
             length: length as u32,
         }
     }
 }
 
 impl FieldUnitAttribute {
-    pub fn new(field_flags: FieldFlags) -> Option<Self> {
-        let access_type = match field_flags.0 & 0b0000_0111 {
-            0 => AccessType::Any,
-            1 => AccessType::Byte,
-            2 => AccessType::Word,
-            3 => AccessType::Dword,
-            4 => AccessType::Qword,
-            5 => AccessType::Block,
-            _ => return None,
-        };
+    fn decode_flags(flag: u8) -> Option<(FieldAccessType, bool, FieldUpdateRule)> {
+        let access_type = (flag & 0b0000_0111).try_into().ok()?;
 
-        let lock_rule = (field_flags.0 & 0b0000_1000) != 0;
+        let lock_rule = (flag & 0b0000_1000) != 0;
 
-        let update_rule = match (field_flags.0 & 0b0011_0000) >> 4 {
-            0 => UpdateRule::Preserve,
-            1 => UpdateRule::WriteAsOnes,
-            2 => UpdateRule::WriteAsZeros,
-            _ => return None,
-        };
+        let update_rule = ((flag & 0b0011_0000) >> 4).try_into().ok()?;
+
+        Some((access_type, lock_rule, update_rule))
+    }
+
+    pub fn new(
+        operation_region: NonNull<namespace::NameSpace>,
+        field_flags: u8,
+        bank: Option<(Namestring, Evaluatable)>,
+    ) -> Option<Self> {
+        let (access_type, lock_rule, update_rule) = Self::decode_flags(field_flags)?;
 
         Some(FieldUnitAttribute {
+            operation_region,
             offset: 0,
             access_type,
             lock_rule,
             update_rule,
+            bank,
         })
     }
 
     fn update(&mut self, flag: u8) -> Option<()> {
-        let access_type = match flag & 0b0000_0111 {
-            0 => AccessType::Any,
-            1 => AccessType::Byte,
-            2 => AccessType::Word,
-            3 => AccessType::Dword,
-            4 => AccessType::Qword,
-            5 => AccessType::Block,
-            _ => return None,
-        };
-
-        let lock_rule = (flag & 0b0000_1000) != 0;
-
-        let update_rule = match (flag & 0b0011_0000) >> 4 {
-            0 => UpdateRule::Preserve,
-            1 => UpdateRule::WriteAsOnes,
-            2 => UpdateRule::WriteAsZeros,
-            _ => return None,
-        };
+        let (access_type, lock_rule, update_rule) = Self::decode_flags(flag)?;
 
         self.access_type = access_type;
         self.lock_rule = lock_rule;
@@ -215,7 +163,7 @@ pub struct FieldList;
 
 impl FieldList {
     pub fn parse(parser: &mut Parser<'_>, mut attribute: FieldUnitAttribute) -> Option<Self> {
-        while let Some(_) = FieldElement::parse(parser, &mut attribute) {}
+        while FieldElement::parse(parser, &mut attribute).is_some() {}
 
         Some(Self)
     }

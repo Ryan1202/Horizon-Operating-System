@@ -4,6 +4,7 @@ use alloc::boxed::Box;
 
 use crate::kernel::memory::kmalloc::Kmalloc;
 
+#[derive(Clone)]
 pub struct Executable {
     bytecode: Box<[u8], Kmalloc>,
 }

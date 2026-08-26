@@ -27,6 +27,7 @@ pub static NAMESPACE_ROOT: Spinlock<NameSpace> = Spinlock::new(NameSpace::new_un
     Object::Scope,
 ));
 
+#[derive(Clone)]
 pub struct Name([u8; 4]);
 
 impl Name {
@@ -35,7 +36,7 @@ impl Name {
     }
 }
 
-impl fmt::Display for Name {
+impl fmt::Debug for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {
             f.write_char(char::from(byte))?;
@@ -56,8 +57,8 @@ impl From<&[u8]> for Name {
     }
 }
 
-impl<'a> Into<&'a [u8]> for &'a Name {
-    fn into(self) -> &'a [u8] {
+impl AsRef<[u8]> for Name {
+    fn as_ref(&self) -> &[u8] {
         self.0.as_slice()
     }
 }
@@ -112,7 +113,7 @@ impl NameSpace {
 
     fn print_tree_at(&self, depth: usize) {
         printk!(
-            "{:indent$}{} {:?}\n",
+            "{:indent$}{:?} {:?}\n",
             "",
             self.name,
             self.object,
@@ -128,9 +129,7 @@ impl NameSpace {
     pub fn select_child_by_name(&self, name: &[u8]) -> Option<&NameSpace> {
         let mut guard = self.children_locked();
         unsafe { guard.as_mut().get_unchecked_mut().iter() }
-            .find(|child: &NonNull<Self>| {
-                <&Name as Into<&[u8]>>::into(unsafe { child.as_ref() }.name()) == name
-            })
+            .find(|child: &NonNull<Self>| unsafe { child.as_ref() }.name().as_ref() == name)
             .map(|child| unsafe { child.as_ref() })
     }
 
@@ -146,7 +145,7 @@ impl NameSpace {
 }
 
 impl NameSpace {
-    pub(super) fn get<'a, 'name>(
+    fn _get<'a, 'name>(
         &'a self,
         root: &'a NameSpace,
         namestring: &'name Namestring,
@@ -179,13 +178,26 @@ impl NameSpace {
         Some((current, None))
     }
 
+    pub(super) fn get<'a, 'name>(
+        &'a self,
+        root: &'a NameSpace,
+        namestring: &'name Namestring,
+    ) -> Option<(&'a NameSpace, Option<&'name [u8]>)> {
+        let (current, last_name) = self._get(root, namestring)?;
+        if last_name.is_some() {
+            None
+        } else {
+            Some((current, last_name))
+        }
+    }
+
     pub(super) fn get_or_insert<'a, 'name>(
         &'a self,
         root: &'a NameSpace,
         namestring: &'name Namestring,
         object: Object,
     ) -> Option<&'a NameSpace> {
-        let (mut current, last_name) = self.get(root, namestring)?;
+        let (mut current, last_name) = self._get(root, namestring)?;
         if let Some(last_name) = last_name {
             let child = NameSpace::new_uninit(Name::from(last_name), object);
             let mut child = Box::<_, Kmalloc>::new_in(child, Kmalloc::default());
@@ -195,20 +207,6 @@ impl NameSpace {
         }
         Some(current)
     }
-
-    pub(super) fn insert<'a, 'name>(&'a self, name: &'name [u8], object: Object) -> &'a NameSpace {
-        let child = NameSpace::new_uninit(Name::from(name), object);
-        let mut child = Box::<_, Kmalloc>::new_in(child, Kmalloc::default());
-        child.init();
-        self.add_child(&mut child);
-        Box::leak(child)
-    }
-}
-
-#[derive(Debug)]
-pub enum NameSpaceBinding {
-    Unresolved(&'static [u8]),
-    Resolved(NonNull<NameSpace>),
 }
 
 pub fn init_namespace() {
