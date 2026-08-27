@@ -71,19 +71,19 @@ Horizon 已从早期的 32 位内核逐步迁移为 x86_64 高半区内核，并
 
    - [x] Table Manager
 
-   - [ ] FADT
+   - [x] FADT
 
    - [ ] FACS
 
-   - [ ] DSDT / SSDT discovery & loading
+   - [x] DSDT / SSDT discovery & loading
 
    - [ ] Generic table lookup / mapping
 
 2. #### AML Runtime
 
-   - [ ] AML Parser
+   - [x] AML Parser
 
-   - [ ] Namespace
+   - [x] Namespace
 
    - [ ] Object Model
    - [ ] Interpreter
@@ -139,7 +139,9 @@ Horizon 已从早期的 32 位内核逐步迁移为 x86_64 高半区内核，并
 
 7. #### Architecture / Platform Description
 
-   - [ ] MADT → interrupt-controller discovery
+   - [x] MADT → interrupt-controller discovery
+
+     - [x] Local APIC & I/O APIC
 
    - [ ] MCFG → PCIe ECAM
 
