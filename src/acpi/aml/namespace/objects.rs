@@ -8,39 +8,59 @@ use alloc::boxed::Box;
 
 use crate::{
     acpi::aml::{
-        evaluator::Evaluatable,
+        evaluator::{self, Evaluatable},
         executor::Executable,
         namespace::{
             NameSpace,
-            data::{Package, VarPackage},
+            data::{Package, PackageElement, VarPackage},
         },
     },
     kernel::memory::kmalloc::Kmalloc,
-    lib::rust::spinlock::SpinlockRaw,
+    lib::rust::spinlock::{Spinlock, SpinlockRaw},
 };
 
 #[derive(Clone)]
-pub enum Object {
-    // 数据类型
+pub enum DataObject {
     Integer(u64),
     String(Box<[i8], Kmalloc>),
     Buffer(Box<[u8], Kmalloc>),
     Package(Package),
     VarPackage(VarPackage),
     Revision,
+}
+
+impl fmt::Debug for DataObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DataObject::Integer(int) => write!(f, "{:#x}", int),
+            DataObject::String(str) => {
+                write!(f, "String({:?})", unsafe { CStr::from_ptr(str.as_ptr()) })
+            }
+            DataObject::Buffer(buffer) => write!(f, "Buffer({:?})", buffer),
+            DataObject::Package(package) => write!(f, "{:?}", package),
+            DataObject::VarPackage(var_package) => write!(f, "{:?}", var_package),
+            DataObject::Revision => write!(f, "Revision"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum Object {
+    // 数据类型
+    Data(DataObject),
     // 节点类型
     Alias(NonNull<NameSpace>),
-    BankField(Box<BankField, Kmalloc>),
-    CreateField(Box<CreateField, Kmalloc>),
-    DataTableRegion(Box<DataTableRegion, Kmalloc>),
+    BankField(BankField),
+    CreateField(CreateField),
+    DataTableRegion(DataTableRegion),
     Device,
     Event,
     External(External),
     FieldUnit(FieldUnit),
     Method(Method),
     Mutex(Mutex),
-    ObjectReference(Box<Evaluatable, Kmalloc>),
-    OperationRegion(Box<OperationRegion, Kmalloc>),
+    ObjectReference(Evaluatable),
+    OperationRegion(OperationRegion),
     PowerResource(PowerResource),
     Processor,
     Scope,
@@ -50,14 +70,7 @@ pub enum Object {
 impl fmt::Debug for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Object::Integer(int) => write!(f, "{:#x}", int),
-            Object::String(str) => {
-                write!(f, "String({:?})", unsafe { CStr::from_ptr(str.as_ptr()) })
-            }
-            Object::Buffer(buffer) => write!(f, "Buffer({:?})", buffer),
-            Object::Package(package) => write!(f, "{:?}", package),
-            Object::VarPackage(var_package) => write!(f, "{:?}", var_package),
-            Object::Revision => write!(f, "Revision"),
+            Object::Data(data) => write!(f, "{:?}", data),
             Object::Device => write!(f, "Device"),
             Object::Alias(alias) => write!(f, "Alias({:?})", alias),
             Object::CreateField(create_field) => write!(f, "{:?}", create_field),
@@ -79,12 +92,13 @@ impl fmt::Debug for Object {
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct Method {
     pub sync_level: u8,
     pub serialize: bool,
     pub arg_count: u8,
-    pub bytecode: Executable,
+    pub executable: Executable,
 }
 
 #[derive(Debug, Clone)]
@@ -100,8 +114,8 @@ pub enum RegionSpace {
 #[derive(Debug, Clone)]
 pub struct OperationRegion {
     pub region_space: RegionSpace,
-    pub offset: Box<Evaluatable, Kmalloc>,
-    pub len: Box<Evaluatable, Kmalloc>,
+    pub offset: Evaluatable,
+    pub len: Evaluatable,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -157,20 +171,22 @@ impl TryFrom<u8> for FieldUpdateRule {
 #[derive(Debug)]
 pub struct FieldUnit {
     pub region: NonNull<NameSpace>,
+    pub bit_offset: u32,
+    pub bit_length: u32,
     pub access_type: FieldAccessType,
-    pub lock: Option<SpinlockRaw>,
+    pub lock: Option<Spinlock<()>>,
     pub update_rule: FieldUpdateRule,
-    pub length: u32,
 }
 
 impl Clone for FieldUnit {
     fn clone(&self) -> Self {
         Self {
             region: self.region,
+            bit_offset: self.bit_offset,
+            bit_length: self.bit_length,
             access_type: self.access_type.clone(),
-            lock: self.lock.is_some().then_some(SpinlockRaw::new_unlocked()),
+            lock: self.lock.is_some().then_some(Spinlock::new(())),
             update_rule: self.update_rule.clone(),
-            length: self.length,
         }
     }
 }
@@ -197,14 +213,14 @@ impl RegionSpace {
 
 #[derive(Debug)]
 pub struct Mutex {
-    lock: SpinlockRaw,
+    _lock: SpinlockRaw,
     level: u8,
 }
 
 impl Clone for Mutex {
     fn clone(&self) -> Self {
         Self {
-            lock: SpinlockRaw::new_unlocked(),
+            _lock: SpinlockRaw::new_unlocked(),
             level: self.level,
         }
     }
@@ -213,7 +229,7 @@ impl Clone for Mutex {
 impl Mutex {
     pub const fn new(level: u8) -> Self {
         Mutex {
-            lock: SpinlockRaw::new_unlocked(),
+            _lock: SpinlockRaw::new_unlocked(),
             level,
         }
     }

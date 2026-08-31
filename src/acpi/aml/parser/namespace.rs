@@ -1,18 +1,13 @@
 use core::ptr::NonNull;
 
-use alloc::boxed::Box;
-
-use crate::{
-    acpi::aml::{
-        Parser,
-        namespace::{self},
-        parser::{
-            data::{DataRefObject, PkgLength},
-            namestring::Namestring,
-            term::TermList,
-        },
+use crate::acpi::aml::{
+    Parser,
+    namespace::{self, Object},
+    parser::{
+        data::{DataRefObject, PkgLength},
+        namestring::Namestring,
+        term::TermList,
     },
-    kernel::memory::kmalloc::Kmalloc,
 };
 
 pub struct Alias;
@@ -22,7 +17,7 @@ impl Alias {
         let name = Namestring::from_bytes(&mut parser.bytecode)?;
         let target = Namestring::from_bytes(&mut parser.bytecode)?;
 
-        let target = parser.current.get(parser.root, &target)?.0;
+        let target = parser.current.get(parser.root, &target)?;
         let target = NonNull::from_ref(target);
 
         let _ =
@@ -42,10 +37,8 @@ impl Name {
         let data_ref = DataRefObject::parse(parser)?;
 
         let object = match data_ref {
-            DataRefObject::DataObject(data) => data.into(),
-            DataRefObject::ObjectReference(eval) => {
-                namespace::Object::ObjectReference(Box::new_in(eval, Kmalloc::default()))
-            }
+            DataRefObject::DataObject(data) => Object::Data(data),
+            DataRefObject::ObjectReference(eval) => namespace::Object::ObjectReference(eval),
         };
 
         let _object = parser.current.get_or_insert(parser.root, &name, object)?;

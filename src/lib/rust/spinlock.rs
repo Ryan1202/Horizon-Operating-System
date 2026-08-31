@@ -7,6 +7,7 @@
 
 use core::cell::UnsafeCell;
 use core::ffi::c_int;
+use core::fmt;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
@@ -52,6 +53,20 @@ impl Deref for CSpinlock {
 #[repr(transparent)]
 pub struct SpinlockRaw {
     lock: AtomicU32,
+}
+
+impl fmt::Debug for SpinlockRaw {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "SpinlockRaw::{}",
+            if self.lock.load(Ordering::Relaxed) > 0 {
+                "Locked"
+            } else {
+                "Unlocked"
+            }
+        )
+    }
 }
 
 impl SpinlockRaw {
@@ -147,6 +162,19 @@ pub struct Spinlock<T> {
 
 unsafe impl<T> Sync for Spinlock<T> {}
 unsafe impl<T> Send for Spinlock<T> {}
+
+impl<T: fmt::Debug> fmt::Debug for Spinlock<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let lock = self.lock.lock.load(Ordering::Relaxed);
+        if lock > 0 {
+            write!(f, "Spinlock<Locked>({:?})", unsafe { &*self._inner.get() })
+        } else {
+            write!(f, "Spinlock<Unlocked>({:?})", unsafe {
+                &*self._inner.get()
+            })
+        }
+    }
+}
 
 pub struct SpinGuard<'a, T: Deref> {
     lock: &'a SpinlockRaw,

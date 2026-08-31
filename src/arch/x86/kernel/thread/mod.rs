@@ -139,7 +139,7 @@ unsafe extern "custom" fn x86_switch_to() {
 /// wrapper 进入不返回的调度器退出路径
 #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 #[unsafe(naked)]
-unsafe extern "custom" fn x86_kernel_thread_entry() -> ! {
+unsafe extern "custom" fn x86_kernel_thread_entry() {
     naked_asm!(
         // 线程函数在 r12 中，调用约定要求第一个参数在 rdi 中
         "mov rdi, r12",

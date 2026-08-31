@@ -2,23 +2,33 @@ use core::ops::{Deref, DerefMut};
 
 use crate::acpi::aml::{Bytecode, namespace::NameSpace, parser::term::TermList};
 
-mod data;
+pub(super) mod data;
 mod namespace;
 pub(super) mod namestring;
 mod object;
-mod op;
-mod prefix;
-mod term;
+pub(super) mod term;
 
 pub struct Parser<'rootref> {
-    bytecode: Bytecode,
+    pub bytecode: Bytecode<'rootref>,
     root: &'rootref NameSpace,
     current: &'rootref NameSpace,
 }
 
 impl<'rootref> Parser<'rootref> {
-    pub fn new(bytecode: Bytecode, root: &'rootref NameSpace) -> Self {
+    pub fn new(bytecode: Bytecode<'static>, root: &'rootref NameSpace) -> Self {
         let current = root;
+        Self {
+            bytecode,
+            root,
+            current,
+        }
+    }
+
+    pub fn from_context<'bc: 'rootref>(
+        bytecode: Bytecode<'bc>,
+        root: &'rootref NameSpace,
+        current: &'rootref NameSpace,
+    ) -> Self {
         Self {
             bytecode,
             root,
@@ -52,7 +62,7 @@ impl<'rootref> Parser<'rootref> {
         ParserSlice::new(self, slice_parser, length)
     }
 
-    fn slice(&mut self, length: usize) -> Option<ParserSlice<'_, 'rootref>> {
+    pub(super) fn slice(&mut self, length: usize) -> Option<ParserSlice<'_, 'rootref>> {
         let slice_parser = Self {
             bytecode: self.bytecode.slice(length),
             root: self.root,
@@ -62,8 +72,8 @@ impl<'rootref> Parser<'rootref> {
     }
 }
 
-struct ParserSlice<'parser, 'rootref> {
-    parser: &'parser mut Parser<'rootref>,
+pub(super) struct ParserSlice<'parser, 'rootref> {
+    _parser: &'parser mut Parser<'rootref>,
     slice: Parser<'rootref>,
 }
 
@@ -75,7 +85,10 @@ impl<'parser, 'rootref> ParserSlice<'parser, 'rootref> {
     ) -> Option<Self> {
         parser.bytecode.skip(length);
 
-        Some(Self { parser, slice })
+        Some(Self {
+            _parser: parser,
+            slice,
+        })
     }
 }
 

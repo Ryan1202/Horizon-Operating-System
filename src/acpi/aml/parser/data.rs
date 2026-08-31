@@ -6,23 +6,18 @@ use crate::{
     acpi::aml::{
         Bytecode, Parser,
         evaluator::{self, Evaluatable, IndexOf},
-        namespace::{self, data},
-        parser::{namestring::Namestring, op::Opcode, term::TermArg},
+        namespace::{
+            data::{self, Package, VarPackage},
+            objects::DataObject,
+        },
+        opcode::Opcode,
+        parser::{namestring::Namestring, term::TermArg},
     },
     kernel::memory::kmalloc::Kmalloc,
 };
 
-pub(in crate::acpi) enum DataObject {
-    String(&'static [u8]),
-    Integer(u64),
-    RevisionOp,
-    Buffer(Buffer),
-    DefPackage(DefPackage),
-    DefVarPackage(DefVarPackage),
-}
-
 impl DataObject {
-    pub fn parse(op: Opcode, parser: &mut Parser<'_>) -> Option<Self> {
+    pub fn parse<'a>(op: Opcode, parser: &mut Parser<'a>) -> Option<DataObject> {
         let bytecode = &mut parser.bytecode;
 
         match op {
@@ -41,38 +36,21 @@ impl DataObject {
                 {
                     length += 1;
                 }
-                Some(DataObject::String(bc.read(length)))
+                Some(DataObject::String(unsafe {
+                    slice::from_raw_parts(bc.read(length).as_ptr() as *const i8, length)
+                        .to_vec_in(Kmalloc::default())
+                        .into_boxed_slice()
+                }))
             }
-            Opcode::Revision => Some(DataObject::RevisionOp),
-            Opcode::Buffer => Some(DataObject::Buffer(Buffer::from_bytes(bytecode)?)),
-            Opcode::Package => Some(DataObject::DefPackage(DefPackage::parse(parser)?)),
-            Opcode::VarPackage => Some(DataObject::DefVarPackage(DefVarPackage::parse(parser)?)),
-            _ => None,
-        }
-    }
-}
-
-impl From<DataObject> for namespace::Object {
-    fn from(data_object: DataObject) -> namespace::Object {
-        use namespace::Object;
-        match data_object {
-            DataObject::Integer(int) => Object::Integer(int),
-            DataObject::Buffer(buffer) => {
-                Object::Buffer(buffer.data.to_vec_in(Kmalloc::default()).into_boxed_slice())
-            }
-            DataObject::String(str) => Object::String(
-                unsafe { slice::from_raw_parts(str.as_ptr().cast(), str.len()) }
+            Opcode::Revision => Some(DataObject::Revision),
+            Opcode::Buffer => Some(DataObject::Buffer(
+                parse_buffer(bytecode)?
                     .to_vec_in(Kmalloc::default())
                     .into_boxed_slice(),
-            ),
-            DataObject::RevisionOp => Object::Revision,
-            DataObject::DefPackage(package) => {
-                Object::Package(data::Package::new(package.elements))
-            }
-            DataObject::DefVarPackage(package) => Object::VarPackage(data::VarPackage::new(
-                package.num_elements,
-                package.elements,
             )),
+            Opcode::Package => Some(DataObject::Package(Package::parse(parser)?)),
+            Opcode::VarPackage => Some(DataObject::VarPackage(VarPackage::parse(parser)?)),
+            _ => None,
         }
     }
 }
@@ -84,7 +62,7 @@ pub(in crate::acpi) enum DataRefObject {
 
 impl DataRefObject {
     pub fn parse(parser: &mut Parser<'_>) -> Option<Self> {
-        let opcode = Opcode::from(&mut parser.bytecode)?;
+        let opcode = Opcode::parse(&mut parser.bytecode).ok()?;
         match DataObject::parse(opcode, parser) {
             Some(data_object) => Some(DataRefObject::DataObject(data_object)),
             None => Reference::parse(opcode, parser).map(DataRefObject::ObjectReference),
@@ -96,26 +74,22 @@ fn parse_element(parser: &mut Parser<'_>) -> Option<data::PackageElement> {
     use data::PackageElement;
     if let Some(data_ref) = DataRefObject::parse(parser) {
         match data_ref {
-            DataRefObject::DataObject(data) => Some(PackageElement::DataObject(data.into())),
+            DataRefObject::DataObject(data) => Some(PackageElement::DataObject(data)),
             DataRefObject::ObjectReference(eval) => Some(PackageElement::ObjectReference(eval)),
         }
     } else if let Some(namestring) = Namestring::from_bytes(&mut parser.bytecode) {
-        let namespace = NonNull::from_ref(parser.current.get(parser.root, &namestring)?.0);
+        let namespace = NonNull::from_ref(parser.current.get(parser.root, &namestring)?);
         Some(PackageElement::NameSpaceReference(namespace))
     } else {
         None
     }
 }
 
-pub(in crate::acpi) struct DefPackage {
-    pub elements: Vec<data::PackageElement, Kmalloc>,
-}
-
-impl DefPackage {
+impl Package {
     pub fn parse(parser: &mut Parser<'_>) -> Option<Self> {
         let elements = Self::parse_package(parser)?;
 
-        Some(Self { elements })
+        Some(Self::new(elements))
     }
 
     pub fn parse_package(parser: &mut Parser<'_>) -> Option<Vec<data::PackageElement, Kmalloc>> {
@@ -138,37 +112,23 @@ impl DefPackage {
     }
 }
 
-pub(in crate::acpi) struct DefVarPackage {
-    pub num_elements: Box<Evaluatable, Kmalloc>,
-    pub elements: Vec<data::PackageElement, Kmalloc>,
-}
-
-impl DefVarPackage {
+impl VarPackage {
     pub fn parse(parser: &mut Parser<'_>) -> Option<Self> {
         let pkg_length = PkgLength::from_bytes(&mut parser.bytecode)?;
 
         let mut slice = parser.slice(pkg_length.payload_length())?;
-        let num_elements = Box::new_in(TermArg::parse(&mut slice)?.into(), Kmalloc::default());
-        let elements = DefPackage::parse_package(&mut slice)?;
+        let num_elements = Box::new_in(TermArg::parse(&mut slice).ok()?.into(), Kmalloc::default());
+        let elements = Package::parse_package(&mut slice)?;
 
-        Some(Self {
-            num_elements,
-            elements,
-        })
+        Some(Self::new(num_elements, elements))
     }
 }
 
-pub(in crate::acpi) struct Buffer {
-    pub data: &'static [u8],
-}
+pub fn parse_buffer<'a>(bytecode: &mut Bytecode<'a>) -> Option<&'a [u8]> {
+    let length = PkgLength::from_bytes(bytecode)?;
+    let data = bytecode.read(length.payload_length());
 
-impl Buffer {
-    pub fn from_bytes(bytecode: &mut Bytecode) -> Option<Self> {
-        let length = PkgLength::from_bytes(bytecode)?;
-        let data = bytecode.read(length.payload_length());
-
-        Some(Buffer { data })
-    }
+    Some(data)
 }
 
 pub(in crate::acpi) struct PkgLength(u32, usize);
@@ -220,7 +180,7 @@ impl SimpleName {
                 }
             }
             _ => {
-                let opcode = Opcode::from(&mut parser.bytecode.slice(2))?;
+                let opcode = Opcode::parse(&mut parser.bytecode.slice(2)).ok()?;
                 match opcode {
                     Opcode::Arg(u8) => Some(Ok(evaluator::SuperName::Builtin(
                         evaluator::BuiltinObject::Arg(u8),
@@ -259,14 +219,14 @@ impl Reference {
             }
             Opcode::DerefOf => {
                 let nested = Box::new_in(
-                    Self::parse_one(Opcode::from(&mut parser.bytecode)?, parser)?,
+                    Self::parse_one(Opcode::parse(&mut parser.bytecode).ok()?, parser)?,
                     Kmalloc::default(),
                 );
                 Some(evaluator::ReferenceType::DerefOf(nested))
             }
             Opcode::Index => {
-                let source = TermArg::parse(parser)?.into();
-                let index = TermArg::parse(parser)?.into();
+                let source = TermArg::parse(parser).ok()?.into();
+                let index = TermArg::parse(parser).ok()?.into();
                 let target = Self::parse_target(parser)?;
 
                 let index_of = IndexOf {
@@ -295,7 +255,9 @@ impl Reference {
         Some(super_name)
     }
 
-    fn parse_target(parser: &mut Parser<'_>) -> Option<Option<evaluator::SuperName>> {
+    pub(in crate::acpi) fn parse_target(
+        parser: &mut Parser<'_>,
+    ) -> Option<Option<evaluator::SuperName>> {
         let target = SimpleName::parse(parser, true)?;
         let target = target.map_or_else(
             |opcode| {

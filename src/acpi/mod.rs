@@ -2,10 +2,14 @@ use core::ptr::NonNull;
 
 use crate::{
     acpi::{
-        aml::namespace::{NameSpace, init_namespace},
+        aml::{
+            executor::Executor,
+            namespace::{NameSpace, init_namespace},
+        },
         tables::{RsdpV1, TableManager},
     },
     lib::rust::spinlock::{SpinGuard, Spinlock},
+    printk,
 };
 
 pub mod aml;
@@ -29,12 +33,11 @@ impl Acpi {
         init_namespace();
 
         let dsdt = table_manager.dsdt()?;
-        let bytecode = aml::Bytecode::from_bytes(dsdt.aml_bytes());
+        let bytecode = aml::Bytecode::new(dsdt.aml_bytes());
 
         let guard = NameSpace::root().lock_pinned();
         let mut parser = aml::Parser::new(bytecode, guard.as_ref().get_ref());
         let _ = parser.parse();
-        guard.as_ref().get_ref().print_tree();
 
         Some(Self { table_manager })
     }
@@ -47,6 +50,26 @@ impl Acpi {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn acpi_init() {
     *acpi() = Acpi::new();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn acpi_print_namespace() {
+    // NameSpace::root().lock_pinned().print_tree();
+    let guard = NameSpace::root().lock_pinned();
+    let root = guard.as_ref().get_ref();
+    let current = root.get_by_path(&[b"_SB_", b"LNKA", b"_STA"]).unwrap();
+    let _sta = current.try_into().ok().unwrap();
+
+    let mut executor = Executor::new(_sta, &[], root, current);
+    let return_value = executor.execute().unwrap();
+    match return_value {
+        Some(obj) => {
+            printk!("AML Method returns {:?}\n", obj)
+        }
+        None => {
+            printk!("AML Method returns None\n")
+        }
+    }
 }
 
 pub fn acpi<'a>() -> SpinGuard<'a, &'a mut Option<Acpi>> {

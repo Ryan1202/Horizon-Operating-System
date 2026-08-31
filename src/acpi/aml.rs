@@ -1,6 +1,7 @@
 pub mod evaluator;
 pub mod executor;
 pub mod namespace;
+mod opcode;
 mod parser;
 
 use core::array;
@@ -8,20 +9,20 @@ use core::array;
 pub use parser::Parser;
 
 #[derive(Clone, Default)]
-pub struct Bytecode {
-    data: &'static [u8],
-    current: &'static [u8],
+pub struct Bytecode<'a> {
+    data: &'a [u8],
+    current: &'a [u8],
 }
 
-impl Bytecode {
-    pub fn from_bytes(data: &'static [u8]) -> Bytecode {
+impl<'a> Bytecode<'a> {
+    pub fn new(data: &'a [u8]) -> Bytecode<'a> {
         Bytecode {
             data,
             current: data,
         }
     }
 
-    pub fn read(&mut self, size: usize) -> &'static [u8] {
+    pub fn read(&mut self, size: usize) -> &'a [u8] {
         let (left, right) = self.current.split_at(size);
         self.current = right;
         left
@@ -56,7 +57,7 @@ impl Bytecode {
         self.current = &self.current[count..];
     }
 
-    pub fn slice(&self, size: usize) -> Bytecode {
+    pub fn slice(&mut self, size: usize) -> Self {
         let current = &self.current[..size];
         Bytecode {
             data: current,

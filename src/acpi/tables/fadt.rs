@@ -150,6 +150,7 @@ impl DescriptionTable for Fadt {
     const SIGN: &[u8; 4] = FADT_SIGNATURE;
 }
 
+#[allow(unused)]
 pub struct FadtFlag {
     wbinvd: bool,
     wbinvd_flush: bool,

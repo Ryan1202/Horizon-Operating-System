@@ -1,7 +1,5 @@
 use core::ptr::NonNull;
 
-use alloc::boxed::Box;
-
 use crate::{
     acpi::aml::{
         Parser,
@@ -15,8 +13,7 @@ use crate::{
             namestring::{NamePath, Namestring},
         },
     },
-    kernel::memory::kmalloc::Kmalloc,
-    lib::rust::spinlock::SpinlockRaw,
+    lib::rust::spinlock::Spinlock,
 };
 
 pub struct NamedField;
@@ -30,15 +27,12 @@ impl NamedField {
         let field = attribute.get_object(pkg_length.length());
         let object = match attribute.bank.clone() {
             Some((bank_name, bank_value)) => {
-                let bank = parser.current.get(parser.root, &bank_name)?.0;
-                namespace::Object::BankField(Box::new_in(
-                    objects::BankField {
-                        bank: NonNull::from_ref(bank),
-                        bank_value,
-                        field,
-                    },
-                    Kmalloc::default(),
-                ))
+                let bank = parser.current.get(parser.root, &bank_name)?;
+                namespace::Object::BankField(objects::BankField {
+                    bank: NonNull::from_ref(bank),
+                    bank_value,
+                    field,
+                })
             }
             None => namespace::Object::FieldUnit(field),
         };
@@ -66,7 +60,7 @@ impl FieldElement {
             0x00 => {
                 let _ = bytecode.next();
                 let pkg_length = PkgLength::from_bytes(bytecode)?;
-                attribute.offset += pkg_length.length();
+                attribute.bit_offset = pkg_length.length() as u64 * 8;
                 Some(Self)
             }
             0x01 => {
@@ -91,36 +85,37 @@ impl FieldElement {
     }
 }
 
-pub struct FieldUnitAttribute {
+pub struct FieldUnitAttribute<'a> {
     operation_region: NonNull<namespace::NameSpace>,
-    offset: usize,
+    bit_offset: u64,
     access_type: FieldAccessType,
     lock_rule: bool,
     update_rule: FieldUpdateRule,
-    bank: Option<(Namestring, Evaluatable)>,
+    bank: Option<(Namestring<'a>, Evaluatable)>,
 }
 
-impl FieldUnitAttribute {
+impl<'a> FieldUnitAttribute<'a> {
     fn get_object(&mut self, length: usize) -> FieldUnit {
         let lock = if self.lock_rule {
-            Some(SpinlockRaw::new_unlocked())
+            Some(Spinlock::new(()))
         } else {
             None
         };
 
-        self.offset += length;
+        self.bit_offset += length as u64;
 
         FieldUnit {
             region: self.operation_region,
+            bit_offset: self.bit_offset as u32,
+            bit_length: length as u32,
             access_type: self.access_type,
             lock,
             update_rule: self.update_rule,
-            length: length as u32,
         }
     }
 }
 
-impl FieldUnitAttribute {
+impl<'a> FieldUnitAttribute<'a> {
     fn decode_flags(flag: u8) -> Option<(FieldAccessType, bool, FieldUpdateRule)> {
         let access_type = (flag & 0b0000_0111).try_into().ok()?;
 
@@ -134,13 +129,13 @@ impl FieldUnitAttribute {
     pub fn new(
         operation_region: NonNull<namespace::NameSpace>,
         field_flags: u8,
-        bank: Option<(Namestring, Evaluatable)>,
+        bank: Option<(Namestring<'a>, Evaluatable)>,
     ) -> Option<Self> {
         let (access_type, lock_rule, update_rule) = Self::decode_flags(field_flags)?;
 
         Some(FieldUnitAttribute {
             operation_region,
-            offset: 0,
+            bit_offset: 0,
             access_type,
             lock_rule,
             update_rule,

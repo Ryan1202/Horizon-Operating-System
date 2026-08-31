@@ -7,6 +7,8 @@ use core::{
     ptr::{NonNull, null_mut},
 };
 
+use alloc::alloc::{AllocatorClone, StaticAllocator};
+
 use crate::{
     arch::{ArchPageTable, PhysAddr, VirtAddr},
     kernel::memory::{
@@ -118,6 +120,9 @@ unsafe impl Allocator for Kmalloc<Kernel> {
         }
     }
 }
+
+unsafe impl<T> AllocatorClone for Kmalloc<T> where Kmalloc<T>: Allocator + Clone {}
+unsafe impl<T> StaticAllocator for Kmalloc<T> where Kmalloc<T>: Allocator + Clone {}
 
 #[unsafe(export_name = "kmalloc")]
 pub extern "C" fn kmalloc_c(size: usize) -> *mut c_void {

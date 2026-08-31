@@ -5,14 +5,14 @@ use alloc::{boxed::Box, vec::Vec};
 use crate::{
     acpi::aml::{
         evaluator::Evaluatable,
-        namespace::{NameSpace, Object},
+        namespace::{NameSpace, objects::DataObject},
     },
     kernel::memory::kmalloc::Kmalloc,
 };
 
 #[derive(Clone)]
 pub enum PackageElement {
-    DataObject(Object),
+    DataObject(DataObject),
     ObjectReference(Evaluatable),
     NameSpaceReference(NonNull<NameSpace>),
 }
@@ -29,7 +29,7 @@ impl fmt::Debug for PackageElement {
 
 #[derive(Debug, Clone)]
 pub struct Package {
-    elements: Vec<PackageElement, Kmalloc>,
+    pub elements: Vec<PackageElement, Kmalloc>,
 }
 
 impl Package {

@@ -1,8 +1,9 @@
 use core::{
+    cell::UnsafeCell,
     field::field_of,
     fmt::{self, Write},
     pin::Pin,
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 pub mod data;
@@ -22,10 +23,9 @@ use crate::{
     printk,
 };
 
-pub static NAMESPACE_ROOT: Spinlock<NameSpace> = Spinlock::new(NameSpace::new_uninit(
-    Name::new([b'\\', 0, 0, 0]),
-    Object::Scope,
-));
+pub const ROOT_NAME: [u8; 4] = [b'\\', 0, 0, 0];
+pub static NAMESPACE_ROOT: Spinlock<NameSpace> =
+    Spinlock::new(NameSpace::new_uninit(Name::new(ROOT_NAME), Object::Scope));
 
 #[derive(Clone)]
 pub struct Name([u8; 4]);
@@ -33,6 +33,10 @@ pub struct Name([u8; 4]);
 impl Name {
     pub const fn new(bytes: [u8; 4]) -> Self {
         Self(bytes)
+    }
+
+    pub const fn as_ref(&self) -> &[u8; 4] {
+        &self.0
     }
 }
 
@@ -57,18 +61,18 @@ impl From<&[u8]> for Name {
     }
 }
 
-impl AsRef<[u8]> for Name {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_slice()
+impl AsRef<[u8; 4]> for Name {
+    fn as_ref(&self) -> &[u8; 4] {
+        &self.0
     }
 }
 
 pub struct NameSpace {
     name: Name,
-    object: Object,
+    object: UnsafeCell<Object>,
 
-    list_node: ListNode<NameSpace>,
-    children: Spinlock<ListHead<field_of!(NameSpace, list_node)>>,
+    _list_node: ListNode<NameSpace>,
+    children: Spinlock<ListHead<field_of!(NameSpace, _list_node)>>,
     parent: Option<NonNull<NameSpace>>,
 }
 
@@ -76,8 +80,8 @@ impl NameSpace {
     pub const fn new_uninit(name: Name, object: Object) -> Self {
         Self {
             name,
-            object,
-            list_node: ListNode::new(),
+            object: UnsafeCell::new(object),
+            _list_node: ListNode::new(),
             children: Spinlock::new(ListHead::default()),
             parent: None,
         }
@@ -126,21 +130,30 @@ impl NameSpace {
         }
     }
 
-    pub fn select_child_by_name(&self, name: &[u8]) -> Option<&NameSpace> {
+    pub fn select_child_by_name(&self, name: &[u8; 4]) -> Option<&NameSpace> {
         let mut guard = self.children_locked();
         unsafe { guard.as_mut().get_unchecked_mut().iter() }
             .find(|child: &NonNull<Self>| unsafe { child.as_ref() }.name().as_ref() == name)
             .map(|child| unsafe { child.as_ref() })
     }
 
-    fn children_pinned(&self) -> Pin<&Spinlock<ListHead<field_of!(NameSpace, list_node)>>> {
+    fn children_pinned(&self) -> Pin<&Spinlock<ListHead<field_of!(NameSpace, _list_node)>>> {
         unsafe { Pin::new_unchecked(&self.children) }
     }
 
     pub fn children_locked(
         &self,
-    ) -> SpinGuard<'_, Pin<&mut ListHead<field_of!(NameSpace, list_node)>>> {
+    ) -> SpinGuard<'_, Pin<&mut ListHead<field_of!(NameSpace, _list_node)>>> {
         self.children_pinned().lock_pinned()
+    }
+
+    pub const fn object(&self) -> &Object {
+        unsafe { &*self.object.get() }
+    }
+
+    pub fn with_object(&mut self, f: impl FnOnce(&mut Object)) {
+        let object = self.object.get_mut();
+        f(object);
     }
 }
 
@@ -182,12 +195,23 @@ impl NameSpace {
         &'a self,
         root: &'a NameSpace,
         namestring: &'name Namestring,
-    ) -> Option<(&'a NameSpace, Option<&'name [u8]>)> {
-        let (current, last_name) = self._get(root, namestring)?;
+    ) -> Option<&'a NameSpace> {
+        let Some((current, last_name)) = self._get(root, namestring) else {
+            if ptr::eq(self, root) {
+                return None;
+            }
+
+            return self.parent()?.get(root, namestring);
+        };
+
         if last_name.is_some() {
-            None
+            if ptr::eq(self, root) {
+                return None;
+            }
+
+            return self.parent()?.get(root, namestring);
         } else {
-            Some((current, last_name))
+            Some(current)
         }
     }
 
@@ -197,7 +221,14 @@ impl NameSpace {
         namestring: &'name Namestring,
         object: Object,
     ) -> Option<&'a NameSpace> {
-        let (mut current, last_name) = self._get(root, namestring)?;
+        let Some((mut current, last_name)) = self._get(root, namestring) else {
+            if ptr::eq(self, root) {
+                return None;
+            }
+
+            return self.parent()?.get_or_insert(root, namestring, object);
+        };
+
         if let Some(last_name) = last_name {
             let child = NameSpace::new_uninit(Name::from(last_name), object);
             let mut child = Box::<_, Kmalloc>::new_in(child, Kmalloc::default());
@@ -205,6 +236,20 @@ impl NameSpace {
             current.add_child(&mut child);
             current = Box::leak(child);
         }
+        Some(current)
+    }
+
+    pub fn get_by_path<'a, 'name>(&'a self, path: &'name [&[u8; 4]]) -> Option<&'a Self> {
+        let mut current = self;
+
+        for name in path {
+            if let Some(child) = current.select_child_by_name(name) {
+                current = child;
+            } else {
+                return None;
+            }
+        }
+
         Some(current)
     }
 }
@@ -215,9 +260,4 @@ pub fn init_namespace() {
             root.init();
         })
     };
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn acpi_print_namespace() {
-    NameSpace::root().lock_pinned().print_tree();
 }

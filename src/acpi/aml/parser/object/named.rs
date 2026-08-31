@@ -1,27 +1,22 @@
 use core::ptr::NonNull;
 
-use alloc::boxed::Box;
-
-use crate::{
-    acpi::aml::{
-        Parser,
-        evaluator::Evaluatable,
-        executor::Executable,
-        namespace::{
-            self,
-            objects::{self, CreateFieldType, OperationRegion, RegionSpace},
-        },
-        parser::{
-            data::PkgLength,
-            namestring::Namestring,
-            object::{
-                ObjectList,
-                field_element::{FieldList, FieldUnitAttribute},
-            },
-            term::{TermArg, TermList},
-        },
+use crate::acpi::aml::{
+    Parser,
+    evaluator::Evaluatable,
+    executor::Executable,
+    namespace::{
+        self,
+        objects::{self, CreateFieldType, OperationRegion, RegionSpace},
     },
-    kernel::memory::kmalloc::Kmalloc,
+    parser::{
+        data::PkgLength,
+        namestring::Namestring,
+        object::{
+            ObjectList,
+            field_element::{FieldList, FieldUnitAttribute},
+        },
+        term::{TermArg, TermList},
+    },
 };
 
 pub struct BankField;
@@ -33,11 +28,11 @@ impl BankField {
 
         let region_name = Namestring::from_bytes(&mut slice.bytecode)?;
         let bank_name = Namestring::from_bytes(&mut slice.bytecode)?;
-        let bank_value = TermArg::parse(&mut slice)?.into();
+        let bank_value = TermArg::parse(&mut slice).ok()?.into();
         let field_flags = slice.bytecode.next()?;
         let bank = Some((bank_name, bank_value));
 
-        let operation_region = NonNull::from_ref(slice.current.get(slice.root, &region_name)?.0);
+        let operation_region = NonNull::from_ref(slice.current.get(slice.root, &region_name)?);
         let attribute = FieldUnitAttribute::new(operation_region, field_flags, bank)?;
         let _ = FieldList::parse(&mut slice, attribute)?;
 
@@ -52,15 +47,15 @@ impl CreateField {
         parser: &mut Parser<'_>,
         f: impl FnOnce(Evaluatable) -> CreateFieldType,
     ) -> Option<()> {
-        let source_buffer = TermArg::parse(parser)?.into();
-        let index = TermArg::parse(parser)?.into();
+        let source_buffer = TermArg::parse(parser).ok()?.into();
+        let index = TermArg::parse(parser).ok()?.into();
         let namestring = Namestring::from_bytes(&mut parser.bytecode)?;
 
         let object = objects::CreateField {
             field_type: f(index),
             source: source_buffer,
         };
-        let object = namespace::Object::CreateField(Box::new_in(object, Kmalloc::default()));
+        let object = namespace::Object::CreateField(object);
         let _ = parser
             .current
             .get_or_insert(parser.root, &namestring, object)?;
@@ -69,16 +64,16 @@ impl CreateField {
     }
 
     pub fn parse_arbitrary(parser: &mut Parser<'_>) -> Option<()> {
-        let source_buffer = TermArg::parse(parser)?.into();
-        let index = TermArg::parse(parser)?.into();
-        let num_bits = TermArg::parse(parser)?.into();
+        let source_buffer = TermArg::parse(parser).ok()?.into();
+        let index = TermArg::parse(parser).ok()?.into();
+        let num_bits = TermArg::parse(parser).ok()?.into();
         let namestring = Namestring::from_bytes(&mut parser.bytecode)?;
 
         let object = objects::CreateField {
             field_type: CreateFieldType::ArbitraryLength { index, num_bits },
             source: source_buffer,
         };
-        let object = namespace::Object::CreateField(Box::new_in(object, Kmalloc::default()));
+        let object = namespace::Object::CreateField(object);
         let _ = parser
             .current
             .get_or_insert(parser.root, &namestring, object)?;
@@ -92,18 +87,15 @@ pub struct DataRegion;
 impl DataRegion {
     pub fn parse(parser: &mut Parser<'_>) -> Option<()> {
         let region_name = Namestring::from_bytes(&mut parser.bytecode)?;
-        let signature = TermArg::parse(parser)?.into();
-        let oem_id = TermArg::parse(parser)?.into();
-        let oem_table_id = TermArg::parse(parser)?.into();
+        let signature = TermArg::parse(parser).ok()?.into();
+        let oem_id = TermArg::parse(parser).ok()?.into();
+        let oem_table_id = TermArg::parse(parser).ok()?.into();
 
-        let object = namespace::Object::DataTableRegion(Box::new_in(
-            objects::DataTableRegion {
-                signature,
-                oem_id,
-                oem_table_id,
-            },
-            Kmalloc::default(),
-        ));
+        let object = namespace::Object::DataTableRegion(objects::DataTableRegion {
+            signature,
+            oem_id,
+            oem_table_id,
+        });
         let _ = parser
             .current
             .get_or_insert(parser.root, &region_name, object)?;
@@ -120,17 +112,14 @@ impl OpRegion {
 
         let region_name = Namestring::from_bytes(bytecode)?;
         let region_space = RegionSpace::from_byte(bytecode.next()?);
-        let offset = Box::new_in(TermArg::parse(parser)?.into(), Kmalloc::default());
-        let len = Box::new_in(TermArg::parse(parser)?.into(), Kmalloc::default());
+        let offset = TermArg::parse(parser).ok()?.into();
+        let len = TermArg::parse(parser).ok()?.into();
 
-        let object_region = namespace::Object::OperationRegion(Box::new_in(
-            OperationRegion {
-                region_space,
-                offset,
-                len,
-            },
-            Kmalloc::default(),
-        ));
+        let object_region = namespace::Object::OperationRegion(OperationRegion {
+            region_space,
+            offset,
+            len,
+        });
         let _ = parser
             .current
             .get_or_insert(parser.root, &region_name, object_region)?;
@@ -146,7 +135,7 @@ impl Field {
         let pkg_length = PkgLength::from_bytes(&mut parser.bytecode)?;
         let name = Namestring::from_bytes(&mut parser.bytecode)?;
 
-        let operation_region = parser.current.get(parser.root, &name)?.0;
+        let operation_region = parser.current.get(parser.root, &name)?;
 
         let slice_length = pkg_length.payload_length() as usize - name.bytecode_length();
         let mut slice = parser.slice(slice_length)?;
@@ -179,7 +168,7 @@ impl Method {
                 sync_level: method_flags >> 4,
                 serialize: method_flags & 0x08 != 0,
                 arg_count: method_flags & 0x07,
-                bytecode: Executable::new(bytecode),
+                executable: Executable::new(bytecode),
             }),
         )?;
 

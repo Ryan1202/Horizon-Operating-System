@@ -1,13 +1,13 @@
 use crate::acpi::aml::{
     Parser,
     namespace::objects::CreateFieldType,
+    opcode::Opcode,
     parser::{
         namespace::{Alias, Name, Scope},
         object::named::{
             BankField, CreateField, DataRegion, Device, Field, Method, Mutex, OpRegion, PowerRes,
             Processor, ThermalZone,
         },
-        op::Opcode,
     },
 };
 
@@ -65,7 +65,7 @@ pub struct ObjectList;
 
 impl ObjectList {
     pub fn parse<'a>(parser: &mut Parser<'a>) -> Option<Self> {
-        while let Some(opcode) = Opcode::from(&mut parser.bytecode) {
+        while let Ok(opcode) = Opcode::parse(&mut parser.bytecode) {
             if let Some(_object) = Object::parse(parser, opcode) {
                 continue;
             }

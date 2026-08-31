@@ -3,15 +3,15 @@ use core::slice::Iter;
 use alloc::boxed::Box;
 
 use crate::{
-    acpi::aml::{Bytecode, namespace, parser::prefix},
+    acpi::aml::{Bytecode, namespace, opcode::prefix},
     kernel::memory::kmalloc::Kmalloc,
 };
 
 #[derive(Clone)]
-pub(in crate::acpi) struct NamePath(pub &'static [[u8; 4]]);
+pub(in crate::acpi) struct NamePath<'a>(pub &'a [[u8; 4]]);
 
-impl NamePath {
-    pub fn from_bytes(bytecode: &mut Bytecode) -> Option<Self> {
+impl<'a> NamePath<'a> {
+    pub fn from_bytes(bytecode: &mut Bytecode<'a>) -> Option<Self> {
         let first = bytecode.first()?;
 
         match first {
@@ -65,7 +65,7 @@ impl NamePath {
     }
 }
 
-impl<'a> IntoIterator for &'a NamePath {
+impl<'a> IntoIterator for &'a NamePath<'a> {
     type Item = &'a [u8; 4];
     type IntoIter = Iter<'a, [u8; 4]>;
 
@@ -75,13 +75,13 @@ impl<'a> IntoIterator for &'a NamePath {
 }
 
 #[derive(Clone)]
-pub(in crate::acpi) enum Namestring {
-    Root(NamePath),
-    Relative { level: u8, path: NamePath },
+pub(in crate::acpi) enum Namestring<'a> {
+    Root(NamePath<'a>),
+    Relative { level: u8, path: NamePath<'a> },
 }
 
-impl Namestring {
-    pub fn from_bytes(bytecode: &mut Bytecode) -> Option<Self> {
+impl<'a> Namestring<'a> {
+    pub fn from_bytes(bytecode: &mut Bytecode<'a>) -> Option<Self> {
         let mut level = 0;
         while let Some(b'^') = bytecode.first() {
             level += 1;
@@ -114,7 +114,7 @@ impl Namestring {
     }
 }
 
-impl<'a> IntoIterator for &'a Namestring {
+impl<'a> IntoIterator for &'a Namestring<'a> {
     type Item = NamestringIterItem<'a>;
     type IntoIter = NamestringIter<'a>;
 
@@ -127,14 +127,14 @@ impl<'a> IntoIterator for &'a Namestring {
 }
 
 pub(in crate::acpi) struct NamestringIter<'a> {
-    namestring: &'a Namestring,
+    namestring: &'a Namestring<'a>,
     index: usize,
 }
 
 pub(in crate::acpi) enum NamestringIterItem<'a> {
     Root,
     Parent,
-    Path { path: &'a NamePath },
+    Path { path: &'a NamePath<'a> },
 }
 
 impl<'a> Iterator for NamestringIter<'a> {
