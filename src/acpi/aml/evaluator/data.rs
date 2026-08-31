@@ -1,5 +1,5 @@
 use core::{
-    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Sub},
+    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub},
     ptr::NonNull,
 };
 
@@ -60,7 +60,7 @@ impl Add for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_add(b)),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_add(b)),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }
@@ -72,7 +72,7 @@ impl Sub for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_sub(b)),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_sub(b)),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }
@@ -84,7 +84,7 @@ impl Mul for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_mul(b)),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_mul(b)),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }
@@ -96,7 +96,7 @@ impl Div for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_div(b)),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_div(b)),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }
@@ -108,7 +108,7 @@ impl BitAnd for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a & b),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a & b),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }
@@ -120,7 +120,7 @@ impl BitOr for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a | b),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a | b),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }
@@ -132,7 +132,31 @@ impl BitXor for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a ^ b),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a ^ b),
-            _ => panic!("Mismatched integer types"),
+            _ => unreachable!("Mismatched integer types"),
+        }
+    }
+}
+
+impl Shl for Integer {
+    type Output = Self;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_shl(b)),
+            (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_shl(b as u32)),
+            _ => unreachable!("Mismatched integer types"),
+        }
+    }
+}
+
+impl Shr for Integer {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_shr(b)),
+            (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_shr(b as u32)),
+            _ => unreachable!("Mismatched integer types"),
         }
     }
 }

@@ -138,6 +138,15 @@ impl Expressions {
             Opcode::LNotEqual => Self::binary_cmp(context, |a, b| a != b),
             Opcode::LLessEqual => Self::binary_cmp(context, |a, b| a <= b),
             Opcode::LGreaterEqual => Self::binary_cmp(context, |a, b| a >= b),
+            Opcode::ShiftLeft => Self::binary_op(context, |a, b| a << b),
+            Opcode::ShiftRight => Self::binary_op(context, |a, b| a >> b),
+            Opcode::Not => {
+                let a = Self::evaluate_integer(context)?;
+                let target = Reference::parse_target(&mut context.parser)?.map(ReferenceType::RefOf);
+                let result = !a;
+                Self::write_target(target, result, context);
+                Some(DataRefObject::DataObject(DataObject::Integer(result)))
+            }
             Opcode::Divide => {
                 let a = Self::evaluate_integer(context)?;
                 let b = Self::evaluate_integer(context)?;

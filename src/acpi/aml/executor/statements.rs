@@ -1,8 +1,13 @@
 use core::mem;
 
 use crate::acpi::aml::{
-    evaluator::{AsEvaluated, Evaluatable, data::DataRefObject, expressions::Expressions},
+    evaluator::{
+        AsEvaluated, Evaluatable,
+        data::{DataRefObject, Integer},
+        expressions::Expressions,
+    },
     executor::Executor,
+    namespace::{Object, objects},
     opcode::Opcode,
     parser::{
         data::{PkgLength, SimpleName},
@@ -38,6 +43,64 @@ impl<'a> Executor<'a> {
         unsafe { dest.as_mut() }.with_object(|object| {
             Expressions::store_to_object(source, object);
         });
+
+        Some(None)
+    }
+
+    /// Increment/Decrement — 读-改-写 SuperName
+    pub(super) fn execute_inc_dec(&mut self, opcode: Opcode) -> Option<Option<DataRefObject>> {
+        let dest = SimpleName::parse(&mut self.context.parser, true)?;
+        let mut dest = match dest {
+            Ok(super_name) => super_name.evaluate(&mut self.context).ok()?,
+            Err(_) => return None,
+        };
+        unsafe { dest.as_mut() }.with_object(|object| {
+            if let Object::Data(objects::DataObject::Integer(integer)) = object {
+                let val = Integer::U64(*integer);
+                let result = match opcode {
+                    Opcode::Increment => val + Integer::U64(1),
+                    Opcode::Decrement => val - Integer::U64(1),
+                    _ => unreachable!(),
+                };
+                *integer = result.into();
+            }
+        });
+        Some(None)
+    }
+
+    /// While(PkgLength, Predicate) — 循环直到谓词为0
+    pub(super) fn execute_while(&mut self) -> Option<Option<DataRefObject>> {
+        let length = PkgLength::from_bytes(self.bytecode())?;
+        let body_start = self.bytecode().current.as_ptr();
+        let body_len = length.payload_length() as usize;
+
+        loop {
+            // 重置到循环体开头
+            unsafe {
+                self.bytecode().current =
+                    core::slice::from_raw_parts(body_start, body_len);
+            }
+
+            // 求值谓词
+            let predicate = Expressions::evaluate_integer(&mut self.context)?;
+            if !predicate.as_bool() {
+                break;
+            }
+
+            // 谓词消耗后的剩余部分作为执行体
+            let exec_start = self.bytecode().current.as_ptr();
+            let exec_len =
+                body_len - unsafe { exec_start.byte_offset_from_unsigned(body_start) };
+
+            let slice = self.bytecode().slice(exec_len);
+            let old = mem::replace(self.bytecode(), slice);
+            self.execute();
+            *self.bytecode() = old;
+        }
+
+        // 跳过整个循环体
+        let remaining = self.bytecode().current.len();
+        self.bytecode().skip(body_len - (body_len - remaining));
 
         Some(None)
     }

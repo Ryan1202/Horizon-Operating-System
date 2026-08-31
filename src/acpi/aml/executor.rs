@@ -178,6 +178,12 @@ impl<'a> Executor<'a> {
                 Opcode::Store => {
                     self.execute_store()?;
                 }
+                Opcode::Increment | Opcode::Decrement => {
+                    self.execute_inc_dec(opcode)?;
+                }
+                Opcode::While => {
+                    self.execute_while()?;
+                }
                 Opcode::Return => {
                     return self.execute_return();
                 }
