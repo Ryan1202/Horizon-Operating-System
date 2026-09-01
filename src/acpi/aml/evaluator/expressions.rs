@@ -5,6 +5,7 @@ use crate::{
         evaluator::{
             AsEvaluated, Evaluatable, ReferenceType,
             data::{self, DataObject, DataRefObject, Integer},
+            region,
         },
         executor::ExecuteContext,
         namespace::{
@@ -45,9 +46,9 @@ impl Expressions {
                 let eval = Evaluatable::from(arg);
                 eval.evaluate(context).ok()
             }
-            Ok(Some(DataRefObject::DataObject(DataObject::Integer(integer)))) => Some(integer),
-            Ok(Some(DataRefObject::Reference(namespace))) => {
-                let object = unsafe { namespace.as_ref() }.object();
+            Ok(Some(DataRefObject::DataObject(DataObject::Integer(int)))) => Some(int),
+            Ok(Some(DataRefObject::Reference(ns))) => {
+                let object = unsafe { ns.as_ref() }.object();
                 if let Object::Data(objects::DataObject::Integer(integer)) = object {
                     match context.revision() {
                         Integer::U32(_) => Some(Integer::U32(*integer as u32)),
@@ -62,12 +63,15 @@ impl Expressions {
     }
 
     /// 将 DataRefObject 写入目标 Object。匹配时原地更新，不匹配时替换。
-    pub(in crate::acpi) fn store_to_object(source: DataRefObject, target: &mut Object) {
+    pub(in crate::acpi) fn store_to_object(
+        source: DataRefObject,
+        target: &mut Object,
+        context: &mut ExecuteContext,
+    ) {
         type Source = DataObject;
         type Target = objects::DataObject;
         match source {
             DataRefObject::DataObject(data) => match (target, data) {
-                // 匹配时直接原地更新
                 (Object::Data(Target::Integer(t)), Source::Integer(s)) => {
                     *t = s.into();
                 }
@@ -80,13 +84,22 @@ impl Expressions {
                 (Object::Data(Target::Package(t)), Source::Package(s)) => {
                     Self::store_package_inplace(t, s);
                 }
-                // 不匹配时整体替换
+                (Object::FieldUnit(field), Source::Integer(int)) => {
+                    region::write_field_unit(field, int, context);
+                }
                 (target, data) => {
                     *target = Object::Data(Self::data_to_objects(data));
                 }
             },
             DataRefObject::Reference(namespace) => {
-                *target = unsafe { namespace.as_ref() }.object().clone();
+                let obj = unsafe { namespace.as_ref() }.object();
+                if let (Object::FieldUnit(field), Object::Data(objects::DataObject::Integer(int))) =
+                    (&mut *target, obj)
+                {
+                    region::write_field_unit(field, Integer::U64(*int), context);
+                } else {
+                    *target = obj.clone();
+                }
             }
         }
     }
@@ -142,7 +155,8 @@ impl Expressions {
             Opcode::ShiftRight => Self::binary_op(context, |a, b| a >> b),
             Opcode::Not => {
                 let a = Self::evaluate_integer(context)?;
-                let target = Reference::parse_target(&mut context.parser)?.map(ReferenceType::RefOf);
+                let target =
+                    Reference::parse_target(&mut context.parser)?.map(ReferenceType::RefOf);
                 let result = !a;
                 Self::write_target(target, result, context);
                 Some(DataRefObject::DataObject(DataObject::Integer(result)))

@@ -101,7 +101,7 @@ pub struct Method {
     pub executable: Executable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum RegionSpace {
     SystemMemory,
     SystemIO,

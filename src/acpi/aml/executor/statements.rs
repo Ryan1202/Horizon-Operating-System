@@ -41,7 +41,7 @@ impl<'a> Executor<'a> {
 
         // 3. 写入目标 NameSpace 节点
         unsafe { dest.as_mut() }.with_object(|object| {
-            Expressions::store_to_object(source, object);
+            Expressions::store_to_object(source, object, &mut self.context);
         });
 
         Some(None)

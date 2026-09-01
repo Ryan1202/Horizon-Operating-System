@@ -144,7 +144,6 @@ void thread_main(void *arg) {
 	} else {
 		DRV_PRINT_RESULT(driver_result, driver_start_all());
 	}
-
 	Object		*net;
 	ObjectResult result = open_object_by_path("\\Device\\Network0", &net);
 	if (result == OBJECT_OK) {

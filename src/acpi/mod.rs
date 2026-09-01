@@ -19,6 +19,13 @@ static ACPI: Spinlock<Option<Acpi>> = Spinlock::new(None);
 
 pub trait AcpiArchInterface {
     fn get_rsdp() -> Option<NonNull<RsdpV1>>;
+
+    fn io_in_u8(port: u16) -> u8;
+    fn io_in_u16(port: u16) -> u16;
+    fn io_in_u32(port: u16) -> u32;
+    fn io_out_u8(port: u16, value: u8);
+    fn io_out_u16(port: u16, value: u16);
+    fn io_out_u32(port: u16, value: u32);
 }
 
 pub struct Acpi {
