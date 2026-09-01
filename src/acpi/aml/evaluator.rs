@@ -108,6 +108,16 @@ impl AsEvaluated<NonNull<NameSpace>> for ReferenceType {
     fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<NameSpace>, ()> {
         match self {
             ReferenceType::RefOf(name) => name.evaluate(context),
+            ReferenceType::DerefOf(inner) => {
+                let ns = inner.evaluate(context)?;
+                let object = unsafe { ns.as_ref() }.object();
+                match object {
+                    Object::ObjectReference(evaluatable) => {
+                        evaluatable.clone().evaluate(context)
+                    }
+                    _ => Err(()),
+                }
+            }
             _ => Err(()),
         }
     }
