@@ -235,7 +235,7 @@ impl DataObject {
                     )?))
                     .unwrap();
                 }
-                PackageElement::NameSpaceReference(object) => {
+                PackageElement::DirectReference(object) => {
                     vec.push_within_capacity(DataRefObject::Reference(object))
                         .unwrap();
                 }

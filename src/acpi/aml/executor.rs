@@ -106,19 +106,19 @@ pub struct Executor<'a> {
 
 impl<'a> Executor<'a> {
     pub fn new(
-        _executable: &'a Executable,
+        executable: &'a Executable,
         arguments: &[NonNull<Object>],
         root: &'a NameSpace,
         current: &'a NameSpace,
     ) -> Self {
         let context = ExecuteContext::new(
             arguments,
-            Bytecode::new(&_executable.bytecode),
+            Bytecode::new(&executable.bytecode),
             root,
             current,
         );
         Executor {
-            _executable,
+            _executable: executable,
             context,
         }
     }

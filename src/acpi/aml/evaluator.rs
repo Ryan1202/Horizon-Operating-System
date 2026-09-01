@@ -6,7 +6,7 @@ use crate::{
     acpi::aml::{
         evaluator::data::{DataObject, DataRefObject, Integer},
         executor::ExecuteContext,
-        namespace::{Name, NameSpace, Object, objects},
+        namespace::{Name, NameSpace, Object, data::PackageElement, objects},
     },
     kernel::memory::kmalloc::Kmalloc,
 };
@@ -113,6 +113,32 @@ impl AsEvaluated<NonNull<Object>> for ReferenceType {
                 match unsafe { object.as_ref() } {
                     Object::ObjectReference(evaluatable) => evaluatable.clone().evaluate(context),
                     _ => Ok(object),
+                }
+            }
+            ReferenceType::IndexOf(index_of) => {
+                let source = index_of.source.evaluate(context)?;
+                let idx = index_of.index.evaluate(context)?;
+                let index = match idx {
+                    Integer::U32(i) => i as usize,
+                    Integer::U64(i) => i as usize,
+                };
+                match source {
+                    DataRefObject::DataObject(DataObject::Package(package)) => {
+                        match package.elements.into_iter().nth(index) {
+                            Some(DataRefObject::Reference(object)) => Ok(object),
+                            _ => Err(()),
+                        }
+                    }
+                    DataRefObject::Reference(object) => match unsafe { object.as_ref() } {
+                        Object::Data(objects::DataObject::Package(package)) => {
+                            match package.elements.iter().nth(index) {
+                                Some(PackageElement::DirectReference(r#ref)) => Ok(*r#ref),
+                                _ => Err(()),
+                            }
+                        }
+                        _ => Err(()),
+                    },
+                    _ => Err(()),
                 }
             }
             _ => Err(()),

@@ -48,7 +48,8 @@ impl Expressions {
             }
             Ok(Some(DataRefObject::DataObject(DataObject::Integer(int)))) => Some(int),
             Ok(Some(DataRefObject::Reference(obj))) => {
-                if let Object::Data(objects::DataObject::Integer(integer)) = unsafe { obj.as_ref() } {
+                if let Object::Data(objects::DataObject::Integer(integer)) = unsafe { obj.as_ref() }
+                {
                     match context.revision() {
                         Integer::U32(_) => Some(Integer::U32(*integer as u32)),
                         Integer::U64(_) => Some(Integer::U64(*integer)),
@@ -130,7 +131,7 @@ impl Expressions {
     fn dataref_to_element(e: DataRefObject) -> PackageElement {
         match e {
             DataRefObject::DataObject(d) => PackageElement::DataObject(Self::data_to_objects(d)),
-            DataRefObject::Reference(ns) => PackageElement::NameSpaceReference(ns),
+            DataRefObject::Reference(ns) => PackageElement::DirectReference(ns),
         }
     }
 

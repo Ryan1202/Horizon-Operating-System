@@ -5,7 +5,7 @@ use alloc::{boxed::Box, vec::Vec};
 use crate::{
     acpi::aml::{
         evaluator::Evaluatable,
-        namespace::{NameSpace, Object, objects::DataObject},
+        namespace::{Object, objects::DataObject},
     },
     kernel::memory::kmalloc::Kmalloc,
 };
@@ -14,7 +14,7 @@ use crate::{
 pub enum PackageElement {
     DataObject(DataObject),
     ObjectReference(Evaluatable),
-    NameSpaceReference(NonNull<Object>),
+    DirectReference(NonNull<Object>),
 }
 
 impl fmt::Debug for PackageElement {
@@ -22,7 +22,7 @@ impl fmt::Debug for PackageElement {
         match self {
             PackageElement::DataObject(obj) => write!(f, "{:?}", obj),
             PackageElement::ObjectReference(_) => write!(f, "ObjectReference"),
-            PackageElement::NameSpaceReference(_) => write!(f, "NameSpaceReference"),
+            PackageElement::DirectReference(_) => write!(f, "DirectReference"),
         }
     }
 }
