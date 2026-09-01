@@ -1,8 +1,18 @@
-use core::{fmt::Debug, mem::MaybeUninit, ptr::NonNull};
+use core::{fmt::Debug, mem::MaybeUninit, ops::ControlFlow, ptr::NonNull};
 
 use alloc::boxed::Box;
 
 mod statements;
+
+/// 控制流中断类型
+pub(in crate::acpi) enum BreakKind {
+    /// Return — 透传到方法调用方
+    Return(DataRefObject),
+    /// Break — 跳出当前循环
+    Break,
+    /// Continue — 跳过循环体剩余，立即下一次迭代
+    Continue,
+}
 
 use crate::{
     acpi::aml::{
@@ -127,7 +137,7 @@ impl<'a> Executor<'a> {
         &mut self,
         namespace: NonNull<NameSpace>,
         method: NonNull<Method>,
-    ) -> Option<Option<DataRefObject>> {
+    ) -> Option<ControlFlow<BreakKind>> {
         let method = unsafe { method.as_ref() };
         let executable = &method.executable;
         let arg_count = method.arg_count as usize;
@@ -139,12 +149,12 @@ impl<'a> Executor<'a> {
             match arg {
                 Ok(arg) => match arg {
                     TermArg::MethodInvocation((namespace, method)) => {
-                        let return_value = self.call_method(namespace, method)??;
-                        let return_value = match return_value {
-                            DataRefObject::Reference(reference) => reference,
+                        match self.call_method(namespace, method)? {
+                            ControlFlow::Break(BreakKind::Return(DataRefObject::Reference(reference))) => {
+                                arguments[i].write(reference);
+                            }
                             _ => return None,
-                        };
-                        arguments[i].write(return_value);
+                        }
                     }
                     TermArg::Object(namespace) => {
                         arguments[i].write(namespace);
@@ -170,7 +180,7 @@ impl<'a> Executor<'a> {
         executor.execute()
     }
 
-    pub fn execute(&mut self) -> Option<Option<DataRefObject>> {
+    pub fn execute(&mut self) -> Option<ControlFlow<BreakKind>> {
         loop {
             let parser = &mut self.context.parser;
             let opcode = Opcode::parse(&mut parser.bytecode).ok()?;
@@ -187,6 +197,12 @@ impl<'a> Executor<'a> {
                 Opcode::Return => {
                     return self.execute_return();
                 }
+                Opcode::Break => {
+                    return self.execute_break();
+                }
+                Opcode::Continue => {
+                    return self.execute_continue();
+                }
                 Opcode::If => {
                     self.execute_if_else()?;
                 }
@@ -196,7 +212,7 @@ impl<'a> Executor<'a> {
                 Opcode::Release => {
                     self.execute_release()?;
                 }
-                _ => return Some(None),
+                _ => return Some(ControlFlow::Continue(())),
             }
         }
     }

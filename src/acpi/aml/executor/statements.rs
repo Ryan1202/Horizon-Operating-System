@@ -1,12 +1,12 @@
-use core::mem;
+use core::{mem, ops::ControlFlow};
 
 use crate::acpi::aml::{
     evaluator::{
         AsEvaluated, Evaluatable,
-        data::{DataRefObject, Integer},
+        data::{DataObject, DataRefObject, Integer},
         expressions::Expressions,
     },
-    executor::Executor,
+    executor::{BreakKind, Executor},
     namespace::{Object, objects},
     opcode::Opcode,
     parser::{
@@ -17,12 +17,16 @@ use crate::acpi::aml::{
 
 impl<'a> Executor<'a> {
     /// Store(source, dest) — 将 source 的值写入 dest 的 NameSpace 节点
-    pub(super) fn execute_store(&mut self) -> Option<Option<DataRefObject>> {
+    pub(super) fn execute_store(&mut self) -> Option<ControlFlow<BreakKind>> {
         // 1. 解析并求值源 TermArg
         let source = match Expressions::parse_termarg(&mut self.context)? {
             Ok(data) => data,
             Err(TermArg::MethodInvocation((namespace, method))) => {
-                self.call_method(namespace, method)?
+                match self.call_method(namespace, method)? {
+                    ControlFlow::Break(BreakKind::Return(value)) => Some(value),
+                    flow @ ControlFlow::Break(_) => return Some(flow),
+                    ControlFlow::Continue(()) => None,
+                }
             }
             Err(arg) => {
                 let eval = Evaluatable::from(arg);
@@ -43,11 +47,11 @@ impl<'a> Executor<'a> {
         let object = unsafe { dest.as_mut() };
         Expressions::store_to_object(source, object, &mut self.context);
 
-        Some(None)
+        Some(ControlFlow::Continue(()))
     }
 
     /// Increment/Decrement — 读-改-写 SuperName
-    pub(super) fn execute_inc_dec(&mut self, opcode: Opcode) -> Option<Option<DataRefObject>> {
+    pub(super) fn execute_inc_dec(&mut self, opcode: Opcode) -> Option<ControlFlow<BreakKind>> {
         let dest = SimpleName::parse(&mut self.context.parser, true)?;
         let mut dest = match dest {
             Ok(super_name) => super_name.evaluate(&mut self.context).ok()?,
@@ -63,11 +67,11 @@ impl<'a> Executor<'a> {
             };
             *integer = result.into();
         }
-        Some(None)
+        Some(ControlFlow::Continue(()))
     }
 
     /// While(PkgLength, Predicate) — 循环直到谓词为0
-    pub(super) fn execute_while(&mut self) -> Option<Option<DataRefObject>> {
+    pub(super) fn execute_while(&mut self) -> Option<ControlFlow<BreakKind>> {
         let length = PkgLength::from_bytes(self.bytecode())?;
         let body_start = self.bytecode().current.as_ptr();
         let body_len = length.payload_length() as usize;
@@ -92,36 +96,62 @@ impl<'a> Executor<'a> {
 
             let slice = self.bytecode().slice(exec_len);
             let old = mem::replace(self.bytecode(), slice);
-            self.execute();
+            let result = self.execute();
             *self.bytecode() = old;
+
+            match result {
+                Some(ControlFlow::Break(BreakKind::Continue)) => continue,
+                Some(ControlFlow::Break(BreakKind::Break)) => break,
+                Some(ControlFlow::Break(BreakKind::Return(_))) => return result,
+                None => return None,
+                _ => {}
+            }
         }
 
         // 跳过整个循环体
         let remaining = self.bytecode().current.len();
         self.bytecode().skip(body_len - (body_len - remaining));
 
-        Some(None)
+        Some(ControlFlow::Continue(()))
     }
 
-    pub(super) fn execute_return(&mut self) -> Option<Option<DataRefObject>> {
+    pub(super) fn execute_return(&mut self) -> Option<ControlFlow<BreakKind>> {
         let arg = Expressions::parse_termarg(&mut self.context)?;
 
         match arg {
             Err(TermArg::MethodInvocation((namespace, method))) => {
-                self.call_method(namespace, method)
+                // 透传 Return，不包裹新的 BreakKind
+                match self.call_method(namespace, method)? {
+                    ControlFlow::Break(BreakKind::Return(value)) => {
+                        Some(ControlFlow::Break(BreakKind::Return(value)))
+                    }
+                    flow => Some(flow),
+                }
             }
             Err(TermArg::Object(_)) => {
                 unreachable!("Object is not a valid return value for methods");
             }
             Err(arg) => {
                 let eval = Evaluatable::from(arg);
-                Some(eval.evaluate(&mut self.context).ok())
+                Some(ControlFlow::Break(BreakKind::Return(
+                    eval.evaluate(&mut self.context).ok()?,
+                )))
             }
-            Ok(data) => Some(data),
+            Ok(data) => Some(ControlFlow::Break(BreakKind::Return(data?))),
         }
     }
 
-    pub(super) fn execute_if_else(&mut self) -> Option<Option<DataRefObject>> {
+    /// Break — 跳出当前 While 循环
+    pub(super) fn execute_break(&mut self) -> Option<ControlFlow<BreakKind>> {
+        Some(ControlFlow::Break(BreakKind::Break))
+    }
+
+    /// Continue — 跳过循环体剩余，立即下一次迭代
+    pub(super) fn execute_continue(&mut self) -> Option<ControlFlow<BreakKind>> {
+        Some(ControlFlow::Break(BreakKind::Continue))
+    }
+
+    pub(super) fn execute_if_else(&mut self) -> Option<ControlFlow<BreakKind>> {
         let length = PkgLength::from_bytes(self.bytecode())?;
 
         let start = self.bytecode().current.as_ptr();
@@ -140,7 +170,7 @@ impl<'a> Executor<'a> {
             *self.bytecode() = old;
             result
         } else {
-            Some(None)
+            Some(ControlFlow::Continue(()))
         };
         self.bytecode().skip(slice_length);
         let bytecode = self.bytecode();
@@ -179,7 +209,7 @@ impl<'a> Executor<'a> {
     }
 
     /// Acquire(MutexObject, Timeout) — 获取 Mutex 锁
-    pub(super) fn execute_acquire(&mut self) -> Option<Option<DataRefObject>> {
+    pub(super) fn execute_acquire(&mut self) -> Option<ControlFlow<BreakKind>> {
         let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
         let ns = super_name.evaluate(&mut self.context).ok()?;
         let timeout = self.bytecode().read_u16()?;
@@ -188,17 +218,17 @@ impl<'a> Executor<'a> {
         if let Object::Mutex(mutex) = unsafe { ns.as_ref() } {
             mutex.lock();
         }
-        Some(None)
+        Some(ControlFlow::Continue(()))
     }
 
     /// Release(MutexObject) — 释放 Mutex 锁
-    pub(super) fn execute_release(&mut self) -> Option<Option<DataRefObject>> {
+    pub(super) fn execute_release(&mut self) -> Option<ControlFlow<BreakKind>> {
         let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
         let ns = super_name.evaluate(&mut self.context).ok()?;
 
         if let Object::Mutex(mutex) = unsafe { ns.as_ref() } {
             mutex.unlock();
         }
-        Some(None)
+        Some(ControlFlow::Continue(()))
     }
 }

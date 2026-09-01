@@ -42,6 +42,14 @@ impl Integer {
             Integer::U64(_) => Integer::U64(value as u64),
         }
     }
+
+    /// 根据目标 variant 从 usize 构造 Integer
+    pub fn from_usize(value: usize, revision: Integer) -> Self {
+        match revision {
+            Integer::U32(_) => Integer::U32(value as u32),
+            Integer::U64(_) => Integer::U64(value as u64),
+        }
+    }
 }
 
 impl Into<u64> for Integer {

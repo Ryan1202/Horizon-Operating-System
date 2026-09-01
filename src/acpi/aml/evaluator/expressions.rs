@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
     acpi::aml::{
@@ -178,6 +178,58 @@ impl Expressions {
 
                 Some(DataRefObject::DataObject(DataObject::Integer(quotient)))
             }
+            Opcode::ToBuffer => {
+                let arg = Self::parse_termarg(context)?;
+                match arg {
+                    Ok(Some(DataRefObject::DataObject(DataObject::Integer(int)))) => {
+                        let bytes = match int {
+                            Integer::U32(v) => v.to_le_bytes().to_vec_in(Kmalloc::default()),
+                            Integer::U64(v) => v.to_le_bytes().to_vec_in(Kmalloc::default()),
+                        };
+                        Some(DataRefObject::DataObject(DataObject::Buffer(
+                            bytes.into_boxed_slice(),
+                        )))
+                    }
+                    Ok(Some(DataRefObject::DataObject(DataObject::String(s)))) => {
+                        let mut buf = Vec::with_capacity_in(s.len(), Kmalloc::default());
+                        for &b in s.iter() {
+                            buf.push(b as u8);
+                        }
+                        Some(DataRefObject::DataObject(DataObject::Buffer(
+                            buf.into_boxed_slice(),
+                        )))
+                    }
+                    _ => None,
+                }
+            }
+            Opcode::ToHexString => {
+                let arg = Self::parse_termarg(context)?;
+                match arg {
+                    Ok(Some(DataRefObject::DataObject(DataObject::Integer(int)))) => {
+                        let value: u64 = int.into();
+                        let hex = Self::u64_to_hex_string(value);
+                        Some(DataRefObject::DataObject(DataObject::String(hex)))
+                    }
+                    _ => None,
+                }
+            }
+            Opcode::SizeOf => {
+                let arg = Self::parse_termarg(context)?;
+                let len = match arg.as_ref() {
+                    Ok(Some(DataRefObject::DataObject(DataObject::Buffer(buf)))) => Some(buf.len()),
+                    Ok(Some(DataRefObject::DataObject(DataObject::String(s)))) => Some(s.len()),
+                    Ok(Some(DataRefObject::DataObject(DataObject::Package(pkg)))) => {
+                        Some(pkg.elements.len())
+                    }
+                    _ => None,
+                };
+                len.map(|l| {
+                    DataRefObject::DataObject(DataObject::Integer(Integer::from_usize(
+                        l,
+                        context.revision(),
+                    )))
+                })
+            }
             _ => todo!(),
         }
     }
@@ -216,5 +268,24 @@ impl Expressions {
         if let Object::Data(objects::DataObject::Integer(integer)) = object {
             *integer = value.into();
         }
+    }
+
+    fn u64_to_hex_string(mut value: u64) -> Box<[i8], Kmalloc> {
+        if value == 0 {
+            return Box::new_in([b'0' as i8], Kmalloc::default());
+        }
+        let mut buf = [0i8; 16];
+        let mut pos = 16;
+        while value > 0 {
+            pos -= 1;
+            let digit = (value & 0xF) as u8;
+            buf[pos] = if digit < 10 {
+                b'0' + digit
+            } else {
+                b'A' + digit - 10
+            } as i8;
+            value >>= 4;
+        }
+        buf[pos..].to_vec_in(Kmalloc::default()).into_boxed_slice()
     }
 }

@@ -1,9 +1,9 @@
-use core::ptr::NonNull;
+use core::{ops::ControlFlow, ptr::NonNull};
 
 use crate::{
     acpi::{
         aml::{
-            executor::Executor,
+            executor::{BreakKind, Executor},
             namespace::{NameSpace, init_namespace},
         },
         tables::{RsdpV1, TableManager},
@@ -70,10 +70,10 @@ pub extern "C" fn acpi_print_namespace() {
     let mut executor = Executor::new(_sta, &[], root, current);
     let return_value = executor.execute().unwrap();
     match return_value {
-        Some(obj) => {
+        ControlFlow::Break(BreakKind::Return(obj)) => {
             printk!("AML Method returns {:?}\n", obj)
         }
-        None => {
+        _ => {
             printk!("AML Method returns None\n")
         }
     }
