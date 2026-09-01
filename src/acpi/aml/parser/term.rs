@@ -29,7 +29,7 @@ impl TermObj {
 pub(in crate::acpi) enum TermArg {
     ExpressionOpcode,
     MethodInvocation((NonNull<NameSpace>, NonNull<Method>)),
-    Object(NonNull<NameSpace>),
+    Object(NonNull<namespace::Object>),
     DataObject(DataObject),
     Arg(u8),
     Local(u8),
@@ -60,7 +60,7 @@ impl TermArg {
                         NonNull::from_ref(object),
                         NonNull::from_ref(method),
                     )),
-                    _ => Self::Object(NonNull::from_ref(object)),
+                    _ => Self::Object(NonNull::from_ref(object.object())),
                 };
                 Ok(arg)
             }

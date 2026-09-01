@@ -39,10 +39,9 @@ impl<'a> Executor<'a> {
             Err(_) => return None,
         };
 
-        // 3. 写入目标 NameSpace 节点
-        unsafe { dest.as_mut() }.with_object(|object| {
-            Expressions::store_to_object(source, object, &mut self.context);
-        });
+        // 3. 写入目标 Object
+        let object = unsafe { dest.as_mut() };
+        Expressions::store_to_object(source, object, &mut self.context);
 
         Some(None)
     }
@@ -54,17 +53,16 @@ impl<'a> Executor<'a> {
             Ok(super_name) => super_name.evaluate(&mut self.context).ok()?,
             Err(_) => return None,
         };
-        unsafe { dest.as_mut() }.with_object(|object| {
-            if let Object::Data(objects::DataObject::Integer(integer)) = object {
-                let val = Integer::U64(*integer);
-                let result = match opcode {
-                    Opcode::Increment => val + Integer::U64(1),
-                    Opcode::Decrement => val - Integer::U64(1),
-                    _ => unreachable!(),
-                };
-                *integer = result.into();
-            }
-        });
+        let object = unsafe { dest.as_mut() };
+        if let Object::Data(objects::DataObject::Integer(integer)) = object {
+            let val = Integer::U64(*integer);
+            let result = match opcode {
+                Opcode::Increment => val + Integer::U64(1),
+                Opcode::Decrement => val - Integer::U64(1),
+                _ => unreachable!(),
+            };
+            *integer = result.into();
+        }
         Some(None)
     }
 
@@ -187,8 +185,7 @@ impl<'a> Executor<'a> {
         let timeout = self.bytecode().read_u16()?;
         let _ = timeout; // TODO: 支持超时
 
-        let object = unsafe { ns.as_ref() }.object();
-        if let Object::Mutex(mutex) = object {
+        if let Object::Mutex(mutex) = unsafe { ns.as_ref() } {
             mutex.lock();
         }
         Some(None)
@@ -199,8 +196,7 @@ impl<'a> Executor<'a> {
         let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
         let ns = super_name.evaluate(&mut self.context).ok()?;
 
-        let object = unsafe { ns.as_ref() }.object();
-        if let Object::Mutex(mutex) = object {
+        if let Object::Mutex(mutex) = unsafe { ns.as_ref() } {
             mutex.unlock();
         }
         Some(None)

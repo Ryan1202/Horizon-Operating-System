@@ -37,8 +37,8 @@ impl Executable {
 }
 
 pub struct ExecuteContext<'a> {
-    args: [Option<NonNull<NameSpace>>; 7],
-    locals: [Option<NonNull<NameSpace>>; 8],
+    args: [Option<NonNull<Object>>; 7],
+    locals: [Option<NonNull<Object>>; 8],
     pub parser: Parser<'a>,
     root: &'a NameSpace,
     current: &'a NameSpace,
@@ -47,7 +47,7 @@ pub struct ExecuteContext<'a> {
 
 impl<'a> ExecuteContext<'a> {
     fn new(
-        arguments: &[NonNull<NameSpace>],
+        arguments: &[NonNull<Object>],
         bytecode: Bytecode<'a>,
         root: &'a NameSpace,
         current: &'a NameSpace,
@@ -72,11 +72,11 @@ impl<'a> ExecuteContext<'a> {
         self.revision
     }
 
-    pub const fn argument(&self, index: usize) -> Option<NonNull<NameSpace>> {
+    pub const fn argument(&self, index: usize) -> Option<NonNull<Object>> {
         if index < 7 { self.args[index] } else { None }
     }
 
-    pub const fn local(&self, index: usize) -> Option<NonNull<NameSpace>> {
+    pub const fn local(&self, index: usize) -> Option<NonNull<Object>> {
         if index < 8 { self.locals[index] } else { None }
     }
 
@@ -107,7 +107,7 @@ pub struct Executor<'a> {
 impl<'a> Executor<'a> {
     pub fn new(
         _executable: &'a Executable,
-        arguments: &[NonNull<NameSpace>],
+        arguments: &[NonNull<Object>],
         root: &'a NameSpace,
         current: &'a NameSpace,
     ) -> Self {

@@ -49,11 +49,11 @@ impl AsEvaluated<Integer> for Evaluatable {
             Evaluatable::Builtin(BuiltinObject::Arg(arg)) => context
                 .argument(arg as usize)
                 .ok_or(())
-                .and_then(|ns| Self::evaluate_integer(ns, context)),
+                .and_then(|object| Self::evaluate_integer(object, context)),
             Evaluatable::Builtin(BuiltinObject::Local(local)) => context
                 .local(local as usize)
                 .ok_or(())
-                .and_then(|ns| Self::evaluate_integer(ns, context)),
+                .and_then(|object| Self::evaluate_integer(object, context)),
             _ => Err(()),
         }
     }
@@ -61,10 +61,10 @@ impl AsEvaluated<Integer> for Evaluatable {
 
 impl Evaluatable {
     fn evaluate_integer(
-        namespace: NonNull<NameSpace>,
+        object: NonNull<Object>,
         context: &mut ExecuteContext,
     ) -> Result<Integer, ()> {
-        let object = unsafe { namespace.as_ref() }.object();
+        let object = unsafe { object.as_ref() };
 
         match object {
             Object::Data(objects::DataObject::Integer(int)) => match context.revision() {
@@ -94,8 +94,8 @@ impl AsEvaluated<DataRefObject> for Evaluatable {
     }
 }
 
-impl AsEvaluated<NonNull<NameSpace>> for Evaluatable {
-    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<NameSpace>, ()> {
+impl AsEvaluated<NonNull<Object>> for Evaluatable {
+    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<Object>, ()> {
         match self {
             Evaluatable::Reference(reference) => reference.evaluate(context),
             Evaluatable::Builtin(builtin) => builtin.evaluate(context),
@@ -104,18 +104,15 @@ impl AsEvaluated<NonNull<NameSpace>> for Evaluatable {
     }
 }
 
-impl AsEvaluated<NonNull<NameSpace>> for ReferenceType {
-    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<NameSpace>, ()> {
+impl AsEvaluated<NonNull<Object>> for ReferenceType {
+    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<Object>, ()> {
         match self {
             ReferenceType::RefOf(name) => name.evaluate(context),
             ReferenceType::DerefOf(inner) => {
-                let ns = inner.evaluate(context)?;
-                let object = unsafe { ns.as_ref() }.object();
-                match object {
-                    Object::ObjectReference(evaluatable) => {
-                        evaluatable.clone().evaluate(context)
-                    }
-                    _ => Err(()),
+                let object = inner.evaluate(context)?;
+                match unsafe { object.as_ref() } {
+                    Object::ObjectReference(evaluatable) => evaluatable.clone().evaluate(context),
+                    _ => Ok(object),
                 }
             }
             _ => Err(()),
@@ -123,18 +120,21 @@ impl AsEvaluated<NonNull<NameSpace>> for ReferenceType {
     }
 }
 
-impl AsEvaluated<NonNull<NameSpace>> for SuperName {
-    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<NameSpace>, ()> {
+impl AsEvaluated<NonNull<Object>> for SuperName {
+    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<Object>, ()> {
         match self {
-            SuperName::Name(path) => Ok(NonNull::from_ref(context.get_namespace(&path).ok_or(())?)),
+            SuperName::Name(path) => {
+                let ns = context.get_namespace(&path).ok_or(())?;
+                Ok(NonNull::from_ref(ns.object()))
+            }
             SuperName::Builtin(builtin) => builtin.evaluate(context),
             SuperName::Nested(nested) => nested.evaluate(context),
         }
     }
 }
 
-impl AsEvaluated<NonNull<NameSpace>> for BuiltinObject {
-    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<NameSpace>, ()> {
+impl AsEvaluated<NonNull<Object>> for BuiltinObject {
+    fn evaluate(self, context: &mut ExecuteContext) -> Result<NonNull<Object>, ()> {
         match self {
             BuiltinObject::Arg(arg) => context.argument(arg as usize).ok_or(()),
             BuiltinObject::Local(local) => context.local(local as usize).ok_or(()),

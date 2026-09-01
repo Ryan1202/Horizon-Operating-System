@@ -78,8 +78,8 @@ fn parse_element(parser: &mut Parser<'_>) -> Option<data::PackageElement> {
             DataRefObject::ObjectReference(eval) => Some(PackageElement::ObjectReference(eval)),
         }
     } else if let Some(namestring) = Namestring::from_bytes(&mut parser.bytecode) {
-        let namespace = NonNull::from_ref(parser.current.get(parser.root, &namestring)?);
-        Some(PackageElement::NameSpaceReference(namespace))
+        let namespace = parser.current.get(parser.root, &namestring)?;
+        Some(PackageElement::NameSpaceReference(NonNull::from_ref(namespace.object())))
     } else {
         None
     }

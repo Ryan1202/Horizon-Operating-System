@@ -9,7 +9,7 @@ use crate::{
     acpi::aml::{
         evaluator::AsEvaluated,
         executor::ExecuteContext,
-        namespace::{NameSpace, data::PackageElement, objects},
+        namespace::{NameSpace, Object, data::PackageElement, objects},
     },
     kernel::memory::kmalloc::Kmalloc,
 };
@@ -252,7 +252,7 @@ impl DataObject {
 #[derive(Debug)]
 pub enum DataRefObject {
     DataObject(DataObject),
-    Reference(NonNull<NameSpace>),
+    Reference(NonNull<Object>),
 }
 
 #[derive(Debug)]

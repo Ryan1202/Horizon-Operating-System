@@ -47,9 +47,8 @@ impl Expressions {
                 eval.evaluate(context).ok()
             }
             Ok(Some(DataRefObject::DataObject(DataObject::Integer(int)))) => Some(int),
-            Ok(Some(DataRefObject::Reference(ns))) => {
-                let object = unsafe { ns.as_ref() }.object();
-                if let Object::Data(objects::DataObject::Integer(integer)) = object {
+            Ok(Some(DataRefObject::Reference(obj))) => {
+                if let Object::Data(objects::DataObject::Integer(integer)) = unsafe { obj.as_ref() } {
                     match context.revision() {
                         Integer::U32(_) => Some(Integer::U32(*integer as u32)),
                         Integer::U64(_) => Some(Integer::U64(*integer)),
@@ -91,8 +90,8 @@ impl Expressions {
                     *target = Object::Data(Self::data_to_objects(data));
                 }
             },
-            DataRefObject::Reference(namespace) => {
-                let obj = unsafe { namespace.as_ref() }.object();
+            DataRefObject::Reference(obj) => {
+                let obj = unsafe { obj.as_ref() };
                 if let (Object::FieldUnit(field), Object::Data(objects::DataObject::Integer(int))) =
                     (&mut *target, obj)
                 {
@@ -212,10 +211,9 @@ impl Expressions {
             Ok(ns) => ns,
             Err(_) => return,
         };
-        unsafe { ns.as_mut() }.with_object(|object| {
-            if let Object::Data(objects::DataObject::Integer(integer)) = object {
-                *integer = value.into();
-            }
-        });
+        let object = unsafe { ns.as_mut() };
+        if let Object::Data(objects::DataObject::Integer(integer)) = object {
+            *integer = value.into();
+        }
     }
 }
