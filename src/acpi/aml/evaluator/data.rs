@@ -1,5 +1,5 @@
 use core::{
-    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Shl, Shr, Sub},
+    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Not, Rem, Shl, Shr, Sub},
     ptr::NonNull,
 };
 
@@ -96,6 +96,18 @@ impl Div for Integer {
         match (self, rhs) {
             (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_div(b)),
             (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_div(b)),
+            _ => unreachable!("Mismatched integer types"),
+        }
+    }
+}
+
+impl Rem for Integer {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Integer::U32(a), Integer::U32(b)) => Integer::U32(a.wrapping_rem(b)),
+            (Integer::U64(a), Integer::U64(b)) => Integer::U64(a.wrapping_rem(b)),
             _ => unreachable!("Mismatched integer types"),
         }
     }

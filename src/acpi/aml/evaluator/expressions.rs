@@ -145,6 +145,7 @@ impl Expressions {
             Opcode::Add => Self::binary_op(context, |a, b| a + b),
             Opcode::Subtract => Self::binary_op(context, |a, b| a - b),
             Opcode::Multiply => Self::binary_op(context, |a, b| a * b),
+            Opcode::Mod => Self::binary_op(context, |a, b| a % b),
             Opcode::LEqual => Self::binary_cmp(context, |a, b| a == b),
             Opcode::LGreater => Self::binary_cmp(context, |a, b| a > b),
             Opcode::LLess => Self::binary_cmp(context, |a, b| a < b),

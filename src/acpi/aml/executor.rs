@@ -190,6 +190,12 @@ impl<'a> Executor<'a> {
                 Opcode::If => {
                     self.execute_if_else()?;
                 }
+                Opcode::Acquire => {
+                    self.execute_acquire()?;
+                }
+                Opcode::Release => {
+                    self.execute_release()?;
+                }
                 _ => return Some(None),
             }
         }

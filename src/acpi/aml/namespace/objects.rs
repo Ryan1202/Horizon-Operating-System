@@ -213,14 +213,14 @@ impl RegionSpace {
 
 #[derive(Debug)]
 pub struct Mutex {
-    _lock: SpinlockRaw,
+    lock: SpinlockRaw,
     level: u8,
 }
 
 impl Clone for Mutex {
     fn clone(&self) -> Self {
         Self {
-            _lock: SpinlockRaw::new_unlocked(),
+            lock: SpinlockRaw::new_unlocked(),
             level: self.level,
         }
     }
@@ -229,9 +229,17 @@ impl Clone for Mutex {
 impl Mutex {
     pub const fn new(level: u8) -> Self {
         Mutex {
-            _lock: SpinlockRaw::new_unlocked(),
+            lock: SpinlockRaw::new_unlocked(),
             level,
         }
+    }
+
+    pub fn lock(&self) {
+        self.lock.lock();
+    }
+
+    pub fn unlock(&self) {
+        self.lock.unlock();
     }
 }
 

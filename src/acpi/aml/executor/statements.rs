@@ -179,4 +179,30 @@ impl<'a> Executor<'a> {
             then
         }
     }
+
+    /// Acquire(MutexObject, Timeout) — 获取 Mutex 锁
+    pub(super) fn execute_acquire(&mut self) -> Option<Option<DataRefObject>> {
+        let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
+        let ns = super_name.evaluate(&mut self.context).ok()?;
+        let timeout = self.bytecode().read_u16()?;
+        let _ = timeout; // TODO: 支持超时
+
+        let object = unsafe { ns.as_ref() }.object();
+        if let Object::Mutex(mutex) = object {
+            mutex.lock();
+        }
+        Some(None)
+    }
+
+    /// Release(MutexObject) — 释放 Mutex 锁
+    pub(super) fn execute_release(&mut self) -> Option<Option<DataRefObject>> {
+        let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
+        let ns = super_name.evaluate(&mut self.context).ok()?;
+
+        let object = unsafe { ns.as_ref() }.object();
+        if let Object::Mutex(mutex) = object {
+            mutex.unlock();
+        }
+        Some(None)
+    }
 }
