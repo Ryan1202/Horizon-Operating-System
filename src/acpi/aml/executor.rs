@@ -109,7 +109,7 @@ impl<'a> ExecuteContext<'a> {
     }
 }
 
-pub struct Executor<'a> {
+pub(in crate::acpi) struct Executor<'a> {
     _executable: &'a Executable,
     context: ExecuteContext<'a>,
 }
@@ -150,7 +150,9 @@ impl<'a> Executor<'a> {
                 Ok(arg) => match arg {
                     TermArg::MethodInvocation((namespace, method)) => {
                         match self.call_method(namespace, method)? {
-                            ControlFlow::Break(BreakKind::Return(DataRefObject::Reference(reference))) => {
+                            ControlFlow::Break(BreakKind::Return(DataRefObject::Reference(
+                                reference,
+                            ))) => {
                                 arguments[i].write(reference);
                             }
                             _ => return None,
@@ -191,9 +193,11 @@ impl<'a> Executor<'a> {
                 Opcode::Increment | Opcode::Decrement => {
                     self.execute_inc_dec(opcode)?;
                 }
-                Opcode::While => {
-                    self.execute_while()?;
-                }
+                Opcode::While => match self.execute_while()? {
+                    ret @ ControlFlow::Break(BreakKind::Return(_)) => return Some(ret),
+                    ControlFlow::Continue(_) => continue,
+                    _ => unreachable!(),
+                },
                 Opcode::Return => {
                     return self.execute_return();
                 }
@@ -203,16 +207,18 @@ impl<'a> Executor<'a> {
                 Opcode::Continue => {
                     return self.execute_continue();
                 }
-                Opcode::If => {
-                    self.execute_if_else()?;
-                }
+                Opcode::If => match self.execute_if_else()? {
+                    ret @ ControlFlow::Break(BreakKind::Return(_)) => return Some(ret),
+                    ControlFlow::Continue(_) => continue,
+                    _ => unreachable!(),
+                },
                 Opcode::Acquire => {
                     self.execute_acquire()?;
                 }
                 Opcode::Release => {
                     self.execute_release()?;
                 }
-                _ => return Some(ControlFlow::Continue(())),
+                _ => return None,
             }
         }
     }

@@ -1,11 +1,7 @@
 use core::{mem, ops::ControlFlow};
 
 use crate::acpi::aml::{
-    evaluator::{
-        AsEvaluated, Evaluatable,
-        data::{DataObject, DataRefObject, Integer},
-        expressions::Expressions,
-    },
+    evaluator::{AsEvaluated, Evaluatable, data::Integer, expressions::Expressions},
     executor::{BreakKind, Executor},
     namespace::{Object, objects},
     opcode::Opcode,
@@ -17,15 +13,14 @@ use crate::acpi::aml::{
 
 impl<'a> Executor<'a> {
     /// Store(source, dest) — 将 source 的值写入 dest 的 NameSpace 节点
-    pub(super) fn execute_store(&mut self) -> Option<ControlFlow<BreakKind>> {
+    pub(super) fn execute_store(&mut self) -> Option<()> {
         // 1. 解析并求值源 TermArg
         let source = match Expressions::parse_termarg(&mut self.context)? {
             Ok(data) => data,
             Err(TermArg::MethodInvocation((namespace, method))) => {
                 match self.call_method(namespace, method)? {
                     ControlFlow::Break(BreakKind::Return(value)) => Some(value),
-                    flow @ ControlFlow::Break(_) => return Some(flow),
-                    ControlFlow::Continue(()) => None,
+                    _ => None,
                 }
             }
             Err(arg) => {
@@ -47,11 +42,11 @@ impl<'a> Executor<'a> {
         let object = unsafe { dest.as_mut() };
         Expressions::store_to_object(source, object, &mut self.context);
 
-        Some(ControlFlow::Continue(()))
+        Some(())
     }
 
     /// Increment/Decrement — 读-改-写 SuperName
-    pub(super) fn execute_inc_dec(&mut self, opcode: Opcode) -> Option<ControlFlow<BreakKind>> {
+    pub(super) fn execute_inc_dec(&mut self, opcode: Opcode) -> Option<()> {
         let dest = SimpleName::parse(&mut self.context.parser, true)?;
         let mut dest = match dest {
             Ok(super_name) => super_name.evaluate(&mut self.context).ok()?,
@@ -67,7 +62,7 @@ impl<'a> Executor<'a> {
             };
             *integer = result.into();
         }
-        Some(ControlFlow::Continue(()))
+        Some(())
     }
 
     /// While(PkgLength, Predicate) — 循环直到谓词为0
@@ -79,8 +74,7 @@ impl<'a> Executor<'a> {
         loop {
             // 重置到循环体开头
             unsafe {
-                self.bytecode().current =
-                    core::slice::from_raw_parts(body_start, body_len);
+                self.bytecode().current = core::slice::from_raw_parts(body_start, body_len);
             }
 
             // 求值谓词
@@ -91,8 +85,7 @@ impl<'a> Executor<'a> {
 
             // 谓词消耗后的剩余部分作为执行体
             let exec_start = self.bytecode().current.as_ptr();
-            let exec_len =
-                body_len - unsafe { exec_start.byte_offset_from_unsigned(body_start) };
+            let exec_len = body_len - unsafe { exec_start.byte_offset_from_unsigned(body_start) };
 
             let slice = self.bytecode().slice(exec_len);
             let old = mem::replace(self.bytecode(), slice);
@@ -142,15 +135,20 @@ impl<'a> Executor<'a> {
     }
 
     /// Break — 跳出当前 While 循环
-    pub(super) fn execute_break(&mut self) -> Option<ControlFlow<BreakKind>> {
+    pub(super) const fn execute_break(&mut self) -> Option<ControlFlow<BreakKind>> {
         Some(ControlFlow::Break(BreakKind::Break))
     }
 
     /// Continue — 跳过循环体剩余，立即下一次迭代
-    pub(super) fn execute_continue(&mut self) -> Option<ControlFlow<BreakKind>> {
+    pub(super) const fn execute_continue(&mut self) -> Option<ControlFlow<BreakKind>> {
         Some(ControlFlow::Break(BreakKind::Continue))
     }
 
+    /// If(PkgLength, Predicate, [Then], [Else]) — 条件执行
+    ///
+    /// 正常执行则会返回 `Some(_)`
+    ///
+    /// 遇到错误时会返回 `None`，此时不保证上下文正确
     pub(super) fn execute_if_else(&mut self) -> Option<ControlFlow<BreakKind>> {
         let length = PkgLength::from_bytes(self.bytecode())?;
 
@@ -165,18 +163,18 @@ impl<'a> Executor<'a> {
             let slice = self.bytecode().slice(slice_length);
             let old = mem::replace(self.bytecode(), slice);
 
-            let result = self.execute();
+            let result = self.execute()?;
 
             *self.bytecode() = old;
             result
         } else {
-            Some(ControlFlow::Continue(()))
+            ControlFlow::Continue(())
         };
         self.bytecode().skip(slice_length);
         let bytecode = self.bytecode();
 
         if bytecode.current.is_empty() {
-            return then;
+            return Some(then);
         }
 
         let mut _bc = bytecode.clone();
@@ -194,7 +192,7 @@ impl<'a> Executor<'a> {
                 let slice = bytecode.slice(slice_length);
                 let old = mem::replace(bytecode, slice);
 
-                let r#else = self.execute();
+                let r#else = self.execute()?;
 
                 *self.bytecode() = old;
 
@@ -202,14 +200,14 @@ impl<'a> Executor<'a> {
             };
 
             self.bytecode().skip(slice_length);
-            result
+            Some(result)
         } else {
-            then
+            Some(then)
         }
     }
 
     /// Acquire(MutexObject, Timeout) — 获取 Mutex 锁
-    pub(super) fn execute_acquire(&mut self) -> Option<ControlFlow<BreakKind>> {
+    pub(super) fn execute_acquire(&mut self) -> Option<bool> {
         let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
         let ns = super_name.evaluate(&mut self.context).ok()?;
         let timeout = self.bytecode().read_u16()?;
@@ -218,17 +216,17 @@ impl<'a> Executor<'a> {
         if let Object::Mutex(mutex) = unsafe { ns.as_ref() } {
             mutex.lock();
         }
-        Some(ControlFlow::Continue(()))
+        Some(false)
     }
 
     /// Release(MutexObject) — 释放 Mutex 锁
-    pub(super) fn execute_release(&mut self) -> Option<ControlFlow<BreakKind>> {
+    pub(super) fn execute_release(&mut self) -> Option<()> {
         let super_name = SimpleName::parse(&mut self.context.parser, true)?.ok()?;
         let ns = super_name.evaluate(&mut self.context).ok()?;
 
         if let Object::Mutex(mutex) = unsafe { ns.as_ref() } {
             mutex.unlock();
         }
-        Some(ControlFlow::Continue(()))
+        Some(())
     }
 }

@@ -9,7 +9,7 @@ use crate::{
     acpi::aml::{
         evaluator::AsEvaluated,
         executor::ExecuteContext,
-        namespace::{NameSpace, Object, data::PackageElement, objects},
+        namespace::{Object, data::PackageElement, objects},
     },
     kernel::memory::kmalloc::Kmalloc,
 };

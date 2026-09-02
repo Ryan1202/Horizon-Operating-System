@@ -8,11 +8,11 @@ use alloc::boxed::Box;
 
 use crate::{
     acpi::aml::{
-        evaluator::{self, Evaluatable},
+        evaluator::Evaluatable,
         executor::Executable,
         namespace::{
             NameSpace,
-            data::{Package, PackageElement, VarPackage},
+            data::{Package, VarPackage},
         },
     },
     kernel::memory::kmalloc::Kmalloc,
