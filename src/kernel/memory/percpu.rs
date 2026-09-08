@@ -2,6 +2,7 @@ use core::{
     alloc::Layout,
     cell::{Cell, RefCell, UnsafeCell},
     marker::PhantomData,
+    ops::Deref,
     sync::atomic::Ordering,
 };
 
@@ -18,6 +19,7 @@ use crate::{
         thread::scheduler::PreemptGuard,
         topology::CpuId,
     },
+    lib::rust::spinlock::SpinGuard,
 };
 
 unsafe extern "C" {
@@ -192,7 +194,7 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
         CpuLocalGuard::new_dyn(preempt, self)
     }
 
-    pub fn get_remote(&self, cpu_id: CpuId) -> Result<*const T, MemoryError>
+    pub fn get_remote_ptr(&self, cpu_id: CpuId) -> Result<*const T, MemoryError>
     where
         T: Sync,
     {
@@ -200,6 +202,70 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
         let delta = percpu_delta(area, cpu_id)?;
         // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
         Ok(unsafe { ArchCpuLocal::get_ptr_dyn_for(self, delta) })
+    }
+}
+
+impl<'a, T: 'a + PerCpuInit + Sync> PerCpuDyn<T> {
+    pub fn iter(&'a self) -> Result<PerCpuDynIter<'a, T>, MemoryError> {
+        let area = percpu_area()?;
+        Ok(PerCpuDynIter {
+            percpu: self,
+            index: 0,
+            count: area.count(),
+        })
+    }
+
+    pub fn get_remote(&self, cpu_id: CpuId) -> Option<&T> {
+        let ptr = self
+            .get_remote_ptr(cpu_id)
+            .expect("failed to get remote pointer");
+
+        // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
+        unsafe { ptr.as_ref() }
+    }
+
+    pub fn get_remote_mut(&self, cpu_id: CpuId) -> Option<&mut T> {
+        let ptr = self
+            .get_remote_ptr(cpu_id)
+            .expect("failed to get remote pointer") as *mut T;
+
+        // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
+        unsafe { ptr.as_mut() }
+    }
+}
+
+impl<'a, T: PerCpuInit> SpinGuard<'a, &'a mut PerCpuDyn<T>> {
+    pub fn iter(&'a self) -> Result<PerCpuDynIter<'a, T>, MemoryError> {
+        let area = percpu_area()?;
+        Ok(PerCpuDynIter {
+            percpu: self.deref(),
+            index: 0,
+            count: area.count(),
+        })
+    }
+}
+
+pub struct PerCpuDynIter<'a, T: PerCpuInit> {
+    percpu: &'a PerCpuDyn<T>,
+    index: u32,
+    count: u32,
+}
+
+impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIter<'a, T> {
+    type Item = (CpuId, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.count {
+            return None;
+        }
+
+        let cpu_id = CpuId::new(self.index);
+
+        // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
+        let ptr = self.percpu.get_remote_ptr(cpu_id).ok()?;
+        self.index += 1;
+        // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
+        unsafe { ptr.as_ref().map(|t| (cpu_id, t)) }
     }
 }
 

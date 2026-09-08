@@ -1,6 +1,6 @@
 use core::ptr::read_unaligned;
 
-use crate::{acpi::tables::madt::ProcessorLocalApic, arch::x86::kernel::acpi::interrupt::ApicId};
+use crate::{acpi::tables::madt::ProcessorLocalApic, arch::x86::kernel::interrupt::apic::ApicId};
 
 pub enum CpuState {
     Online,

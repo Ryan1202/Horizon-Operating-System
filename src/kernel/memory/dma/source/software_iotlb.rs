@@ -1,4 +1,4 @@
-use core::{cell::SyncUnsafeCell, mem::MaybeUninit, num::NonZeroU16, ops::Range, ptr::NonNull};
+use core::{cell::SyncUnsafeCell, mem::MaybeUninit, num::NonZeroU16, ptr::NonNull, range::Range};
 
 use ::alloc::boxed::Box;
 
@@ -298,7 +298,7 @@ impl AreaInner {
 
         let region = self.expand_free_region(i, n_slots);
 
-        for k in region.clone().rev() {
+        for k in region.into_iter().rev() {
             self.slots[k].n_slots = Some(NonZeroU16::new((region.end - k) as u16).unwrap());
         }
 
@@ -330,7 +330,7 @@ impl AreaInner {
                 .unwrap_or(0);
         }
 
-        start..end
+        (start..end).into()
     }
 }
 

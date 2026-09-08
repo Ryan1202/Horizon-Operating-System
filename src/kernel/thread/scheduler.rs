@@ -42,6 +42,25 @@ pub fn scheduler<'a>(guard: &'a PreemptGuard) -> CpuLocalGuard<'a, Scheduler> {
     SCHEDULER.get_local(guard)
 }
 
+/// 阻塞管理 API 的入口契约；即使锁暂时空闲，也不允许原子上下文误用。
+pub fn assert_can_wait() {
+    assert!(
+        crate::kernel::interrupt::in_thread(),
+        "waiting outside thread context"
+    );
+    assert!(
+        ArchInterrupt::is_enabled(),
+        "waiting with interrupts disabled"
+    );
+    let guard = PreemptGuard::new();
+    assert!(guard.can_switch(), "waiting with preemption disabled");
+    let scheduler = scheduler(&guard);
+    assert!(
+        !scheduler.is_idle(&scheduler.get_current()),
+        "idle thread must not wait"
+    );
+}
+
 /// 在调用方已经证明当前 CPU 不会发生抢占或上下文切换时获取调度器。
 ///
 /// # Safety

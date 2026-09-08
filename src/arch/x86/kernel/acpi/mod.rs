@@ -1,8 +1,8 @@
 use core::{
     cell::SyncUnsafeCell,
     mem::MaybeUninit,
-    ops::Range,
     ptr::{NonNull, read_unaligned},
+    range::Range,
 };
 
 use alloc::boxed::Box;
@@ -14,15 +14,15 @@ use crate::{
     },
     arch::{
         PhysAddr,
-        x86::kernel::acpi::{
-            cpu::Cpu,
-            interrupt::{ApicId, Gsi, IoApic, IrqOverride, IrqRouting},
+        x86::kernel::{
+            acpi::cpu::Cpu,
+            interrupt::{
+                apic::{ApicId, Gsi, IoApicInfo},
+                legacy::{IrqOverride, LegacyIrq},
+            },
         },
     },
-    kernel::{
-        memory::kmalloc::Kmalloc,
-        topology::{CpuHardwareId, CpuRegistry},
-    },
+    kernel::{memory::kmalloc::Kmalloc, topology::CpuRegistry},
 };
 
 mod cpu;
@@ -32,20 +32,21 @@ unsafe extern "C" {
     fn get_local_cpu_id() -> i32;
 }
 
-const RSDP_RANGE: [Range<usize>; 2] = [0x009FC000..0x00A00000, 0x000E0000..0x00100000];
+const RSDP_RANGE: [Range<usize>; 2] = [
+    (0x009FC000..0x00A00000).into(),
+    (0x000E0000..0x00100000).into(),
+];
 
 static X86_TOPOLOGY: SyncUnsafeCell<X86Topology> = SyncUnsafeCell::new(X86Topology {
     cpus: MaybeUninit::uninit(),
     io_apic: MaybeUninit::uninit(),
-    irq_routing: None,
 });
 
 pub struct X86Acpi;
 
 pub struct X86Topology {
     cpus: MaybeUninit<Box<[Cpu], Kmalloc>>,
-    io_apic: MaybeUninit<Box<[IoApic], Kmalloc>>,
-    irq_routing: Option<IrqRouting>,
+    io_apic: MaybeUninit<Box<[IoApicInfo], Kmalloc>>,
 }
 
 impl X86Topology {
@@ -56,7 +57,8 @@ impl X86Topology {
     #[unsafe(export_name = "acpi_init_x86_topology")]
     pub fn init() {
         let topology = unsafe { &mut *X86_TOPOLOGY.get() };
-        let mut irq_routing = IrqRouting::new();
+
+        let irq_routing = LegacyIrq::get();
 
         if let Some(acpi) = acpi().as_ref()
             && let Some(madt) = acpi.tables().madt()
@@ -83,22 +85,22 @@ impl X86Topology {
                         cpu_index += 1;
                     }
                     InterruptController::IoApic(io_apic) => {
-                        ioapics[ioapic_index].write(IoApic::from_ioapic(io_apic));
+                        ioapics[ioapic_index].write(IoApicInfo::from_ioapic(io_apic));
                         ioapic_index += 1;
                     }
                     InterruptController::InterruptSourceOverride(irq_override) => {
                         let irq = irq_override.source as usize;
-                        let gsi = Gsi(irq_override.gsi);
+                        let gsi = Gsi::new(irq_override.gsi);
                         let flags = unsafe { read_unaligned(&raw const irq_override.flags) };
                         let active_low = flags.active_low().unwrap_or(false);
                         let level_triggered = flags.level_triggered().unwrap_or(false);
 
-                        irq_routing.override_irq(irq, gsi, active_low, level_triggered);
+                        irq_routing
+                            .override_irq(irq, IrqOverride::new(gsi, active_low, level_triggered));
                     }
                     _ => {}
                 }
             }
-            topology.irq_routing = Some(irq_routing);
 
             let cpus = unsafe { cpus.assume_init() };
             let ioapics = unsafe { ioapics.assume_init() };
@@ -131,7 +133,7 @@ pub struct BootCapabilities {
 }
 
 #[unsafe(export_name = "x86_boot_capabilities")]
-static BOOT_CAPABILITIES: SyncUnsafeCell<BootCapabilities> =
+pub(in crate::arch::x86) static BOOT_CAPABILITIES: SyncUnsafeCell<BootCapabilities> =
     SyncUnsafeCell::new(BootCapabilities {
         i8042: 1,
         vga: 0,
@@ -255,7 +257,7 @@ pub extern "C" fn acpi_get_ioapic_info(index: usize, out: *mut X86IoApic) -> i32
         *out = X86IoApic {
             id: io_apic.id.get(),
             address: io_apic.address as u32,
-            gsi: io_apic.global_system_interrupt_base.0,
+            gsi: io_apic.gsi_base.get(),
         }
     }
     0
@@ -263,19 +265,5 @@ pub extern "C" fn acpi_get_ioapic_info(index: usize, out: *mut X86IoApic) -> i32
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn x86_acpi_get_isa_irq_route(irq: u32, out: *mut IrqOverride) -> i32 {
-    let Some(out) = NonNull::new(out) else {
-        return 0;
-    };
-    let Some(irq_override) = X86Topology::get()
-        .irq_routing
-        .as_ref()
-        .and_then(|routing| routing.irq(irq as usize))
-    else {
-        return -1;
-    };
-
-    unsafe {
-        out.write(*irq_override);
-    }
-    0
+    unimplemented!()
 }

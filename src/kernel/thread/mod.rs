@@ -7,7 +7,7 @@ use crate::{
     kernel::{
         interrupt::Interrupt,
         memory::kmalloc::Kmalloc,
-        thread::scheduler::{PreemptGuard, Scheduler, scheduler},
+        thread::scheduler::{Scheduler, scheduler},
     },
 };
 
@@ -22,6 +22,7 @@ pub mod wait_queue;
 pub use completion::Completion;
 pub use core::{KernelThreadEntry, Thread, ThreadId, ThreadState};
 pub use manager::{THREAD_MANAGER, ThreadManager};
+pub use scheduler::PreemptGuard;
 pub use wait_queue::{WaitCondition, WaitQueue};
 
 pub type ThreadArc = Arc<Thread, Kmalloc>;
