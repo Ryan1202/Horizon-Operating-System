@@ -1,19 +1,13 @@
-use core::{
-    cell::OnceCell,
-    num::NonZero,
-    ptr::NonNull,
-};
+use core::{cell::OnceCell, num::NonZero, ptr::NonNull};
 
 use alloc::vec::Vec;
 
 use crate::{
     arch::{
         ArchInterrupt, PhysAddr,
-        x86::kernel::{
-            interrupt::{
-                apic::{ApicId, LocalApic},
-                vector::{ERROR_VECTOR, SPURIOUS_VECTOR, VectorManager},
-            },
+        x86::kernel::interrupt::{
+            apic::{ApicId, LocalApic},
+            vector::{ERROR_VECTOR, SPURIOUS_VECTOR},
         },
     },
     cpu_local,
@@ -27,12 +21,12 @@ use crate::{
             percpu::PerCpuInit,
         },
         thread::PreemptGuard,
-        topology::CpuId,
     },
     lib::rust::spinlock::Spinlock,
 };
 
 const SOFTWARE_ENABLE: u32 = 1 << 8;
+const SUPPRESS_EOI_BROADCAST: u32 = 1 << 12;
 const LVT_MASK: u32 = 1 << 16;
 
 mod offsets {
@@ -216,21 +210,28 @@ impl LocalXApic {
         Ok(f(local.0.get().ok_or(IrqError::NotFound)?))
     }
 
-    /// 启用当前 LAPIC，并将当前 CPU 纳入向量分配候选
-    ///
+    pub(crate) fn software_enable(&self) {
+        self.mmio
+            .write(offsets::SVR, self.mmio.read(offsets::SVR) | SOFTWARE_ENABLE);
+    }
+
+    pub fn supports_eoi_suppression(&self) -> bool {
+        self.mmio.read(offsets::VERSION) & (1 << 24) != 0
+    }
+
     /// # Safety
-    ///
-    /// cpu 必须是当前逻辑 CPU；IDT 必须已安装所有可分配向量及 error/spurious 入口。
-    /// 旧的 C APIC 驱动不能再操作此 LAPIC
-    pub unsafe fn enable_current(cpu: CpuId) -> Result<(), IrqError> {
-        Self::with_current(|lapic| {
-            VectorManager::get().register_cpu(cpu, lapic.id())?;
-            lapic.mmio.write(
-                offsets::SVR,
-                lapic.mmio.read(offsets::SVR) | SOFTWARE_ENABLE,
-            );
-            Ok(())
-        })?
+    /// 架构层须在 CPU 开始接收中断前调用；启用抑制时已确认全部 IOAPIC
+    /// 支持显式 EOI，且当前 LAPIC 支持该位。不能在活动路由存在时切换。
+    pub(crate) unsafe fn set_eoi_broadcast_suppressed(&self, suppressed: bool) {
+        let svr = self.mmio.read(offsets::SVR);
+        self.mmio.write(
+            offsets::SVR,
+            if suppressed {
+                svr | SUPPRESS_EOI_BROADCAST
+            } else {
+                svr & !SUPPRESS_EOI_BROADCAST
+            },
+        );
     }
 
     pub fn version(&self) -> u8 {

@@ -1,10 +1,7 @@
 //! 架构无关的 IRQ core
 //!
-//! source/action：注册入口与节点发布；handle：同步注销
-//! mapping/lease：分配、激活之外的所有权和最终回收
+//! action：注册入口与节点发布；handle：同步注销
 //! table：virq 到 descriptor 的直接指针数组；descriptor/flow：运行状态与分发
-
-#![cfg_attr(test, feature(allocator_api, negative_impls))]
 
 mod action;
 mod allocator;
