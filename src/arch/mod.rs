@@ -3,10 +3,16 @@ pub mod x86 {
     pub mod kernel {
         pub mod acpi;
         pub mod interrupt;
-        mod msr;
+        pub mod msr;
         pub mod page;
         pub mod percpu;
         pub mod thread;
+    }
+
+    pub mod drivers {
+        pub mod interrupt {
+            pub mod apic;
+        }
     }
 }
 

@@ -17,6 +17,8 @@
 #![feature(field_projections)]
 #![feature(const_convert)]
 #![feature(vec_push_within_capacity)]
+#![feature(const_volatile)]
+#![feature(option_get_or_try_insert_with)]
 
 extern crate alloc;
 

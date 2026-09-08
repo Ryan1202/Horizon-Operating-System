@@ -29,6 +29,8 @@ pub trait Interrupt: Sized {
 
     /// 获取当前中断状态。
     fn get_status() -> Self::Status;
+    /// 当前 CPU 是否允许可屏蔽中断。
+    fn is_enabled() -> bool;
     /// 启用中断
     fn enable();
     /// 禁用中断
@@ -207,6 +209,16 @@ pub fn handle(irq: u8) {
         interrupt_eoi(irq as c_int);
     }
 
+    if let Some(softirq) = hardirq.into_softirq() {
+        run_softirq(softirq).try_preempt(PreemptGuard::new());
+    }
+}
+
+/// 新硬件入口已翻译出 virq 后使用此入口，统一完成 softirq 和抢占收尾。
+/// chip 的 EOI 由 core flow 执行。
+pub fn handle_mapped(irq: irq::IrqNumber) {
+    let hardirq = HardIrqGuard::new();
+    irq::handle_irq(irq);
     if let Some(softirq) = hardirq.into_softirq() {
         run_softirq(softirq).try_preempt(PreemptGuard::new());
     }

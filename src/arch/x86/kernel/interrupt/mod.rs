@@ -1,13 +1,39 @@
-use core::{arch::asm, ffi::c_int};
+use core::{arch::asm, cell::SyncUnsafeCell, ffi::c_int, mem::MaybeUninit};
 
-use crate::kernel::interrupt::{self, Interrupt, InterruptGuard};
+use alloc::sync::Arc;
 
-const IRQ_COUNT: c_int = 16;
+use crate::{
+    arch::x86::kernel::interrupt::{
+        legacy::{LEGACY_IRQ_CHIP, LEGACY_IRQ_DOMAIN, LegacyIrqChip},
+        vector::VECTOR_MANAGER,
+    },
+    kernel::{
+        interrupt::{
+            self, Interrupt, InterruptGuard,
+            irq::{Flow, IRQ_DESCRIPTORS, IrqDescriptor, IrqNumber, IrqReservation, IrqSharing},
+        },
+        memory::kmalloc::Kmalloc,
+    },
+    printk,
+};
+
+pub mod apic;
+pub mod legacy;
+pub mod vector;
+
+static IRQ_RESERVATION: SyncUnsafeCell<MaybeUninit<IrqReservation>> =
+    SyncUnsafeCell::new(MaybeUninit::uninit());
+
+const IRQ_COUNT: u8 = 16;
 
 pub struct X86Interrupt;
 
 impl Interrupt for X86Interrupt {
     type Status = usize;
+
+    fn is_enabled() -> bool {
+        Self::get_status() & (1 << 9) != 0
+    }
 
     #[inline]
     fn get_status() -> Self::Status {
@@ -62,6 +88,42 @@ impl Interrupt for X86Interrupt {
 
 #[unsafe(no_mangle)]
 extern "C" fn irq_dispatch(irq: c_int) {
-    assert!((0..IRQ_COUNT).contains(&irq), "invalid x86 IRQ number");
+    assert!(
+        (0..IRQ_COUNT as i32).contains(&irq),
+        "invalid x86 IRQ number"
+    );
     interrupt::handle(irq as u8);
+}
+
+#[unsafe(export_name = "irq_early_init")]
+extern "C" fn early_init() {
+    VECTOR_MANAGER.init().expect("failed to initialize x86 vectors");
+    unsafe { &mut *LEGACY_IRQ_CHIP.get() }.write(Arc::new_in(LegacyIrqChip, Kmalloc::default()));
+
+    let irqs = IrqReservation::reserve((0..IRQ_COUNT as usize).into())
+        .expect("failed to reserve x86 IRQs");
+
+    for (irq, irq_number) in (0..IRQ_COUNT).zip(irqs.iter()) {
+        let descriptor = IrqDescriptor::new(
+            irq_number,
+            IrqSharing::Exclusive,
+            &LEGACY_IRQ_DOMAIN,
+            Flow::Level,
+            &(),
+        );
+        let descriptor = match descriptor {
+            Ok(descriptor) => descriptor,
+            Err(e) => {
+                printk!("failed to create descriptor for IRQ {}: {:?}\n", irq, e);
+                break;
+            }
+        };
+
+        IRQ_DESCRIPTORS.publish(descriptor);
+    }
+    unsafe { IRQ_RESERVATION.get().write(MaybeUninit::new(irqs)) };
+}
+
+pub(crate) fn isa_irq(irq: u8) -> Option<IrqNumber> {
+    unsafe { (*IRQ_RESERVATION.get()).assume_init_ref().get(irq as usize) }
 }

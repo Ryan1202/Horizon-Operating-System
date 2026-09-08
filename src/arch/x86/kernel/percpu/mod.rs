@@ -1,7 +1,7 @@
 use core::{arch::asm, ptr::with_exposed_provenance};
 
 use crate::{
-    arch::x86::kernel::msr::IA32_GS_BASE,
+    arch::x86::kernel::msr::{IA32_GS_BASE, wrmsr},
     kernel::memory::percpu::{
         __percpu_start, CpuLocal, PerCpu, PerCpuDyn, PerCpuInit, PerCpuReadWrite,
     },
@@ -18,15 +18,7 @@ impl CpuLocal for X86CpuLocal {
         // 如果溢出则取模，用于 gs:[offset] 时能恢复地址
         let delta = Self::delta_for(base);
 
-        unsafe {
-            asm!(
-                "wrmsr",
-                in("ecx") IA32_GS_BASE,
-                in("eax") (delta & 0xFFFF_FFFF) as u32,
-                in("edx") (delta >> 32) as u32,
-                options(nostack, preserves_flags),
-            )
-        }
+        unsafe { wrmsr(IA32_GS_BASE, delta as u64) };
 
         delta
     }

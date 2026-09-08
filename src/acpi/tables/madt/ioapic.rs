@@ -14,5 +14,5 @@ pub struct IoApic {
     /// 指定该 I/O APIC 的中断输入引脚所对应的第一个 Global System Interrupt（GSI）编号
     ///
     /// 该 I/O APIC 拥有多少个中断输入，由 I/O APIC 的 MaxRedirEntry 寄存器确定
-    pub global_system_interrupt_base: u32,
+    pub gsi_base: u32,
 }
