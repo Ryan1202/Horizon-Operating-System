@@ -86,7 +86,7 @@ impl irq::Domain for LegacyIrq {
 
         let r#ref = &LEGACY_IRQ_DOMAIN;
         let chip = unsafe { (*LEGACY_IRQ_CHIP.get()).assume_init_ref() }.clone();
-        let chip = data.write(IrqData::new(
+        data.write(IrqData::new(
             HardwareIrq::<Self>::new(number as u32),
             r#ref,
             chip,
@@ -111,9 +111,9 @@ impl irq::Domain for LegacyIrq {
 }
 
 impl IrqChip for LegacyIrqChip {
-    fn mask(&self, _irq: IrqNumber, _data: &IrqData) {}
-    fn unmask(&self, _irq: IrqNumber, _data: &IrqData) {}
+    fn mask(&self, _data: &IrqData) {}
+    fn unmask(&self, _data: &IrqData) {}
 
-    fn ack(&self, _irq: IrqNumber, _data: &IrqData) {}
-    fn eoi(&self, _irq: IrqNumber, _data: &IrqData) {}
+    fn ack(&self, _data: &IrqData) {}
+    fn eoi(&self, _data: &IrqData) {}
 }

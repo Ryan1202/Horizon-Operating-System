@@ -7,12 +7,12 @@ use crate::{
         drivers::interrupt::apic::LocalXApic,
         kernel::interrupt::{
             apic::LocalApic,
-            vector::{VectorManager, VectorRoute},
+            vector::{VectorManager, VectorRoute, VectorScope},
         },
     },
     kernel::{
         interrupt::irq::{Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber},
-        memory::{MemoryError, kmalloc::Kmalloc},
+        memory::kmalloc::Kmalloc,
     },
     lib::rust::spinlock::Spinlock,
 };
@@ -26,6 +26,7 @@ struct LocalApicChip;
 
 struct LocalApicData {
     irq: IrqNumber,
+    scope: VectorScope,
     route: Spinlock<Option<VectorRoute>>,
 }
 
@@ -49,20 +50,25 @@ impl LocalApicDomain {
 }
 
 impl Domain for LocalApicDomain {
-    /// arg 为 ()；目标 CPU 由 activate 的 affinity 决定。
+    /// arg 为 VectorScope；兼容 () 表示 PerCpu。目标 CPU 由 activate 决定。
     fn allocate(
         &self,
         irq: IrqNumber,
         data: &mut MaybeUninit<IrqData>,
         arg: &dyn Any,
     ) -> Result<(), IrqError> {
-        if !arg.is::<()>() {
+        let scope = if let Some(scope) = arg.downcast_ref::<VectorScope>() {
+            *scope
+        } else if arg.is::<()>() {
+            VectorScope::PerCpu
+        } else {
             return Err(IrqError::InvalidArgument);
-        }
+        };
 
         let local = Box::new_in(
             LocalApicData {
                 irq,
+                scope,
                 route: Spinlock::new(None),
             },
             Kmalloc::default(),
@@ -101,7 +107,7 @@ impl Domain for LocalApicDomain {
             return Err(IrqError::Busy);
         }
 
-        let allocated = VectorManager::get().allocate(irq, *affinity)?;
+        let allocated = VectorManager::get().allocate(irq, *affinity, local.scope)?;
 
         *route = Some(allocated);
         *affinity = Affinity::Cpu(allocated.cpu);
@@ -117,11 +123,11 @@ impl Domain for LocalApicDomain {
 
 impl IrqChip for LocalApicChip {
     // LAPIC 无法逐个屏蔽外部 vector；子 chip 必须操作自己的中断源。
-    fn mask(&self, _irq: IrqNumber, _data: &IrqData) {}
-    fn unmask(&self, _irq: IrqNumber, _data: &IrqData) {}
-    fn ack(&self, _irq: IrqNumber, _data: &IrqData) {}
+    fn mask(&self, _data: &IrqData) {}
+    fn unmask(&self, _data: &IrqData) {}
+    fn ack(&self, _data: &IrqData) {}
 
-    fn eoi(&self, _irq: IrqNumber, _data: &IrqData) {
+    fn eoi(&self, _data: &IrqData) {
         // 只对当前处理硬件事件的 CPU 发送 EOI，不按路由远程访问 LAPIC。
         LocalXApic::with_current(|lapic| lapic.eoi())
             .expect("EOI before local APIC initialization");

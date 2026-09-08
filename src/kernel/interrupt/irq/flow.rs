@@ -1,10 +1,5 @@
 //! 封闭的 flow。物理事件 ack/eoi 一次，pending 的软件重放不伪造 EOI。
-use super::{
-    Flow,
-    descriptor::{IrqDescriptor, Status},
-};
-use crate::kernel::thread::scheduler::PreemptGuard;
-use core::sync::atomic::Ordering;
+use super::{Flow, descriptor::IrqDescriptor};
 
 fn begin(descriptor: &IrqDescriptor, suppressed: bool) {
     let data = &descriptor.data;
@@ -12,22 +7,22 @@ fn begin(descriptor: &IrqDescriptor, suppressed: bool) {
     match descriptor.flow {
         Flow::Edge => {
             if suppressed {
-                chip.mask_ack(descriptor.irq, data);
+                chip.mask_ack(data);
             } else {
-                chip.ack(descriptor.irq, data);
+                chip.ack(data);
             }
         }
-        Flow::Level => chip.mask_ack(descriptor.irq, data),
+        Flow::Level => chip.mask_ack(data),
         Flow::FastEoi => {
             if suppressed {
-                chip.mask(descriptor.irq, data);
+                chip.mask(data);
             }
         }
         Flow::PerCpu => {
             if suppressed {
-                chip.mask_ack(descriptor.irq, data);
+                chip.mask_ack(data);
             } else {
-                chip.ack(descriptor.irq, data);
+                chip.ack(data);
             }
         }
         Flow::Simple => {}
@@ -39,10 +34,10 @@ fn end(descriptor: &IrqDescriptor, physical: bool, resume: bool) {
     let data = &descriptor.data;
     let chip = data.chip();
     if physical && matches!(descriptor.flow, Flow::FastEoi | Flow::PerCpu) {
-        chip.eoi(descriptor.irq, data);
+        chip.eoi(data);
     }
     if resume && matches!(descriptor.flow, Flow::Edge | Flow::Level | Flow::FastEoi) {
-        chip.unmask(descriptor.irq, data);
+        chip.unmask(data);
     }
 }
 
