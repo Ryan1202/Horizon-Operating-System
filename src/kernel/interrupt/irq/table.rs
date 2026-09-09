@@ -1,81 +1,98 @@
-//! [`IrqNumber`] 直接索引 descriptor 指针数组
-//!
-//! 表锁只保护发布、撤下和取得首个引用。释放表锁后才能进入 descriptor 锁。
-//! 租约计数位于 descriptor 中，但只在本文件持有表锁时修改。
+//! 指针表与占位替换共用表锁。占位对象的借用不能逃出锁
 
 use alloc::boxed::Box;
+use core::{any::Any, ops::Deref, ptr::NonNull};
 
-use super::{IrqError, IrqNumber, allocator::MAX_IRQS, descriptor::IrqDescriptor};
-use crate::{kernel::memory::kmalloc::Kmalloc, lib::rust::spinlock::Spinlock};
-use core::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
+use super::{Domain, Flow, IrqError, IrqNumber, allocator::MAX_IRQS, descriptor::IrqDescriptor};
+use crate::{
+    kernel::memory::kmalloc::Kmalloc,
+    lib::rust::spinlock::{SpinIrqGuard, Spinlock},
 };
+
+type Descriptors = [Option<NonNull<IrqDescriptor>>; MAX_IRQS];
 
 pub static IRQ_DESCRIPTORS: IrqTable = IrqTable::new();
 
-struct IrqTable(Spinlock<[Option<NonNull<IrqDescriptor>>; MAX_IRQS]>);
+pub struct IrqTable(Spinlock<Descriptors>);
 
 impl IrqTable {
     const fn new() -> Self {
         Self(Spinlock::new([None; MAX_IRQS]))
     }
 
-    pub fn publish(&self, descriptor: IrqDescriptor) -> Result<(), IrqError> {
+    pub(super) fn publish(&self, descriptor: IrqDescriptor) -> Result<(), IrqError> {
+        let irq = descriptor.irq.get();
         let descriptor = Box::<_, Kmalloc>::new_in(descriptor, Kmalloc::default());
-        let ptr = Box::into_non_null_with_allocator(descriptor).0;
-        let descriptor = unsafe { ptr.as_ref() };
 
         let mut table = self.0.lock_irqsave();
-
-        let irq = descriptor.irq.get() as usize;
-
         if table[irq].is_some() {
-            Err(IrqError::AlreadyPublished)
-        } else {
-            table[irq] = Some(ptr);
-            Ok(())
+            // descriptor 在锁之前声明；返回时先解锁，再析构
+            return Err(IrqError::AlreadyPublished);
         }
+
+        table[irq] = Some(Box::into_non_null_with_allocator(descriptor).0);
+
+        Ok(())
     }
 
-    pub fn lookup(&self, irq: IrqNumber) -> Option<DescriptorGuard> {
-        let desc = unsafe { self.0.lock()[irq.get() as usize]?.as_mut() };
+    pub fn lookup(&self, irq: IrqNumber) -> Option<DescriptorGuard<'_>> {
+        let table = self.0.lock_irqsave();
+        let descriptor = table[irq.get()]?;
 
-        Some(DescriptorGuard::new(desc))
+        Some(DescriptorGuard {
+            descriptor,
+            _table: table,
+        })
+    }
+
+    pub fn realloc(
+        &self,
+        irq: IrqNumber,
+        domain: &'static dyn Domain,
+        flow: Flow,
+        arg: &dyn Any,
+    ) -> Result<(), IrqError> {
+        super::sync::assert_management();
+
+        {
+            let descriptor = self.lookup(irq).ok_or(IrqError::NotFound)?;
+            if descriptor.is_configured() {
+                return Err(IrqError::Busy);
+            }
+        }
+
+        // 分配可能等待；构造完成后再取得表锁检查和提交
+        let data = domain.allocate(irq, arg)?;
+        let table = self.0.lock_irqsave();
+        let mut ptr = table[irq.get()].ok_or(IrqError::NotFound)?;
+
+        // SAFETY: 表锁阻止占位对象被借用或同时修改
+        // 先用共享引用检查；已配置对象可能被 handle 持有，不得对它取得 &mut
+        if unsafe { ptr.as_ref().is_configured() } {
+            return Err(IrqError::Busy);
+        }
+
+        // SAFETY: 确认为占位；此时没有 action，也没有表锁外的共享借用
+        let old = unsafe { ptr.as_mut().realloc(data, flow) };
+
+        drop(table);
+        drop(old);
+
+        Ok(())
     }
 }
 
-/// IRQ 路径的短期引用，不持有 action 或 mapping 的所有权。
-pub(super) struct DescriptorGuard<'a>(&'a mut IrqDescriptor);
-
-impl<'a> DescriptorGuard<'a> {
-    fn new(desc: &'a mut IrqDescriptor) -> Self {
-        // SAFETY: 首次加引用与 unpublish 在同一表锁内互斥。
-        // let old = desc.references.fetch_add(1, Ordering::Relaxed);
-        // assert!(old < isize::MAX as usize, "IRQ reference overflow");
-
-        Self(desc)
-    }
+/// 共享访问与表锁同寿命；持有此 guard 时不能再次进入表操作
+pub struct DescriptorGuard<'a> {
+    descriptor: NonNull<IrqDescriptor>,
+    _table: SpinIrqGuard<'a, &'a mut Descriptors>,
 }
 
-impl<'a> Deref for DescriptorGuard<'a> {
+impl Deref for DescriptorGuard<'_> {
     type Target = IrqDescriptor;
 
     fn deref(&self) -> &Self::Target {
-        self.0
+        // SAFETY: 表锁保护占位内容，且 descriptor 在本阶段不回收
+        unsafe { self.descriptor.as_ref() }
     }
 }
-
-impl<'a> DerefMut for DescriptorGuard<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: 由 new 保证引用计数非零，且表锁与 unpublish 互斥
-        self.0
-    }
-}
-
-// impl<'a> Drop for DescriptorGuard<'a> {
-//     fn drop(&mut self) {
-//         // 减到零后，回收者可能立即释放对象；此后不能再访问 descriptor。
-//         self.0.references.fetch_sub(1, Ordering::Release);
-//     }
-// }

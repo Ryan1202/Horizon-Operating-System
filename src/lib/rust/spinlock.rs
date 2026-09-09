@@ -178,7 +178,7 @@ impl<T: fmt::Debug> fmt::Debug for Spinlock<T> {
 
 pub struct SpinGuard<'a, T: Deref> {
     lock: &'a SpinlockRaw,
-    _inner: T,
+    inner: T,
 }
 
 pub struct SpinIrqGuard<'a, T: Deref> {
@@ -257,7 +257,7 @@ impl<T> Spinlock<T> {
         self.lock.lock();
         SpinGuard {
             lock: &self.lock,
-            _inner: unsafe { &mut *self._inner.get() },
+            inner: unsafe { &mut *self._inner.get() },
         }
     }
 
@@ -266,7 +266,10 @@ impl<T> Spinlock<T> {
         this.lock.lock();
         let lock = &this.lock;
         let _inner = unsafe { Pin::new_unchecked(&mut *this._inner.get()) };
-        SpinGuard { lock, _inner }
+        SpinGuard {
+            lock,
+            inner: _inner,
+        }
     }
 
     pub fn lock_irqsave(&self) -> SpinIrqGuard<'_, &mut T>
@@ -278,7 +281,7 @@ impl<T> Spinlock<T> {
         SpinIrqGuard {
             spin_guard: SpinGuard {
                 lock: &self.lock,
-                _inner: unsafe { &mut *self._inner.get() },
+                inner: unsafe { &mut *self._inner.get() },
             },
             interrupt_guard: InterruptGuard::new(status as usize),
         }
@@ -292,13 +295,13 @@ impl<T> Spinlock<T> {
         SpinIrqGuard {
             spin_guard: SpinGuard {
                 lock,
-                _inner: unsafe { Pin::new_unchecked(&mut *this._inner.get()) },
+                inner: unsafe { Pin::new_unchecked(&mut *this._inner.get()) },
             },
             interrupt_guard: InterruptGuard::new(status as usize),
         }
     }
 
-    pub fn get_relaxed(&self) -> &T {
+    pub const fn get_relaxed(&self) -> &T {
         // 在无需同步语义（仅在明确知道安全的场景下）下获取对内部数据的只读访问
         unsafe { &*self._inner.get() }
     }
@@ -379,59 +382,59 @@ impl<T> RwSpinlock<T> {
     }
 }
 
-impl<'a, T> Deref for SpinGuard<'a, &mut T> {
+const impl<'a, T> Deref for SpinGuard<'a, &mut T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self._inner
+        self.inner
     }
 }
 
-impl<'a, T> DerefMut for SpinGuard<'a, &mut T> {
+const impl<'a, T> DerefMut for SpinGuard<'a, &mut T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self._inner
+        self.inner
     }
 }
 
-impl<'a, T> Deref for SpinGuard<'a, Pin<&'a mut T>> {
+const impl<'a, T> Deref for SpinGuard<'a, Pin<&'a mut T>> {
     type Target = Pin<&'a mut T>;
 
     fn deref(&self) -> &Self::Target {
-        &self._inner
+        &self.inner
     }
 }
 
-impl<'a, T> DerefMut for SpinGuard<'a, Pin<&'a mut T>> {
+const impl<'a, T> DerefMut for SpinGuard<'a, Pin<&'a mut T>> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self._inner
+        &mut self.inner
     }
 }
 
-impl<'a, T> Deref for SpinIrqGuard<'a, &mut T> {
+const impl<'a, T> Deref for SpinIrqGuard<'a, &mut T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.spin_guard._inner
+        self.spin_guard.inner
     }
 }
 
-impl<'a, T> DerefMut for SpinIrqGuard<'a, &mut T> {
+const impl<'a, T> DerefMut for SpinIrqGuard<'a, &mut T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.spin_guard._inner
+        self.spin_guard.inner
     }
 }
 
-impl<'a, T> Deref for SpinIrqGuard<'a, Pin<&'a mut T>> {
+const impl<'a, T> Deref for SpinIrqGuard<'a, Pin<&'a mut T>> {
     type Target = Pin<&'a mut T>;
 
     fn deref(&self) -> &Self::Target {
-        &self.spin_guard._inner
+        &self.spin_guard.inner
     }
 }
 
-impl<'a, T> DerefMut for SpinIrqGuard<'a, Pin<&'a mut T>> {
+const impl<'a, T> DerefMut for SpinIrqGuard<'a, Pin<&'a mut T>> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.spin_guard._inner
+        &mut self.spin_guard.inner
     }
 }
 

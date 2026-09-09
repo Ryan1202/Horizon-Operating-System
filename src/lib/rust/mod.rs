@@ -1,4 +1,5 @@
 pub mod bitmap;
+pub mod bitset;
 pub mod field;
 pub mod list;
 pub mod rbtree;

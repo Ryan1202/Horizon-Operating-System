@@ -1,4 +1,4 @@
-use core::{any::Any, mem::MaybeUninit};
+use core::any::Any;
 
 use alloc::{boxed::Box, sync::Arc};
 
@@ -51,12 +51,7 @@ impl LocalApicDomain {
 
 impl Domain for LocalApicDomain {
     /// arg 为 VectorScope；兼容 () 表示 PerCpu。目标 CPU 由 activate 决定。
-    fn allocate(
-        &self,
-        irq: IrqNumber,
-        data: &mut MaybeUninit<IrqData>,
-        arg: &dyn Any,
-    ) -> Result<(), IrqError> {
+    fn allocate(&self, irq: IrqNumber, arg: &dyn Any) -> Result<IrqData, IrqError> {
         let scope = if let Some(scope) = arg.downcast_ref::<VectorScope>() {
             *scope
         } else if arg.is::<()>() {
@@ -76,15 +71,14 @@ impl Domain for LocalApicDomain {
 
         let chip = Arc::new_in(LocalApicChip, Kmalloc::default());
 
-        data.write(IrqData::new(
+        Ok(IrqData::new(
             // 本层源编号在整个 descriptor 生命周期内稳定；不等同于 IDT vector。
             HardwareIrq::<Self>::new(irq.get() as u32),
             Self::get(),
             chip,
             local,
             None,
-        ));
-        Ok(())
+        ))
     }
 
     fn free(&self, data: &IrqData) {
