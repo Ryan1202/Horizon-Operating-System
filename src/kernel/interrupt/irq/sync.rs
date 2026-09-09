@@ -14,7 +14,7 @@ use crate::{
 use alloc::boxed::Box;
 use core::pin::Pin;
 
-pub(super) fn assert_management() {
+pub(crate) fn assert_management() {
     assert!(
         interrupt::in_thread(),
         "IRQ management from interrupt/handler context"

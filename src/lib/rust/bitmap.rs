@@ -1,36 +1,31 @@
-use core::alloc::Layout;
+use core::{alloc::Layout, num::NonZeroUsize};
 
 use alloc::boxed::Box;
 
+use super::bitset::BitSet;
 use crate::{
     CACHELINE_SIZE,
     kernel::memory::{MemoryError, kmalloc::Kmalloc},
 };
 
 const WORD_BITS: u32 = usize::BITS;
+const MAX_ALLOC_SIZE: usize = 16 * 1024; // 16 KiB
 
-const MAX_ALLOC_SIZE: u32 = 16 * 1024; // 16 KiB
-
-const fn word_count(bits: u32) -> u32 {
-    bits.div_ceil(WORD_BITS)
+struct AllocMap<'a> {
+    alloc_map: BitSet<&'a mut [usize]>,
+    bound_map: BitSet<&'a mut [usize]>,
 }
 
-struct AllocMap<'a, const UNIT_SIZE: usize> {
-    alloc_map: &'a mut [usize],
-    bound_map: &'a mut [usize],
-}
-
-/// `Bitmap` 是一个位图分配器，用于管理固定大小的内存块
+/// 按 `UNIT_SIZE` 字节单元管理内存的位图分配器。
 ///
-/// `Bitmap` 最大支持管理 4 GB 的内存.最多可以使用 65536 个 `usize` 来管理,
-/// 即在 32 位系统上最多可以管理 `2^21` 个单位，在 64 位系统上最多可以管理 `2^22` 个单位
-///
-/// `UNIT_SIZE` 是分配器管理的最小单位的大小，单位为字节
+/// 两组位图连续存放于一次堆分配中，每组最多 `u16::MAX` 个 word；
+/// 边界位图额外记录容量末尾的边界，因此最多管理
+/// `u16::MAX * usize::BITS - 1` 个单元，字节容量还须能用 `u32` 表示。
 pub struct Bitmap<const UNIT_SIZE: usize> {
     array: Box<[usize], Kmalloc>,
     size: u32,
     alloc_words: u16,
-    /// 第一个空闲分配单元的下标，不是位图 word 的下标
+    /// 第一个空闲单元的下标；没有空闲单元时等于单元总数。
     first_free: u32,
 }
 
@@ -44,14 +39,17 @@ impl<const UNIT_SIZE: usize> Bitmap<UNIT_SIZE> {
         }
 
         let units = size / UNIT_SIZE as u32;
-        let alloc_words = word_count(units + 1) as u16;
-        let bound_words = alloc_words;
-        let total_words = usize::from(alloc_words) + usize::from(bound_words);
+        let boundary_bits = units
+            .checked_add(1)
+            .ok_or(MemoryError::InvalidSize(size as usize))?;
+        let alloc_words = u16::try_from(boundary_bits.div_ceil(WORD_BITS))
+            .map_err(|_| MemoryError::InvalidSize(size as usize))?;
+        let total_words = usize::from(alloc_words) * 2;
 
-        let array = Box::try_new_zeroed_slice_in(total_words, Kmalloc::default())
-            .map_err(|_| MemoryError::OutOfMemory)?;
-        // SAFETY: usize 的全零位模式有效，且分配器已返回完整初始化前的零填充数组
+        let array = Box::new_zeroed_slice_in(total_words, Kmalloc::default());
+        // SAFETY: usize 的全零位模式有效，整个数组已由分配器清零。
         let array = unsafe { array.assume_init() };
+
         Ok(Self {
             array,
             size,
@@ -61,168 +59,107 @@ impl<const UNIT_SIZE: usize> Bitmap<UNIT_SIZE> {
     }
 
     pub fn allocate(&mut self, layout: Layout) -> Result<usize, MemoryError> {
-        let mut alloc_map = AllocMap::<UNIT_SIZE>::new(&mut self.array, self.alloc_words);
-
-        alloc_map.allocate(layout, self.size, &mut self.first_free)
-    }
-
-    pub fn deallocate(&mut self, offset: usize) -> Result<(), MemoryError> {
-        if offset >= self.size as usize || !offset.is_multiple_of(UNIT_SIZE) {
-            return Err(MemoryError::InvalidAllocationOffset(offset));
-        }
-        let unit = (offset / UNIT_SIZE) as u32;
-        let mut alloc_map = AllocMap::<UNIT_SIZE>::new(&mut self.array, self.alloc_words);
-
-        alloc_map.deallocate(unit, &mut self.first_free)
-    }
-}
-
-impl<'a, const UNIT_SIZE: usize> AllocMap<'a, UNIT_SIZE> {
-    fn new(array: &'a mut [usize], alloc_words: u16) -> Self {
-        let (alloc_map, bound_map) = array.split_at_mut(alloc_words as usize);
-        Self {
-            alloc_map,
-            bound_map,
-        }
-    }
-
-    fn allocate(
-        &mut self,
-        layout: Layout,
-        capacity: u32,
-        first_free: &mut u32,
-    ) -> Result<usize, MemoryError> {
         let size = layout.size();
-        if size == 0 || size > MAX_ALLOC_SIZE as usize {
+        if size == 0 || size > MAX_ALLOC_SIZE {
             return Err(MemoryError::InvalidSize(size));
         }
-        let size = size as u32;
-        let units = size.div_ceil(UNIT_SIZE as u32);
 
         let align = layout.align().max(UNIT_SIZE);
         if align > CACHELINE_SIZE {
             return Err(MemoryError::ViolateConstraint);
         }
-        let unit_align = (align / UNIT_SIZE) as u32;
 
-        let mut start = first_free.next_multiple_of(unit_align);
-        let capacity_units = capacity / UNIT_SIZE as u32;
+        let count = NonZeroUsize::new(size.div_ceil(UNIT_SIZE)).unwrap();
+        let capacity = self.size as usize / UNIT_SIZE;
 
-        while start + units <= capacity_units {
-            let offset = start * UNIT_SIZE as u32;
-            let bit_index = BitIndex::new(start);
-            if self.test(&bit_index, units) {
-                self.mark_allocated(&bit_index, units);
+        let mut maps = AllocMap::new(&mut self.array, self.alloc_words, capacity);
 
-                if start == *first_free {
-                    *first_free = start + units;
-                }
-                return Ok(offset as usize);
-            }
+        let start = maps
+            .alloc_map
+            .allocate(self.first_free as usize, count, align / UNIT_SIZE)
+            .ok_or(MemoryError::OutOfMemory)?;
 
-            start = (start + units).next_multiple_of(unit_align);
-        }
+        maps.mark_boundaries(start, count.get());
+        maps.advance_first_free(start, count.get(), &mut self.first_free);
 
-        Err(MemoryError::OutOfMemory)
+        Ok(start * UNIT_SIZE)
     }
 
-    fn test(&self, bit_index: &BitIndex, len: u32) -> bool {
-        let mut remaining = len;
-        let mut bit = bit_index.bit;
-        let mut index = bit_index.index;
-        while remaining > 0 {
-            let len = remaining.min(WORD_BITS - bit);
-            let mask = (usize::MAX >> (WORD_BITS - len)) << bit;
-            if self.alloc_map[index as usize] & mask != 0 {
-                return false;
-            }
-            remaining -= len;
-            index += 1;
-            bit = 0;
+    /// 从单元下标 `start_unit` 开始分配 `count` 个单元，不受单次 allocate 大小限制
+    ///
+    /// 无效起点返回 `InvalidAllocationOffset(start_unit)`（载荷是单元下标）。
+    /// 范围超出容量或已有占用返回 `OutOfMemory`，失败不修改位图。
+    /// 成功后使用 `deallocate(start_unit * UNIT_SIZE)` 释放
+    pub fn assign(&mut self, start_unit: usize, count: NonZeroUsize) -> Result<(), MemoryError> {
+        let capacity = self.size as usize / UNIT_SIZE;
+        if start_unit >= capacity {
+            return Err(MemoryError::InvalidAllocationOffset(start_unit));
         }
-        true
-    }
-
-    fn mark_allocated(&mut self, bit_index: &BitIndex, len: u32) {
-        let mut remaining = len;
-        let mut bit = bit_index.bit;
-        let mut index = bit_index.index;
-        while remaining > 0 {
-            let len = remaining.min(WORD_BITS - bit);
-            let mask = (usize::MAX >> (WORD_BITS - len)) << bit;
-            self.alloc_map[index as usize] |= mask;
-            self.bound_map[index as usize] &= !mask;
-            remaining -= len;
-            index += 1;
-            bit = 0;
+        if count.get() > capacity - start_unit {
+            return Err(MemoryError::OutOfMemory);
         }
 
-        self.bound_map[bit_index.index as usize] |= 1 << bit_index.bit;
-        let end = bit_index.bit + len;
-        let end_index = bit_index.index + end / WORD_BITS;
-        self.bound_map[end_index as usize] |= 1 << (end % WORD_BITS);
-    }
-
-    fn deallocate(&mut self, unit: u32, first_free: &mut u32) -> Result<(), MemoryError> {
-        let bitmask = BitIndex::new(unit);
-        if self.alloc_map[bitmask.index as usize] & (1 << bitmask.bit) == 0
-            || self.bound_map[bitmask.index as usize] & (1 << bitmask.bit) == 0
-        {
-            return Err(MemoryError::InvalidAllocationOffset(
-                unit as usize * UNIT_SIZE,
-            ));
+        let mut maps = AllocMap::new(&mut self.array, self.alloc_words, capacity);
+        if !maps.alloc_map.assign(start_unit, count) {
+            return Err(MemoryError::OutOfMemory);
         }
 
-        let end = self.find_boundary(&bitmask);
-        self.mark_free(&bitmask, &end);
-
-        *first_free = (*first_free).min(unit);
+        maps.mark_boundaries(start_unit, count.get());
+        maps.advance_first_free(start_unit, count.get(), &mut self.first_free);
 
         Ok(())
     }
 
-    fn find_boundary(&self, start: &BitIndex) -> BitIndex {
-        let bit = (start.bit + 1) % WORD_BITS;
-        let mut index = start.index + (start.bit + 1) / WORD_BITS;
-        let mut word = self.bound_map[index as usize] & (usize::MAX << bit);
-        while word.highest_one().is_none() {
-            index += 1;
-            word = self.bound_map[index as usize];
+    /// 释放以字节偏移 `offset` 为起点的完整分配。
+    pub fn deallocate(&mut self, offset: usize) -> Result<(), MemoryError> {
+        if offset >= self.size as usize || !offset.is_multiple_of(UNIT_SIZE) {
+            return Err(MemoryError::InvalidAllocationOffset(offset));
         }
-        BitIndex {
-            index,
-            bit: word.lowest_one().unwrap(),
-        }
-    }
 
-    fn mark_free(&mut self, start: &BitIndex, end: &BitIndex) {
-        let mut remaining = end.position() - start.position();
-        let mut bit = start.bit;
-        let mut index = start.index;
-        while remaining > 0 {
-            let len = remaining.min(WORD_BITS - bit);
-            let mask = (usize::MAX >> (WORD_BITS - len)) << bit;
-            self.alloc_map[index as usize] &= !mask;
-            remaining -= len;
-            index += 1;
-            bit = 0;
+        let unit = offset / UNIT_SIZE;
+        let mut maps = AllocMap::new(
+            &mut self.array,
+            self.alloc_words,
+            self.size as usize / UNIT_SIZE,
+        );
+
+        if !maps.alloc_map.test(unit) || !maps.bound_map.test(unit) {
+            return Err(MemoryError::InvalidAllocationOffset(offset));
         }
+
+        let end = maps
+            .bound_map
+            .find_one(unit + 1)
+            .expect("missing allocation end boundary");
+
+        maps.alloc_map.clear_range(unit, end - unit);
+        self.first_free = self.first_free.min(unit as u32);
+
+        Ok(())
     }
 }
 
-struct BitIndex {
-    index: u32,
-    bit: u32,
-}
-
-impl BitIndex {
-    const fn new(position: u32) -> Self {
-        let index = position / WORD_BITS;
-        let bit = position % WORD_BITS;
-        Self { index, bit }
+impl<'a> AllocMap<'a> {
+    fn new(array: &'a mut [usize], alloc_words: u16, units: usize) -> Self {
+        let (alloc_map, bound_map) = array.split_at_mut(alloc_words as usize);
+        Self {
+            alloc_map: BitSet::from_storage(alloc_map, units),
+            bound_map: BitSet::from_storage(bound_map, units + 1),
+        }
     }
 
-    const fn position(&self) -> u32 {
-        self.index * WORD_BITS + self.bit
+    fn mark_boundaries(&mut self, start: usize, count: usize) {
+        self.bound_map.clear_range(start, count);
+        self.bound_map.set(start);
+        self.bound_map.set(start + count);
+    }
+
+    fn advance_first_free(&self, start: usize, count: usize, first_free: &mut u32) {
+        if start <= *first_free as usize && (*first_free as usize) < start + count {
+            *first_free = self
+                .alloc_map
+                .find_zero(start + count)
+                .unwrap_or(self.alloc_map.len()) as u32;
+        }
     }
 }

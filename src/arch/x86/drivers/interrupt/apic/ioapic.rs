@@ -1,4 +1,4 @@
-use core::{any::Any, mem::MaybeUninit, num::NonZero, ptr::NonNull};
+use core::{any::Any, num::NonZero, ptr::NonNull};
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
@@ -312,12 +312,7 @@ struct Info {
 }
 
 impl irq::Domain for IoApics {
-    fn allocate(
-        &self,
-        irq: IrqNumber,
-        data: &mut MaybeUninit<IrqData>,
-        arg: &dyn Any,
-    ) -> Result<(), IrqError> {
+    fn allocate(&self, irq: IrqNumber, arg: &dyn Any) -> Result<IrqData, IrqError> {
         let arg = arg
             .downcast_ref::<IoApicArg>()
             .ok_or(IrqError::InvalidArgument)?;
@@ -343,9 +338,7 @@ impl irq::Domain for IoApics {
         };
 
         local.alloc_parent(irq, LocalApicDomain::get(), &scope)?;
-        data.write(local);
-
-        Ok(())
+        Ok(local)
     }
 
     fn free(&self, _data: &IrqData) {}

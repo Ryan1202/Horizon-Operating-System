@@ -1,24 +1,27 @@
-use core::{any::Any, cell::SyncUnsafeCell, mem::MaybeUninit};
-
-use alloc::{boxed::Box, sync::Arc};
+//! ISA 路由与占位配置；通用 request_irq 不处理 ISA 特例
 
 use crate::{
-    arch::x86::kernel::interrupt::{IRQ_RESERVATION, apic::Gsi},
+    arch::x86::{
+        drivers::interrupt::apic::IoApics,
+        kernel::interrupt::apic::{Gsi, IoApicArg},
+    },
     kernel::{
-        interrupt::irq::{self, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber},
+        interrupt::irq::{
+            self, IRQ_DESCRIPTORS, IrqDescriptor, IrqError, IrqHandle, IrqHandler, IrqNumber,
+            IrqReservation, IrqSharing, Polarity, TriggerMode,
+        },
         memory::kmalloc::Kmalloc,
     },
     lib::rust::spinlock::Spinlock,
 };
+use alloc::sync::Arc;
 
 const IRQ_COUNT: usize = 16;
 
-pub(super) static LEGACY_IRQ_DOMAIN: LegacyIrq = LegacyIrq {
-    map: Spinlock::new([const { None }; IRQ_COUNT]),
-};
-pub(super) static LEGACY_IRQ_CHIP: SyncUnsafeCell<MaybeUninit<Arc<LegacyIrqChip, Kmalloc>>> =
-    SyncUnsafeCell::new(MaybeUninit::uninit());
+static ISA_NUMBERS: Spinlock<Option<IrqReservation>> = Spinlock::new(None);
+static LEGACY_IRQ_ROUTES: LegacyIrq = LegacyIrq::new();
 
+#[derive(Clone, Copy)]
 pub struct IrqOverride {
     gsi: Gsi,
     active_low: bool,
@@ -33,87 +36,103 @@ impl IrqOverride {
             level_triggered,
         }
     }
+
+    fn argument(self) -> IoApicArg {
+        IoApicArg {
+            gsi: self.gsi,
+            trigger_mode: if self.level_triggered {
+                TriggerMode::Level
+            } else {
+                TriggerMode::Edge
+            },
+            polarity: if self.active_low {
+                Polarity::Low
+            } else {
+                Polarity::High
+            },
+        }
+    }
 }
 
-/// 用于占位的 irq，不实现 8259a 支持
+/// 每项独立记录 ACPI 描述的路由；空项表示该 ISA IRQ 不可用
 pub struct LegacyIrq {
     map: Spinlock<[Option<IrqOverride>; IRQ_COUNT]>,
 }
-pub(super) struct LegacyIrqChip;
 
 impl LegacyIrq {
-    pub fn get<'a>() -> &'a Self {
-        &LEGACY_IRQ_DOMAIN
-    }
-
-    pub fn override_irq(&self, irq: usize, interrupt: IrqOverride) -> Option<()> {
-        if irq < IRQ_COUNT {
-            self.map.lock()[irq] = Some(interrupt);
-            Some(())
-        } else {
-            None
+    pub const fn new() -> Self {
+        Self {
+            map: Spinlock::new([None; IRQ_COUNT]),
         }
     }
 
-    pub const fn irq(&self, irq: HardwareIrq<Self>) -> Option<&IrqOverride> {
-        if (irq.get() as usize) < IRQ_COUNT {
-            self.map.get_relaxed()[irq.get() as usize].as_ref()
-        } else {
-            None
-        }
+    pub const fn get() -> &'static Self {
+        &LEGACY_IRQ_ROUTES
+    }
+
+    /// ACPI 解析过程中逐项填写，不为未描述的 IRQ 补路由
+    pub fn override_irq(&self, irq: usize, route: IrqOverride) {
+        self.map.lock_irqsave()[irq] = Some(route);
+    }
+
+    pub fn route(&self, isa_irq: u8) -> Option<IoApicArg> {
+        self.map.lock_irqsave()[isa_irq as usize].map(IrqOverride::argument)
     }
 }
 
-impl irq::Domain for LegacyIrq {
-    fn allocate(
-        &self,
-        irq: IrqNumber,
-        data: &mut MaybeUninit<IrqData>,
-        _any: &dyn Any,
-    ) -> Result<(), IrqError> {
-        let number = irq.get();
-        let start = unsafe { (*IRQ_RESERVATION.get()).assume_init_ref() }
-            .get(0)
-            .unwrap()
-            .get();
+/// 启动阶段发布具有占位内容的 descriptor，不分配 IOAPIC/LAPIC mapping
+pub(super) fn init_irqs() -> Result<(), IrqError> {
+    let mut irqs = IrqReservation::reserve((0..IRQ_COUNT).into())?;
 
-        let number = number
-            .checked_sub(start)
-            .ok_or(IrqError::InvalidIrqNumber(irq.get()))?;
-        if number >= IRQ_COUNT {
-            return Err(IrqError::InvalidIrqNumber(irq.get()));
-        }
-
-        let r#ref = &LEGACY_IRQ_DOMAIN;
-        let chip = unsafe { (*LEGACY_IRQ_CHIP.get()).assume_init_ref() }.clone();
-        data.write(IrqData::new(
-            HardwareIrq::<Self>::new(number as u32),
-            r#ref,
-            chip,
-            Box::new_in((), Kmalloc::default()),
-            None,
-        ));
-        Ok(())
+    for irq in irqs.iter() {
+        irqs.publish(IrqDescriptor::empty(irq))?;
     }
 
-    fn free(&self, _data: &IrqData) {}
+    *ISA_NUMBERS.lock_irqsave() = Some(irqs);
 
-    fn activate(
-        &self,
-        _irq: IrqNumber,
-        _data: &IrqData,
-        _affinity: &mut irq::Affinity,
-    ) -> Result<(), irq::IrqError> {
-        Ok(())
-    }
-
-    fn deactivate(&self, _data: &IrqData) {}
+    Ok(())
 }
 
-impl IrqChip for LegacyIrqChip {
-    fn mask(&self, _data: &IrqData) {}
-    fn unmask(&self, _data: &IrqData) {}
+pub(crate) fn isa_irq(irq: u8) -> Option<IrqNumber> {
+    ISA_NUMBERS.lock_irqsave().as_ref()?.get(irq as usize)
+}
 
-    fn ack(&self, _data: &IrqData) {}
-    fn eoi(&self, _data: &IrqData) {}
+/// 平台必须先完成 ISA 编号、ACPI 路由和 IOAPIC 初始化。
+/// 配置成功后常驻；本阶段注册只安装 action，不开启硬件投递
+pub(crate) fn request_isa_irq(
+    isa_irq_number: u8,
+    sharing: IrqSharing,
+    handler: Arc<dyn IrqHandler, Kmalloc>,
+) -> Result<IrqHandle, IrqError> {
+    irq::assert_management();
+
+    if isa_irq_number as usize >= IRQ_COUNT {
+        return Err(IrqError::InvalidArgument);
+    }
+
+    if sharing != IrqSharing::Exclusive {
+        return Err(IrqError::Unsupported);
+    }
+
+    let irq = isa_irq(isa_irq_number).ok_or(IrqError::NotFound)?;
+    let arg = LegacyIrq::get()
+        .route(isa_irq_number)
+        .ok_or(IrqError::NotFound)?;
+    let configured = IRQ_DESCRIPTORS
+        .lookup(irq)
+        .ok_or(IrqError::NotFound)?
+        .is_configured();
+
+    if !configured {
+        match IRQ_DESCRIPTORS.realloc(irq, IoApics::get(), arg.flow(), &arg) {
+            Ok(()) => {}
+            Err(IrqError::Busy)
+                if IRQ_DESCRIPTORS
+                    .lookup(irq)
+                    .is_some_and(|descriptor| descriptor.is_configured()) => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    irq::request_irq(irq, sharing, handler)
 }

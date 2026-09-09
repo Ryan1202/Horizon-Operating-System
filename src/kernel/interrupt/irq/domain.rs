@@ -1,4 +1,4 @@
-use core::{any::Any, mem::MaybeUninit};
+use core::any::Any;
 
 use super::{IrqData, IrqError, IrqNumber};
 use crate::kernel::topology::CpuId;
@@ -37,12 +37,8 @@ pub enum Affinity {
 
 /// 生命周期仅在可等待的管理上下文调用
 pub trait Domain: Send + Sync {
-    fn allocate(
-        &self,
-        irq: IrqNumber,
-        data: &mut MaybeUninit<IrqData>,
-        arg: &dyn Any,
-    ) -> Result<(), IrqError>;
+    /// 构造 inactive 数据；失败时由局部对象的 Drop 回滚已取得的资源
+    fn allocate(&self, irq: IrqNumber, arg: &dyn Any) -> Result<IrqData, IrqError>;
 
     fn free(&self, data: &IrqData);
 

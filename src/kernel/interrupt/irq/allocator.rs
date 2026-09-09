@@ -1,66 +1,82 @@
-//! 编号预留与指针发布相互独立。
-//!
-//! 指针表的 None 不代表编号可复用；位图在 descriptor 完全释放后才清零。
+//! 编号预留与发布分离
 
-use super::{IrqError, IrqNumber};
-use crate::lib::rust::{bitmap::Bitmap, spinlock::Spinlock};
-use core::{alloc::Layout, num::NonZeroUsize, range::Range};
+use super::{IrqDescriptor, IrqError, IrqNumber, table::IRQ_DESCRIPTORS};
+use crate::lib::rust::{bitset::BitSet, spinlock::Spinlock};
+use core::{num::NonZeroUsize, range::Range};
 
 pub(super) const MAX_IRQS: usize = 4096;
+type IrqBits = BitSet<[usize; MAX_IRQS / usize::BITS as usize]>;
 
-static ALLOCATOR: Spinlock<Option<Bitmap<1>>> = Spinlock::new(None);
+static ALLOCATOR: Spinlock<IrqBits> = Spinlock::new(BitSet::zeroed(MAX_IRQS));
 
-/// 构造失败自动归还编号；成功发布后由最后一个租约归还。
+/// Drop 归还未发布部分；发布成功的编号继续由常驻指针表占用
 pub struct IrqReservation {
-    number: Range<IrqNumber>,
+    number: Range<usize>,
 }
 
 impl IrqReservation {
     pub fn new(count: usize) -> Result<Self, IrqError> {
-        let mut guard = ALLOCATOR.lock();
-        let allocator = guard.get_or_try_insert_with(|| Bitmap::try_new(MAX_IRQS as u32))?;
+        if count == 0 || count > MAX_IRQS {
+            return Err(IrqError::InvalidArgument);
+        }
 
-        let base = allocator.allocate(Layout::from_size_align(count, 1).unwrap())?;
+        let base = ALLOCATOR
+            .lock()
+            .allocate(0, NonZeroUsize::new(count).unwrap(), 1)
+            .ok_or(IrqError::OutOfIrq)?;
 
         Ok(Self {
-            number: (IrqNumber(base as u32)..IrqNumber(base as u32 + count as u32)).into(),
+            number: (base..base + count).into(),
         })
     }
 
     pub fn reserve(range: Range<usize>) -> Result<Self, IrqError> {
-        let mut guard = ALLOCATOR.lock();
-        let allocator = guard.get_or_try_insert_with(|| Bitmap::try_new(MAX_IRQS as u32))?;
+        if range.start >= range.end || range.end > MAX_IRQS {
+            return Err(IrqError::InvalidArgument);
+        }
 
-        let start = range.start;
-        let count = (range.end - range.start) as usize;
-        allocator.assign(start, NonZeroUsize::new(count).unwrap())?;
+        let count = NonZeroUsize::new(range.end - range.start).unwrap();
 
-        let number = (IrqNumber(start as u32)..IrqNumber((start + count) as u32)).into();
-        Ok(Self { number })
+        if !ALLOCATOR.lock().assign(range.start, count) {
+            return Err(IrqError::Busy);
+        }
+
+        Ok(Self { number: range })
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = IrqNumber> {
-        (self.number.start.get()..self.number.end.get())
-            .into_iter()
-            .map(|i| IrqNumber(i as u32))
+    /// 只有持有编号预留的调用者才能发布；失败会正常析构传入对象。
+    pub fn publish(&mut self, descriptor: IrqDescriptor) -> Result<(), IrqError> {
+        let irq = descriptor.irq.get();
+        if irq < self.number.start || irq >= self.number.end {
+            return Err(IrqError::InvalidIrqNumber(irq));
+        }
+
+        IRQ_DESCRIPTORS.publish(descriptor)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = IrqNumber> + use<> {
+        (self.number.start..self.number.end).map(|i| IrqNumber(i as u32))
     }
 
     pub fn get(&self, index: usize) -> Option<IrqNumber> {
-        if index >= self.number.end.get() - self.number.start.get() {
+        if index >= self.number.end - self.number.start {
             None
         } else {
-            Some(IrqNumber((self.number.start.get() + index) as u32))
+            Some(IrqNumber((self.number.start + index) as u32))
         }
     }
 }
 
 impl Drop for IrqReservation {
     fn drop(&mut self) {
-        let mut guard = ALLOCATOR.lock();
-        let allocator = guard
-            .as_mut()
-            .expect("Failed to drop IRQ number: Allocator not exist!");
-
-        allocator.deallocate(self.number.start.get() as usize);
+        for irq in self.iter() {
+            // 发布后不撤下，且本 reservation 不可能同时发布；查表后再取分配器锁。
+            if IRQ_DESCRIPTORS.lookup(irq).is_none() {
+                assert!(
+                    ALLOCATOR.lock().try_clear(irq.get()).is_some(),
+                    "IRQ reservation lost"
+                );
+            }
+        }
     }
 }

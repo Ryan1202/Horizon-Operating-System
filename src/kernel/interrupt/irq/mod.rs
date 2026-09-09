@@ -12,10 +12,13 @@ mod domain;
 mod flow;
 mod handle;
 mod number;
+mod placeholder;
 mod sync;
 mod table;
 
-pub use action::{IrqHandler, IrqSharing};
+use core::ptr::NonNull;
+
+pub use action::{IrqHandler, IrqSharing, request_irq};
 pub use allocator::IrqReservation;
 pub use chip::IrqChip;
 pub use data::IrqData;
@@ -23,13 +26,10 @@ pub use descriptor::IrqDescriptor;
 pub use domain::{Affinity, Domain, Flow, Polarity, TriggerMode};
 pub use handle::IrqHandle;
 pub use number::{HardwareIrq, IrqNumber, RawIrq};
-// pub use source::IrqSource;
+pub(crate) use sync::assert_management;
 pub use table::IRQ_DESCRIPTORS;
 
 use crate::kernel::memory::MemoryError;
-
-// #[allow(unused_imports)]
-// pub(crate) use mapping::platform_mapping;
 
 /// 注册或 mapping 构造失败。注销路径无可恢复错误
 #[derive(Debug, Clone)]
@@ -53,22 +53,16 @@ impl From<MemoryError> for IrqError {
     }
 }
 
-/// 硬件入口必须先翻译编号；未知/已撤销编号返回 NotHandled
-/// EOI 属于 flow，调用者不能再重复 EOI
+/// 分发已配置且 Active 的 IRQ；尚未接入真实硬件激活
 pub fn handle_irq(irq: IrqNumber) -> Option<()> {
-    let Some(r#ref) = IRQ_DESCRIPTORS.lookup(irq) else {
+    let descriptor = IRQ_DESCRIPTORS.lookup(irq)?;
+    if !descriptor.is_configured() {
         return None;
-    };
-    // flow::dispatch(r#ref.descriptor(), true)
-    Some(())
-}
+    }
 
-// 宿主测试直接将本文件作为 Cargo 库入口；生产构建不引入模拟依赖
-// #[cfg(test)]
-// extern crate alloc;
-// #[cfg(test)]
-// extern crate std;
-// #[cfg(test)]
-// use irq_core_test_support::{CPU, LOCKS, kernel, lib};
-// #[cfg(test)]
-// mod tests;
+    let pointer = NonNull::from(&*descriptor);
+    drop(descriptor);
+
+    // SAFETY: 表锁内已确认配置完成，之后拓扑不再修改，descriptor 常驻
+    flow::dispatch(unsafe { pointer.as_ref() })
+}
