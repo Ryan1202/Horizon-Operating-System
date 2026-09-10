@@ -32,6 +32,10 @@ impl Domain for Placeholder {
         Err(IrqError::Unsupported)
     }
 
+    fn synchronize(&self, _: &IrqData) {
+        unreachable!("placeholder cannot be activated");
+    }
+
     fn deactivate(&self, _: &IrqData) {
         unreachable!("placeholder IRQ cannot be active");
     }

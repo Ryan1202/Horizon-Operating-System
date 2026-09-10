@@ -1,4 +1,4 @@
-use core::{any::Any, num::NonZero, ptr::NonNull};
+use core::{any::Any, hint::spin_loop, num::NonZero, ptr::NonNull};
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
@@ -23,7 +23,7 @@ use crate::{
         },
         thread::PreemptGuard,
     },
-    lib::rust::spinlock::Spinlock,
+    lib::rust::{bitset::BitSet, spinlock::Spinlock},
 };
 
 static IOAPICS: IoApics = IoApics::new();
@@ -63,6 +63,7 @@ struct IoApicRegs {
     select: NonNull<u32>,
     window: NonNull<u32>,
     eoi: NonNull<u32>,
+    active: BitSet<[usize; MAX_PINS.div_ceil(usize::BITS as usize)]>,
 }
 
 impl IoApicRegs {
@@ -72,6 +73,7 @@ impl IoApicRegs {
             // SAFETY: 初始化器已验证整个 MMIO 寄存器区位于持有的物理页映射内
             window: unsafe { base.byte_add(0x10).cast() },
             eoi: unsafe { base.byte_add(regs::EOI_OFFSET).cast() },
+            active: BitSet::zeroed(MAX_PINS),
         }
     }
 
@@ -209,7 +211,7 @@ struct IoApicMapping {
 
 struct IoApicState {
     apics: Box<[Arc<IoApic, Kmalloc>], Kmalloc>,
-    // 全局所有者维持所有寄存器指针的有效性，同一物理页只映射一次。
+    // 全局所有者维持所有寄存器指针的有效性，同一物理页只映射一次
     mappings: Vec<IoApicMapping, Kmalloc>,
 }
 
@@ -358,8 +360,11 @@ impl irq::Domain for IoApics {
             .downcast_ref::<IoApic>()
             .expect("IOAPIC domain chip type mismatch");
 
-        let regs = chip.regs.lock_irqsave();
+        let mut regs = chip.regs.lock_irqsave();
 
+        regs.active
+            .try_set(info.pin as usize)
+            .ok_or(IrqError::Busy)?;
         regs.set_redirection_entry(
             info.pin,
             RedirectionEntry::new(
@@ -374,8 +379,45 @@ impl irq::Domain for IoApics {
     }
 
     fn deactivate(&self, data: &IrqData) {
-        data.chip().mask(data);
+        let chip = data
+            .chip()
+            .downcast_ref::<IoApic>()
+            .expect("IOAPIC chip mismatch");
+
+        let pin = data.chip_data::<Info>().pin;
+
+        assert!(
+            chip.regs
+                .lock_irqsave()
+                .active
+                .try_clear(pin as usize)
+                .is_some()
+        );
 
         // core 随后撤销父路由；不在此重复调用父层 deactivate/free。
+    }
+
+    fn synchronize(&self, data: &IrqData) {
+        let chip = data
+            .chip()
+            .downcast_ref::<IoApic>()
+            .expect("IOAPIC chip mismatch");
+        let pin = data.chip_data::<Info>().pin;
+
+        loop {
+            let entry = chip
+                .regs
+                .lock_irqsave()
+                .read(regs::REDIRECTION_TABLE + pin as usize * 2);
+
+            assert!(entry & MASK != 0, "synchronize unmasked IOAPIC source");
+
+            // Delivery Status 清零表示已发起的发送结束；随后父层检查目标 IRR/ISR。
+            if entry & (1 << 12) == 0 {
+                break;
+            }
+
+            spin_loop();
+        }
     }
 }

@@ -10,13 +10,15 @@ use crate::{
 
 pub(in crate::arch::x86) const MAX_VECTOR_COUNT: usize = 256;
 pub const ERROR_VECTOR: u8 = 0xfe;
+// 低于所有可分配 vector；查询重试不能饿死等待进入的设备中断
+pub const SYNC_VECTOR: u8 = 0x30;
 pub const SPURIOUS_VECTOR: u8 = 0xff;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum VectorScope {
     #[default]
     PerCpu,
-    /// IOAPIC Level EOI 按 vector 匹配，不能与其它 CPU 上的路由重号。
+    /// IOAPIC Level EOI 按 vector 匹配，不能与其它 CPU 上的路由重号
     Global,
 }
 
@@ -54,7 +56,7 @@ unsafe impl PerCpuInit for VectorMap {}
 
 const fn reserved(vector: usize) -> bool {
     // CPU 异常、旧 ISA IRQ、系统调用、LAPIC error 和 spurious。
-    vector < 0x30 || vector == 0x80 || vector >= ERROR_VECTOR as usize
+    vector <= SYNC_VECTOR as usize || vector == 0x80 || vector >= ERROR_VECTOR as usize
 }
 
 impl VectorManager {
@@ -232,5 +234,17 @@ impl VectorManager {
         let maps = &guard.as_ref()?.maps;
 
         maps.get_remote(cpu)?.irqs[vector as usize]
+    }
+
+    /// LAPIC 身份在当前 CPU 的短临界区内取得；这里只读取固定的 CPU 注册表。
+    pub(super) fn lookup_apic(&self, apic: ApicId, vector: u8) -> Option<IrqNumber> {
+        let guard = self.inner.lock_irqsave();
+        let maps = &guard.as_ref()?.maps;
+        for (_, map) in maps.iter().ok()? {
+            if map.apic_id.is_some_and(|id| id.get() == apic.get()) {
+                return map.irqs[vector as usize];
+            }
+        }
+        None
     }
 }

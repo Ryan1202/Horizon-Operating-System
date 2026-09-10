@@ -1,4 +1,4 @@
-use core::{cell::OnceCell, num::NonZero, ptr::NonNull};
+use core::{cell::OnceCell, hint::spin_loop, num::NonZero, ptr::NonNull};
 
 use alloc::vec::Vec;
 
@@ -7,7 +7,7 @@ use crate::{
         ArchInterrupt, PhysAddr,
         x86::kernel::interrupt::{
             apic::{ApicId, LocalApic},
-            vector::{ERROR_VECTOR, SPURIOUS_VECTOR},
+            vector::{ERROR_VECTOR, SPURIOUS_VECTOR, SYNC_VECTOR},
         },
     },
     cpu_local,
@@ -36,6 +36,10 @@ mod offsets {
     pub const EOI: usize = 0xb0;
     pub const SVR: usize = 0xf0;
     pub const ESR: usize = 0x280;
+    pub const ISR: usize = 0x100;
+    pub const IRR: usize = 0x200;
+    pub const ICR_LOW: usize = 0x300;
+    pub const ICR_HIGH: usize = 0x310;
 }
 
 /// LVT 源与 IDT vector 是两种编号，不能用 vector 索引寄存器
@@ -146,10 +150,30 @@ cpu_local! {
 }
 
 impl LocalXApic {
+    /// 仅查询执行访问的当前 CPU
+    ///
+    /// 调用前必须固定 CPU 并关闭本地中断
+    pub(crate) fn vector_busy(&self, vector: u8) -> bool {
+        let bank = (vector as usize / 32) * 16;
+        let bit = 1u32 << (vector % 32);
+        (self.mmio.read(offsets::IRR + bank) | self.mmio.read(offsets::ISR + bank)) & bit != 0
+    }
+
+    /// Fixed、physical destination IPI
+    ///
+    /// 调用者关闭本地中断串行化 ICR 写入
+    pub(crate) fn send_sync_ipi(&self, destination: ApicId) {
+        while self.mmio.read(offsets::ICR_LOW) & (1 << 12) != 0 {
+            spin_loop();
+        }
+        self.mmio.write(offsets::ICR_HIGH, destination.get() << 24);
+        self.mmio.write(offsets::ICR_LOW, SYNC_VECTOR as u32);
+    }
+
     /// 初始化当前 CPU，保持软件禁用和所有 LVT 屏蔽
     ///
     /// # Safety
-    /// 架构层须已确认并启用当前 CPU 的 xAPIC 模式，address 为其 MMIO 基址。
+    /// 架构层须已确认并启用当前 CPU 的 xAPIC 模式，address 为其 MMIO 基址
     pub(crate) unsafe fn init_current(address: PhysAddr) -> Result<(), IrqError> {
         let _interrupt = ArchInterrupt::save_and_disable();
         let preempt = PreemptGuard::new();
@@ -165,7 +189,7 @@ impl LocalXApic {
 
         let max_lvt_entry = (mmio.read(offsets::VERSION) >> 16) & 0xff;
 
-        // Error 先配置合法向量，其余源清除固件遗留的 delivery mode。
+        // Error 先配置合法向量，其余源清除固件遗留的 delivery mode
         for entry in [
             LvtEntry::Error,
             LvtEntry::Timer,
@@ -186,7 +210,7 @@ impl LocalXApic {
         }
 
         mmio.write(offsets::TPR, 0);
-        // 使用广播 EOI；保留其它位，关闭软件启用和 EOI broadcast suppression。
+        // 使用广播 EOI；保留其它位，关闭软件启用和 EOI broadcast suppression
         mmio.write(
             offsets::SVR,
             (svr & !(0xff | SOFTWARE_ENABLE | (1 << 12))) | SPURIOUS_VECTOR as u32,
@@ -220,8 +244,9 @@ impl LocalXApic {
     }
 
     /// # Safety
+    ///
     /// 架构层须在 CPU 开始接收中断前调用；启用抑制时已确认全部 IOAPIC
-    /// 支持显式 EOI，且当前 LAPIC 支持该位。不能在活动路由存在时切换。
+    /// 支持显式 EOI，且当前 LAPIC 支持该位。不能在活动路由存在时切换
     pub(crate) unsafe fn set_eoi_broadcast_suppressed(&self, suppressed: bool) {
         let svr = self.mmio.read(offsets::SVR);
         self.mmio.write(
@@ -249,15 +274,18 @@ impl LocalXApic {
         Ok(())
     }
 
-    /// 对应 vector 必须已由调用方安装入口并绑定 handler。
+    /// 对应 vector 必须已由调用方安装入口并绑定 handler
     pub fn unmask(&self, entry: LvtEntry) -> Result<(), IrqError> {
         self.check_entry(entry)?;
+
         let value = self.mmio.read(entry.offset());
         if entry != LvtEntry::Error && value as u8 == ERROR_VECTOR {
-            // 初始化占位向量不能作为普通 LVT 的投递目标。
+            // 初始化占位向量不能作为普通 LVT 的投递目标
             return Err(IrqError::InvalidArgument);
         }
+
         self.mmio.write(entry.offset(), value & !LVT_MASK);
+
         Ok(())
     }
 
@@ -271,19 +299,23 @@ impl LocalXApic {
 
     pub fn read_and_clear_error(&self) -> Result<u32, IrqError> {
         self.check_entry(LvtEntry::Error)?;
-        // 写 ESR 将内部错误状态锁存到可读寄存器，并重置内部状态。
+
+        // 写 ESR 将内部错误状态锁存到可读寄存器，并重置内部状态
         self.mmio.write(offsets::ESR, 0);
+
         Ok(self.mmio.read(offsets::ESR))
     }
 
-    /// 错误入口独立使用；不能再经过普通 flow 重复 EOI。
+    /// 错误入口独立使用；不能再经过普通 flow 重复 EOI
     pub fn handle_error(&self) -> Result<u32, IrqError> {
         let error = self.read_and_clear_error()?;
+
         self.eoi();
+
         Ok(error)
     }
 
-    /// 伪中断不设置 ISR，因此不能发送 EOI。
+    /// 伪中断不设置 ISR，因此不能发送 EOI
     pub fn handle_spurious(&self) {}
 }
 
@@ -292,10 +324,10 @@ impl LocalApic for LocalXApic {
         ApicId::new(self.mmio.read(offsets::ID) >> 24)
     }
 
-    /// 仅允许在屏蔽状态下修改向量，屏蔽位由 mask/unmask 单独控制。
+    /// 仅允许在屏蔽状态下修改向量，屏蔽位由 mask/unmask 单独控制
     fn set_lvt_entry(&self, entry: LvtEntry, vector: u8) -> Result<(), IrqError> {
         self.check_entry(entry)?;
-        if vector < 0x30
+        if vector <= SYNC_VECTOR
             || vector == 0x80
             || vector == SPURIOUS_VECTOR
             || (entry == LvtEntry::Error) != (vector == ERROR_VECTOR)

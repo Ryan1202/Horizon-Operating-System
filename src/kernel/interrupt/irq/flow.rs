@@ -26,23 +26,61 @@ fn begin(descriptor: &IrqDescriptor, running: bool) {
 }
 
 pub(super) fn dispatch(descriptor: &IrqDescriptor) -> Option<()> {
+    dispatch_event(descriptor, true)
+}
+
+pub(super) fn replay(descriptor: &IrqDescriptor) {
+    dispatch_event(descriptor, false);
+}
+
+fn dispatch_event(descriptor: &IrqDescriptor, mut physical: bool) -> Option<()> {
     let _preempt = PreemptGuard::new();
     let _hardirq = HardIrqGuard::new();
 
     let action = {
         let mut state = descriptor.state.lock_irqsave();
+        if state.status == Status::Inactive {
+            return None;
+        }
+
         if state.status != Status::Active {
+            if !physical {
+                return None;
+            }
+            if state.status == Status::Stopping {
+                state.pending = true;
+            }
+
+            let data = &descriptor.data;
+            match descriptor.flow {
+                Flow::Edge | Flow::Level => data.chip().mask_ack(data),
+                Flow::FastEoi => {
+                    data.chip().mask(data);
+                    data.chip().eoi(data);
+                }
+                Flow::Simple => {}
+                _ => unreachable!("unsupported IRQ flow"),
+            }
+
             return None;
         }
 
         let action = state.head.expect("active IRQ without action");
+
+        if !physical && !state.pending {
+            return None;
+        }
+
         let running = descriptor.in_progress.load(Ordering::Relaxed);
-        begin(descriptor, running);
+
+        if physical {
+            begin(descriptor, running);
+        }
 
         if running {
             state.pending = true;
 
-            if descriptor.flow == Flow::FastEoi {
+            if physical && descriptor.flow == Flow::FastEoi {
                 descriptor.data.chip().eoi(&descriptor.data);
             }
 
@@ -55,17 +93,17 @@ pub(super) fn dispatch(descriptor: &IrqDescriptor) -> Option<()> {
     };
 
     let mut result = None;
-    let mut physical = true;
-
     loop {
         // 注销先关闭入口再排空，因此节点在本次执行期间不会摘除或释放
         // SAFETY: in_progress 在整个 handler 和 chip 收尾期间保持为 true；
-        if unsafe { action.as_ref() }
-            .handler
-            .handle(descriptor.irq)
-            .is_some()
-        {
-            result = Some(());
+        let mut current = Some(action);
+        while let Some(pointer) = current {
+            // SAFETY: 管理修改等待整个 in_progress，next 和 enabled 在遍历期间不变。
+            let node = unsafe { pointer.as_ref() };
+            if node.enabled && node.handler.handle(descriptor.irq).is_some() {
+                result = Some(());
+            }
+            current = node.next;
         }
 
         let mut state = descriptor.state.lock_irqsave();

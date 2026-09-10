@@ -7,6 +7,7 @@ use crate::{
         drivers::interrupt::apic::LocalXApic,
         kernel::interrupt::{
             apic::LocalApic,
+            synchronize_vector,
             vector::{VectorManager, VectorRoute, VectorScope},
         },
     },
@@ -19,7 +20,9 @@ use crate::{
 
 static LOCAL_APIC_DOMAIN: LocalApicDomain = LocalApicDomain;
 
-/// CPU/vector 根层；不负责 IOAPIC pin 或 LVT 中断源的屏蔽。
+/// CPU/vector 根层
+///
+/// 不负责 IOAPIC pin 或 LVT 中断源的屏蔽
 pub struct LocalApicDomain;
 
 struct LocalApicChip;
@@ -35,7 +38,7 @@ impl LocalApicDomain {
         &LOCAL_APIC_DOMAIN
     }
 
-    /// 传入本层 IrqData，子 domain 在父层 activate 完成后读取投递目标。
+    /// 传入本层 IrqData，子 domain 在父层 activate 完成后读取投递目标
     pub fn route(data: &IrqData) -> Option<VectorRoute> {
         *data.chip_data::<LocalApicData>().route.lock_irqsave()
     }
@@ -50,7 +53,7 @@ impl LocalApicDomain {
 }
 
 impl Domain for LocalApicDomain {
-    /// arg 为 VectorScope；兼容 () 表示 PerCpu。目标 CPU 由 activate 决定。
+    /// arg 为 VectorScope；兼容 () 表示 PerCpu。目标 CPU 由 activate 决定
     fn allocate(&self, irq: IrqNumber, arg: &dyn Any) -> Result<IrqData, IrqError> {
         let scope = if let Some(scope) = arg.downcast_ref::<VectorScope>() {
             *scope
@@ -110,19 +113,24 @@ impl Domain for LocalApicDomain {
     }
 
     fn deactivate(&self, data: &IrqData) {
-        // 子层必须先停止硬件投递；尚在途事件的同步由 IRQ core 后续设计负责。
+        // core 已排空硬件和软件执行，或此路由从未开放过投递
         Self::release(data);
+    }
+
+    fn synchronize(&self, data: &IrqData) {
+        let route = Self::route(data).expect("synchronize without LAPIC route");
+        synchronize_vector(route);
     }
 }
 
 impl IrqChip for LocalApicChip {
-    // LAPIC 无法逐个屏蔽外部 vector；子 chip 必须操作自己的中断源。
+    // LAPIC 无法逐个屏蔽外部 vector；子 chip 必须操作自己的中断源
     fn mask(&self, _data: &IrqData) {}
     fn unmask(&self, _data: &IrqData) {}
     fn ack(&self, _data: &IrqData) {}
 
     fn eoi(&self, _data: &IrqData) {
-        // 只对当前处理硬件事件的 CPU 发送 EOI，不按路由远程访问 LAPIC。
+        // 只对当前处理硬件事件的 CPU 发送 EOI，不按路由远程访问 LAPIC
         LocalXApic::with_current(|lapic| lapic.eoi())
             .expect("EOI before local APIC initialization");
     }
