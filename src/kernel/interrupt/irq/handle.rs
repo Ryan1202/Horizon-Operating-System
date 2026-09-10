@@ -1,8 +1,7 @@
 //! handle 只管理自己的 action；最后一个 action 注销才停用 domain。
 
 use super::{
-    IrqDescriptor, IrqNumber, action::IrqAction, descriptor::Status, domain,
-    sync::assert_management,
+    IrqDescriptor, IrqNumber, action::IrqAction, assert_management, descriptor::Status, domain,
 };
 use crate::kernel::memory::kmalloc::Kmalloc;
 use alloc::boxed::Box;

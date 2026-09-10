@@ -15,6 +15,27 @@ use crate::{
     lib::rust::spinlock::Spinlock,
 };
 use alloc::sync::Arc;
+use core::ffi::{c_int, c_void};
+
+#[unsafe(no_mangle)]
+pub static isa_irq_domain: u8 = 0;
+
+pub fn request_device_irq(
+    irq: c_int,
+    domain: *const c_void,
+    sharing: IrqSharing,
+    handler: Arc<dyn IrqHandler, Kmalloc>,
+) -> Result<IrqHandle, IrqError> {
+    if !(0..16).contains(&irq) {
+        return Err(IrqError::InvalidIrqNumber(irq as usize));
+    }
+
+    if domain != (&raw const isa_irq_domain).cast() {
+        return Err(IrqError::Unsupported);
+    }
+
+    request_isa_irq(irq as u8, sharing, handler)
+}
 
 const IRQ_COUNT: usize = 16;
 
@@ -97,8 +118,7 @@ pub(crate) fn isa_irq(irq: u8) -> Option<IrqNumber> {
     ISA_NUMBERS.lock_irqsave().as_ref()?.get(irq as usize)
 }
 
-/// 平台必须先完成 ISA 编号、ACPI 路由和 IOAPIC 初始化。
-/// 配置成功后常驻；首个 action 激活 domain，各 handle 显式开放自己的 handler。
+/// 首个 action 激活 domain，各 handle 显式开放自己的 handler
 pub(crate) fn request_isa_irq(
     isa_irq_number: u8,
     sharing: IrqSharing,

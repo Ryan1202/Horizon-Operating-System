@@ -1,11 +1,17 @@
-use core::{arch::asm, ffi::c_int};
+use core::arch::asm;
 
 use crate::{
     arch::x86::{
-        drivers::interrupt::apic::LocalXApic,
-        kernel::interrupt::{apic::LocalApic, vector::VECTOR_MANAGER},
+        drivers::interrupt::apic::{IoApics, LocalXApic},
+        kernel::{
+            acpi::X86Topology,
+            interrupt::{apic::LocalApic, vector::VECTOR_MANAGER},
+        },
     },
-    kernel::interrupt::{self, Interrupt, InterruptGuard},
+    kernel::{
+        interrupt::{self, Interrupt, InterruptGuard, irq::handle_irq},
+        topology::CpuId,
+    },
 };
 
 pub mod apic;
@@ -58,9 +64,13 @@ fn synchronize_vector(route: vector::VectorRoute) {
     }
 }
 
-/// 新 IDT vector 入口；不改变旧 ISA 入口及其 C 驱动的所有权
+/// 所有 Rust vector 在 hardirq 上下文内分发，释放 LAPIC guard 后统一收尾
 #[unsafe(no_mangle)]
 extern "C" fn vector_dispatch(vector: u8) {
+    interrupt::handle_arch(|| dispatch_vector(vector));
+}
+
+fn dispatch_vector(vector: u8) {
     let irq = LocalXApic::with_current(|lapic| match vector {
         vector::SYNC_VECTOR => {
             let request = VECTOR_PROBE.requested(lapic.id().get() as u8);
@@ -94,11 +104,9 @@ extern "C" fn vector_dispatch(vector: u8) {
     .expect("vector entry before LAPIC initialization");
 
     if let Some(irq) = irq {
-        interrupt::handle_mapped(irq);
+        handle_irq(irq);
     }
 }
-
-const IRQ_COUNT: u8 = 16;
 
 pub struct X86Interrupt;
 
@@ -160,19 +168,34 @@ impl Interrupt for X86Interrupt {
     }
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn irq_dispatch(irq: c_int) {
-    assert!(
-        (0..IRQ_COUNT as i32).contains(&irq),
-        "invalid x86 IRQ number"
-    );
-    interrupt::handle(irq as u8);
-}
-
 #[unsafe(export_name = "irq_early_init")]
 extern "C" fn early_init() {
     VECTOR_MANAGER
         .init()
         .expect("failed to initialize x86 vectors");
     legacy::init_irqs().expect("failed to publish ISA IRQ placeholders");
+}
+
+/// BSP 控制器初始化
+///
+/// 在开放本地中断、初始化设备 IRQ 之前调用
+#[unsafe(no_mangle)]
+extern "C" fn interrupt_init() {
+    let _interrupt = X86Interrupt::save_and_disable();
+
+    // 旧 PIC 不参与路由，在 LAPIC 软件启用前屏蔽其全部输入
+    unsafe {
+        asm!("out dx, al", in("dx") 0x21u16, in("al") 0xffu8, options(nomem, nostack));
+        asm!("out dx, al", in("dx") 0xa1u16, in("al") 0xffu8, options(nomem, nostack));
+    }
+
+    early_init();
+    apic::init_current().expect("failed to initialize BSP LAPIC");
+    IoApics::get()
+        .init(X86Topology::get().ioapics())
+        .expect("failed to initialize IOAPICs");
+
+    // SAFETY: BSP 使用逻辑 CPU0，IDT 已安装；C APIC/PIC 驱动已退出构建。
+    // 所有 LVT（包括 timer）与 IOAPIC 输入保持屏蔽，设备由各自 handle 开放。
+    unsafe { apic::enable_current(CpuId::new(0)) }.expect("failed to enable BSP LAPIC");
 }

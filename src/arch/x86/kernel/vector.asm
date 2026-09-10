@@ -48,8 +48,8 @@ vector_entry%1:
     iretq
 %endmacro
 
-%assign v 0x30
-%rep 256 - 0x30
+%assign v 0x20
+%rep 256 - 0x20
     %if v != 0x80
         VECTOR_ENTRY v
     %endif
@@ -62,7 +62,7 @@ global vector_entries
 vector_entries:
 %assign v 0
 %rep 256
-    %if v < 0x30 || v == 0x80
+    %if v < 0x20 || v == 0x80
         dq 0
     %else
         dq vector_entry %+ v

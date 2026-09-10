@@ -120,10 +120,23 @@ int main() {
 
 	register_driver(&core_driver);
 
-	platform_init();
-	platform_start_devices();
+	DriverResult platform_result = platform_init();
+	if (platform_result != DRIVER_OK) {
+		DRV_PRINT_RESULT(platform_result, platform_init());
+		io_cli();
+		for (;;) io_hlt();
+	}
+	platform_result = platform_start_devices();
+	if (platform_result != DRIVER_OK) {
+		DRV_PRINT_RESULT(platform_result, platform_start_devices());
+		io_cli();
+		for (;;) io_hlt();
+	}
 
-	thread_manager_init(thread_main);
+	// LAPIC timer 尚未接入调度时钟，暂不启动线程管理及 thread_main。
+	// thread_manager_init(thread_main);
+	printk("[boot] Platform devices ready; scheduler and PCI drivers paused\n");
+	for (;;) io_stihlt();
 
 	return 0;
 }

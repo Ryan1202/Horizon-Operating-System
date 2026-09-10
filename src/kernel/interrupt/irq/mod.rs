@@ -13,11 +13,11 @@ mod flow;
 mod handle;
 mod number;
 mod placeholder;
-mod sync;
 mod table;
 
 use core::ptr::NonNull;
 
+pub(crate) use crate::kernel::thread::scheduler::assert_can_manage_irq as assert_management;
 pub use action::{IrqHandler, IrqSharing, request_irq};
 pub use allocator::IrqReservation;
 pub use chip::IrqChip;
@@ -26,7 +26,6 @@ pub use descriptor::IrqDescriptor;
 pub use domain::{Affinity, Domain, Flow, Polarity, TriggerMode};
 pub use handle::IrqHandle;
 pub use number::{HardwareIrq, IrqNumber, RawIrq};
-pub(crate) use sync::assert_management;
 pub use table::IRQ_DESCRIPTORS;
 
 use crate::kernel::memory::MemoryError;

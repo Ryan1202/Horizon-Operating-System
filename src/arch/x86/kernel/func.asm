@@ -16,9 +16,7 @@ global thread_intr_exit
 global switch_to
 
 extern exception_handler
-extern irq_dispatch
 extern do_syscall
-extern apic_eoi
 extern kernel_thread
 
 EOI				equ	0x20
@@ -38,32 +36,6 @@ INT_S_CTLMASK	equ	0xa1
 	cld
 	call %1
 	mov rsp, [rsp]
-%endmacro
-
-%macro INTERRUPT_ENTRY 1
-global irq_entry%1
-irq_entry%1:
-	push rax
-	push rbx
-	push rcx
-	push rdx
-	push rsi
-	push rdi
-	push rbp
-	push r8
-	push r9
-	push r10
-	push r11
-	push r12
-	push r13
-	push r14
-	push r15
-	
-	mov rdi, %1
-	CALL_C_ALIGNED irq_dispatch
-	
-	jmp irq_exit
-
 %endmacro
 
 %macro EXCEPTION_ENTRY 2
@@ -116,25 +88,9 @@ EXCEPTION_ENTRY 27,ERROR_CODE
 EXCEPTION_ENTRY 28,NO_ERROR_CODE
 EXCEPTION_ENTRY 29,ERROR_CODE
 EXCEPTION_ENTRY 30,ERROR_CODE
-EXCEPTION_ENTRY 31,NO_ERROR_CODE 
+EXCEPTION_ENTRY 31,NO_ERROR_CODE
 
-INTERRUPT_ENTRY 1
-INTERRUPT_ENTRY 2
-INTERRUPT_ENTRY 3
-INTERRUPT_ENTRY 4
-INTERRUPT_ENTRY 5
-INTERRUPT_ENTRY 6
-INTERRUPT_ENTRY 7
-INTERRUPT_ENTRY 8
-INTERRUPT_ENTRY 9
-INTERRUPT_ENTRY 10
-INTERRUPT_ENTRY 11
-INTERRUPT_ENTRY 12
-INTERRUPT_ENTRY 13
-INTERRUPT_ENTRY 14
-INTERRUPT_ENTRY 15
 
-INTERRUPT_ENTRY	0
 
 io_in8:     ; port in rdi
 	mov    dx, di

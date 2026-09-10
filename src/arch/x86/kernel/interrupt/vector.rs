@@ -10,7 +10,7 @@ use crate::{
 
 pub(in crate::arch::x86) const MAX_VECTOR_COUNT: usize = 256;
 pub const ERROR_VECTOR: u8 = 0xfe;
-// 低于所有可分配 vector；查询重试不能饿死等待进入的设备中断
+// 专用同步 IPI；EOI 后恢复本地中断，让待处理的 ISA vector 有机会进入
 pub const SYNC_VECTOR: u8 = 0x30;
 pub const SPURIOUS_VECTOR: u8 = 0xff;
 
@@ -55,7 +55,7 @@ struct VectorMap {
 unsafe impl PerCpuInit for VectorMap {}
 
 const fn reserved(vector: usize) -> bool {
-    // CPU 异常、旧 ISA IRQ、系统调用、LAPIC error 和 spurious。
+    // CPU 异常、旧 ISA IRQ、系统调用、LAPIC timer、error 和 spurious。
     vector <= SYNC_VECTOR as usize || vector == 0x80 || vector >= ERROR_VECTOR as usize
 }
 
@@ -135,6 +135,33 @@ impl VectorManager {
         let state = guard.as_mut().ok_or(IrqError::NotFound)?;
         let maps = &state.maps;
 
+        // ISA 的 virq 0..15 在启动时永久保留，对应固定 vector 0x20..0x2f。
+        // 这些 vector 始终不属于通用分配池；仅路由反向映射随激活/停用变化。
+        if irq.get() < 16 {
+            let vector = 0x20 + irq.get();
+            let cpu = maps
+                .iter()?
+                .find_map(|(cpu, map)| {
+                    (map.apic_id.is_some()
+                        && !matches!(affinity, Affinity::Cpu(target) if target != cpu)
+                        && map.irqs[vector].is_none())
+                    .then_some(cpu)
+                })
+                .ok_or(IrqError::NotFound)?;
+
+            let map = maps
+                .get_remote_mut(cpu)
+                .expect("selected ISA target disappeared");
+            map.irqs[vector] = Some(irq);
+
+            return Ok(VectorRoute {
+                cpu,
+                apic_id: map.apic_id.unwrap(),
+                vector: vector as u8,
+                scope,
+            });
+        }
+
         let mut unavailable =
             BitSet::<[usize; MAX_VECTOR_COUNT / usize::BITS as usize]>::zeroed(MAX_VECTOR_COUNT);
         for vector in 0..MAX_VECTOR_COUNT {
@@ -190,6 +217,7 @@ impl VectorManager {
             .get_remote_mut(cpu)
             .expect("failed to get vector map for CPU");
         map.map.set(vector);
+
         // 全局占用只从实际目标 CPU 的负载扣除；其它 CPU 通过 global 排除该向量。
         map.available -= 1;
         map.irqs[vector] = Some(irq);
@@ -216,10 +244,15 @@ impl VectorManager {
             .expect("failed to get vector map for CPU");
         let vector = route.vector as usize;
 
-        assert!(!reserved(vector));
         assert_eq!(map.irqs[vector], Some(irq));
 
         map.irqs[vector] = None;
+        if irq.get() < 16 {
+            assert_eq!(vector, 0x20 + irq.get());
+            return;
+        }
+
+        assert!(!reserved(vector));
         map.map.clear(vector);
         map.available += 1;
         if route.scope == VectorScope::Global {

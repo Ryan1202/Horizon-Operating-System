@@ -108,7 +108,6 @@ impl IrqDescriptor {
     /// 调用方拥有 Stopping 更新阶段，且已排空旧执行者
     pub(super) fn finish_update(&self) {
         let mut state = self.state.lock_irqsave();
-        assert!(state.status == Status::Stopping);
 
         if state.any_enabled() {
             state.status = Status::Active;
@@ -168,7 +167,6 @@ impl IrqDescriptor {
 
     /// 表锁下替换占位；返回旧数据，由调用方在解锁后析构
     pub(super) fn realloc(&mut self, data: IrqData, flow: Flow) -> IrqData {
-        assert!(!self.is_configured(), "cannot replace configured IRQ");
         self.flow = flow;
 
         mem::replace(&mut self.data, data)

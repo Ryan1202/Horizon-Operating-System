@@ -19,7 +19,7 @@ pub mod x86 {
 #[cfg(target_arch = "x86_64")]
 pub use x86::kernel::{
     acpi::X86Acpi as ArchAcpi,
-    interrupt::X86Interrupt as ArchInterrupt,
+    interrupt::{X86Interrupt as ArchInterrupt, legacy::request_device_irq},
     page::{
         addr::{PhysAddr, VirtAddr},
         entry::X86EntryInfo as ArchPageEntry,

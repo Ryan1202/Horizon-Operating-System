@@ -52,7 +52,7 @@ impl IrqTable {
         flow: Flow,
         arg: &dyn Any,
     ) -> Result<(), IrqError> {
-        super::sync::assert_management();
+        super::assert_management();
 
         {
             let descriptor = self.lookup(irq).ok_or(IrqError::NotFound)?;

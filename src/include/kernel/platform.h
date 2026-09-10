@@ -25,7 +25,7 @@ extern BootCapabilities x86_boot_capabilities;
 
 void		 platform_early_init();
 DriverResult platform_init();
-void		 platform_start_devices();
+DriverResult platform_start_devices();
 void		 acpi_update_boot_capabilities();
 
 #endif

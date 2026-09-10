@@ -9,7 +9,6 @@ SRC += sound/
 SRC += usb/
 SRC += bus/
 SRC += disk/
-SRC += interrupt/
 SRC += timer/
 SRC += framebuffer/
 SRC += input/
