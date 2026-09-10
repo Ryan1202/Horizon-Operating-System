@@ -85,11 +85,11 @@ DriverResult platform_init() {
 	acpi_init_x86_topology();
 
 	register_serial();
-	result = register_vesa_display();
-	result = register_apic();
-	if (x86_boot_capabilities.has_pic) result = register_pic();
-	result = register_pit();
-	if (x86_boot_capabilities.use_rtc) result = register_cmos();
+	DRIVER_RESULT_PASS(register_vesa_display());
+	// result = register_apic();
+	// if (x86_boot_capabilities.has_pic) result = register_pic();
+	DRIVER_RESULT_PASS(register_pit());
+	if (x86_boot_capabilities.use_rtc) DRIVER_RESULT_PASS(register_cmos());
 
 	dma_init();
 
@@ -102,33 +102,34 @@ void serial_receive(uint8_t data) {
 	printk("%c", data);
 }
 
-void platform_start_devices() {
-	init_and_start_physical_device(i8254_device);
-	if (x86_boot_capabilities.use_rtc)
-		init_and_start_physical_device(cmos_device);
-
-	Object *serial_object;
-	framebuffer_start_all();
+DriverResult platform_start_devices() {
+	DRIVER_RESULT_PASS(framebuffer_start_all());
 	init_console();
-	interrupt_dm_start(); // 启动由interrupt_dm选择的中断控制器
+	interrupt_init();
 
-	acpi_register_cpus();
+	// 控制器及入口就绪后允许中断，设备仍由各自 handle 保持屏蔽。
+	io_sti();
+	DRIVER_RESULT_PASS(init_and_start_physical_device(i8254_device));
+	if (x86_boot_capabilities.use_rtc)
+		DRIVER_RESULT_PASS(init_and_start_physical_device(cmos_device));
 
+	// acpi_register_cpus();
+
+	Object		*serial_object;
 	ObjectResult result;
 	result = open_object_by_path("\\Device\\Serial0", &serial_object);
 	if (result == OBJECT_OK) {
-		serial_device_open(serial_object, SERIAL_BAUD_115200, serial_receive);
+		DRIVER_RESULT_PASS(serial_device_open(
+			serial_object, SERIAL_BAUD_115200, serial_receive));
 	}
 
 	print_features();
-	DRV_RESULT_PRINT_CALL(
-		init_and_start_logical_device(pit_timer_device->device));
-	// if (use_apic)
-	// 	DRV_RESULT_PRINT_CALL(
-	// 		init_and_start_logical_device(apic_timer_device->device));
+	DRIVER_RESULT_PASS(init_and_start_logical_device(pit_timer_device->device));
+	// LAPIC timer 尚未实现正式时钟接口，保持 LVT timer 屏蔽
 	if (x86_boot_capabilities.use_rtc)
-		DRV_RESULT_PRINT_CALL(
+		DRIVER_RESULT_PASS(
 			init_and_start_logical_device(rtc_time_device->device));
 
 	// platform_bus_driver.subdriver.state = SUBDRIVER_STATE_READY;
+	return DRIVER_OK;
 }

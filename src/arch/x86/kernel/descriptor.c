@@ -25,10 +25,6 @@
 	set_gate_descriptor(       \
 		&idt[n], (size_t)&exception_entry##n, 0x08, DA_386IGate_DPL0, 1);
 
-#define SET_IRQ_ENTRY(n) \
-	set_gate_descriptor( \
-		&idt[0x20 + n], (size_t)&irq_entry##n, 0x08, DA_386IGate_DPL0, 0);
-
 extern void syscall_handler(void);
 extern void (*const vector_entries[256])(void);
 
@@ -136,28 +132,12 @@ void init_descriptor(void) {
 	SET_EXCEPTION_ENTRY(30)
 	SET_EXCEPTION_ENTRY(31)
 
-	SET_IRQ_ENTRY(0)
-	SET_IRQ_ENTRY(1)
-	SET_IRQ_ENTRY(2)
-	SET_IRQ_ENTRY(3)
-	SET_IRQ_ENTRY(4)
-	SET_IRQ_ENTRY(5)
-	SET_IRQ_ENTRY(6)
-	SET_IRQ_ENTRY(7)
-	SET_IRQ_ENTRY(8)
-	SET_IRQ_ENTRY(9)
-	SET_IRQ_ENTRY(10)
-	SET_IRQ_ENTRY(11)
-	SET_IRQ_ENTRY(12)
-	SET_IRQ_ENTRY(13)
-	SET_IRQ_ENTRY(14)
-	SET_IRQ_ENTRY(15)
 
 	set_gate_descriptor(
 		&idt[0x80], (size_t)syscall_handler, 0x08, DA_386IGate_DPL3, 0);
 
 	/* Rust APIC device, synchronization, error and spurious entries. */
-	for (int i = 0x30; i < 256; i++) {
+	for (int i = 0x20; i < 256; i++) {
 		if (i != 0x80) {
 			set_gate_descriptor(
 				&idt[i], (size_t)vector_entries[i], 0x08, DA_386IGate_DPL0, 0);

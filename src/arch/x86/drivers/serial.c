@@ -122,7 +122,7 @@ bool serial_probe(int base_port) {
 DriverResult serial_self_test(SerialDevice *serial_device) {
 	Serial	*serial	   = serial_device->device->private_data;
 	uint16_t base_port = serial->base_port;
-	uint8_t	 val	   = io_in_byte(base_port + SERIAL_UART_REG_LINE_STATUS);
+	uint8_t	 val	   = io_in_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE);
 
 	// 禁用中断
 	io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, 0x00);
@@ -199,9 +199,9 @@ DriverResult serial_init(void *_device) {
 	// 设置 RTS 和 DSR
 	io_out_byte(base_port + SERIAL_UART_REG_MODEM_CONTROL, 0x0B);
 
-	register_device_irq(
-		&serial->irq, device->physical_device, serial->device, serial->irq_num,
-		&isa_irq_domain, serial_irq_handler, IRQ_MODE_SHARED);
+	// register_device_irq(
+	// 	&serial->irq, device->physical_device, serial->device, serial->irq_num,
+	// 	&isa_irq_domain, serial_irq_handler, IRQ_MODE_SHARED);
 
 	serial->console_backend.init	   = NULL;
 	serial->console_backend.put_string = serial_console_backend_put_string;
@@ -215,8 +215,8 @@ DriverResult serial_start(void *_device) {
 	uint16_t	   base_port = serial->base_port;
 
 	// 启用接收中断
-	io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, 0x01);
-	enable_device_irq(serial->irq);
+	// io_out_byte(base_port + SERIAL_UART_REG_INTERRUPT_ENABLE, 0x01);
+	// enable_device_irq(serial->irq);
 
 	console_register_backend(&serial->console_backend, serial);
 

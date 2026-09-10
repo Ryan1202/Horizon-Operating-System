@@ -1,8 +1,7 @@
 //! action 注册；首个节点激活 domain，后续 Shared 节点复用路由
 
 use super::{
-    Flow, IRQ_DESCRIPTORS, IrqError, IrqHandle, IrqNumber, descriptor::Status,
-    sync::assert_management,
+    Flow, IRQ_DESCRIPTORS, IrqError, IrqHandle, IrqNumber, assert_management, descriptor::Status,
 };
 use crate::kernel::{
     interrupt::irq::{Affinity, domain},
@@ -82,7 +81,7 @@ pub fn request_irq(
         }
 
         if state.status != Status::Stopping
-            || !(state.status == Status::Inactive && state.head.is_some())
+            && !(state.status == Status::Inactive && state.head.is_some())
         {
             break state;
         }

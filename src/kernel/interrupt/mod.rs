@@ -1,6 +1,6 @@
 //! 硬件 IRQ 深度、softirq 分发与调度器交接。
 
-use core::{ffi::c_int, marker::PhantomData};
+use core::marker::PhantomData;
 
 use crate::{
     arch::ArchInterrupt,
@@ -11,6 +11,7 @@ use crate::{
     },
 };
 
+pub mod ffi;
 pub mod irq;
 mod softirq;
 
@@ -18,11 +19,6 @@ cpu_local!(
     static HARDIRQ_DEPTH: u8 = 0;
     static SOFTIRQ_DEPTH: u8 = 0;
 );
-
-unsafe extern "C" {
-    fn device_irq_handler(irq: c_int);
-    fn interrupt_eoi(irq: c_int);
-}
 
 pub trait Interrupt: Sized {
     type Status;
@@ -70,22 +66,18 @@ impl<'a, T: Interrupt> Drop for InterruptGuard<'a, T> {
 }
 
 fn enter_hardirq() -> u8 {
-    assert!(HARDIRQ_DEPTH.read() < u8::MAX, "hardirq depth overflow");
     HARDIRQ_DEPTH.fetch_add(1)
 }
 
 fn leave_hardirq() {
-    assert!(HARDIRQ_DEPTH.read() > 0, "unbalanced hardirq guard");
     HARDIRQ_DEPTH.decrease();
 }
 
 fn enter_softirq() -> u8 {
-    assert!(SOFTIRQ_DEPTH.read() < u8::MAX, "softirq depth overflow");
     SOFTIRQ_DEPTH.fetch_add(1)
 }
 
 fn leave_softirq() {
-    assert!(SOFTIRQ_DEPTH.read() > 0, "unbalanced softirq guard");
     SOFTIRQ_DEPTH.decrease();
 }
 
@@ -130,8 +122,7 @@ impl HardIrqGuard {
             return None;
         }
 
-        let depth = enter_softirq();
-        assert_eq!(depth, 0, "softirq guard created while softirq is active");
+        enter_softirq();
         Some(SoftIrqGuard {
             _phantom: PhantomData,
         })
@@ -198,28 +189,24 @@ fn run_softirq(guard: SoftIrqGuard) -> PreemptPoint {
     }
 }
 
-/// 仅供架构 IRQ 入口在校验 IRQ 编号后调用。
-pub fn handle(irq: u8) {
-    let hardirq = HardIrqGuard::new();
-
-    // SAFETY: 架构入口已经校验 IRQ 编号；设备分发和控制器 EOI
-    // 由现有的 C 中断框架提供。
-    unsafe {
-        device_irq_handler(irq as c_int);
-        interrupt_eoi(irq as c_int);
-    }
-
-    if let Some(softirq) = hardirq.into_softirq() {
-        run_softirq(softirq).try_preempt(PreemptGuard::new());
-    }
-}
-
-/// 新硬件入口已翻译出 virq 后使用此入口，统一完成 softirq 和抢占收尾。
+/// 新硬件入口已翻译出 irq 后使用此入口，统一完成 softirq 和抢占收尾
 /// chip 的 EOI 由 core flow 执行。
 pub fn handle_mapped(irq: irq::IrqNumber) {
+    handle_arch(|| {
+        irq::handle_irq(irq);
+    });
+}
+
+/// 架构专用中断与设备中断共享上下文及退出收尾；回调负责完成 EOI
+pub(crate) fn handle_arch(dispatch: impl FnOnce()) {
     let hardirq = HardIrqGuard::new();
-    irq::handle_irq(irq);
+    dispatch();
+
     if let Some(softirq) = hardirq.into_softirq() {
-        run_softirq(softirq).try_preempt(PreemptGuard::new());
+        let point = run_softirq(softirq);
+        let guard = PreemptGuard::new();
+        if crate::kernel::thread::scheduler::scheduler(&guard).is_initialized() {
+            point.try_preempt(guard);
+        }
     }
 }

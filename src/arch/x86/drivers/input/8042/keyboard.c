@@ -12,6 +12,7 @@
 #include <drivers/8042.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
+#include <drivers/bus/isa/isa.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
@@ -356,10 +357,12 @@ DriverResult ps2_keyboard_start(void *_device) {
 	i8042_wait_ctr_send_ready();
 	i8042_write_data(cfg);
 
-	I8042Device *i8042			   = i8042_device->private_data;
-	// 手动修改irq的处理函数和参数
-	i8042->irq[kbd->port]->handler = keyboard_irq_handler;
-	i8042->irq[kbd->port]->arg	   = kbd;
+	I8042Device *i8042 = i8042_device->private_data;
+	DRIVER_RESULT_PASS(unregister_device_irq(i8042->irq[kbd->port]));
+	i8042->irq[kbd->port] = NULL;
+	DRIVER_RESULT_PASS(register_device_irq(
+		&i8042->irq[kbd->port], i8042_device, kbd, kbd->port == 0 ? 1 : 12,
+		&isa_irq_domain, keyboard_irq_handler, IRQ_MODE_SHARED));
 
 	i8042_wait_ctr_send_ready();
 	i8042_write_data(I8042_KBD_CMD_ENABLE_SCANNING);

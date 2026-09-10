@@ -45,14 +45,14 @@ static void queue_new_device(PhysicalDevice *device) {
 
 static Bus *take_new_bus(void) {
 	int	 flags = spin_lock_irqsave(&new_bus_lock);
-	Bus *bus	= list_first_owner_or_null(&new_bus_lh, Bus, new_bus_list);
+	Bus *bus   = list_first_owner_or_null(&new_bus_lh, Bus, new_bus_list);
 	if (bus != NULL) list_del(&bus->new_bus_list);
 	spin_unlock_irqrestore(&new_bus_lock, flags);
 	return bus;
 }
 
 static PhysicalDevice *take_new_device(void) {
-	int flags = spin_lock_irqsave(&device_list_lock);
+	int				flags  = spin_lock_irqsave(&device_list_lock);
 	PhysicalDevice *device = list_first_owner_or_null(
 		&new_device_lh, PhysicalDevice, new_device_list);
 	if (device != NULL) list_del(&device->new_device_list);
@@ -61,14 +61,14 @@ static PhysicalDevice *take_new_device(void) {
 }
 
 static bool has_new_bus(void) {
-	int	 flags	  = spin_lock_irqsave(&new_bus_lock);
+	int	 flags	 = spin_lock_irqsave(&new_bus_lock);
 	bool has_bus = !list_empty(&new_bus_lh);
 	spin_unlock_irqrestore(&new_bus_lock, flags);
 	return has_bus;
 }
 
 static bool has_new_device(void) {
-	int	 flags		 = spin_lock_irqsave(&device_list_lock);
+	int	 flags		= spin_lock_irqsave(&device_list_lock);
 	bool has_device = !list_empty(&new_device_lh);
 	spin_unlock_irqrestore(&device_list_lock, flags);
 	return has_device;
@@ -209,8 +209,7 @@ static DriverResult start_devices(void) {
 			}
 		}
 
-		if (__atomic_load_n(
-				&driver_init_thread_count, __ATOMIC_ACQUIRE) == 0 &&
+		if (__atomic_load_n(&driver_init_thread_count, __ATOMIC_ACQUIRE) == 0 &&
 			!has_new_bus() && !has_new_device())
 			break;
 
@@ -226,9 +225,14 @@ PeriodicTask driver_periodic_task = {
 };
 
 DriverResult driver_start_all(void) {
+	// PCI INTx 的 _PRT/link 路由及 MSI 尚未接入，禁止加载器启动这些设备
+	// 同时依赖尚未开放的线程管理；完成两者后再恢复下面的启动过程
+	return DRIVER_ERROR_UNSUPPORT_FEATURE;
+	/*
 	DriverResult result = start_devices();
 
 	periodic_task_add(&driver_periodic_task);
 
 	return result;
+	*/
 }

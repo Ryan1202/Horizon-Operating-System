@@ -9,7 +9,7 @@ use crate::{
     arch::{ArchCpuLocal, ArchInterrupt},
     cpu_local,
     kernel::{
-        interrupt::{Interrupt, InterruptGuard},
+        interrupt::{Interrupt, InterruptGuard, in_thread},
         memory::{
             kmalloc::Kmalloc,
             percpu::{CpuLocal, CpuLocalGuard, PerCpuInit, PerCpuReadWrite},
@@ -42,22 +42,16 @@ pub fn scheduler<'a>(guard: &'a PreemptGuard) -> CpuLocalGuard<'a, Scheduler> {
     SCHEDULER.get_local(guard)
 }
 
-/// 阻塞管理 API 的入口契约；即使锁暂时空闲，也不允许原子上下文误用。
-pub fn assert_can_wait() {
-    assert!(
-        crate::kernel::interrupt::in_thread(),
-        "waiting outside thread context"
-    );
-    assert!(
-        ArchInterrupt::is_enabled(),
-        "waiting with interrupts disabled"
-    );
+/// IRQ 管理只自旋排空，不阻塞当前线程，也允许调度器启动前的 BSP 上下文
+pub fn assert_can_manage_irq() {
     let guard = PreemptGuard::new();
-    assert!(guard.can_switch(), "waiting with preemption disabled");
     let scheduler = scheduler(&guard);
     assert!(
-        !scheduler.is_idle(&scheduler.get_current()),
-        "idle thread must not wait"
+        in_thread()
+            && ArchInterrupt::is_enabled()
+            && guard.can_switch()
+            && (!scheduler.is_initialized() || scheduler.current.get() != scheduler.idle.get()),
+        "IRQ management requires interruptible, non-idle context"
     );
 }
 
@@ -101,6 +95,10 @@ pub struct Scheduler {
 unsafe impl PerCpuInit for Scheduler {}
 
 impl Scheduler {
+    pub(crate) fn is_initialized(&self) -> bool {
+        !self.current.get().is_null()
+    }
+
     const fn new() -> Self {
         Self {
             ready: Spinlock::new(ReadyQueue::new()),

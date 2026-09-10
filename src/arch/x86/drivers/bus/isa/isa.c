@@ -17,7 +17,6 @@ DriverResult isa_driver_init(Driver *driver);
 DriverResult isa_probe(BusDriver *bus_driver, Bus *bus);
 DriverResult isa_init_bus(BusDriver *bus_driver);
 
-IrqDomain isa_irq_domain;
 
 BusOps isa_bus_ops = {
 	.scan_bus	  = NULL,

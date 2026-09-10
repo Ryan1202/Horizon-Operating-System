@@ -7,8 +7,6 @@
 #include "drivers/bus/isa/isa.h"
 #include <driver/interrupt/interrupt_dm.h>
 #include <driver/timer/timer_dm.h>
-#include <drivers/8259a.h>
-#include <drivers/apic.h>
 #include <drivers/pit.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
@@ -19,6 +17,7 @@
 #include <kernel/fifo.h>
 #include <kernel/func.h>
 #include <kernel/platform.h>
+#include <math.h>
 #include <objects/object.h>
 #include <result.h>
 #include <stdint.h>
@@ -30,6 +29,7 @@ DriverResult pit_init(void *device);
 TimerResult	 pit_set_frequency(TimerDevice *timer_device, uint32_t frequency);
 DriverResult pit_start(void *device);
 DriverResult pit_stop(void *device);
+DriverResult pit_destroy(void *device);
 void		 pit_irq_handler(void *device);
 
 extern Driver core_driver;
@@ -42,7 +42,7 @@ DeviceOps i8254_device_ops = {
 };
 DeviceOps pit_device_ops = {
 	.init	 = pit_init,
-	.destroy = NULL,
+	.destroy = pit_destroy,
 	.start	 = pit_start,
 	.stop	 = pit_stop,
 };
@@ -75,30 +75,49 @@ DriverResult pit_init(void *device) {
 	io_out_byte(PIT_CTRL, 0x34);
 
 	pit_timer_device->current_frequency = 0;
-	pit_timer_device->min_frequency		= PIT_MAX_FREQUENCY / (uint16_t)-1;
-	pit_timer_device->max_frequency		= PIT_MAX_FREQUENCY / 1;
-	pit_timer_device->source_frequency	= PIT_MAX_FREQUENCY;
-	pit_timer_device->priority			= 1;
+	pit_timer_device->min_frequency	   = DIV_ROUND_UP(PIT_MAX_FREQUENCY, 65536);
+	pit_timer_device->max_frequency	   = PIT_MAX_FREQUENCY / 1;
+	pit_timer_device->source_frequency = PIT_MAX_FREQUENCY;
+	pit_timer_device->priority		   = 1;
 
 	return register_device_irq(
-		&pit_device_irq, i8254_device, pit_timer_device->device, PIC_PIT_IRQ,
+		&pit_device_irq, i8254_device, pit_timer_device->device, 0,
 		&isa_irq_domain, pit_irq_handler, IRQ_MODE_EXCLUSIVE);
 }
 
 TimerResult pit_set_frequency(TimerDevice *timer_device, uint32_t frequency) {
+	if (frequency == 0 || frequency < timer_device->min_frequency)
+		return TIMER_RESULT_FREQ_TOO_SMALL;
+	if (frequency > timer_device->max_frequency)
+		return TIMER_RESULT_FREQ_TOO_LARGE;
+
 	uint32_t divisor = PIT_MAX_FREQUENCY / frequency;
+
+	// 重写控制字，确保每次都从低字节开始装载 divisor。
+	io_out_byte(PIT_CTRL, 0x34);
 	io_out_byte(PIT_CNT0, (uint8_t)(divisor & 0xff));
 	io_out_byte(PIT_CNT0, (uint8_t)((divisor >> 8) & 0xff));
 	return TIMER_RESULT_OK;
 }
 
 DriverResult pit_start(void *device) {
+	if (pit_device_irq == NULL || pit_timer_device->current_frequency == 0)
+		return DRIVER_ERROR_NOT_EXIST;
+
 	DRIVER_RESULT_PASS(enable_device_irq(pit_device_irq));
 	return DRIVER_OK;
 }
 
 DriverResult pit_stop(void *device) {
 	DRIVER_RESULT_PASS(disable_device_irq(pit_device_irq));
+	return DRIVER_OK;
+}
+
+DriverResult pit_destroy(void *device) {
+	if (pit_device_irq != NULL) {
+		DRIVER_RESULT_PASS(unregister_device_irq(pit_device_irq));
+		pit_device_irq = NULL;
+	}
 	return DRIVER_OK;
 }
 

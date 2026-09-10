@@ -14,11 +14,14 @@ use crate::{
     },
     arch::{
         PhysAddr,
-        x86::kernel::{
-            acpi::cpu::Cpu,
-            interrupt::{
-                apic::{ApicId, Gsi, IoApicInfo},
-                legacy::{IrqOverride, LegacyIrq},
+        x86::{
+            drivers::interrupt::apic::LocalXApic,
+            kernel::{
+                acpi::cpu::Cpu,
+                interrupt::{
+                    apic::{Gsi, IoApicInfo, LocalApic},
+                    legacy::{IrqOverride, LegacyIrq},
+                },
             },
         },
     },
@@ -27,10 +30,6 @@ use crate::{
 
 mod cpu;
 mod interrupt;
-
-unsafe extern "C" {
-    fn get_local_cpu_id() -> i32;
-}
 
 const RSDP_RANGE: [Range<usize>; 2] = [
     (0x009FC000..0x00A00000).into(),
@@ -50,6 +49,11 @@ pub struct X86Topology {
 }
 
 impl X86Topology {
+    pub(crate) fn ioapics(&self) -> &[IoApicInfo] {
+        // SAFETY: 平台已完成 MADT 解析；没有 MADT 时 init 直接终止启动。
+        unsafe { self.io_apic.assume_init_ref() }
+    }
+
     pub fn get() -> &'static Self {
         unsafe { &*X86_TOPOLOGY.get() }
     }
@@ -107,6 +111,8 @@ impl X86Topology {
 
             topology.cpus = MaybeUninit::new(cpus);
             topology.io_apic = MaybeUninit::new(ioapics);
+        } else {
+            panic!("x86 interrupt initialization requires MADT");
         }
     }
 
@@ -115,8 +121,8 @@ impl X86Topology {
         let topology = unsafe { &mut *X86_TOPOLOGY.get() };
         let cpus = unsafe { topology.cpus.assume_init_mut() };
 
-        let bsp_id = unsafe { u32::try_from(get_local_cpu_id()).expect("BSP CPU ID is invalid") };
-        let bsp_id = ApicId::new(bsp_id);
+        let bsp_id =
+            LocalXApic::with_current(|lapic| lapic.id()).expect("BSP LAPIC is not initialized");
         CpuRegistry::register(cpus, bsp_id.into(), |cpu| cpu.id().into());
     }
 }

@@ -1,4 +1,3 @@
-#include "kernel/console.h"
 #include <driver/timer/timer_dm.h>
 #include <kernel/device.h>
 #include <kernel/device_driver.h>
@@ -93,10 +92,10 @@ DriverResult timer_set_frequency(LogicalDevice *device, uint32_t frequency) {
 
 	TimerResult result =
 		timer_device->timer_ops->set_frequency(timer_device, frequency);
+	if (result != TIMER_RESULT_OK) { return DRIVER_ERROR_OTHER; }
 
 	timer_device->current_frequency = frequency;
 	timer_device->counter			= 0;
-	if (result != TIMER_RESULT_OK) { return DRIVER_ERROR_OTHER; }
 	return DRIVER_OK;
 }
 
@@ -114,10 +113,12 @@ void timer_irq_handler(LogicalDevice *device) {
 		if (cur->callback != NULL) cur->callback(cur->arg);
 	}
 
+	/* LAPIC 调度时钟接入前，PIT 只负责计时，不进入尚未启动的调度器
 	if (device == timer_dm_ext.scheduler_timer &&
 		timer_device->current_frequency != 0) {
 		scheduler_tick(1000 / timer_device->current_frequency);
 	}
+	*/
 }
 
 DriverResult create_timer_device(

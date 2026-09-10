@@ -11,6 +11,7 @@
 #include <drivers/8042.h>
 #include <drivers/8259a.h>
 #include <drivers/apic.h>
+#include <drivers/bus/isa/isa.h>
 #include <kernel/console.h>
 #include <kernel/descriptor.h>
 #include <kernel/driver.h>
@@ -131,10 +132,13 @@ DriverResult ps2_mouse_start(void *_device) {
 		return DRIVER_ERROR_OTHER;
 	}
 
-	// 手动修改irq的处理函数和参数
-	I8042Device *i8042				 = i8042_device->private_data;
-	i8042->irq[mouse->port]->handler = mouse_handler;
-	i8042->irq[mouse->port]->arg	 = mouse;
+	I8042Device *i8042 = i8042_device->private_data;
+	DRIVER_RESULT_PASS(unregister_device_irq(i8042->irq[mouse->port]));
+	i8042->irq[mouse->port] = NULL;
+	DRIVER_RESULT_PASS(register_device_irq(
+		&i8042->irq[mouse->port], i8042_device, mouse,
+		mouse->port == 0 ? 1 : 12, &isa_irq_domain, mouse_handler,
+		IRQ_MODE_SHARED));
 
 	mouse->state = 0;
 	i8042_enable_interrupt(mouse->port);

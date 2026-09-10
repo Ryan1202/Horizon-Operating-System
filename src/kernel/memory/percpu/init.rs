@@ -1,6 +1,9 @@
-use core::sync::atomic::{
-    AtomicBool, AtomicI8, AtomicI16, AtomicI32, AtomicI64, AtomicIsize, AtomicU8, AtomicU16,
-    AtomicU32, AtomicU64, AtomicUsize, Ordering,
+use core::{
+    mem::MaybeUninit,
+    sync::atomic::{
+        AtomicBool, AtomicI8, AtomicI16, AtomicI32, AtomicI64, AtomicIsize, AtomicU8, AtomicU16,
+        AtomicU32, AtomicU64, AtomicUsize, Ordering,
+    },
 };
 
 use crate::{
@@ -111,7 +114,7 @@ pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
 
     unsafe {
         // SAFETY: area 在 Ready 发布前一次性写入，之后只通过不可变引用访问。
-        PERCPU_AREA.get().write(core::mem::MaybeUninit::new(area));
+        PERCPU_AREA.get().write(MaybeUninit::new(area));
 
         let bsp_id = CpuRegistry::get().bsp_id();
 
