@@ -27,7 +27,7 @@ pub enum Polarity {
 }
 
 /// 激活时选择投递 CPU；父 domain 将 Auto 写回为实际选中的 Cpu。
-/// 再次自动均衡时，调用者应重新传入 Auto。
+/// 再次自动均衡时，调用者应重新传入 Auto
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Affinity {
     #[default]
@@ -42,6 +42,8 @@ pub trait Domain: Send + Sync {
 
     fn free(&self, data: &IrqData);
 
+    /// 成功后路由可用于 chip 回调，但中断源必须保持屏蔽
+    /// 失败时本层自行撤销局部改变；core 回滚已成功的父层
     fn activate(
         &self,
         irq: IrqNumber,
@@ -49,6 +51,10 @@ pub trait Domain: Send + Sync {
         affinity: &mut Affinity,
     ) -> Result<(), IrqError>;
 
+    /// 源已屏蔽，等待本层已发起的事件完成；不得持有运行时回调所需的锁
+    fn synchronize(&self, data: &IrqData);
+
+    /// 只释放路由；调用前已完成 synchronize，或者激活从未开放过投递
     fn deactivate(&self, data: &IrqData);
 }
 
@@ -76,9 +82,9 @@ pub(super) fn deactivate(data: &IrqData) {
     }
 }
 
-pub(super) fn disconnect(data: &IrqData) {
-    // data.domain().disconnect(data);
+pub(super) fn synchronize(data: &IrqData) {
+    data.domain().synchronize(data);
     if let Some(parent) = data.parent() {
-        disconnect(parent);
+        synchronize(parent);
     }
 }

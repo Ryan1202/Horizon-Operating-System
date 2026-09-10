@@ -1,11 +1,12 @@
-//! 一个 handle 拥有一个 Exclusive action。注销不释放常驻配置
+//! handle 只管理自己的 action；最后一个 action 注销才停用 domain。
 
 use super::{
-    IrqDescriptor, IrqNumber, action::IrqAction, descriptor::Status, sync::assert_management,
+    IrqDescriptor, IrqNumber, action::IrqAction, descriptor::Status, domain,
+    sync::assert_management,
 };
 use crate::kernel::memory::kmalloc::Kmalloc;
 use alloc::boxed::Box;
-use core::{hint::spin_loop, ptr::NonNull, sync::atomic::Ordering};
+use core::ptr::NonNull;
 
 #[must_use = "dropping the IRQ handle unregisters its handler"]
 pub struct IrqHandle {
@@ -13,7 +14,7 @@ pub struct IrqHandle {
     action: NonNull<IrqAction>,
 }
 
-// SAFETY: action 身份由 handle 独占，链表访问由状态锁串行化；handler 是 Send + Sync
+// SAFETY: 管理方法独占 handle；状态锁和 Stopping 排空协议保护链表，handler 是 Send + Sync
 unsafe impl Send for IrqHandle {}
 unsafe impl Sync for IrqHandle {}
 
@@ -22,59 +23,95 @@ impl IrqHandle {
         Self { descriptor, action }
     }
 
+    fn descriptor(&self) -> &IrqDescriptor {
+        // SAFETY: handle 仅引用已配置、地址稳定且常驻的 descriptor
+        unsafe { self.descriptor.as_ref() }
+    }
+
     pub fn irq(&self) -> IrqNumber {
-        // SAFETY: 注册只返回已配置 descriptor，其地址稳定且本阶段不回收
-        unsafe { self.descriptor.as_ref().irq }
+        self.descriptor().irq
+    }
+
+    pub fn enable_irq(&mut self) {
+        self.set_enabled(true);
+    }
+
+    pub fn disable_irq(&mut self) {
+        self.set_enabled(false);
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        assert_management();
+        let descriptor = self.descriptor();
+        let mut state = descriptor.lock_stable();
+        // SAFETY: 此 handle 的节点仍在链表中；enabled 的读写由状态锁保护
+        if unsafe { self.action.as_ref() }.enabled == enabled {
+            return;
+        }
+        state.freeze(descriptor);
+        drop(state);
+        descriptor.drain();
+
+        {
+            let _state = descriptor.state.lock_irqsave();
+            // SAFETY: Stopping 排除了其它管理者，旧遍历已排空，无存活的节点共享引用
+            let mut action = self.action;
+            unsafe { action.as_mut().enabled = enabled };
+        }
+        descriptor.finish_update();
     }
 }
 
 impl Drop for IrqHandle {
     fn drop(&mut self) {
         assert_management();
+        let descriptor = self.descriptor();
 
-        // SAFETY: handle 由成功注册构造，descriptor 在注销期间保持存活
-        let descriptor = unsafe { self.descriptor.as_ref() };
+        descriptor.lock_stable().freeze(descriptor);
+        descriptor.drain();
 
-        {
-            let mut state = descriptor.state.lock_irqsave();
-            assert_eq!(
-                state.head,
-                Some(self.action),
-                "IRQ action ownership mismatch"
-            );
+        let mut state = descriptor.state.lock_irqsave();
 
-            let active = state.status == Status::Active;
-            state.status = Status::Stopping;
-            state.pending = false;
+        // SAFETY: 本 handle 独占其节点的注销权，全部遍历已排空
+        let next = unsafe { self.action.as_ref() }.next;
+        if state.head == Some(self.action) && next.is_none() {
+            // 最后一个节点在停用完成前继续占用注册位置
+            drop(state);
 
-            if active && descriptor.flow != super::Flow::Simple {
-                descriptor.data.chip().mask(&descriptor.data);
-            }
-        }
-
-        loop {
-            while descriptor.in_progress.load(Ordering::Relaxed) {
-                spin_loop();
-            }
+            domain::synchronize(&descriptor.data);
+            descriptor.state.lock_irqsave().status = Status::Inactive;
+            domain::deactivate(&descriptor.data);
 
             let mut state = descriptor.state.lock_irqsave();
-            // 锁外观察只用于减少锁竞争；此处复核并取得执行者收尾的可见性。
-            if descriptor.in_progress.load(Ordering::Relaxed) {
-                continue;
-            }
-
             state.head = None;
-            state.status = Status::Inactive;
-            break;
+            state.pending = false;
+        } else {
+            if state.head == Some(self.action) {
+                state.head = next;
+            } else {
+                let mut previous = state.head.expect("missing IRQ action");
+
+                loop {
+                    // SAFETY: 独占更新阶段且遍历已排空，节点引用不逃逸状态锁
+                    let current = unsafe { previous.as_mut() };
+                    if current.next == Some(self.action) {
+                        current.next = next;
+                        break;
+                    }
+                    previous = current.next.expect("IRQ action ownership mismatch");
+                }
+            }
+            drop(state);
+
+            descriptor.finish_update();
         }
 
-        // 私有状态的 drop 不持有任何 IRQ 锁
-        // SAFETY: Stopping 阻止新执行，已有执行者已完成全部收尾，唯一节点已摘下。
+        // SAFETY: 节点已摘除且不再被分发引用；稳定状态恢复后在锁外析构。
         unsafe {
             drop(Box::<_, Kmalloc>::from_raw_in(
                 self.action.as_ptr(),
                 Kmalloc::default(),
-            ))
-        };
+            ));
+        }
     }
 }

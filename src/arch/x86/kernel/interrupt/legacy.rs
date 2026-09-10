@@ -98,7 +98,7 @@ pub(crate) fn isa_irq(irq: u8) -> Option<IrqNumber> {
 }
 
 /// 平台必须先完成 ISA 编号、ACPI 路由和 IOAPIC 初始化。
-/// 配置成功后常驻；本阶段注册只安装 action，不开启硬件投递
+/// 配置成功后常驻；首个 action 激活 domain，各 handle 显式开放自己的 handler。
 pub(crate) fn request_isa_irq(
     isa_irq_number: u8,
     sharing: IrqSharing,
@@ -108,10 +108,6 @@ pub(crate) fn request_isa_irq(
 
     if isa_irq_number as usize >= IRQ_COUNT {
         return Err(IrqError::InvalidArgument);
-    }
-
-    if sharing != IrqSharing::Exclusive {
-        return Err(IrqError::Unsupported);
     }
 
     let irq = isa_irq(isa_irq_number).ok_or(IrqError::NotFound)?;

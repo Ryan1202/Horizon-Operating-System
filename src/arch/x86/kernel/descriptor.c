@@ -30,6 +30,7 @@
 		&idt[0x20 + n], (size_t)&irq_entry##n, 0x08, DA_386IGate_DPL0, 0);
 
 extern void syscall_handler(void);
+extern void (*const vector_entries[256])(void);
 
 struct segment_descriptor *gdt;
 struct gate_descriptor	  *idt;
@@ -154,6 +155,14 @@ void init_descriptor(void) {
 
 	set_gate_descriptor(
 		&idt[0x80], (size_t)syscall_handler, 0x08, DA_386IGate_DPL3, 0);
+
+	/* Rust APIC device, synchronization, error and spurious entries. */
+	for (int i = 0x30; i < 256; i++) {
+		if (i != 0x80) {
+			set_gate_descriptor(
+				&idt[i], (size_t)vector_entries[i], 0x08, DA_386IGate_DPL0, 0);
+		}
+	}
 
 	load_idtr((uint16_t)IDT_SIZE, (size_t)idt);
 }

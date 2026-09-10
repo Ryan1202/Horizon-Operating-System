@@ -53,7 +53,7 @@ impl From<MemoryError> for IrqError {
     }
 }
 
-/// 分发已配置且 Active 的 IRQ；尚未接入真实硬件激活
+/// `Active` 执行 handler;  `Disabled` / `Stopping` 只完成迟到事件的硬件收尾
 pub fn handle_irq(irq: IrqNumber) -> Option<()> {
     let descriptor = IRQ_DESCRIPTORS.lookup(irq)?;
     if !descriptor.is_configured() {
