@@ -1,6 +1,6 @@
-use core::{any::Any, hint::spin_loop, num::NonZero, ptr::NonNull};
+use core::{any::Any, hint::spin_loop, num::NonZeroUsize, ptr::NonNull};
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     arch::{
@@ -17,7 +17,6 @@ use crate::{
         },
         memory::{
             PageCacheType,
-            frame::FrameNumber,
             kmalloc::Kmalloc,
             page::{Pages, options::PageAllocOptions},
         },
@@ -204,15 +203,9 @@ impl IrqChip for IoApic {
     }
 }
 
-struct IoApicMapping {
-    frame: FrameNumber,
-    page: Pages,
-}
-
 struct IoApicState {
     apics: Box<[Arc<IoApic, Kmalloc>], Kmalloc>,
-    // 全局所有者维持所有寄存器指针的有效性，同一物理页只映射一次
-    mappings: Vec<IoApicMapping, Kmalloc>,
+    _pages: Pages,
 }
 
 pub struct IoApics {
@@ -236,33 +229,38 @@ impl IoApics {
             return Err(IrqError::Busy);
         }
 
-        let mut mappings: Vec<IoApicMapping, Kmalloc> = Vec::new_in(Kmalloc::default());
         let mut apics = Box::<[Arc<IoApic, Kmalloc>], Kmalloc>::new_uninit_slice_in(
             ioapics.len(),
             Kmalloc::default(),
         );
 
+        let range = ioapics
+            .iter()
+            .fold(None, |range, info| {
+                let frame = PhysAddr::new(info.address).to_frame_number();
+                let Some(range) = range else {
+                    return Some(frame..frame + 1);
+                };
+
+                if frame < range.start {
+                    Some(frame..range.end)
+                } else if frame >= range.end {
+                    Some(range.start..frame + 1)
+                } else {
+                    Some(range)
+                }
+            })
+            .expect("IOAPIC list is empty");
+
+        let count = NonZeroUsize::new(range.end.get() - range.start.get()).unwrap();
+        let pages = PageAllocOptions::mmio(range.start, count, PageCacheType::Uncached)
+            .allocate()
+            .expect("failed to allocate IOAPIC MMIO page");
+
         for (index, info) in ioapics.iter().enumerate() {
-            let frame = PhysAddr::new(info.address).to_frame_number();
-            let offset = info.address - PhysAddr::from_frame_number(frame).as_usize();
+            let offset = info.address - PhysAddr::from_frame_number(range.start).as_usize();
 
-            let page = if let Some(mapping) = mappings.iter().find(|m| m.frame == frame) {
-                &mapping.page
-            } else {
-                let page = PageAllocOptions::mmio(
-                    frame,
-                    const { NonZero::new(1).unwrap() },
-                    PageCacheType::Uncached,
-                )
-                .allocate()
-                .expect("failed to allocate IOAPIC MMIO page");
-
-                mappings.push(IoApicMapping { frame, page });
-
-                &mappings.last().unwrap().page
-            };
-
-            let base = unsafe { page.get_ptr::<u8>().byte_add(offset) };
+            let base = unsafe { pages.get_ptr::<u8>().byte_add(offset) };
             let apic = IoApic::new(info, base).expect("failed to initialize IOAPIC");
 
             let apic = Arc::new_in(apic, Kmalloc::default());
@@ -281,7 +279,10 @@ impl IoApics {
             }
         }
 
-        *guard = Some(IoApicState { apics, mappings });
+        *guard = Some(IoApicState {
+            apics,
+            _pages: pages,
+        });
 
         Ok(())
     }

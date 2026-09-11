@@ -2,14 +2,12 @@ use core::arch::asm;
 
 use crate::{
     arch::x86::{
-        drivers::interrupt::apic::{IoApics, LocalXApic},
-        kernel::{
-            acpi::X86Topology,
-            interrupt::{apic::LocalApic, vector::VECTOR_MANAGER},
-        },
+        drivers::interrupt::apic::{IoApics, LocalApic},
+        kernel::{acpi::X86Topology, interrupt::vector::VECTOR_MANAGER},
     },
     kernel::{
         interrupt::{self, Interrupt, InterruptGuard, irq::handle_irq},
+        thread::PreemptGuard,
         topology::CpuId,
     },
 };
@@ -23,29 +21,22 @@ static VECTOR_PROBE: probe::Probe = probe::Probe::new();
 
 fn synchronize_vector(route: vector::VectorRoute) {
     use core::hint::spin_loop;
+    let lapic = LocalApic::get();
 
     loop {
-        let local = LocalXApic::with_current(|lapic| {
-            (lapic.id().get() == route.apic_id.get()).then(|| lapic.vector_busy(route.vector))
-        })
-        .expect("synchronize before LAPIC initialization");
-
-        if let Some(busy) = local {
-            if !busy {
-                return;
-            }
-
-            // with_current 已恢复本地中断，给 IRR 中的事件执行机会。
-            spin_loop();
-            continue;
+        {
+            let _guard = PreemptGuard::new();
+            (lapic.id().get() == route.apic_id.get()).then(|| lapic.vector_busy(route.vector));
         }
 
         while !VECTOR_PROBE.start(route.apic_id.get() as u8, route.vector) {
             spin_loop();
         }
 
-        LocalXApic::with_current(|lapic| lapic.send_sync_ipi(route.apic_id))
-            .expect("IPI before LAPIC initialization");
+        {
+            let _guard = PreemptGuard::new();
+            lapic.send_sync_ipi(route.apic_id);
+        }
 
         let busy = loop {
             if let Some(busy) = VECTOR_PROBE.result() {
@@ -71,37 +62,39 @@ extern "C" fn vector_dispatch(vector: u8) {
 }
 
 fn dispatch_vector(vector: u8) {
-    let irq = LocalXApic::with_current(|lapic| match vector {
-        vector::SYNC_VECTOR => {
-            let request = VECTOR_PROBE.requested(lapic.id().get() as u8);
-            let busy = request.map(|vector| lapic.vector_busy(vector));
+    let irq = {
+        let lapic = LocalApic::get();
+        match vector {
+            vector::SYNC_VECTOR => {
+                let request = VECTOR_PROBE.requested(lapic.id().get() as u8);
+                let busy = request.map(|vector| lapic.vector_busy(vector));
 
-            lapic.eoi();
-
-            if let Some(busy) = busy {
-                VECTOR_PROBE.complete(busy);
-            }
-            None
-        }
-        vector::ERROR_VECTOR => {
-            lapic
-                .handle_error()
-                .expect("LAPIC error handler unavailable");
-            None
-        }
-        vector::SPURIOUS_VECTOR => {
-            lapic.handle_spurious();
-            None
-        }
-        _ => {
-            let irq = VECTOR_MANAGER.lookup_apic(lapic.id(), vector);
-            if irq.is_none() {
                 lapic.eoi();
+
+                if let Some(busy) = busy {
+                    VECTOR_PROBE.complete(busy);
+                }
+                None
             }
-            irq
+            vector::ERROR_VECTOR => {
+                lapic
+                    .handle_error()
+                    .expect("LAPIC error handler unavailable");
+                None
+            }
+            vector::SPURIOUS_VECTOR => {
+                lapic.handle_spurious();
+                None
+            }
+            _ => {
+                let irq = VECTOR_MANAGER.lookup_apic(lapic.id(), vector);
+                if irq.is_none() {
+                    lapic.eoi();
+                }
+                irq
+            }
         }
-    })
-    .expect("vector entry before LAPIC initialization");
+    };
 
     if let Some(irq) = irq {
         handle_irq(irq);
