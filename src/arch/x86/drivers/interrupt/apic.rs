@@ -1,5 +1,5 @@
 mod ioapic;
 mod lapic;
 
-pub use ioapic::IoApics;
-pub use lapic::{LocalXApic, LvtEntry};
+pub(crate) use ioapic::IoApics;
+pub(crate) use lapic::LocalApic;

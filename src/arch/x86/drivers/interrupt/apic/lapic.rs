@@ -1,193 +1,94 @@
-use core::{cell::OnceCell, hint::spin_loop, num::NonZero, ptr::NonNull};
-
-use alloc::vec::Vec;
+use core::{cell::SyncUnsafeCell, hint::spin_loop, mem::MaybeUninit};
 
 use crate::{
     arch::{
         ArchInterrupt, PhysAddr,
-        x86::kernel::interrupt::{
-            apic::{ApicId, LocalApic},
-            vector::{ERROR_VECTOR, SPURIOUS_VECTOR, SYNC_VECTOR},
+        x86::{
+            drivers::interrupt::apic::lapic::reg::{MmioRegs, MsrRegs, Regs},
+            kernel::interrupt::{
+                apic::ApicId,
+                vector::{ERROR_VECTOR, SPURIOUS_VECTOR, SYNC_VECTOR},
+            },
         },
     },
-    cpu_local,
     kernel::{
         interrupt::{Interrupt, irq::IrqError},
-        memory::{
-            PageCacheType,
-            frame::FrameNumber,
-            kmalloc::Kmalloc,
-            page::{Pages, options::PageAllocOptions},
-            percpu::PerCpuInit,
-        },
         thread::PreemptGuard,
     },
-    lib::rust::spinlock::Spinlock,
 };
+
+mod reg;
+
+use reg::CommonReg::*;
+pub(crate) use reg::LvtEntry;
 
 const SOFTWARE_ENABLE: u32 = 1 << 8;
 const SUPPRESS_EOI_BROADCAST: u32 = 1 << 12;
 const LVT_MASK: u32 = 1 << 16;
 
-mod offsets {
-    pub const ID: usize = 0x20;
-    pub const VERSION: usize = 0x30;
-    pub const TPR: usize = 0x80;
-    pub const EOI: usize = 0xb0;
-    pub const SVR: usize = 0xf0;
-    pub const ESR: usize = 0x280;
-    pub const ISR: usize = 0x100;
-    pub const IRR: usize = 0x200;
-    pub const ICR_LOW: usize = 0x300;
-    pub const ICR_HIGH: usize = 0x310;
-}
+static LAPIC: SyncUnsafeCell<MaybeUninit<LocalApic>> = SyncUnsafeCell::new(MaybeUninit::uninit());
 
-/// LVT 源与 IDT vector 是两种编号，不能用 vector 索引寄存器
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum LvtEntry {
-    Timer,
-    Thermal,
-    Performance,
-    Lint0,
-    Lint1,
-    Error,
-    Cmci,
-}
-
-impl LvtEntry {
-    const fn offset(self) -> usize {
-        match self {
-            Self::Timer => 0x320,
-            Self::Thermal => 0x330,
-            Self::Performance => 0x340,
-            Self::Lint0 => 0x350,
-            Self::Lint1 => 0x360,
-            Self::Error => 0x370,
-            Self::Cmci => 0x2f0,
-        }
-    }
-
-    const fn supported(self, max_lvt: u32) -> bool {
-        match self {
-            Self::Timer | Self::Lint0 | Self::Lint1 => true,
-            Self::Error => max_lvt >= 3,
-            Self::Performance => max_lvt >= 4,
-            Self::Thermal => max_lvt >= 5,
-            Self::Cmci => max_lvt >= 6,
-        }
-    }
-}
-
-// 物理页映射属于全局；同一地址的 MMIO 访问仍由硬件指向执行访问的 CPU。
-// 仅初始化时查找或插入，持有至内核结束，不随某个 CPU 的实例释放。
-static LAPIC_MAPPINGS: Spinlock<Vec<LapicMapping, Kmalloc>> =
-    Spinlock::new(Vec::new_in(Kmalloc::new()));
-
-struct LapicMapping {
-    frame: FrameNumber,
-    page: Pages,
-}
-
-struct LapicMmioRegs {
-    // 只借用全局映射中的寄存器视图，不拥有 Pages。
-    base: NonNull<u32>,
-}
-
-impl LapicMmioRegs {
-    fn new(address: PhysAddr) -> Result<Self, IrqError> {
-        let frame = address.to_frame_number();
-        let offset = address.as_usize() - PhysAddr::from_frame_number(frame).as_usize();
-
-        // 查找与建立映射串行化，避免多个 CPU 同时映射同一物理页。
-        let mut mappings = LAPIC_MAPPINGS.lock_irqsave();
-        if let Some(mapping) = mappings.iter().find(|mapping| mapping.frame == frame) {
-            return Ok(Self {
-                // SAFETY: 寄存器基址位于此物理页内；全局所有者不会释放映射。
-                base: unsafe { mapping.page.get_ptr::<u8>().byte_add(offset).cast() },
-            });
-        }
-
-        let page = PageAllocOptions::mmio(
-            frame,
-            const { NonZero::new(1).unwrap() },
-            PageCacheType::Uncached,
-        )
-        .allocate()?;
-
-        // 移动 Pages 或扩容 Vec 不改变页映射的虚拟地址。
-        let base = unsafe { page.get_ptr::<u8>().byte_add(offset).cast() };
-        mappings.push(LapicMapping { frame, page });
-        Ok(Self { base })
-    }
-
-    fn read(&self, offset: usize) -> u32 {
-        // SAFETY: 偏移仅来自本模块的 LAPIC 寄存器，位于全局持有的映射内
-        unsafe { self.base.as_ptr().byte_add(offset).read_volatile() }
-    }
-
-    fn write(&self, offset: usize, value: u32) {
-        unsafe { self.base.as_ptr().byte_add(offset).write_volatile(value) };
-        // 读回同一设备，保证寄存器写入完成后再进行下一步操作
-        let _ = self.read(offsets::ID);
-    }
-}
-
-pub struct LocalXApic {
-    mmio: LapicMmioRegs,
+pub struct LocalApic {
     max_lvt_entry: u32,
+    lapic_type: LapicType,
 }
 
-impl !Send for LocalXApic {}
-impl !Sync for LocalXApic {}
-
-struct LocalState(OnceCell<LocalXApic>);
-
-// per-CPU 模板中的 OnceCell 为空；各 CPU 初始化自己的实例后只读访问。
-unsafe impl PerCpuInit for LocalState {}
-
-cpu_local! {
-    static LAPIC: LocalState = LocalState(OnceCell::new());
+enum LapicType {
+    XApic(MmioRegs),
+    X2Apic(MsrRegs),
 }
 
-impl LocalXApic {
+impl LocalApic {
+    pub fn get<'a>() -> &'a Self {
+        unsafe { (*LAPIC.get()).assume_init_ref() }
+    }
+
+    const fn reg(&self) -> &dyn Regs {
+        match &self.lapic_type {
+            LapicType::XApic(mmio) => mmio,
+            LapicType::X2Apic(msr) => msr,
+        }
+    }
+
     /// 仅查询执行访问的当前 CPU
     ///
     /// 调用前必须固定 CPU 并关闭本地中断
     pub(crate) fn vector_busy(&self, vector: u8) -> bool {
-        let bank = (vector as usize / 32) * 16;
+        let bank = vector as usize / 32;
         let bit = 1u32 << (vector % 32);
-        (self.mmio.read(offsets::IRR + bank) | self.mmio.read(offsets::ISR + bank)) & bit != 0
+        let reg = self.reg();
+        (reg.read_common(Irr(bank)) | reg.read_common(Isr(bank))) & bit != 0
     }
 
     /// Fixed、physical destination IPI
     ///
     /// 调用者关闭本地中断串行化 ICR 写入
     pub(crate) fn send_sync_ipi(&self, destination: ApicId) {
-        while self.mmio.read(offsets::ICR_LOW) & (1 << 12) != 0 {
+        let reg = self.reg();
+        while reg.read_icr_low() & (1 << 12) != 0 {
             spin_loop();
         }
-        self.mmio.write(offsets::ICR_HIGH, destination.get() << 24);
-        self.mmio.write(offsets::ICR_LOW, SYNC_VECTOR as u32);
+        reg.write_icr((destination.get() as u64) << 56 | SYNC_VECTOR as u64);
+    }
+
+    pub(crate) fn init_xapic_bsp(address: PhysAddr) -> Result<(), IrqError> {
+        Self::init(LapicType::XApic(MmioRegs::new_bsp(address)?))
     }
 
     /// 初始化当前 CPU，保持软件禁用和所有 LVT 屏蔽
-    ///
-    /// # Safety
-    /// 架构层须已确认并启用当前 CPU 的 xAPIC 模式，address 为其 MMIO 基址
-    pub(crate) unsafe fn init_current(address: PhysAddr) -> Result<(), IrqError> {
+    fn init(lapic_type: LapicType) -> Result<(), IrqError> {
         let _interrupt = ArchInterrupt::save_and_disable();
-        let preempt = PreemptGuard::new();
+        let _preempt = PreemptGuard::new();
 
-        let local = LAPIC.get_local(&preempt);
-        if local.0.get().is_some() {
-            return Err(IrqError::Busy);
-        }
-        let mmio = LapicMmioRegs::new(address)?;
+        let reg: &dyn Regs = match &lapic_type {
+            LapicType::XApic(mmio) => mmio,
+            LapicType::X2Apic(msr) => msr,
+        };
 
-        let svr = mmio.read(offsets::SVR);
-        mmio.write(offsets::SVR, svr & !SOFTWARE_ENABLE);
+        let svr = reg.read_common(Svr);
+        reg.write_common(Svr, svr & !SOFTWARE_ENABLE);
 
-        let max_lvt_entry = (mmio.read(offsets::VERSION) >> 16) & 0xff;
+        let max_lvt_entry = (reg.read_common(Version) >> 16) & 0xff;
 
         // Error 先配置合法向量，其余源清除固件遗留的 delivery mode
         for entry in [
@@ -200,47 +101,38 @@ impl LocalXApic {
             LvtEntry::Cmci,
         ] {
             if entry.supported(max_lvt_entry) {
-                mmio.write(entry.offset(), LVT_MASK | ERROR_VECTOR as u32);
+                reg.write_common(entry.get_reg(), LVT_MASK | ERROR_VECTOR as u32);
             }
         }
 
         if LvtEntry::Error.supported(max_lvt_entry) {
-            mmio.write(offsets::ESR, 0);
-            let _ = mmio.read(offsets::ESR);
+            reg.write_common(Esr, 0);
+            let _ = reg.read_common(Esr);
         }
 
-        mmio.write(offsets::TPR, 0);
+        reg.write_common(Tpr, 0);
         // 使用广播 EOI；保留其它位，关闭软件启用和 EOI broadcast suppression
-        mmio.write(
-            offsets::SVR,
+        reg.write_common(
+            Svr,
             (svr & !(0xff | SOFTWARE_ENABLE | (1 << 12))) | SPURIOUS_VECTOR as u32,
         );
 
-        local
-            .0
-            .set(Self {
-                mmio,
+        unsafe {
+            LAPIC.get().write(MaybeUninit::new(Self {
                 max_lvt_entry,
-            })
-            .map_err(|_| IrqError::Busy)
-    }
-
-    /// 闭包执行期间固定 CPU 并关闭中断，寄存器引用不能逃逸
-    pub fn with_current<T>(f: impl FnOnce(&Self) -> T) -> Result<T, IrqError> {
-        let _interrupt = ArchInterrupt::save_and_disable();
-        let preempt = PreemptGuard::new();
-
-        let local = LAPIC.get_local(&preempt);
-        Ok(f(local.0.get().ok_or(IrqError::NotFound)?))
+                lapic_type,
+            }))
+        };
+        Ok(())
     }
 
     pub(crate) fn software_enable(&self) {
-        self.mmio
-            .write(offsets::SVR, self.mmio.read(offsets::SVR) | SOFTWARE_ENABLE);
+        let reg = self.reg();
+        reg.write_common(Svr, reg.read_common(Svr) | SOFTWARE_ENABLE);
     }
 
     pub fn supports_eoi_suppression(&self) -> bool {
-        self.mmio.read(offsets::VERSION) & (1 << 24) != 0
+        self.reg().read_common(Version) & (1 << 24) != 0
     }
 
     /// # Safety
@@ -248,9 +140,10 @@ impl LocalXApic {
     /// 架构层须在 CPU 开始接收中断前调用；启用抑制时已确认全部 IOAPIC
     /// 支持显式 EOI，且当前 LAPIC 支持该位。不能在活动路由存在时切换
     pub(crate) unsafe fn set_eoi_broadcast_suppressed(&self, suppressed: bool) {
-        let svr = self.mmio.read(offsets::SVR);
-        self.mmio.write(
-            offsets::SVR,
+        let reg = self.reg();
+        let svr = reg.read_common(Svr);
+        reg.write_common(
+            Svr,
             if suppressed {
                 svr | SUPPRESS_EOI_BROADCAST
             } else {
@@ -260,7 +153,7 @@ impl LocalXApic {
     }
 
     pub fn version(&self) -> u8 {
-        (self.mmio.read(offsets::VERSION) & 0xff) as u8
+        (self.reg().read_common(Version) & 0xff) as u8
     }
 
     pub fn supports(&self, entry: LvtEntry) -> bool {
@@ -268,23 +161,24 @@ impl LocalXApic {
     }
 
     pub fn mask(&self, entry: LvtEntry) -> Result<(), IrqError> {
+        let reg = self.reg();
         self.check_entry(entry)?;
-        self.mmio
-            .write(entry.offset(), self.mmio.read(entry.offset()) | LVT_MASK);
+        reg.write_common(entry.get_reg(), reg.read_common(entry.get_reg()) | LVT_MASK);
         Ok(())
     }
 
     /// 对应 vector 必须已由调用方安装入口并绑定 handler
     pub fn unmask(&self, entry: LvtEntry) -> Result<(), IrqError> {
         self.check_entry(entry)?;
+        let reg = self.reg();
 
-        let value = self.mmio.read(entry.offset());
+        let value = reg.read_common(entry.get_reg());
         if entry != LvtEntry::Error && value as u8 == ERROR_VECTOR {
             // 初始化占位向量不能作为普通 LVT 的投递目标
             return Err(IrqError::InvalidArgument);
         }
 
-        self.mmio.write(entry.offset(), value & !LVT_MASK);
+        reg.write_common(entry.get_reg(), value & !LVT_MASK);
 
         Ok(())
     }
@@ -299,11 +193,12 @@ impl LocalXApic {
 
     pub fn read_and_clear_error(&self) -> Result<u32, IrqError> {
         self.check_entry(LvtEntry::Error)?;
+        let reg = self.reg();
 
         // 写 ESR 将内部错误状态锁存到可读寄存器，并重置内部状态
-        self.mmio.write(offsets::ESR, 0);
+        reg.write_common(Esr, 0);
 
-        Ok(self.mmio.read(offsets::ESR))
+        Ok(reg.read_common(Esr))
     }
 
     /// 错误入口独立使用；不能再经过普通 flow 重复 EOI
@@ -319,13 +214,16 @@ impl LocalXApic {
     pub fn handle_spurious(&self) {}
 }
 
-impl LocalApic for LocalXApic {
-    fn id(&self) -> ApicId {
-        ApicId::new(self.mmio.read(offsets::ID) >> 24)
+impl LocalApic {
+    pub fn id(&self) -> ApicId {
+        match &self.lapic_type {
+            LapicType::XApic(mmio) => ApicId::new(mmio.read_common(Id) >> 24 & 0xff),
+            LapicType::X2Apic(msr) => ApicId::new(msr.read_common(Id)),
+        }
     }
 
     /// 仅允许在屏蔽状态下修改向量，屏蔽位由 mask/unmask 单独控制
-    fn set_lvt_entry(&self, entry: LvtEntry, vector: u8) -> Result<(), IrqError> {
+    pub fn set_lvt_entry(&self, entry: LvtEntry, vector: u8) -> Result<(), IrqError> {
         self.check_entry(entry)?;
         if vector <= SYNC_VECTOR
             || vector == 0x80
@@ -334,16 +232,16 @@ impl LocalApic for LocalXApic {
         {
             return Err(IrqError::InvalidArgument);
         }
-        let value = self.mmio.read(entry.offset());
+        let reg = self.reg();
+        let value = reg.read_common(entry.get_reg());
         if value & LVT_MASK == 0 {
             return Err(IrqError::Busy);
         }
-        self.mmio
-            .write(entry.offset(), (value & !0xff) | vector as u32);
+        reg.write_common(entry.get_reg(), (value & !0xff) | vector as u32);
         Ok(())
     }
 
-    fn eoi(&self) {
-        self.mmio.write(offsets::EOI, 0);
+    pub fn eoi(&self) {
+        self.reg().write_common(Eoi, 0);
     }
 }

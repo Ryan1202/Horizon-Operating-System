@@ -4,9 +4,8 @@ use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     arch::x86::{
-        drivers::interrupt::apic::LocalXApic,
+        drivers::interrupt::apic::LocalApic,
         kernel::interrupt::{
-            apic::LocalApic,
             synchronize_vector,
             vector::{VectorManager, VectorRoute, VectorScope},
         },
@@ -131,7 +130,6 @@ impl IrqChip for LocalApicChip {
 
     fn eoi(&self, _data: &IrqData) {
         // 只对当前处理硬件事件的 CPU 发送 EOI，不按路由远程访问 LAPIC
-        LocalXApic::with_current(|lapic| lapic.eoi())
-            .expect("EOI before local APIC initialization");
+        LocalApic::get().eoi();
     }
 }

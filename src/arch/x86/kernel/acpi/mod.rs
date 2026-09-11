@@ -15,11 +15,11 @@ use crate::{
     arch::{
         PhysAddr,
         x86::{
-            drivers::interrupt::apic::LocalXApic,
+            drivers::interrupt::apic::LocalApic,
             kernel::{
                 acpi::cpu::Cpu,
                 interrupt::{
-                    apic::{Gsi, IoApicInfo, LocalApic},
+                    apic::{DEFAULT_LAPIC_ADDRESS, Gsi, IoApicInfo},
                     legacy::{IrqOverride, LegacyIrq},
                 },
             },
@@ -121,8 +121,7 @@ impl X86Topology {
         let topology = unsafe { &mut *X86_TOPOLOGY.get() };
         let cpus = unsafe { topology.cpus.assume_init_mut() };
 
-        let bsp_id =
-            LocalXApic::with_current(|lapic| lapic.id()).expect("BSP LAPIC is not initialized");
+        let bsp_id = LocalApic::get().id();
         CpuRegistry::register(cpus, bsp_id.into(), |cpu| cpu.id().into());
     }
 }
@@ -147,7 +146,7 @@ pub(in crate::arch::x86) static BOOT_CAPABILITIES: SyncUnsafeCell<BootCapabiliti
         pcie_aspm: 1,
         rtc: 1,
         pic: 1,
-        lapic_address: 0xFEE00000,
+        lapic_address: DEFAULT_LAPIC_ADDRESS as u32,
     });
 
 impl AcpiArchInterface for X86Acpi {
@@ -267,9 +266,4 @@ pub extern "C" fn acpi_get_ioapic_info(index: usize, out: *mut X86IoApic) -> i32
         }
     }
     0
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn x86_acpi_get_isa_irq_route(irq: u32, out: *mut IrqOverride) -> i32 {
-    unimplemented!()
 }
