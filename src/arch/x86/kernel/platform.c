@@ -81,6 +81,8 @@ DriverResult platform_init() {
 
 	bios_emu_init();
 
+	// 中断初始化时会需要用到 ACPI 提供的信息，所以必须在中断初始化前完成 ACPI
+	// 的初始化
 	acpi_update_boot_capabilities();
 	acpi_init_x86_topology();
 

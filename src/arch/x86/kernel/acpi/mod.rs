@@ -54,6 +54,11 @@ impl X86Topology {
         unsafe { self.io_apic.assume_init_ref() }
     }
 
+    pub(crate) fn cpus(&self) -> &[Cpu] {
+        // SAFETY: 平台已完成 MADT 解析；没有 MADT 时 init 直接终止启动。
+        unsafe { self.cpus.assume_init_ref() }
+    }
+
     pub fn get() -> &'static Self {
         unsafe { &*X86_TOPOLOGY.get() }
     }

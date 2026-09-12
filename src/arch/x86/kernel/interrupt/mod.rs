@@ -7,53 +7,13 @@ use crate::{
     },
     kernel::{
         interrupt::{self, Interrupt, InterruptGuard, irq::handle_irq},
-        thread::PreemptGuard,
         topology::CpuId,
     },
 };
 
 pub mod apic;
 pub mod legacy;
-mod probe;
 pub mod vector;
-
-static VECTOR_PROBE: probe::Probe = probe::Probe::new();
-
-fn synchronize_vector(route: vector::VectorRoute) {
-    use core::hint::spin_loop;
-    let lapic = LocalApic::get();
-
-    loop {
-        {
-            let _guard = PreemptGuard::new();
-            (lapic.id().get() == route.apic_id.get()).then(|| lapic.vector_busy(route.vector));
-        }
-
-        while !VECTOR_PROBE.start(route.apic_id.get() as u8, route.vector) {
-            spin_loop();
-        }
-
-        {
-            let _guard = PreemptGuard::new();
-            lapic.send_sync_ipi(route.apic_id);
-        }
-
-        let busy = loop {
-            if let Some(busy) = VECTOR_PROBE.result() {
-                break busy;
-            }
-            spin_loop();
-        };
-
-        VECTOR_PROBE.release();
-
-        if !busy {
-            return;
-        }
-
-        spin_loop();
-    }
-}
 
 /// 所有 Rust vector 在 hardirq 上下文内分发，释放 LAPIC guard 后统一收尾
 #[unsafe(no_mangle)]
@@ -183,7 +143,7 @@ extern "C" fn interrupt_init() {
     }
 
     early_init();
-    apic::init_current().expect("failed to initialize BSP LAPIC");
+    apic::init_bsp().expect("failed to initialize BSP LAPIC");
     IoApics::get()
         .init(X86Topology::get().ioapics())
         .expect("failed to initialize IOAPICs");

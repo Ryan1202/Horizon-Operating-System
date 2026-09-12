@@ -113,6 +113,14 @@ pub(super) struct MmioRegs {
     base: AtomicPtr<u32>,
 }
 
+impl Clone for MmioRegs {
+    fn clone(&self) -> Self {
+        Self {
+            base: AtomicPtr::new(self.base.load(Ordering::Relaxed)),
+        }
+    }
+}
+
 impl Regs for MmioRegs {
     fn read_common(&self, reg: CommonReg) -> u32 {
         let offset = Self::reg_offset(reg);
@@ -207,6 +215,7 @@ impl MmioRegs {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct MsrRegs;
 
 impl MsrRegs {

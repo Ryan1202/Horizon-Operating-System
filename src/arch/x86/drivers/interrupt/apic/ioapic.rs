@@ -121,7 +121,7 @@ pub struct IoApic {
     gsi_base: u32,
     gsi_end: u32,
     version: u8,
-    pin_count: usize,
+    pin_count: u32,
 }
 
 impl IoApic {
@@ -129,17 +129,18 @@ impl IoApic {
         let regs = Spinlock::new(IoApicRegs::new(base));
         let version = regs.lock_irqsave().read(regs::VERSION);
 
-        let pin_count = ((version >> 16) & 0xff) as usize + 1;
-        if pin_count > MAX_PINS {
+        let pin_count = ((version >> 16) & 0xff) as u32 + 1;
+        if pin_count > MAX_PINS as u32 {
             return Err(IrqError::Unsupported);
         }
 
-        let gsi_end = info.gsi_base.get() + pin_count as u32;
+        let gsi_base = info.gsi_base.get();
+        let gsi_end = gsi_base + pin_count;
 
         Ok(Self {
             id: info.id,
             regs,
-            gsi_base: info.gsi_base.get(),
+            gsi_base,
             gsi_end,
             version: version as u8,
             pin_count,
@@ -203,19 +204,20 @@ impl IrqChip for IoApic {
     }
 }
 
-struct IoApicState {
+struct IoApicInner {
     apics: Box<[Arc<IoApic, Kmalloc>], Kmalloc>,
     _pages: Pages,
 }
 
+#[repr(transparent)]
 pub struct IoApics {
-    state: Spinlock<Option<IoApicState>>,
+    inner: Spinlock<Option<IoApicInner>>,
 }
 
 impl IoApics {
     const fn new() -> Self {
         Self {
-            state: Spinlock::new(None),
+            inner: Spinlock::new(None),
         }
     }
 
@@ -224,7 +226,7 @@ impl IoApics {
     }
 
     pub fn init(&self, ioapics: &[IoApicInfo]) -> Result<(), IrqError> {
-        let mut guard = self.state.lock_irqsave();
+        let mut guard = self.inner.lock_irqsave();
         if guard.is_some() {
             return Err(IrqError::Busy);
         }
@@ -279,7 +281,7 @@ impl IoApics {
             }
         }
 
-        *guard = Some(IoApicState {
+        *guard = Some(IoApicInner {
             apics,
             _pages: pages,
         });
@@ -287,16 +289,16 @@ impl IoApics {
         Ok(())
     }
 
-    /// None 表示集合尚未初始化；空集合使用广播模式。
+    /// None 表示集合尚未初始化；空集合使用广播模式
     pub fn all_support_eoi(&self) -> Option<bool> {
-        let guard = self.state.lock_irqsave();
+        let guard = self.inner.lock_irqsave();
         let state = guard.as_ref()?;
 
         Some(!state.apics.is_empty() && state.apics.iter().all(|apic| apic.supports_eoi()))
     }
 
     fn find_chip(&self, gsi: Gsi) -> Option<(Arc<IoApic, Kmalloc>, u8)> {
-        let guard = self.state.lock_irqsave();
+        let guard = self.inner.lock_irqsave();
 
         for apic in &guard.as_ref()?.apics {
             if let Some(pin) = apic.pin(gsi) {

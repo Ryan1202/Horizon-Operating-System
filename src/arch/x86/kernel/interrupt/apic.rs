@@ -69,15 +69,12 @@ pub unsafe fn enable_current(cpu: CpuId) -> Result<(), IrqError> {
     let local = EOI_MODE.get_local(&preempt);
     let lapic = LocalApic::get();
 
-    // 若 CPU 注册失败，可重试注册，但不重新选择或切换硬件 EOI 模式
+    let directed = all_support_eoi && lapic.supports_eoi_suppression();
+
+    // SAFETY: 当前 CPU 尚未发布为路由候选，且能力检测已完成
+    unsafe { lapic.set_eoi_broadcast_suppressed(directed) };
+
     local.0.get_or_init(|| {
-        let directed = all_support_eoi && lapic.supports_eoi_suppression();
-
-        // SAFETY: 当前 CPU 尚未发布为路由候选，且能力检测已完成。
-        unsafe { lapic.set_eoi_broadcast_suppressed(directed) };
-
-        lapic.software_enable();
-
         if directed {
             EoiMode::Directed
         } else {
@@ -85,13 +82,13 @@ pub unsafe fn enable_current(cpu: CpuId) -> Result<(), IrqError> {
         }
     });
 
+    lapic.software_enable();
+
     VectorManager::get().register_cpu(cpu, lapic.id())
 }
 
 /// 架构层统一检测并选择当前 CPU 的 LAPIC 实现
-///
-/// 当前只实现 xAPIC；不支持的硬件或已开启的 x2APIC 模式直接终止启动
-pub fn init_current() -> Result<(), IrqError> {
+pub fn init_bsp() -> Result<(), IrqError> {
     let _interrupt = ArchInterrupt::save_and_disable();
     let _preempt = PreemptGuard::new();
 
@@ -101,40 +98,28 @@ pub fn init_current() -> Result<(), IrqError> {
         "CPU does not support local APIC"
     );
 
-    // 将 GLOBAL_ENABLE 清零能将 APIC 重置到刚启动时的默认状态
-    unsafe {
-        wrmsr(
-            IA32_APIC_BASE,
-            rdmsr(IA32_APIC_BASE) & !(GLOBAL_ENABLE | X2APIC_ENABLE),
-        )
-    };
-
     if cpuid_1.ecx & (1 << 21) != 0 {
-        // x2APIC 可能出现 I/O APIC 不支持的 APIC ID >= 255 的情况，导致
-        // 无法注册到路由表中，所以要启用 x2APIC 模式必须最大 APIC ID < 255
-        // 或者已经支持并启用了 VT-d 的 Interrupt Remapping
-        // TODO: 检测最大 APIC ID 并启用 x2APIC 模式
-        xapic_init()
-        // x2apic_init()
+        // x2APIC 可能出现 I/O APIC 不支持的 APIC ID >= 255 的情况，导致无法注册到路由表中，
+        // 所以要启用 x2APIC 模式必须最大 APIC ID < 255 或者已经支持并启用了 VT-d 的 Interrupt Remapping
+        x2apic_init_bsp()
     } else {
-        xapic_init()
+        xapic_init_bsp()
     }
 }
 
-#[allow(unused)]
-fn x2apic_init() -> Result<(), IrqError> {
-    // x2APIC 使用 MSR 寄存器访问，不能落入 xAPIC 的 MMIO 初始化路径
+fn x2apic_init_bsp() -> Result<(), IrqError> {
     let base = unsafe { rdmsr(IA32_APIC_BASE) };
 
-    // IA32_APIC_BASE 的状态转换不能从 APIC disabled 直接进入 x2APIC enabled
-    // 需要先进入 xAPIC enabled，再进入 x2APIC enabled
-    unsafe { wrmsr(IA32_APIC_BASE, base | GLOBAL_ENABLE) };
-    unsafe { wrmsr(IA32_APIC_BASE, base | GLOBAL_ENABLE | X2APIC_ENABLE) };
+    // BIOS 的默认行为是在交给 OS 前，如果所有 APIC ID 都小于 255 就启用 xAPIC 模式，否则启用 x2APIC 模式。
+    // 所以如果没有处于 x2APIC 模式，那就还是走 xAPIC 初始化路径
+    if base & X2APIC_ENABLE == 0 {
+        return xapic_init_bsp();
+    }
 
-    panic!("x2APIC mode is not implemented");
+    unimplemented!("x2APIC mode is not implemented");
 }
 
-fn xapic_init() -> Result<(), IrqError> {
+fn xapic_init_bsp() -> Result<(), IrqError> {
     let base = unsafe { rdmsr(IA32_APIC_BASE) };
 
     // 获取 xAPIC 地址宽度，默认 36 位
@@ -160,9 +145,11 @@ fn xapic_init() -> Result<(), IrqError> {
         expected_addr
     );
 
-    unsafe { wrmsr(IA32_APIC_BASE, base | GLOBAL_ENABLE) };
-
     let address = PhysAddr::new(address as usize);
+
+    if base & GLOBAL_ENABLE == 0 {
+        unsafe { wrmsr(IA32_APIC_BASE, base | GLOBAL_ENABLE) };
+    }
 
     LocalApic::init_xapic_bsp(address)
 }
@@ -184,7 +171,7 @@ impl IoApicArg {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ApicId(u32);
 
