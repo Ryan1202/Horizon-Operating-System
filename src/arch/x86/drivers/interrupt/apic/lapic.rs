@@ -24,6 +24,7 @@ pub(crate) use reg::LvtEntry;
 
 const SOFTWARE_ENABLE: u32 = 1 << 8;
 const SUPPRESS_EOI_BROADCAST: u32 = 1 << 12;
+const SUPPRESS_EOI_BROADCASE_SUPPORT: u32 = 1 << 24;
 const LVT_MASK: u32 = 1 << 16;
 
 static LAPIC: SyncUnsafeCell<MaybeUninit<LocalApic>> = SyncUnsafeCell::new(MaybeUninit::uninit());
@@ -33,6 +34,7 @@ pub struct LocalApic {
     lapic_type: LapicType,
 }
 
+#[derive(Clone)]
 enum LapicType {
     XApic(MmioRegs),
     X2Apic(MsrRegs),
@@ -72,11 +74,23 @@ impl LocalApic {
     }
 
     pub(crate) fn init_xapic_bsp(address: PhysAddr) -> Result<(), IrqError> {
-        Self::init(LapicType::XApic(MmioRegs::new_bsp(address)?))
+        let lapic = Self::init(LapicType::XApic(MmioRegs::new_bsp(address)?))?;
+
+        unsafe { LAPIC.get().write(MaybeUninit::new(lapic)) };
+
+        Ok(())
+    }
+
+    pub(crate) fn init_ap() {
+        let apic = unsafe { (*LAPIC.get()).assume_init_ref() };
+        let lapic_type = apic.lapic_type.clone();
+
+        // 每个 lapic 使用相同的配置，但是都需要单独初始化一遍
+        let _ = Self::init(lapic_type);
     }
 
     /// 初始化当前 CPU，保持软件禁用和所有 LVT 屏蔽
-    fn init(lapic_type: LapicType) -> Result<(), IrqError> {
+    fn init(lapic_type: LapicType) -> Result<Self, IrqError> {
         let _interrupt = ArchInterrupt::save_and_disable();
         let _preempt = PreemptGuard::new();
 
@@ -111,19 +125,16 @@ impl LocalApic {
         }
 
         reg.write_common(Tpr, 0);
-        // 使用广播 EOI；保留其它位，关闭软件启用和 EOI broadcast suppression
-        reg.write_common(
-            Svr,
-            (svr & !(0xff | SOFTWARE_ENABLE | (1 << 12))) | SPURIOUS_VECTOR as u32,
-        );
 
-        unsafe {
-            LAPIC.get().write(MaybeUninit::new(Self {
-                max_lvt_entry,
-                lapic_type,
-            }))
-        };
-        Ok(())
+        // 使用广播 EOI，保留其它位，关闭软件启用和 EOI broadcast suppression
+        let mut svr = svr & !(0xff | SOFTWARE_ENABLE | SUPPRESS_EOI_BROADCAST);
+        svr |= SPURIOUS_VECTOR as u32;
+        reg.write_common(Svr, svr);
+
+        Ok(Self {
+            max_lvt_entry,
+            lapic_type,
+        })
     }
 
     pub(crate) fn software_enable(&self) {
@@ -132,13 +143,13 @@ impl LocalApic {
     }
 
     pub fn supports_eoi_suppression(&self) -> bool {
-        self.reg().read_common(Version) & (1 << 24) != 0
+        self.reg().read_common(Version) & SUPPRESS_EOI_BROADCASE_SUPPORT != 0
     }
 
     /// # Safety
     ///
-    /// 架构层须在 CPU 开始接收中断前调用；启用抑制时已确认全部 IOAPIC
-    /// 支持显式 EOI，且当前 LAPIC 支持该位。不能在活动路由存在时切换
+    /// 架构层须在 CPU 开始接收中断前调用。启用抑制时已确认全部 IOAPIC 支持显式 EOI，
+    /// 且当前 LAPIC 支持该位。不能在活动路由存在时切换
     pub(crate) unsafe fn set_eoi_broadcast_suppressed(&self, suppressed: bool) {
         let reg = self.reg();
         let svr = reg.read_common(Svr);

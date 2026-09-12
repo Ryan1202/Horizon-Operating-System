@@ -5,10 +5,7 @@ use alloc::{boxed::Box, sync::Arc};
 use crate::{
     arch::x86::{
         drivers::interrupt::apic::LocalApic,
-        kernel::interrupt::{
-            synchronize_vector,
-            vector::{VectorManager, VectorRoute, VectorScope},
-        },
+        kernel::interrupt::vector::{VectorManager, VectorRoute, VectorScope},
     },
     kernel::{
         interrupt::irq::{Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber},
@@ -106,7 +103,6 @@ impl Domain for LocalApicDomain {
         let allocated = VectorManager::get().allocate(irq, *affinity, local.scope)?;
 
         *route = Some(allocated);
-        *affinity = Affinity::Cpu(allocated.cpu);
 
         Ok(())
     }

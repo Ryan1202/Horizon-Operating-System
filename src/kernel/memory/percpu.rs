@@ -215,6 +215,15 @@ impl<'a, T: 'a + PerCpuInit + Sync> PerCpuDyn<T> {
         })
     }
 
+    pub fn iter_mut(&'a mut self) -> Result<PerCpuDynIterMut<'a, T>, MemoryError> {
+        let area = percpu_area()?;
+        Ok(PerCpuDynIterMut {
+            percpu: self,
+            index: 0,
+            count: area.count(),
+        })
+    }
+
     pub fn get_remote(&self, cpu_id: CpuId) -> Option<&T> {
         let ptr = self
             .get_remote_ptr(cpu_id)
@@ -266,6 +275,30 @@ impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIter<'a, T> {
         self.index += 1;
         // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
         unsafe { ptr.as_ref().map(|t| (cpu_id, t)) }
+    }
+}
+
+pub struct PerCpuDynIterMut<'a, T: PerCpuInit> {
+    percpu: &'a mut PerCpuDyn<T>,
+    index: u32,
+    count: u32,
+}
+
+impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIterMut<'a, T> {
+    type Item = (CpuId, &'a mut T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.count {
+            return None;
+        }
+
+        let cpu_id = CpuId::new(self.index);
+
+        // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
+        let ptr = self.percpu.get_remote_ptr(cpu_id).ok()? as *mut T;
+        self.index += 1;
+        // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
+        unsafe { ptr.as_mut().map(|t| (cpu_id, t)) }
     }
 }
 

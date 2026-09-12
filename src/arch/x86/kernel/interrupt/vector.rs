@@ -1,5 +1,7 @@
+use core::{mem::MaybeUninit, ptr::copy_nonoverlapping};
+
 use crate::{
-    arch::x86::kernel::interrupt::apic::ApicId,
+    arch::x86::kernel::{acpi::X86Topology, interrupt::apic::ApicId},
     kernel::{
         interrupt::irq::{Affinity, IrqError, IrqNumber},
         memory::percpu::{PerCpuDyn, PerCpuInit},
@@ -23,32 +25,39 @@ pub enum VectorScope {
 }
 
 pub(super) static VECTOR_MANAGER: VectorManager = VectorManager {
-    inner: Spinlock::new(None),
+    inner: Spinlock::new(MaybeUninit::uninit()),
 };
 
 /// 逻辑 CPU 用于软件选址，APIC ID 供子控制器编程硬件。
 #[derive(Clone, Copy)]
 pub struct VectorRoute {
-    pub cpu: CpuId,
-    pub apic_id: ApicId,
+    /// 最终决定被分发的 CPU，为 `None` 表示发给所有 CPU
+    pub cpu: Option<CpuId>,
+    /// 仅在 `cpu` 为 `Some` 时有效，表示目标 CPU 的 APIC ID
+    pub apic_id: Option<ApicId>,
     pub vector: u8,
-    scope: VectorScope,
 }
 
 pub struct VectorManager {
-    inner: Spinlock<Option<VectorState>>,
+    inner: Spinlock<MaybeUninit<VectorInner>>,
 }
 
-struct VectorState {
+struct VectorInner {
+    /// 每个 CPU 一份的管理结构
     maps: PerCpuDyn<VectorMap>,
+    /// 已全局分配的向量
     global: BitSet<[usize; MAX_VECTOR_COUNT / usize::BITS as usize]>,
 }
 
 struct VectorMap {
-    apic_id: Option<ApicId>,
+    /// 当前 CPU 的 APIC ID
+    apic_id: ApicId,
+    /// 剩余可用的中断向量号个数
     available: usize,
+    /// 每个中断向量号的分配情况
     map: BitSet<[usize; MAX_VECTOR_COUNT / usize::BITS as usize]>,
-    irqs: [Option<IrqNumber>; MAX_VECTOR_COUNT],
+    /// 每个中断向量号对应的全局 IRQ 编号，在 `map` 对应的位设置了之后才有效
+    irqs: [MaybeUninit<IrqNumber>; MAX_VECTOR_COUNT],
 }
 
 // 不含自引用，每个 CPU 由动态初始化器构造独立值。
@@ -66,15 +75,14 @@ impl VectorManager {
 
     pub(crate) fn init(&self) -> Result<(), IrqError> {
         let mut guard = self.inner.lock_irqsave();
-        if guard.is_some() {
-            return Err(IrqError::Busy);
-        }
-        let maps = PerCpuDyn::try_new_with(|_| {
+        let cpus = X86Topology::get().cpus();
+
+        let maps = PerCpuDyn::try_new_with(|cpuid| {
             let mut map = VectorMap {
-                apic_id: None,
+                apic_id: cpus[cpuid.get() as usize].id(),
                 available: 0,
                 map: BitSet::zeroed(MAX_VECTOR_COUNT),
-                irqs: [None; MAX_VECTOR_COUNT],
+                irqs: [MaybeUninit::uninit(); MAX_VECTOR_COUNT],
             };
             for vector in 0..MAX_VECTOR_COUNT {
                 if reserved(vector) {
@@ -86,7 +94,7 @@ impl VectorManager {
             map
         })?;
 
-        *guard = Some(VectorState {
+        guard.write(VectorInner {
             maps,
             global: BitSet::zeroed(MAX_VECTOR_COUNT),
         });
@@ -95,31 +103,20 @@ impl VectorManager {
     }
 
     /// 调用前须先完成该 CPU 的 LAPIC 和 IDT 初始化
-    pub(crate) fn register_cpu(&self, cpu: CpuId, apic_id: ApicId) -> Result<(), IrqError> {
-        if apic_id.get() > u8::MAX as u32 {
-            return Err(IrqError::Unsupported);
-        }
-
+    pub(crate) fn register_cpu(&self, cpu_id: CpuId, apic_id: ApicId) -> Result<(), IrqError> {
         let guard = self.inner.lock_irqsave();
 
-        let maps = &guard.as_ref().ok_or(IrqError::NotFound)?.maps;
-        maps.get_remote_ptr(cpu)?;
-
-        for (other, map) in maps.iter()? {
-            if other != cpu && map.apic_id.is_some_and(|id| id.get() == apic_id.get()) {
-                return Err(IrqError::Busy);
-            }
-        }
+        let inner = unsafe { guard.assume_init_ref() };
+        let maps = &inner.maps;
 
         let map = maps
-            .get_remote_mut(cpu)
+            .get_remote_mut(cpu_id)
             .expect("failed to get vector map when registering CPU");
 
-        if map.apic_id.is_some() {
-            return Err(IrqError::Busy);
-        }
+        map.apic_id = apic_id;
 
-        map.apic_id = Some(apic_id);
+        unsafe { copy_nonoverlapping(&inner.global, &mut map.map, 1) };
+
         Ok(())
     }
 
@@ -132,8 +129,8 @@ impl VectorManager {
     ) -> Result<VectorRoute, IrqError> {
         let mut guard = self.inner.lock_irqsave();
 
-        let state = guard.as_mut().ok_or(IrqError::NotFound)?;
-        let maps = &state.maps;
+        let state = unsafe { guard.assume_init_mut() };
+        let maps = &mut state.maps;
 
         // ISA 的 virq 0..15 在启动时永久保留，对应固定 vector 0x20..0x2f。
         // 这些 vector 始终不属于通用分配池；仅路由反向映射随激活/停用变化。
@@ -141,143 +138,137 @@ impl VectorManager {
             let vector = 0x20 + irq.get();
             let cpu = maps
                 .iter()?
-                .find_map(|(cpu, map)| {
-                    (map.apic_id.is_some()
-                        && !matches!(affinity, Affinity::Cpu(target) if target != cpu)
-                        && map.irqs[vector].is_none())
-                    .then_some(cpu)
+                .find_map(|(cpu_id, map)| {
+                    (!matches!(affinity, Affinity::Cpu(target) if target != cpu_id)
+                        && map.map.test(cpu_id.get() as usize))
+                    .then_some(cpu_id)
                 })
                 .ok_or(IrqError::NotFound)?;
 
             let map = maps
                 .get_remote_mut(cpu)
                 .expect("selected ISA target disappeared");
-            map.irqs[vector] = Some(irq);
+            map.irqs[vector] = MaybeUninit::new(irq);
 
             return Ok(VectorRoute {
-                cpu,
-                apic_id: map.apic_id.unwrap(),
+                cpu: Some(cpu),
+                apic_id: Some(map.apic_id),
                 vector: vector as u8,
-                scope,
             });
         }
 
-        let mut unavailable =
-            BitSet::<[usize; MAX_VECTOR_COUNT / usize::BITS as usize]>::zeroed(MAX_VECTOR_COUNT);
-        for vector in 0..MAX_VECTOR_COUNT {
-            if reserved(vector) || state.global.test(vector) {
-                unavailable.set(vector);
-            }
-        }
-
         if scope == VectorScope::Global {
-            for (_, map) in maps.iter()? {
-                for vector in 0..MAX_VECTOR_COUNT {
+            let mut selected: Option<usize> = None;
+            'outer: for vector in 0..MAX_VECTOR_COUNT {
+                if reserved(vector) || state.global.test(vector) {
+                    continue;
+                }
+
+                for (_, map) in maps.iter()? {
+                    if map.available == 0 {
+                        return Err(IrqError::OutOfIrq);
+                    }
                     if map.map.test(vector) {
-                        unavailable.set(vector);
+                        continue 'outer;
                     }
                 }
-            }
-        }
 
-        let mut selected: Option<(CpuId, usize, usize)> = None;
-        let mut eligible = false;
-
-        for (cpu, map) in maps.iter()? {
-            if matches!(affinity, Affinity::Cpu(target) if target != cpu) || map.apic_id.is_none() {
-                continue;
+                selected = Some(vector);
+                break;
             }
 
-            eligible = true;
-
-            if map.available == 0 {
-                continue;
-            }
-
-            let Some(vector) = (0..MAX_VECTOR_COUNT)
-                .find(|&vector| !unavailable.test(vector) && !map.map.test(vector))
-            else {
-                continue;
-            };
-
-            if selected.is_none_or(|(best, available, _)| {
-                map.available > available || (map.available == available && cpu.get() < best.get())
-            }) {
-                selected = Some((cpu, map.available, vector));
-            }
-        }
-
-        let (cpu, _, vector) = selected.ok_or(if eligible {
-            IrqError::OutOfIrq
-        } else {
-            IrqError::NotFound
-        })?;
-
-        let map = maps
-            .get_remote_mut(cpu)
-            .expect("failed to get vector map for CPU");
-        map.map.set(vector);
-
-        // 全局占用只从实际目标 CPU 的负载扣除；其它 CPU 通过 global 排除该向量。
-        map.available -= 1;
-        map.irqs[vector] = Some(irq);
-
-        if scope == VectorScope::Global {
+            let vector = selected.ok_or(IrqError::OutOfIrq)?;
             state.global.set(vector);
-        }
 
-        Ok(VectorRoute {
-            cpu,
-            apic_id: map.apic_id.unwrap(),
-            vector: vector as u8,
-            scope,
-        })
+            for (_, map) in maps.iter_mut()? {
+                map.map.set(vector);
+                map.available -= 1;
+                map.irqs[vector] = MaybeUninit::new(irq);
+            }
+
+            Ok(VectorRoute {
+                cpu: None,
+                apic_id: None,
+                vector: vector as u8,
+            })
+        } else {
+            let (cpu, _) = maps
+                .iter()?
+                .map(|(cpu, v)| (cpu, v.available))
+                .max_by(|(_, a), (_, b)| a.cmp(b))
+                .ok_or(IrqError::OutOfIrq)?;
+
+            let map = maps
+                .get_remote_mut(cpu)
+                .expect("failed to get vector map for CPU");
+
+            let vector = map.map.find_first_zero().ok_or(IrqError::OutOfIrq)?;
+
+            map.map.set(vector);
+            map.available -= 1;
+            map.irqs[vector] = MaybeUninit::new(irq);
+
+            Ok(VectorRoute {
+                cpu: Some(cpu),
+                apic_id: Some(map.apic_id),
+                vector: vector as u8,
+            })
+        }
     }
 
     pub(crate) fn free(&self, route: VectorRoute, irq: IrqNumber) {
         let mut guard = self.inner.lock_irqsave();
-        let state = guard.as_mut().expect("vector manager not initialized");
+        let state = unsafe { guard.assume_init_mut() };
         let maps = &state.maps;
 
-        let map = maps
-            .get_remote_mut(route.cpu)
-            .expect("failed to get vector map for CPU");
         let vector = route.vector as usize;
+        if let Some(cpu) = route.cpu {
+            let map = maps
+                .get_remote_mut(cpu)
+                .expect("failed to get vector map for CPU");
 
-        assert_eq!(map.irqs[vector], Some(irq));
-
-        map.irqs[vector] = None;
-        if irq.get() < 16 {
-            assert_eq!(vector, 0x20 + irq.get());
-            return;
-        }
-
-        assert!(!reserved(vector));
-        map.map.clear(vector);
-        map.available += 1;
-        if route.scope == VectorScope::Global {
-            assert!(state.global.test(vector));
+            if irq.get() < 16 {
+                map.irqs[vector] = MaybeUninit::uninit();
+                return;
+            }
+            map.map.clear(vector);
+            map.available += 1;
+            map.irqs[vector] = MaybeUninit::uninit();
+        } else {
             state.global.clear(vector);
+
+            let maps = &mut state.maps;
+            for (_, map) in maps.iter_mut().expect("failed to iterate vector maps") {
+                map.map.clear(vector);
+                map.available += 1;
+                map.irqs[vector] = MaybeUninit::uninit();
+            }
         }
     }
 
     /// 入口传入当前逻辑 CPU 和原始 IDT vector，不接受 ISA IRQ 编号。
     pub fn lookup(&self, cpu: CpuId, vector: u8) -> Option<IrqNumber> {
         let guard = self.inner.lock_irqsave();
-        let maps = &guard.as_ref()?.maps;
+        let maps = &unsafe { guard.assume_init_ref() }.maps;
 
-        maps.get_remote(cpu)?.irqs[vector as usize]
+        let map = maps.get_remote(cpu)?;
+
+        map.map
+            .test(vector as usize)
+            .then_some(unsafe { map.irqs[vector as usize].assume_init() })
     }
 
     /// LAPIC 身份在当前 CPU 的短临界区内取得；这里只读取固定的 CPU 注册表。
-    pub(super) fn lookup_apic(&self, apic: ApicId, vector: u8) -> Option<IrqNumber> {
+    pub(super) fn lookup_apic(&self, apic_id: ApicId, vector: u8) -> Option<IrqNumber> {
         let guard = self.inner.lock_irqsave();
-        let maps = &guard.as_ref()?.maps;
+        let maps = &unsafe { guard.assume_init_ref() }.maps;
+
         for (_, map) in maps.iter().ok()? {
-            if map.apic_id.is_some_and(|id| id.get() == apic.get()) {
-                return map.irqs[vector as usize];
+            if map.apic_id == apic_id {
+                return Some(unsafe { map.irqs[vector as usize].assume_init() });
             }
         }
+
         None
     }
 }
