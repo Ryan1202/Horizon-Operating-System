@@ -1,4 +1,4 @@
-//! C 驱动兼容入口；DeviceIrq 为不透明、独占管理的 Rust handle
+//! C 驱动兼容入口
 
 use crate::{
     arch::request_device_irq,
@@ -18,14 +18,13 @@ struct Callback {
     arg: *mut c_void,
 }
 
-// SAFETY: C 调用者保证 arg 活到同步注销返回，并自行同步设备的共享状态。
+// SAFETY: C 调用者保证 arg 活到同步注销返回，并自行同步设备的共享状态
 unsafe impl Send for Callback {}
 unsafe impl Sync for Callback {}
 
 impl IrqHandler for Callback {
     fn handle(&self, _: IrqNumber) -> Option<()> {
         unsafe { (self.function)(self.arg) };
-        // 旧 C void 回调没有 handled 返回值；兼容接口将执行视为已处理。
         Some(())
     }
 }
@@ -43,9 +42,6 @@ fn error(error: IrqError) -> c_int {
     }
 }
 
-/// # Safety
-///
-/// `out` 可写，回调及 `arg` 在注销返回前有效；同一 handle 的管理调用须串行化
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn register_device_irq(
     out: *mut *mut IrqHandle,
@@ -90,9 +86,6 @@ pub unsafe extern "C" fn register_device_irq(
     }
 }
 
-/// # Safety
-///
-/// handle 是尚未注销且由调用者独占管理的 register_device_irq 返回值
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn enable_device_irq(handle: *mut IrqHandle) -> c_int {
     let Some(handle) = (unsafe { handle.as_mut() }) else {
@@ -104,9 +97,6 @@ pub unsafe extern "C" fn enable_device_irq(handle: *mut IrqHandle) -> c_int {
     0
 }
 
-/// # Safety
-///
-/// 与 enable_device_irq 相同；返回前同步排空此 action
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn disable_device_irq(handle: *mut IrqHandle) -> c_int {
     let Some(handle) = (unsafe { handle.as_mut() }) else {
@@ -118,8 +108,6 @@ pub unsafe extern "C" fn disable_device_irq(handle: *mut IrqHandle) -> c_int {
     0
 }
 
-/// # Safety
-/// 独占消费有效 handle，返回后不能再使用它
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn unregister_device_irq(handle: *mut IrqHandle) -> c_int {
     if handle.is_null() {

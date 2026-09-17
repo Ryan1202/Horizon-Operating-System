@@ -1,6 +1,4 @@
-//! 编号预留与发布分离
-
-use super::{IrqDescriptor, IrqError, IrqNumber, table::IRQ_DESCRIPTORS};
+use super::{IrqError, IrqNumber, table::IRQ_DESCRIPTORS};
 use crate::lib::rust::{bitset::BitSet, spinlock::Spinlock};
 use core::{num::NonZeroUsize, range::Range};
 
@@ -9,24 +7,24 @@ type IrqBits = BitSet<[usize; MAX_IRQS / usize::BITS as usize]>;
 
 static ALLOCATOR: Spinlock<IrqBits> = Spinlock::new(BitSet::zeroed(MAX_IRQS));
 
-/// Drop 归还未发布部分；发布成功的编号继续由常驻指针表占用
+/// 预留编号范围，发布后由 descriptor 表占用，未发布的编号在 drop 时归还
 pub struct IrqReservation {
     number: Range<usize>,
 }
 
 impl IrqReservation {
-    pub fn new(count: usize) -> Result<Self, IrqError> {
-        if count == 0 || count > MAX_IRQS {
+    pub fn new(count: NonZeroUsize) -> Result<Self, IrqError> {
+        if count.get() > MAX_IRQS {
             return Err(IrqError::InvalidArgument);
         }
 
         let base = ALLOCATOR
             .lock()
-            .allocate(0, NonZeroUsize::new(count).unwrap(), 1)
+            .allocate(0, count, 1)
             .ok_or(IrqError::OutOfIrq)?;
 
         Ok(Self {
-            number: (base..base + count).into(),
+            number: (base..base + count.get()).into(),
         })
     }
 
@@ -44,14 +42,8 @@ impl IrqReservation {
         Ok(Self { number: range })
     }
 
-    /// 只有持有编号预留的调用者才能发布；失败会正常析构传入对象。
-    pub fn publish(&mut self, descriptor: IrqDescriptor) -> Result<(), IrqError> {
-        let irq = descriptor.irq.get();
-        if irq < self.number.start || irq >= self.number.end {
-            return Err(IrqError::InvalidIrqNumber(irq));
-        }
-
-        IRQ_DESCRIPTORS.publish(descriptor)
+    pub fn free(irq: IrqNumber) {
+        ALLOCATOR.lock().clear(irq.get());
     }
 
     pub fn iter(&self) -> impl Iterator<Item = IrqNumber> + use<> {
@@ -70,12 +62,9 @@ impl IrqReservation {
 impl Drop for IrqReservation {
     fn drop(&mut self) {
         for irq in self.iter() {
-            // 发布后不撤下，且本 reservation 不可能同时发布；查表后再取分配器锁。
+            // 已发布 descriptor 的编号由表占用，reservation 只归还尚未发布的部分
             if IRQ_DESCRIPTORS.lookup(irq).is_none() {
-                assert!(
-                    ALLOCATOR.lock().try_clear(irq.get()).is_some(),
-                    "IRQ reservation lost"
-                );
+                Self::free(irq);
             }
         }
     }

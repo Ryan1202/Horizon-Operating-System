@@ -16,7 +16,7 @@ use crate::{
     kernel::{
         interrupt::{
             Interrupt,
-            irq::{Flow, HardwareIrq, IrqError, Polarity, TriggerMode},
+            irq::{Flow, HardwareIrq, IrqError, Polarity, RawIrq, TriggerMode},
         },
         memory::percpu::PerCpuInit,
         thread::PreemptGuard,
@@ -208,7 +208,7 @@ impl Default for IoApicInfo {
         Self {
             id: ApicId::new(0),
             address: 0xFEC00000,
-            gsi_base: Gsi::new(0),
+            gsi_base: Gsi::new(RawIrq::new(0)),
         }
     }
 }

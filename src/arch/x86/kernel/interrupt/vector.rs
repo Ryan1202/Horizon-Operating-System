@@ -3,7 +3,7 @@ use core::{mem::MaybeUninit, ptr::copy_nonoverlapping};
 use crate::{
     arch::x86::kernel::{acpi::X86Topology, interrupt::apic::ApicId},
     kernel::{
-        interrupt::irq::{Affinity, IrqError, IrqNumber},
+        interrupt::irq::{Affinity, INVALID_IRQ, IrqError, IrqNumber},
         memory::percpu::{PerCpuDyn, PerCpuInit},
         topology::CpuId,
     },
@@ -11,9 +11,8 @@ use crate::{
 };
 
 pub(in crate::arch::x86) const MAX_VECTOR_COUNT: usize = 256;
+pub const FIRST_DEVICE_VECTOR: u8 = 0x30;
 pub const ERROR_VECTOR: u8 = 0xfe;
-// 专用同步 IPI；EOI 后恢复本地中断，让待处理的 ISA vector 有机会进入
-pub const SYNC_VECTOR: u8 = 0x30;
 pub const SPURIOUS_VECTOR: u8 = 0xff;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -28,13 +27,13 @@ pub(super) static VECTOR_MANAGER: VectorManager = VectorManager {
     inner: Spinlock::new(MaybeUninit::uninit()),
 };
 
-/// 逻辑 CPU 用于软件选址，APIC ID 供子控制器编程硬件。
+/// 逻辑 CPU 用于软件选址，APIC ID 供子控制器编程硬件
 #[derive(Clone, Copy)]
 pub struct VectorRoute {
-    /// 最终决定被分发的 CPU，为 `None` 表示发给所有 CPU
-    pub cpu: Option<CpuId>,
-    /// 仅在 `cpu` 为 `Some` 时有效，表示目标 CPU 的 APIC ID
-    pub apic_id: Option<ApicId>,
+    /// 最终接收该 IRQ 的逻辑 CPU
+    pub cpu: CpuId,
+    /// 与 cpu 对应、供控制器编程物理目标字段的 APIC ID
+    pub apic_id: ApicId,
     pub vector: u8,
 }
 
@@ -57,15 +56,15 @@ struct VectorMap {
     /// 每个中断向量号的分配情况
     map: BitSet<[usize; MAX_VECTOR_COUNT / usize::BITS as usize]>,
     /// 每个中断向量号对应的全局 IRQ 编号，在 `map` 对应的位设置了之后才有效
-    irqs: [MaybeUninit<IrqNumber>; MAX_VECTOR_COUNT],
+    irqs: [IrqNumber; MAX_VECTOR_COUNT],
 }
 
-// 不含自引用，每个 CPU 由动态初始化器构造独立值。
+// 不含自引用，每个 CPU 由动态初始化器构造独立值
 unsafe impl PerCpuInit for VectorMap {}
 
 const fn reserved(vector: usize) -> bool {
-    // CPU 异常、旧 ISA IRQ、系统调用、LAPIC timer、error 和 spurious。
-    vector <= SYNC_VECTOR as usize || vector == 0x80 || vector >= ERROR_VECTOR as usize
+    // CPU 异常、旧 ISA IRQ、系统调用、LAPIC timer、error 和 spurious
+    vector < FIRST_DEVICE_VECTOR as usize || vector == 0x80 || vector >= ERROR_VECTOR as usize
 }
 
 impl VectorManager {
@@ -82,7 +81,7 @@ impl VectorManager {
                 apic_id: cpus[cpuid.get() as usize].id(),
                 available: 0,
                 map: BitSet::zeroed(MAX_VECTOR_COUNT),
-                irqs: [MaybeUninit::uninit(); MAX_VECTOR_COUNT],
+                irqs: [INVALID_IRQ; MAX_VECTOR_COUNT],
             };
             for vector in 0..MAX_VECTOR_COUNT {
                 if reserved(vector) {
@@ -98,6 +97,13 @@ impl VectorManager {
             maps,
             global: BitSet::zeroed(MAX_VECTOR_COUNT),
         });
+
+        let global = &mut unsafe { guard.assume_init_mut() }.global;
+        for vector in 0..MAX_VECTOR_COUNT {
+            if reserved(vector) {
+                global.set(vector);
+            }
+        }
 
         Ok(())
     }
@@ -133,31 +139,30 @@ impl VectorManager {
         let maps = &mut state.maps;
 
         // ISA 的 virq 0..15 在启动时永久保留，对应固定 vector 0x20..0x2f。
-        // 这些 vector 始终不属于通用分配池；仅路由反向映射随激活/停用变化。
+        // 这些 vector 始终不属于通用分配池，反向映射也永久保留
         if irq.get() < 16 {
             let vector = 0x20 + irq.get();
-            let cpu = maps
-                .iter()?
-                .find_map(|(cpu_id, map)| {
-                    (!matches!(affinity, Affinity::Cpu(target) if target != cpu_id)
-                        && map.map.test(cpu_id.get() as usize))
-                    .then_some(cpu_id)
-                })
-                .ok_or(IrqError::NotFound)?;
+            let cpu = match affinity {
+                Affinity::Auto => CpuId::new(0),
+                Affinity::Cpu(cpu) => cpu,
+            };
 
-            let map = maps
-                .get_remote_mut(cpu)
-                .expect("selected ISA target disappeared");
-            map.irqs[vector] = MaybeUninit::new(irq);
+            let map = maps.get_remote_mut(cpu).ok_or(IrqError::NotFound)?;
 
             return Ok(VectorRoute {
-                cpu: Some(cpu),
-                apic_id: Some(map.apic_id),
+                cpu,
+                apic_id: map.apic_id,
                 vector: vector as u8,
             });
         }
 
         if scope == VectorScope::Global {
+            let cpu = match affinity {
+                Affinity::Auto => CpuId::new(0),
+                Affinity::Cpu(cpu) => cpu,
+            };
+            let apic_id = maps.get_remote(cpu).ok_or(IrqError::NotFound)?.apic_id;
+
             let mut selected: Option<usize> = None;
             'outer: for vector in 0..MAX_VECTOR_COUNT {
                 if reserved(vector) || state.global.test(vector) {
@@ -183,67 +188,84 @@ impl VectorManager {
             for (_, map) in maps.iter_mut()? {
                 map.map.set(vector);
                 map.available -= 1;
-                map.irqs[vector] = MaybeUninit::new(irq);
+                map.irqs[vector] = irq;
             }
 
             Ok(VectorRoute {
-                cpu: None,
-                apic_id: None,
+                cpu,
+                apic_id,
                 vector: vector as u8,
             })
         } else {
-            let (cpu, _) = maps
-                .iter()?
-                .map(|(cpu, v)| (cpu, v.available))
-                .max_by(|(_, a), (_, b)| a.cmp(b))
-                .ok_or(IrqError::OutOfIrq)?;
+            // 尚未实现在线 CPU 跟踪和负载均衡；Auto 固定使用 BSP
+            let cpu = match affinity {
+                Affinity::Auto => CpuId::new(0),
+                Affinity::Cpu(cpu) => cpu,
+            };
 
-            let map = maps
-                .get_remote_mut(cpu)
-                .expect("failed to get vector map for CPU");
+            let map = maps.get_remote_mut(cpu).ok_or(IrqError::NotFound)?;
 
             let vector = map.map.find_first_zero().ok_or(IrqError::OutOfIrq)?;
 
             map.map.set(vector);
             map.available -= 1;
-            map.irqs[vector] = MaybeUninit::new(irq);
+            map.irqs[vector] = irq;
 
             Ok(VectorRoute {
-                cpu: Some(cpu),
-                apic_id: Some(map.apic_id),
+                cpu,
+                apic_id: map.apic_id,
                 vector: vector as u8,
             })
         }
     }
 
-    pub(crate) fn free(&self, route: VectorRoute, irq: IrqNumber) {
+    pub(crate) fn free(&self, route: VectorRoute) {
         let mut guard = self.inner.lock_irqsave();
         let state = unsafe { guard.assume_init_mut() };
         let maps = &state.maps;
 
-        let vector = route.vector as usize;
-        if let Some(cpu) = route.cpu {
-            let map = maps
-                .get_remote_mut(cpu)
-                .expect("failed to get vector map for CPU");
+        if route.vector < FIRST_DEVICE_VECTOR {
+            return;
+        }
 
-            if irq.get() < 16 {
-                map.irqs[vector] = MaybeUninit::uninit();
-                return;
-            }
-            map.map.clear(vector);
-            map.available += 1;
-            map.irqs[vector] = MaybeUninit::uninit();
-        } else {
+        let vector = route.vector as usize;
+
+        if state.global.test(vector) {
             state.global.clear(vector);
 
             let maps = &mut state.maps;
             for (_, map) in maps.iter_mut().expect("failed to iterate vector maps") {
                 map.map.clear(vector);
                 map.available += 1;
-                map.irqs[vector] = MaybeUninit::uninit();
+                map.irqs[vector] = INVALID_IRQ;
             }
+        } else {
+            let map = maps
+                .get_remote_mut(route.cpu)
+                .expect("failed to get vector map for CPU");
+
+            map.irqs[vector] = INVALID_IRQ;
+
+            map.map.clear(vector);
+            map.available += 1;
         }
+    }
+
+    pub(super) fn reserve(&self, irq: IrqNumber, vector: u8) -> Result<(), IrqError> {
+        let mut guard = self.inner.lock_irqsave();
+        let state = unsafe { guard.assume_init_mut() };
+        let maps = &mut state.maps;
+
+        if vector < 0x20 || vector >= FIRST_DEVICE_VECTOR {
+            return Err(IrqError::InvalidArgument);
+        }
+
+        for (_, map) in maps.iter_mut()? {
+            map.map.set(vector as usize);
+            map.irqs[vector as usize] = irq;
+        }
+
+        Ok(())
     }
 
     /// 入口传入当前逻辑 CPU 和原始 IDT vector，不接受 ISA IRQ 编号。
@@ -253,9 +275,8 @@ impl VectorManager {
 
         let map = maps.get_remote(cpu)?;
 
-        map.map
-            .test(vector as usize)
-            .then_some(unsafe { map.irqs[vector as usize].assume_init() })
+        let irq = map.irqs[vector as usize];
+        (irq != INVALID_IRQ).then_some(irq)
     }
 
     /// LAPIC 身份在当前 CPU 的短临界区内取得；这里只读取固定的 CPU 注册表。
@@ -265,7 +286,8 @@ impl VectorManager {
 
         for (_, map) in maps.iter().ok()? {
             if map.apic_id == apic_id {
-                return Some(unsafe { map.irqs[vector as usize].assume_init() });
+                let irq = map.irqs[vector as usize];
+                return (irq != INVALID_IRQ).then_some(irq);
             }
         }
 

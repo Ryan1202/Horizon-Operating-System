@@ -8,7 +8,9 @@ use crate::{
         kernel::interrupt::vector::{VectorManager, VectorRoute, VectorScope},
     },
     kernel::{
-        interrupt::irq::{Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber},
+        interrupt::irq::{
+            Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber, RawIrq,
+        },
         memory::kmalloc::Kmalloc,
     },
     lib::rust::spinlock::Spinlock,
@@ -24,7 +26,6 @@ pub struct LocalApicDomain;
 struct LocalApicChip;
 
 struct LocalApicData {
-    irq: IrqNumber,
     scope: VectorScope,
     route: Spinlock<Option<VectorRoute>>,
 }
@@ -43,7 +44,7 @@ impl LocalApicDomain {
         let local = data.chip_data::<LocalApicData>();
         let mut route = local.route.lock_irqsave();
         if let Some(current) = route.take() {
-            VectorManager::get().free(current, local.irq);
+            VectorManager::get().free(current);
         }
     }
 }
@@ -61,7 +62,6 @@ impl Domain for LocalApicDomain {
 
         let local = Box::new_in(
             LocalApicData {
-                irq,
                 scope,
                 route: Spinlock::new(None),
             },
@@ -72,7 +72,7 @@ impl Domain for LocalApicDomain {
 
         Ok(IrqData::new(
             // 本层源编号在整个 descriptor 生命周期内稳定；不等同于 IDT vector。
-            HardwareIrq::<Self>::new(irq.get() as u32),
+            HardwareIrq::<Self>::new(RawIrq::new(irq.get() as u32)),
             Self::get(),
             chip,
             local,
@@ -91,31 +91,27 @@ impl Domain for LocalApicDomain {
         affinity: &mut Affinity,
     ) -> Result<(), IrqError> {
         let local = data.chip_data::<LocalApicData>();
-        if local.irq != irq {
-            return Err(IrqError::InvalidIrqNumber(irq.get()));
-        }
 
         let mut route = local.route.lock_irqsave();
-        if route.is_some() {
-            return Err(IrqError::Busy);
+        if let Some(current) = *route {
+            *affinity = Affinity::Cpu(current.cpu);
+            return Ok(());
         }
 
         let allocated = VectorManager::get().allocate(irq, *affinity, local.scope)?;
 
         *route = Some(allocated);
+        *affinity = Affinity::Cpu(allocated.cpu);
 
         Ok(())
     }
 
-    fn deactivate(&self, data: &IrqData) {
-        // core 已排空硬件和软件执行，或此路由从未开放过投递
-        Self::release(data);
+    fn deactivate(&self, _data: &IrqData) {
+        // 固定分配的 vector 留给该 mapping 复用，避免普通注销需要跨 CPU 检查 LAPIC IRR/ISR
+        // 只有 IrqData::drop 才真正归还
     }
 
-    fn synchronize(&self, data: &IrqData) {
-        let route = Self::route(data).expect("synchronize without LAPIC route");
-        synchronize_vector(route);
-    }
+    fn synchronize(&self, _data: &IrqData) {}
 }
 
 impl IrqChip for LocalApicChip {

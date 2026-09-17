@@ -1,4 +1,5 @@
 use core::{
+    mem::ManuallyDrop,
     num::NonZero,
     sync::atomic::{AtomicPtr, Ordering},
 };
@@ -7,16 +8,18 @@ use crate::{
     arch::{
         PhysAddr,
         x86::kernel::msr::{
-            IA32_X2APIC_APIC_ID, IA32_X2APIC_EOI, IA32_X2APIC_ESR, IA32_X2APIC_ICR,
-            IA32_X2APIC_IRR0, IA32_X2APIC_ISR0, IA32_X2APIC_LVT_CMCI, IA32_X2APIC_LVT_ERROR,
-            IA32_X2APIC_LVT_LINT0, IA32_X2APIC_LVT_LINT1, IA32_X2APIC_LVT_PMI,
-            IA32_X2APIC_LVT_THERMAL, IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR, IA32_X2APIC_TPR,
-            IA32_X2APIC_VERSION, rdmsr, wrmsr,
+            IA32_X2APIC_APIC_ID, IA32_X2APIC_EOI, IA32_X2APIC_ESR, IA32_X2APIC_LVT_CMCI,
+            IA32_X2APIC_LVT_ERROR, IA32_X2APIC_LVT_LINT0, IA32_X2APIC_LVT_LINT1,
+            IA32_X2APIC_LVT_PMI, IA32_X2APIC_LVT_THERMAL, IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR,
+            IA32_X2APIC_TPR, IA32_X2APIC_VERSION, rdmsr, wrmsr,
         },
     },
     kernel::{
         interrupt::irq::IrqError,
-        memory::{PageCacheType, page::options::PageAllocOptions},
+        memory::{
+            PageCacheType,
+            page::{Pages, options::PageAllocOptions},
+        },
     },
 };
 
@@ -27,8 +30,6 @@ pub(super) enum CommonReg {
     Eoi,
     Svr,
     Esr,
-    Isr(usize),
-    Irr(usize),
     // LVTs
     Timer,
     Cmci,
@@ -44,13 +45,6 @@ use CommonReg::*;
 pub(super) trait Regs {
     fn read_common(&self, reg: CommonReg) -> u32;
     fn write_common(&self, reg: CommonReg, value: u32);
-
-    fn read_icr(&self) -> u64;
-    fn write_icr(&self, value: u64);
-
-    fn read_icr_low(&self) -> u32 {
-        self.read_icr() as u32
-    }
 }
 
 mod offsets {
@@ -60,10 +54,6 @@ mod offsets {
     pub const EOI: usize = 0xb0;
     pub const SVR: usize = 0xf0;
     pub const ESR: usize = 0x280;
-    pub const ISR: usize = 0x100;
-    pub const IRR: usize = 0x200;
-    pub const ICR_LOW: usize = 0x300;
-    pub const ICR_HIGH: usize = 0x310;
     pub const LVT_CMCI: usize = 0x2f0;
     pub const LVT_TIMER: usize = 0x320;
     pub const LVT_THERMAL: usize = 0x330;
@@ -131,27 +121,6 @@ impl Regs for MmioRegs {
         let offset = Self::reg_offset(reg);
         self.write(offset, value);
     }
-
-    fn read_icr(&self) -> u64 {
-        let low = offsets::ICR_LOW;
-        let high = offsets::ICR_HIGH;
-
-        let low = self.read(low) as u64;
-        let high = self.read(high) as u64;
-        (high << 32) | low
-    }
-
-    fn write_icr(&self, value: u64) {
-        let low = value as u32;
-        let high = (value >> 32) as u32;
-
-        self.write(offsets::ICR_LOW, low);
-        self.write(offsets::ICR_HIGH, high);
-    }
-
-    fn read_icr_low(&self) -> u32 {
-        self.read(offsets::ICR_LOW)
-    }
 }
 
 impl MmioRegs {
@@ -163,8 +132,6 @@ impl MmioRegs {
             Eoi => offsets::EOI,
             Svr => offsets::SVR,
             Esr => offsets::ESR,
-            Isr(bank) => offsets::ISR + bank * 16,
-            Irr(bank) => offsets::IRR + bank * 16,
             Timer => offsets::LVT_TIMER,
             Thermal => offsets::LVT_THERMAL,
             PerfCounter => offsets::LVT_PERF,
@@ -185,6 +152,7 @@ impl MmioRegs {
             PageCacheType::Uncached,
         )
         .allocate()?;
+        let page = ManuallyDrop::new(page);
 
         // 移动 Pages 或扩容 Vec 不改变页映射的虚拟地址。
         let base = (page.start_addr() + offset).as_mut_ptr();
@@ -227,8 +195,6 @@ impl MsrRegs {
             Eoi => IA32_X2APIC_EOI,
             Svr => IA32_X2APIC_SIVR,
             Esr => IA32_X2APIC_ESR,
-            Isr(bank) => IA32_X2APIC_ISR0 + bank as u32,
-            Irr(bank) => IA32_X2APIC_IRR0 + bank as u32,
             Timer => IA32_X2APIC_LVT_TIMER,
             Cmci => IA32_X2APIC_LVT_CMCI,
             Lint0 => IA32_X2APIC_LVT_LINT0,
@@ -249,13 +215,5 @@ impl Regs for MsrRegs {
     fn write_common(&self, reg: CommonReg, value: u32) {
         let addr = Self::reg_address(reg);
         unsafe { wrmsr(addr, value as u64) };
-    }
-
-    fn read_icr(&self) -> u64 {
-        unsafe { rdmsr(IA32_X2APIC_ICR) }
-    }
-
-    fn write_icr(&self, value: u64) {
-        unsafe { wrmsr(IA32_X2APIC_ICR, value) };
     }
 }

@@ -1,7 +1,7 @@
-//! 占位使用有效的 IrqData，但不代表任何硬件路由
+//! 占位 IrqDescriptor
 
 use super::{Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber};
-use crate::kernel::memory::kmalloc::Kmalloc;
+use crate::kernel::{interrupt::irq::RawIrq, memory::kmalloc::Kmalloc};
 use alloc::{boxed::Box, sync::Arc};
 use core::any::Any;
 
@@ -11,8 +11,9 @@ pub(super) struct Placeholder;
 
 impl Placeholder {
     pub(super) fn data(irq: IrqNumber) -> IrqData {
+        let number = RawIrq::new(irq.get() as u32);
         IrqData::new(
-            HardwareIrq::<Self>::new(irq.get() as u32),
+            HardwareIrq::<Self>::new(number),
             &DOMAIN,
             Arc::new_in(Self, Kmalloc::default()),
             Box::new_in((), Kmalloc::default()),

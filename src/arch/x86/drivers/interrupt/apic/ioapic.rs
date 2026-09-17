@@ -27,6 +27,8 @@ use crate::{
 
 static IOAPICS: IoApics = IoApics::new();
 
+const DELIVERY_STATUS: u32 = 1 << 12;
+const REMOTE_IRR: u32 = 1 << 14;
 const MASK: u32 = 1 << 16;
 
 // IOREGSEL 只有低 8 位用于标准索引，重定向项从 0x10 开始，每项占两个索引
@@ -119,7 +121,6 @@ pub struct IoApic {
     id: ApicId,
     regs: Spinlock<IoApicRegs>,
     gsi_base: u32,
-    gsi_end: u32,
     version: u8,
     pin_count: u32,
 }
@@ -135,13 +136,11 @@ impl IoApic {
         }
 
         let gsi_base = info.gsi_base.get();
-        let gsi_end = gsi_base + pin_count;
 
         Ok(Self {
             id: info.id,
             regs,
             gsi_base,
-            gsi_end,
             version: version as u8,
             pin_count,
         })
@@ -405,18 +404,20 @@ impl irq::Domain for IoApics {
             .chip()
             .downcast_ref::<IoApic>()
             .expect("IOAPIC chip mismatch");
-        let pin = data.chip_data::<Info>().pin;
+        let info = data.chip_data::<Info>();
 
         loop {
             let entry = chip
                 .regs
                 .lock_irqsave()
-                .read(regs::REDIRECTION_TABLE + pin as usize * 2);
+                .read(regs::REDIRECTION_TABLE + info.pin as usize * 2);
 
             assert!(entry & MASK != 0, "synchronize unmasked IOAPIC source");
 
-            // Delivery Status 清零表示已发起的发送结束；随后父层检查目标 IRR/ISR。
-            if entry & (1 << 12) == 0 {
+            // Edge 没有 Remote IRR，固定 vector 不会在普通注销时复用，因此只需
+            // 等待 IOAPIC 完成当前发送。Level 还要等目标完成 EOI
+            let level_pending = info.trigger_mode == TriggerMode::Level && entry & REMOTE_IRR != 0;
+            if entry & DELIVERY_STATUS == 0 && !level_pending {
                 break;
             }
 

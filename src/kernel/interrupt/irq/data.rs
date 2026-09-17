@@ -1,5 +1,5 @@
 use super::{Domain, HardwareIrq, IrqChip, IrqNumber, RawIrq};
-use crate::kernel::memory::kmalloc::Kmalloc;
+use crate::kernel::memory::{MemoryError, kmalloc::Kmalloc};
 use alloc::{boxed::Box, sync::Arc};
 use core::any::Any;
 
@@ -68,7 +68,7 @@ impl IrqData {
         };
 
         let parent = Box::try_new_in(domain.allocate(irq, arg)?, Kmalloc::default())
-            .map_err(|_| crate::kernel::memory::MemoryError::OutOfMemory)?;
+            .map_err(|_| MemoryError::OutOfMemory)?;
 
         current.parent = Some(parent);
 

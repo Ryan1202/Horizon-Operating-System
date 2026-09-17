@@ -3,7 +3,10 @@
 use crate::{
     arch::x86::{
         drivers::interrupt::apic::IoApics,
-        kernel::interrupt::apic::{Gsi, IoApicArg},
+        kernel::interrupt::{
+            apic::{Gsi, IoApicArg},
+            vector::VectorManager,
+        },
     },
     kernel::{
         interrupt::irq::{
@@ -13,6 +16,7 @@ use crate::{
         memory::kmalloc::Kmalloc,
     },
     lib::rust::spinlock::Spinlock,
+    printk,
 };
 use alloc::sync::Arc;
 use core::ffi::{c_int, c_void};
@@ -103,10 +107,19 @@ impl LegacyIrq {
 
 /// 启动阶段发布具有占位内容的 descriptor，不分配 IOAPIC/LAPIC mapping
 pub(super) fn init_irqs() -> Result<(), IrqError> {
-    let mut irqs = IrqReservation::reserve((0..IRQ_COUNT).into())?;
+    let irqs = IrqReservation::reserve((0..IRQ_COUNT).into())?;
 
     for irq in irqs.iter() {
-        irqs.publish(IrqDescriptor::empty(irq))?;
+        IRQ_DESCRIPTORS.publish(IrqDescriptor::placeholder(irq))?;
+        VectorManager::get()
+            .reserve(irq, irq.get() as u8 + 0x20)
+            .inspect_err(|e| {
+                printk!(
+                    "failed to reserve vector for ISA IRQ {}: {:?}\n",
+                    irq.get(),
+                    e
+                );
+            })?;
     }
 
     *ISA_NUMBERS.lock_irqsave() = Some(irqs);
@@ -124,8 +137,6 @@ pub(crate) fn request_isa_irq(
     sharing: IrqSharing,
     handler: Arc<dyn IrqHandler, Kmalloc>,
 ) -> Result<IrqHandle, IrqError> {
-    irq::assert_management();
-
     if isa_irq_number as usize >= IRQ_COUNT {
         return Err(IrqError::InvalidArgument);
     }
@@ -134,21 +145,11 @@ pub(crate) fn request_isa_irq(
     let arg = LegacyIrq::get()
         .route(isa_irq_number)
         .ok_or(IrqError::NotFound)?;
-    let configured = IRQ_DESCRIPTORS
-        .lookup(irq)
-        .ok_or(IrqError::NotFound)?
-        .is_configured();
 
-    if !configured {
-        match IRQ_DESCRIPTORS.realloc(irq, IoApics::get(), arg.flow(), &arg) {
-            Ok(()) => {}
-            Err(IrqError::Busy)
-                if IRQ_DESCRIPTORS
-                    .lookup(irq)
-                    .is_some_and(|descriptor| descriptor.is_configured()) => {}
-            Err(error) => return Err(error),
-        }
-    }
-
-    irq::request_irq(irq, sharing, handler)
+    irq::request_irq(
+        irq,
+        sharing,
+        handler,
+        Some((IoApics::get(), arg.flow(), &arg)),
+    )
 }
