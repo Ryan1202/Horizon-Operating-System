@@ -6,7 +6,7 @@ use crate::{
         kernel::{acpi::X86Topology, interrupt::vector::VECTOR_MANAGER},
     },
     kernel::{
-        interrupt::{self, Interrupt, InterruptGuard, irq::handle_irq},
+        interrupt::{Interrupt, InterruptGuard, irq::handle_irq},
         topology::CpuId,
     },
 };
@@ -17,25 +17,10 @@ pub mod vector;
 
 /// 所有 Rust vector 在 hardirq 上下文内分发，释放 LAPIC guard 后统一收尾
 #[unsafe(no_mangle)]
-extern "C" fn vector_dispatch(vector: u8) {
-    interrupt::handle_arch(|| dispatch_vector(vector));
-}
-
-fn dispatch_vector(vector: u8) {
+fn vector_dispatch(vector: u8) {
     let irq = {
         let lapic = LocalApic::get();
         match vector {
-            vector::SYNC_VECTOR => {
-                let request = VECTOR_PROBE.requested(lapic.id().get() as u8);
-                let busy = request.map(|vector| lapic.vector_busy(vector));
-
-                lapic.eoi();
-
-                if let Some(busy) = busy {
-                    VECTOR_PROBE.complete(busy);
-                }
-                None
-            }
             vector::ERROR_VECTOR => {
                 lapic
                     .handle_error()
@@ -56,9 +41,7 @@ fn dispatch_vector(vector: u8) {
         }
     };
 
-    if let Some(irq) = irq {
-        handle_irq(irq);
-    }
+    handle_irq(irq);
 }
 
 pub struct X86Interrupt;

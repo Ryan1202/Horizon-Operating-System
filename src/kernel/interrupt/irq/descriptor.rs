@@ -1,145 +1,101 @@
-//! descriptor 保留完整内容；仅占位内容允许在表锁下替换
+use alloc::boxed::Box;
 
 use super::{
     Flow, IrqData, IrqError, IrqNumber, IrqSharing, action::IrqAction, placeholder::Placeholder,
 };
 use crate::{
-    kernel::interrupt::irq::{domain, flow},
-    lib::rust::spinlock::{SpinIrqGuard, Spinlock},
+    kernel::{interrupt::irq::IrqReservation, memory::kmalloc::Kmalloc},
+    lib::rust::spinlock::Spinlock,
 };
 use core::{
     any::Any,
     hint::spin_loop,
     mem,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
 };
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Status {
+    /// 尚未激活
     Inactive,
+    /// 已激活，但未启用任何 handler
     Disabled,
-    Active,
+    /// 已激活，至少有一个 handler 已启用
+    Enabled,
+    /// 正在停用，禁止新的 handler 执行者进入，正在等待所有旧执行者退出
     Stopping,
 }
 
 pub(super) struct State {
+    /// 当前的状态
     pub(super) status: Status,
-    pub(super) head: Option<NonNull<IrqAction>>,
-    pub(super) sharing: IrqSharing,
-    pub(super) pending: bool,
+    /// 已注册且可用的 handler 数量
+    pub(super) active: usize,
 }
 
 impl State {
-    pub(super) fn freeze(&mut self, descriptor: &IrqDescriptor) {
-        let active = self.status == Status::Active;
-        self.status = Status::Stopping;
-
-        if active && descriptor.flow != Flow::Simple {
-            descriptor.data.chip().mask(&descriptor.data);
-        }
-    }
-
-    /// 检查在共享 IRQ 下是否仍有启用的节点
-    pub(super) fn any_enabled(&self) -> bool {
-        let mut action = self.head;
-
-        while let Some(pointer) = action {
-            // SAFETY: 调用方持有状态锁；链表修改也持锁且已排空分发
-            let current = unsafe { pointer.as_ref() };
-            if current.enabled {
-                return true;
-            }
-
-            action = current.next;
-        }
-
-        false
-    }
-
-    const fn new(sharing: IrqSharing) -> Self {
+    const fn new() -> Self {
         Self {
             status: Status::Inactive,
-            head: None,
-            sharing,
-            pending: false,
+            active: 0,
         }
     }
 }
 
 pub struct IrqDescriptor {
+    /// 全局 IRQ 编号
     pub irq: IrqNumber,
+    /// IRQ 的数据，每个中断 chip 维护一份自己的数据
     pub data: IrqData,
+    /// IRQ 的处理流程
     pub flow: Flow,
+    /// 已注册的 handler 链表头指针
+    pub(super) actions: AtomicPtr<IrqAction>,
+    /// 当前的状态
     pub(super) state: Spinlock<State>,
-    // 仅在 state 锁内修改；注销可在锁外自旋观察，再持锁检查
-    pub(super) in_progress: AtomicBool,
+    /// 共享/独占
+    pub(super) sharing: IrqSharing,
+    /// 当前正在执行的 handler 数量
+    pub(super) in_progress: AtomicUsize,
 }
 
 impl IrqDescriptor {
-    pub(super) fn lock_stable(&self) -> SpinIrqGuard<'_, &mut State> {
-        loop {
-            let state = self.state.lock_irqsave();
-            if state.status != Status::Stopping
-                && !(state.status == Status::Inactive && state.head.is_some())
-            {
-                return state;
-            }
-            drop(state);
+    /// 调用方已把状态切到 Stopping，因此不会再有新的 handler 执行者进入
+    pub(super) fn drain(&self) {
+        while self.in_progress.load(Ordering::Relaxed) != 0 {
             spin_loop();
         }
     }
 
-    /// 等待所有执行者完成
-    pub(super) fn drain(&self) {
-        loop {
-            while self.in_progress.load(Ordering::Relaxed) {
-                spin_loop();
-            }
+    /// 释放 action 链表中所有 action 的内存
+    ///
+    /// # Safety
+    ///
+    /// head 必须已经从 descriptor 摘除，且所有旧遍历都已退出
+    pub(super) unsafe fn reclaim_actions(head: *mut IrqAction) {
+        let mut current = NonNull::new(head);
 
-            let _state = self.state.lock_irqsave();
+        while let Some(action) = current {
+            // SAFETY: 调用方保证旧 action 链已经没有读者
+            current = unsafe { action.as_ref() }.next;
 
-            if !self.in_progress.load(Ordering::Relaxed) {
-                return;
-            }
+            // SAFETY: 每个节点均由 Box::into_non_null_with_allocator 发布且只回收一次
+            let _ = unsafe { Box::<_, Kmalloc>::from_non_null_in(action, Kmalloc::default()) };
         }
     }
 
-    /// 调用方拥有 Stopping 更新阶段，且已排空旧执行者
-    pub(super) fn finish_update(&self) {
-        let mut state = self.state.lock_irqsave();
-
-        if state.any_enabled() {
-            state.status = Status::Active;
-            let pending = state.pending;
-
-            if self.flow != Flow::Simple {
-                self.data.chip().unmask(&self.data);
-            }
-
-            drop(state);
-
-            // 硬件事件也可先取得执行权并接管 pending；软件入口不会伪造 ack/EOI。
-            if pending {
-                flow::replay(self);
-            }
-        } else {
-            drop(state);
-            domain::synchronize(&self.data);
-
-            let mut state = self.state.lock_irqsave();
-            state.pending = false;
-            state.status = Status::Disabled;
-        }
-    }
-
-    pub fn empty(irq: IrqNumber) -> Self {
+    /// 创建一个占位 descriptor
+    pub fn placeholder(irq: IrqNumber) -> Self {
+        let data = Placeholder::data(irq);
         Self {
             irq,
-            data: Placeholder::data(irq),
+            data,
             flow: Flow::Bad,
-            state: Spinlock::new(State::new(IrqSharing::Exclusive)),
-            in_progress: AtomicBool::new(false),
+            actions: AtomicPtr::null(),
+            state: Spinlock::new(State::new()),
+            sharing: IrqSharing::Exclusive,
+            in_progress: AtomicUsize::new(0),
         }
     }
 
@@ -156,8 +112,10 @@ impl IrqDescriptor {
             irq,
             data,
             flow,
-            state: Spinlock::new(State::new(sharing)),
-            in_progress: AtomicBool::new(false),
+            actions: AtomicPtr::null(),
+            state: Spinlock::new(State::new()),
+            sharing,
+            in_progress: AtomicUsize::new(0),
         })
     }
 
@@ -165,10 +123,24 @@ impl IrqDescriptor {
         self.data.chip().downcast_ref::<Placeholder>().is_none()
     }
 
-    /// 表锁下替换占位；返回旧数据，由调用方在解锁后析构
-    pub(super) fn realloc(&mut self, data: IrqData, flow: Flow) -> IrqData {
+    /// 替换占位数据
+    pub(super) fn realloc(&mut self, sharing: IrqSharing, data: IrqData, flow: Flow) -> IrqData {
+        assert!(self.data.chip().downcast_ref::<Placeholder>().is_some());
+
         self.flow = flow;
+        self.sharing = sharing;
 
         mem::replace(&mut self.data, data)
+    }
+}
+
+impl Drop for IrqDescriptor {
+    fn drop(&mut self) {
+        self.drain();
+
+        // SAFETY: &mut self 证明 descriptor 已无外部引用，也不会再产生 action 遍历。
+        unsafe { Self::reclaim_actions(*self.actions.get_mut()) };
+
+        IrqReservation::free(self.irq);
     }
 }

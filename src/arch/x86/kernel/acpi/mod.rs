@@ -25,7 +25,7 @@ use crate::{
             },
         },
     },
-    kernel::{memory::kmalloc::Kmalloc, topology::CpuRegistry},
+    kernel::{interrupt::irq::RawIrq, memory::kmalloc::Kmalloc, topology::CpuRegistry},
 };
 
 mod cpu;
@@ -99,7 +99,7 @@ impl X86Topology {
                     }
                     InterruptController::InterruptSourceOverride(irq_override) => {
                         let irq = irq_override.source as usize;
-                        let gsi = Gsi::new(irq_override.gsi);
+                        let gsi = Gsi::new(RawIrq::new(irq_override.gsi));
                         let flags = unsafe { read_unaligned(&raw const irq_override.flags) };
                         let active_low = flags.active_low().unwrap_or(false);
                         let level_triggered = flags.level_triggered().unwrap_or(false);

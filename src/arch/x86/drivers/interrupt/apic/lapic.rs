@@ -1,4 +1,4 @@
-use core::{cell::SyncUnsafeCell, hint::spin_loop, mem::MaybeUninit};
+use core::{cell::SyncUnsafeCell, mem::MaybeUninit};
 
 use crate::{
     arch::{
@@ -7,7 +7,7 @@ use crate::{
             drivers::interrupt::apic::lapic::reg::{MmioRegs, MsrRegs, Regs},
             kernel::interrupt::{
                 apic::ApicId,
-                vector::{ERROR_VECTOR, SPURIOUS_VECTOR, SYNC_VECTOR},
+                vector::{ERROR_VECTOR, FIRST_DEVICE_VECTOR, SPURIOUS_VECTOR},
             },
         },
     },
@@ -50,27 +50,6 @@ impl LocalApic {
             LapicType::XApic(mmio) => mmio,
             LapicType::X2Apic(msr) => msr,
         }
-    }
-
-    /// 仅查询执行访问的当前 CPU
-    ///
-    /// 调用前必须固定 CPU 并关闭本地中断
-    pub(crate) fn vector_busy(&self, vector: u8) -> bool {
-        let bank = vector as usize / 32;
-        let bit = 1u32 << (vector % 32);
-        let reg = self.reg();
-        (reg.read_common(Irr(bank)) | reg.read_common(Isr(bank))) & bit != 0
-    }
-
-    /// Fixed、physical destination IPI
-    ///
-    /// 调用者关闭本地中断串行化 ICR 写入
-    pub(crate) fn send_sync_ipi(&self, destination: ApicId) {
-        let reg = self.reg();
-        while reg.read_icr_low() & (1 << 12) != 0 {
-            spin_loop();
-        }
-        reg.write_icr((destination.get() as u64) << 56 | SYNC_VECTOR as u64);
     }
 
     pub(crate) fn init_xapic_bsp(address: PhysAddr) -> Result<(), IrqError> {
@@ -236,7 +215,7 @@ impl LocalApic {
     /// 仅允许在屏蔽状态下修改向量，屏蔽位由 mask/unmask 单独控制
     pub fn set_lvt_entry(&self, entry: LvtEntry, vector: u8) -> Result<(), IrqError> {
         self.check_entry(entry)?;
-        if vector <= SYNC_VECTOR
+        if vector < FIRST_DEVICE_VECTOR
             || vector == 0x80
             || vector == SPURIOUS_VECTOR
             || (entry == LvtEntry::Error) != (vector == ERROR_VECTOR)
