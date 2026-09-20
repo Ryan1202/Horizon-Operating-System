@@ -43,6 +43,7 @@
 #include <string.h>
 
 void run_memory_benchmarks(void);
+void set_cpu_limit(size_t limit);
 
 extern Driver core_driver;
 
@@ -110,6 +111,7 @@ void kernel_early_init(void) {
 void thread_main(void *arg);
 
 int main() {
+	set_cpu_limit(2 /* 运行时限制的 CPU 数量上限 */);
 	init_memory();
 
 	acpi_init();
@@ -124,19 +126,22 @@ int main() {
 	if (platform_result != DRIVER_OK) {
 		DRV_PRINT_RESULT(platform_result, platform_init());
 		io_cli();
-		for (;;) io_hlt();
+		for (;;)
+			io_hlt();
 	}
 	platform_result = platform_start_devices();
 	if (platform_result != DRIVER_OK) {
 		DRV_PRINT_RESULT(platform_result, platform_start_devices());
 		io_cli();
-		for (;;) io_hlt();
+		for (;;)
+			io_hlt();
 	}
 
 	// LAPIC timer 尚未接入调度时钟，暂不启动线程管理及 thread_main。
 	// thread_manager_init(thread_main);
 	printk("[boot] Platform devices ready; scheduler and PCI drivers paused\n");
-	for (;;) io_stihlt();
+	for (;;)
+		io_stihlt();
 
 	return 0;
 }

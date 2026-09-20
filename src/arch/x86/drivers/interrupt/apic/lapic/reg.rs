@@ -8,18 +8,16 @@ use crate::{
     arch::{
         PhysAddr,
         x86::kernel::msr::{
-            IA32_X2APIC_APIC_ID, IA32_X2APIC_EOI, IA32_X2APIC_ESR, IA32_X2APIC_LVT_CMCI,
-            IA32_X2APIC_LVT_ERROR, IA32_X2APIC_LVT_LINT0, IA32_X2APIC_LVT_LINT1,
-            IA32_X2APIC_LVT_PMI, IA32_X2APIC_LVT_THERMAL, IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR,
-            IA32_X2APIC_TPR, IA32_X2APIC_VERSION, rdmsr, wrmsr,
+            IA32_X2APIC_APIC_ID, IA32_X2APIC_EOI, IA32_X2APIC_ESR, IA32_X2APIC_IRR0,
+            IA32_X2APIC_ISR0, IA32_X2APIC_LVT_CMCI, IA32_X2APIC_LVT_ERROR, IA32_X2APIC_LVT_LINT0,
+            IA32_X2APIC_LVT_LINT1, IA32_X2APIC_LVT_PMI, IA32_X2APIC_LVT_THERMAL,
+            IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR, IA32_X2APIC_TPR, IA32_X2APIC_VERSION, rdmsr,
+            wrmsr,
         },
     },
     kernel::{
         interrupt::irq::IrqError,
-        memory::{
-            PageCacheType,
-            page::{Pages, options::PageAllocOptions},
-        },
+        memory::{PageCacheType, page::options::PageAllocOptions},
     },
 };
 
@@ -30,6 +28,8 @@ pub(super) enum CommonReg {
     Eoi,
     Svr,
     Esr,
+    Irr(u8),
+    Isr(u8),
     // LVTs
     Timer,
     Cmci,
@@ -132,6 +132,8 @@ impl MmioRegs {
             Eoi => offsets::EOI,
             Svr => offsets::SVR,
             Esr => offsets::ESR,
+            Irr(vector) => 0x200 + (vector as usize / 32) * 0x10,
+            Isr(vector) => 0x100 + (vector as usize / 32) * 0x10,
             Timer => offsets::LVT_TIMER,
             Thermal => offsets::LVT_THERMAL,
             PerfCounter => offsets::LVT_PERF,
@@ -195,6 +197,8 @@ impl MsrRegs {
             Eoi => IA32_X2APIC_EOI,
             Svr => IA32_X2APIC_SIVR,
             Esr => IA32_X2APIC_ESR,
+            Irr(vector) => IA32_X2APIC_IRR0 + vector as u32 / 32,
+            Isr(vector) => IA32_X2APIC_ISR0 + vector as u32 / 32,
             Timer => IA32_X2APIC_LVT_TIMER,
             Cmci => IA32_X2APIC_LVT_CMCI,
             Lint0 => IA32_X2APIC_LVT_LINT0,

@@ -121,13 +121,14 @@ impl X86Topology {
         }
     }
 
-    #[unsafe(export_name = "acpi_register_cpus")]
     pub fn register_cpus() {
         let topology = unsafe { &mut *X86_TOPOLOGY.get() };
         let cpus = unsafe { topology.cpus.assume_init_mut() };
 
         let bsp_id = LocalApic::get().id();
-        CpuRegistry::register(cpus, bsp_id.into(), |cpu| cpu.id().into());
+        CpuRegistry::register(cpus, bsp_id.into(), |cpu| {
+            (!matches!(cpu.state(), cpu::CpuState::Unusable)).then(|| cpu.id().into())
+        });
     }
 }
 

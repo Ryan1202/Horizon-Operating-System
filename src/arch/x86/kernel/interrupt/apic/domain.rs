@@ -8,10 +8,9 @@ use crate::{
         kernel::interrupt::vector::{VectorManager, VectorRoute, VectorScope},
     },
     kernel::{
-        interrupt::irq::{
-            Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber, RawIrq,
-        },
-        memory::kmalloc::Kmalloc,
+        interrupt::irq::{Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber, RawIrq},
+        memory::{MemoryError, kmalloc::Kmalloc},
+        topology::CpuMask,
     },
     lib::rust::spinlock::Spinlock,
 };
@@ -27,7 +26,12 @@ struct LocalApicChip;
 
 struct LocalApicData {
     scope: VectorScope,
-    route: Spinlock<Option<VectorRoute>>,
+    route: Spinlock<Route>,
+}
+
+struct Route {
+    current: Option<VectorRoute>,
+    old: Option<VectorRoute>,
 }
 
 impl LocalApicDomain {
@@ -35,22 +39,14 @@ impl LocalApicDomain {
         &LOCAL_APIC_DOMAIN
     }
 
-    /// 传入本层 IrqData，子 domain 在父层 activate 完成后读取投递目标
-    pub fn route(data: &IrqData) -> Option<VectorRoute> {
-        *data.chip_data::<LocalApicData>().route.lock_irqsave()
-    }
-
-    fn release(data: &IrqData) {
+    pub(crate) fn route(data: &IrqData) -> Option<VectorRoute> {
         let local = data.chip_data::<LocalApicData>();
-        let mut route = local.route.lock_irqsave();
-        if let Some(current) = route.take() {
-            VectorManager::get().free(current);
-        }
+        let route = local.route.lock_irqsave();
+        route.current.clone()
     }
 }
 
 impl Domain for LocalApicDomain {
-    /// arg 为 VectorScope；兼容 () 表示 PerCpu。目标 CPU 由 activate 决定
     fn allocate(&self, irq: IrqNumber, arg: &dyn Any) -> Result<IrqData, IrqError> {
         let scope = if let Some(scope) = arg.downcast_ref::<VectorScope>() {
             *scope
@@ -63,7 +59,10 @@ impl Domain for LocalApicDomain {
         let local = Box::new_in(
             LocalApicData {
                 scope,
-                route: Spinlock::new(None),
+                route: Spinlock::new(Route {
+                    current: None,
+                    old: None,
+                }),
             },
             Kmalloc::default(),
         );
@@ -80,38 +79,89 @@ impl Domain for LocalApicDomain {
         ))
     }
 
-    fn free(&self, data: &IrqData) {
-        Self::release(data);
-    }
-
-    fn activate(
+    unsafe fn activate(
         &self,
         irq: IrqNumber,
         data: &IrqData,
-        affinity: &mut Affinity,
-    ) -> Result<(), IrqError> {
+        affinity: &CpuMask,
+    ) -> Result<CpuMask, IrqError> {
         let local = data.chip_data::<LocalApicData>();
 
+        let mut effective = CpuMask::new_zeroed().ok_or(MemoryError::OutOfMemory)?;
         let mut route = local.route.lock_irqsave();
-        if let Some(current) = *route {
-            *affinity = Affinity::Cpu(current.cpu);
-            return Ok(());
+
+        assert!(route.current.is_none());
+        if route.old.is_some() {
+            drop(route);
+            let _ = self.try_reclaim_route(data);
+            route = local.route.lock_irqsave();
         }
 
-        let allocated = VectorManager::get().allocate(irq, *affinity, local.scope)?;
+        let allocated = VectorManager::get().allocate(irq, affinity, local.scope)?;
+        route.current = Some(allocated);
 
-        *route = Some(allocated);
-        *affinity = Affinity::Cpu(allocated.cpu);
+        effective.set(allocated.cpu);
+
+        Ok(effective)
+    }
+
+    unsafe fn deactivate(&self, data: &IrqData) -> Result<(), IrqError> {
+        let mut route = data.chip_data::<LocalApicData>().route.lock_irqsave();
+        if route.old.is_some() {
+            return Err(IrqError::Busy);
+        }
+
+        route.old = route.current.take();
 
         Ok(())
     }
 
-    fn deactivate(&self, _data: &IrqData) {
-        // 固定分配的 vector 留给该 mapping 复用，避免普通注销需要跨 CPU 检查 LAPIC IRR/ISR
-        // 只有 IrqData::drop 才真正归还
+    fn synchronize(&self, _data: &IrqData) {}
+
+    unsafe fn update_affinity(
+        &self,
+        irq: IrqNumber,
+        data: &IrqData,
+        affinity: &CpuMask,
+    ) -> Result<CpuMask, IrqError> {
+        let local = data.chip_data::<LocalApicData>();
+        let mut effective = CpuMask::new_zeroed().ok_or(MemoryError::OutOfMemory)?;
+
+        let mut route = local.route.lock_irqsave();
+
+        if route.old.is_some() {
+            return Err(IrqError::Busy);
+        }
+
+        let allocated = VectorManager::get().allocate(irq, affinity, local.scope)?;
+        effective.set(allocated.cpu);
+
+        // 旧的路由需要等待目标 CPU 完成所有已发起的事件后才能释放
+        route.old = route.current.replace(allocated);
+
+        Ok(effective)
     }
 
-    fn synchronize(&self, _data: &IrqData) {}
+    fn try_reclaim_route(&self, data: &IrqData) -> Result<(), IrqError> {
+        let local = data.chip_data::<LocalApicData>();
+
+        let mut route = local.route.lock_irqsave();
+
+        if let Some(old) = &route.old {
+            let lapic = LocalApic::get();
+            if old.apic_id != lapic.id() {
+                return Err(IrqError::NotFound);
+            }
+            if lapic.is_busy(old.vector) {
+                // 如果旧的向量还在忙，不能立即释放
+                return Err(IrqError::Busy);
+            }
+
+            VectorManager::get().free(unsafe { route.old.take().unwrap_unchecked() });
+        }
+
+        Ok(())
+    }
 }
 
 impl IrqChip for LocalApicChip {

@@ -3,7 +3,7 @@ use super::{
     descriptor::Status, domain,
 };
 use crate::kernel::{
-    interrupt::irq::{Affinity, Domain, IRQ_DESCRIPTORS, IrqError, IrqHandler},
+    interrupt::irq::{Domain, IRQ_DESCRIPTORS, IrqError, IrqHandler},
     memory::kmalloc::Kmalloc,
 };
 use alloc::{boxed::Box, sync::Arc};
@@ -107,28 +107,33 @@ pub fn request_irq<'a>(
 
     // 解锁前修改状态为 Stopping 防止其他 `request_irq` 修改
     state.status = Status::Stopping;
-    drop(state);
 
     // action 必须先发布，activate 的最终提交可能立即允许硬件开始投递。
-    let mut affinity = Affinity::Auto;
-    if let Err(error) = domain::activate(irq, &descriptor.data, &mut affinity) {
-        let mut state = descriptor.state.lock_irqsave();
-        let removed = descriptor.actions.swap(null_mut(), Ordering::AcqRel);
+    let affinity = state.affinity.requested().clone();
+    drop(state);
 
-        assert_eq!(removed, action.as_ptr());
-        assert_eq!(state.active, 1);
+    // SAFETY: 已检查 active 计数确认未激活
+    let effective = unsafe { domain::activate(irq, &descriptor.data, &(&affinity).into()) }
+        .inspect_err(|_| {
+            let mut state = descriptor.state.lock_irqsave();
+            let removed = descriptor.actions.swap(null_mut(), Ordering::AcqRel);
 
-        state.active = 0;
-        state.status = Status::Inactive;
-        drop(state);
+            assert_eq!(removed, action.as_ptr());
+            assert_eq!(state.active, 1);
 
-        // SAFETY: 激活失败后没有 handle，且 Stopping 阻止了 action 遍历。
-        let _ = unsafe { Box::<_, Kmalloc>::from_non_null_in(action, Kmalloc::default()) };
+            state.active = 0;
+            state.status = Status::Inactive;
+            drop(state);
 
-        return Err(error);
-    }
+            // SAFETY: 激活失败后没有 handle，且 Stopping 阻止了 action 遍历。
+            let _ = unsafe { Box::<_, Kmalloc>::from_non_null_in(action, Kmalloc::default()) };
+        })?;
 
-    descriptor.state.lock_irqsave().status = Status::Disabled;
+    let mut state = descriptor.state.lock_irqsave();
+    state.affinity.effective = effective.into();
+
+    state.status = Status::Disabled;
+    drop(state);
 
     Ok(IrqHandle::new(descriptor, action))
 }
@@ -243,7 +248,9 @@ impl Drop for IrqHandle {
         }
 
         domain::synchronize(data);
-        domain::deactivate(data);
+
+        // SAFETY: 已关闭并屏蔽该 IRQ，且已同步确保现有的中断处理执行完成
+        unsafe { domain::deactivate(data) };
 
         let actions = {
             let mut state = descriptor.state.lock_irqsave();

@@ -13,11 +13,11 @@ use crate::{
             MemoryError,
             percpu::{
                 area::{PERCPU_AREA, PercpuArea},
-                init::{NR_CPUS_MAX, PERCPU_DELTAS, percpu_is_ready},
+                init::{PERCPU_DELTAS, percpu_is_ready},
             },
         },
         thread::scheduler::PreemptGuard,
-        topology::CpuId,
+        topology::{CpuId, NR_CPUS_MAX},
     },
     lib::rust::spinlock::SpinGuard,
 };

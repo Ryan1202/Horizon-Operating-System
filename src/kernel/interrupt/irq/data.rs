@@ -75,9 +75,3 @@ impl IrqData {
         Ok(current.parent.as_deref_mut().unwrap())
     }
 }
-
-impl Drop for IrqData {
-    fn drop(&mut self) {
-        self.domain.free(self);
-    }
-}

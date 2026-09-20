@@ -32,7 +32,7 @@ impl Cpu {
         self.id
     }
 
-    pub const fn _state(&self) -> &CpuState {
+    pub const fn state(&self) -> &CpuState {
         &self._state
     }
 }

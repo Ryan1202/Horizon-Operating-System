@@ -1,6 +1,7 @@
 //! 架构无关的 IRQ core
 
 mod action;
+mod affinity;
 mod allocator;
 mod chip;
 mod data;
@@ -14,11 +15,12 @@ mod table;
 
 pub(crate) use crate::kernel::thread::scheduler::assert_can_manage_irq as assert_management;
 pub use action::{IrqHandler, IrqSharing};
+pub use affinity::Affinity;
 pub use allocator::IrqReservation;
 pub use chip::IrqChip;
 pub use data::IrqData;
 pub use descriptor::IrqDescriptor;
-pub use domain::{Affinity, Domain, Polarity, TriggerMode};
+pub use domain::{Domain, Polarity, TriggerMode};
 pub use flow::Flow;
 pub use handle::{IrqHandle, request_irq};
 pub use number::{HardwareIrq, INVALID_IRQ, IrqNumber, RawIrq};
