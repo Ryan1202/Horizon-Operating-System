@@ -1,11 +1,11 @@
-use core::{mem::MaybeUninit, ptr::copy_nonoverlapping};
+use core::mem::MaybeUninit;
 
 use crate::{
-    arch::x86::kernel::{acpi::X86Topology, interrupt::apic::ApicId},
+    arch::x86::kernel::interrupt::apic::ApicId,
     kernel::{
-        interrupt::irq::{Affinity, INVALID_IRQ, IrqError, IrqNumber},
+        interrupt::irq::{INVALID_IRQ, IrqError, IrqNumber},
         memory::percpu::{PerCpuDyn, PerCpuInit},
-        topology::CpuId,
+        topology::{CpuId, CpuMask, CpuRegistry},
     },
     lib::rust::{bitset::BitSet, spinlock::Spinlock},
 };
@@ -67,6 +67,24 @@ const fn reserved(vector: usize) -> bool {
     vector < FIRST_DEVICE_VECTOR as usize || vector == 0x80 || vector >= ERROR_VECTOR as usize
 }
 
+impl VectorInner {
+    fn alloc_cpu(&self, affinity: &CpuMask) -> Result<CpuId, IrqError> {
+        let mut cpu = None;
+        let mut acc = 0;
+        for (cpu_id, map) in self.maps.iter()? {
+            if map.available == 0 {
+                continue;
+            }
+
+            if affinity.contains(cpu_id) && map.available > acc {
+                acc = map.available;
+                cpu = Some(cpu_id);
+            }
+        }
+        cpu.ok_or(IrqError::NotFound)
+    }
+}
+
 impl VectorManager {
     pub const fn get() -> &'static Self {
         &VECTOR_MANAGER
@@ -74,11 +92,15 @@ impl VectorManager {
 
     pub(crate) fn init(&self) -> Result<(), IrqError> {
         let mut guard = self.inner.lock_irqsave();
-        let cpus = X86Topology::get().cpus();
+        let cpus = CpuRegistry::get();
 
         let maps = PerCpuDyn::try_new_with(|cpuid| {
             let mut map = VectorMap {
-                apic_id: cpus[cpuid.get() as usize].id(),
+                // per-CPU 容量可以大于固件实际提供的 CPU 数，未注册槽位不可投递。
+                apic_id: cpus
+                    .hardware_id(cpuid)
+                    .map(ApicId::from)
+                    .unwrap_or(ApicId::new(u32::MAX)),
                 available: 0,
                 map: BitSet::zeroed(MAX_VECTOR_COUNT),
                 irqs: [INVALID_IRQ; MAX_VECTOR_COUNT],
@@ -119,9 +141,12 @@ impl VectorManager {
             .get_remote_mut(cpu_id)
             .expect("failed to get vector map when registering CPU");
 
+        if apic_id.get() >= 255 || CpuRegistry::get().hardware_id(cpu_id) != Some(apic_id.into()) {
+            return Err(IrqError::Unsupported);
+        }
+        // global/ISA 的占用、反向映射及 available 已在分配时同步到所有槽位，
+        // 上线不能重置它们，否则会破坏分配器的计数和所有权。
         map.apic_id = apic_id;
-
-        unsafe { copy_nonoverlapping(&inner.global, &mut map.map, 1) };
 
         Ok(())
     }
@@ -130,22 +155,23 @@ impl VectorManager {
     pub(crate) fn allocate(
         &self,
         irq: IrqNumber,
-        affinity: Affinity,
+        affinity: &CpuMask,
         scope: VectorScope,
     ) -> Result<VectorRoute, IrqError> {
         let mut guard = self.inner.lock_irqsave();
 
+        let online = CpuRegistry::get().online_cpus();
+        let mut affinity = affinity.clone();
+        affinity.intersect(&online.into());
+
         let state = unsafe { guard.assume_init_mut() };
+        let cpu = state.alloc_cpu(&affinity)?;
         let maps = &mut state.maps;
 
         // ISA 的 virq 0..15 在启动时永久保留，对应固定 vector 0x20..0x2f。
         // 这些 vector 始终不属于通用分配池，反向映射也永久保留
         if irq.get() < 16 {
             let vector = 0x20 + irq.get();
-            let cpu = match affinity {
-                Affinity::Auto => CpuId::new(0),
-                Affinity::Cpu(cpu) => cpu,
-            };
 
             let map = maps.get_remote_mut(cpu).ok_or(IrqError::NotFound)?;
 
@@ -157,10 +183,6 @@ impl VectorManager {
         }
 
         if scope == VectorScope::Global {
-            let cpu = match affinity {
-                Affinity::Auto => CpuId::new(0),
-                Affinity::Cpu(cpu) => cpu,
-            };
             let apic_id = maps.get_remote(cpu).ok_or(IrqError::NotFound)?.apic_id;
 
             let mut selected: Option<usize> = None;
@@ -197,12 +219,6 @@ impl VectorManager {
                 vector: vector as u8,
             })
         } else {
-            // 尚未实现在线 CPU 跟踪和负载均衡；Auto 固定使用 BSP
-            let cpu = match affinity {
-                Affinity::Auto => CpuId::new(0),
-                Affinity::Cpu(cpu) => cpu,
-            };
-
             let map = maps.get_remote_mut(cpu).ok_or(IrqError::NotFound)?;
 
             let vector = map.map.find_first_zero().ok_or(IrqError::OutOfIrq)?;

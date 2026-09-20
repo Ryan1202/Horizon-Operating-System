@@ -20,7 +20,7 @@ use crate::{
         },
         memory::percpu::PerCpuInit,
         thread::PreemptGuard,
-        topology::{CpuHardwareId, CpuId},
+        topology::{CpuHardwareId, CpuId, CpuRegistry},
     },
 };
 
@@ -84,7 +84,9 @@ pub unsafe fn enable_current(cpu: CpuId) -> Result<(), IrqError> {
 
     lapic.software_enable();
 
-    VectorManager::get().register_cpu(cpu, lapic.id())
+    VectorManager::get().register_cpu(cpu, lapic.id())?;
+    CpuRegistry::get().mark_online(cpu);
+    Ok(())
 }
 
 /// 架构层统一检测并选择当前 CPU 的 LAPIC 实现

@@ -21,12 +21,10 @@ use crate::{
                 percpu_template_size,
             },
         },
-        topology::{CpuId, CpuRegistry},
+        topology::{CpuId, CpuRegistry, NR_CPUS_MAX, get_cpu_limit},
     },
 };
 
-/// 允许的最大 CPU 数量
-pub const NR_CPUS_MAX: u32 = 256;
 pub static PERCPU_DELTAS: [AtomicUsize; NR_CPUS_MAX as usize] =
     [const { AtomicUsize::new(0) }; NR_CPUS_MAX as usize];
 
@@ -116,7 +114,7 @@ pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
         // SAFETY: area 在 Ready 发布前一次性写入，之后只通过不可变引用访问。
         PERCPU_AREA.get().write(MaybeUninit::new(area));
 
-        let bsp_id = CpuRegistry::get().bsp_id();
+        let bsp_id = CpuRegistry::bsp_id();
 
         // SAFETY: CPU0 unit 已复制模板并写入 CPU_DELTA，可以安全作为 BSP 的 GS 基准。
         ArchCpuLocal::activate((*PERCPU_AREA.get()).assume_init_ref().index(bsp_id));
@@ -127,6 +125,6 @@ pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn percpu_init(nr_cpus: usize) {
-    try_percpu_init(nr_cpus).expect("per-CPU 初始化失败")
+pub extern "C" fn percpu_init() {
+    try_percpu_init(get_cpu_limit()).expect("per-CPU 初始化失败")
 }

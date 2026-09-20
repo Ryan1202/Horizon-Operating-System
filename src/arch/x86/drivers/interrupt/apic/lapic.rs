@@ -202,6 +202,17 @@ impl LocalApic {
 
     /// 伪中断不设置 ISR，因此不能发送 EOI
     pub fn handle_spurious(&self) {}
+
+    /// 读取 ISR 和 IRR 检查当前中断向量是否正忙
+    pub(crate) fn is_busy(&self, vector: u8) -> bool {
+        let reg = self.reg();
+        let isr = reg.read_common(Isr(vector));
+        let irr = reg.read_common(Irr(vector));
+
+        let mask = 1 << (vector & 0x1f);
+
+        isr & mask != 0 || irr & mask != 0
+    }
 }
 
 impl LocalApic {

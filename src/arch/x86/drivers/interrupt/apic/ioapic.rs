@@ -21,6 +21,7 @@ use crate::{
             page::{Pages, options::PageAllocOptions},
         },
         thread::PreemptGuard,
+        topology::CpuMask,
     },
     lib::rust::{bitset::BitSet, spinlock::Spinlock},
 };
@@ -92,19 +93,25 @@ impl IoApicRegs {
         }
     }
 
-    fn set_mask(&self, pin: u8, masked: bool) {
+    /// 设置指定 pin 的屏蔽状态，返回旧状态
+    fn set_mask(&self, pin: u8, masked: bool) -> bool {
         let reg = regs::REDIRECTION_TABLE + pin as usize * 2;
         let value = self.read(reg);
 
         self.write(reg, if masked { value | MASK } else { value & !MASK });
         let _ = self.read(reg);
+
+        (value & MASK) != 0
     }
 
-    fn set_redirection_entry(&self, pin: u8, entry: RedirectionEntry) {
+    /// 设置指定 pin 的重定向表条目
+    ///
+    /// # Safety
+    ///
+    /// 设置前需要确保当前条目已被屏蔽，如果在 Level 模式下还需要确保 Remote IRR 已清零
+    unsafe fn set_redirection_entry(&self, pin: u8, entry: RedirectionEntry) {
         let low = regs::REDIRECTION_TABLE + pin as usize * 2;
 
-        // 先停止旧路由的投递，再修改目的 CPU；新条目直到 unmask 才可投递
-        self.set_mask(pin, true);
         self.write(low + 1, (entry.0 >> 32) as u32);
         self.write(low, entry.0 as u32 | MASK);
         let _ = self.read(low);
@@ -158,6 +165,28 @@ impl IoApic {
         let offset = gsi.get().checked_sub(self.gsi_base)?;
 
         (offset < self.pin_count as u32).then_some(offset as u8)
+    }
+
+    /// 等待 Remote IRR 清零，确保所有事件完成
+    ///
+    /// 只在 Level 触发模式下有效，Edge 模式下无意义
+    fn synchronize(&self, pin: u8) {
+        let reg = &self.regs;
+
+        loop {
+            let entry = reg
+                .lock_irqsave()
+                .read(regs::REDIRECTION_TABLE + pin as usize * 2);
+
+            assert!(entry & MASK != 0, "synchronize unmasked IOAPIC source");
+
+            let level_pending = entry & REMOTE_IRR != 0;
+            if entry & DELIVERY_STATUS == 0 && !level_pending {
+                break;
+            }
+
+            spin_loop();
+        }
     }
 }
 
@@ -276,7 +305,8 @@ impl IoApics {
             let regs = apic.regs.lock_irqsave();
 
             for pin in 0..apic.pin_count {
-                regs.set_redirection_entry(pin as u8, RedirectionEntry(MASK as u64));
+                // SAFETY: 此时中断已禁用，且设置为屏蔽状态、Edge 触发模式
+                unsafe { regs.set_redirection_entry(pin as u8, RedirectionEntry(MASK as u64)) };
             }
         }
 
@@ -345,16 +375,18 @@ impl irq::Domain for IoApics {
         Ok(local)
     }
 
-    fn free(&self, _data: &IrqData) {}
-
-    fn activate(
+    unsafe fn activate(
         &self,
-        _irq: IrqNumber,
+        irq: IrqNumber,
         data: &IrqData,
-        _affinity: &mut irq::Affinity,
-    ) -> Result<(), IrqError> {
+        affinity: &CpuMask,
+    ) -> Result<CpuMask, IrqError> {
         let info = data.chip_data::<Info>();
         let parent = data.parent().ok_or(IrqError::NotFound)?;
+
+        // SAFETY: 由调用者保证 irq 未激活
+        let mask = unsafe { parent.domain().activate(irq, parent, affinity)? };
+
         let route = LocalApicDomain::route(parent).ok_or(IrqError::NotFound)?;
 
         let chip = data
@@ -367,20 +399,29 @@ impl irq::Domain for IoApics {
         regs.active
             .try_set(info.pin as usize)
             .ok_or(IrqError::Busy)?;
-        regs.set_redirection_entry(
-            info.pin,
-            RedirectionEntry::new(
-                route.vector,
-                route.apic_id,
-                info.trigger_mode,
-                info.polarity,
-            ),
-        );
+        drop(regs);
 
-        Ok(())
+        if info.trigger_mode == TriggerMode::Level {
+            chip.synchronize(info.pin);
+        }
+
+        // SAFETY: `activate` 确保当前未激活，在未激活状态下处于已屏蔽状态，并已手动同步
+        unsafe {
+            chip.regs.lock_irqsave().set_redirection_entry(
+                info.pin,
+                RedirectionEntry::new(
+                    route.vector,
+                    route.apic_id,
+                    info.trigger_mode,
+                    info.polarity,
+                ),
+            )
+        };
+
+        Ok(mask)
     }
 
-    fn deactivate(&self, data: &IrqData) {
+    unsafe fn deactivate(&self, data: &IrqData) -> Result<(), IrqError> {
         let chip = data
             .chip()
             .downcast_ref::<IoApic>()
@@ -396,7 +437,12 @@ impl irq::Domain for IoApics {
                 .is_some()
         );
 
-        // core 随后撤销父路由；不在此重复调用父层 deactivate/free。
+        if let Some(parent) = data.parent() {
+            // SAFETY: 由调用者保证
+            unsafe { parent.domain().deactivate(parent)? };
+        }
+
+        Ok(())
     }
 
     fn synchronize(&self, data: &IrqData) {
@@ -406,22 +452,67 @@ impl irq::Domain for IoApics {
             .expect("IOAPIC chip mismatch");
         let info = data.chip_data::<Info>();
 
-        loop {
-            let entry = chip
-                .regs
-                .lock_irqsave()
-                .read(regs::REDIRECTION_TABLE + info.pin as usize * 2);
-
-            assert!(entry & MASK != 0, "synchronize unmasked IOAPIC source");
-
-            // Edge 没有 Remote IRR，固定 vector 不会在普通注销时复用，因此只需
-            // 等待 IOAPIC 完成当前发送。Level 还要等目标完成 EOI
-            let level_pending = info.trigger_mode == TriggerMode::Level && entry & REMOTE_IRR != 0;
-            if entry & DELIVERY_STATUS == 0 && !level_pending {
-                break;
-            }
-
-            spin_loop();
+        if info.trigger_mode == TriggerMode::Level {
+            chip.synchronize(info.pin);
         }
+
+        if let Some(parent) = data.parent() {
+            parent.domain().synchronize(parent);
+        }
+    }
+
+    unsafe fn update_affinity(
+        &self,
+        irq: IrqNumber,
+        data: &IrqData,
+        affinity: &CpuMask,
+    ) -> Result<CpuMask, IrqError> {
+        let info = data.chip_data::<Info>();
+        let parent = data.parent().ok_or(IrqError::NotFound)?;
+
+        let chip = data
+            .chip()
+            .downcast_ref::<IoApic>()
+            .expect("IOAPIC domain chip type mismatch");
+
+        let masked = chip.regs.lock_irqsave().set_mask(info.pin, true);
+
+        // 先分配新的路由
+        // SAFETY: 由调用者保证 irq 已激活
+        let mask = unsafe { parent.domain().update_affinity(irq, parent, affinity) };
+        let route = LocalApicDomain::route(parent).ok_or(IrqError::NotFound)?;
+
+        let regs = chip.regs.lock_irqsave();
+
+        let mask = mask.inspect_err(|_| {
+            regs.set_mask(info.pin, masked);
+        })?;
+
+        if info.trigger_mode == TriggerMode::Level {
+            chip.synchronize(info.pin);
+        }
+
+        // SAFETY: 已屏蔽中断并确认在 Level 模式下 Remote IRR 已清零
+        unsafe {
+            regs.set_redirection_entry(
+                info.pin,
+                RedirectionEntry::new(
+                    route.vector,
+                    route.apic_id,
+                    info.trigger_mode,
+                    info.polarity,
+                ),
+            )
+        };
+
+        // 重新设置屏蔽状态，返回旧状态
+        regs.set_mask(info.pin, masked);
+
+        Ok(mask)
+    }
+
+    fn try_reclaim_route(&self, data: &IrqData) -> Result<(), IrqError> {
+        let parent = data.parent().expect("IOAPIC without LAPIC parent");
+        parent.domain().try_reclaim_route(parent)
     }
 }

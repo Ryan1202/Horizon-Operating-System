@@ -4,7 +4,11 @@ use super::{
     Flow, IrqData, IrqError, IrqNumber, IrqSharing, action::IrqAction, placeholder::Placeholder,
 };
 use crate::{
-    kernel::{interrupt::irq::IrqReservation, memory::kmalloc::Kmalloc},
+    kernel::{
+        interrupt::irq::{Affinity, IrqReservation},
+        memory::kmalloc::Kmalloc,
+        topology::CpuMask,
+    },
     lib::rust::spinlock::Spinlock,
 };
 use core::{
@@ -30,14 +34,17 @@ pub(super) enum Status {
 pub(super) struct State {
     /// 当前的状态
     pub(super) status: Status,
+    /// CPU 亲和性
+    pub(super) affinity: Affinity,
     /// 已注册且可用的 handler 数量
     pub(super) active: usize,
 }
 
 impl State {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             status: Status::Inactive,
+            affinity: Affinity::default(),
             active: 0,
         }
     }
@@ -131,6 +138,40 @@ impl IrqDescriptor {
         self.sharing = sharing;
 
         mem::replace(&mut self.data, data)
+    }
+
+    pub fn set_affinity(&self, affinity: CpuMask) -> Result<(), IrqError> {
+        let mut state = self.state.lock_irqsave();
+
+        match state.status {
+            Status::Disabled | Status::Enabled => {
+                // 正常更新
+            }
+            Status::Inactive => {
+                // 还未激活，直接更新请求的亲和性
+                state.affinity.requested.copy_from(&affinity);
+                return Ok(());
+            }
+            Status::Stopping => {
+                return Err(IrqError::Busy);
+            }
+        }
+
+        drop(state);
+
+        // SAFETY: 已检查状态为 Disabled 或 Enabled，说明 IRQ 已激活
+        let effective = unsafe {
+            self.data
+                .domain()
+                .update_affinity(self.irq, &self.data, &affinity.clone().into())?
+        }
+        .into();
+
+        let mut state = self.state.lock_irqsave();
+        state.affinity.effective = effective;
+        state.affinity.requested.copy_from(&affinity);
+
+        Ok(())
     }
 }
 

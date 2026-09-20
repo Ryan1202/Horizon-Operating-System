@@ -1,7 +1,7 @@
 //! 占位 IrqDescriptor
 
-use super::{Affinity, Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber};
-use crate::kernel::{interrupt::irq::RawIrq, memory::kmalloc::Kmalloc};
+use super::{Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber};
+use crate::kernel::{interrupt::irq::RawIrq, memory::kmalloc::Kmalloc, topology::CpuMask};
 use alloc::{boxed::Box, sync::Arc};
 use core::any::Any;
 
@@ -27,18 +27,29 @@ impl Domain for Placeholder {
         Err(IrqError::Unsupported)
     }
 
-    fn free(&self, _: &IrqData) {}
-
-    fn activate(&self, _: IrqNumber, _: &IrqData, _: &mut Affinity) -> Result<(), IrqError> {
+    unsafe fn activate(&self, _: IrqNumber, _: &IrqData, _: &CpuMask) -> Result<CpuMask, IrqError> {
         Err(IrqError::Unsupported)
+    }
+
+    unsafe fn deactivate(&self, _: &IrqData) -> Result<(), IrqError> {
+        unreachable!("placeholder IRQ cannot be active");
     }
 
     fn synchronize(&self, _: &IrqData) {
         unreachable!("placeholder cannot be activated");
     }
 
-    fn deactivate(&self, _: &IrqData) {
-        unreachable!("placeholder IRQ cannot be active");
+    unsafe fn update_affinity(
+        &self,
+        _: IrqNumber,
+        _: &IrqData,
+        _: &CpuMask,
+    ) -> Result<CpuMask, IrqError> {
+        Err(IrqError::Unsupported)
+    }
+
+    fn try_reclaim_route(&self, _: &IrqData) -> Result<(), IrqError> {
+        Err(IrqError::Unsupported)
     }
 }
 

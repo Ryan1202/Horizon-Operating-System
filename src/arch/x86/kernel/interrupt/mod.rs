@@ -125,8 +125,9 @@ extern "C" fn interrupt_init() {
         asm!("out dx, al", in("dx") 0xa1u16, in("al") 0xffu8, options(nomem, nostack));
     }
 
-    early_init();
     apic::init_bsp().expect("failed to initialize BSP LAPIC");
+    X86Topology::register_cpus();
+    early_init();
     IoApics::get()
         .init(X86Topology::get().ioapics())
         .expect("failed to initialize IOAPICs");

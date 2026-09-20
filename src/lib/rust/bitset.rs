@@ -4,9 +4,16 @@ use core::num::NonZeroUsize;
 
 const WORD_BITS: usize = usize::BITS as usize;
 
+#[derive(Clone)]
 pub struct BitSet<S> {
     storage: S,
     len: usize,
+}
+
+impl<S: AsRef<[usize]>> AsRef<[usize]> for BitSet<S> {
+    fn as_ref(&self) -> &[usize] {
+        self.storage.as_ref()
+    }
 }
 
 impl<S> BitSet<S> {
@@ -24,6 +31,10 @@ impl<S> BitSet<S> {
         } else {
             None
         }
+    }
+
+    pub fn breakdown(self) -> (S, usize) {
+        (self.storage, self.len)
     }
 }
 
@@ -46,6 +57,14 @@ impl<S: AsRef<[usize]>> BitSet<S> {
             "insufficient bit storage"
         );
         Self { storage, len }
+    }
+
+    pub fn new(storage: S, len: usize) -> Option<Self> {
+        if len.div_ceil(WORD_BITS) <= storage.as_ref().len() {
+            Some(Self { storage, len })
+        } else {
+            None
+        }
     }
 
     pub fn test(&self, bit: usize) -> bool {
@@ -172,6 +191,21 @@ impl<S: AsRef<[usize]> + AsMut<[usize]>> BitSet<S> {
         let start = self.find_zero_range(start, count, align)?;
         self.set_range(start, count.get());
         Some(start)
+    }
+
+    pub fn intersect<S2: AsRef<[usize]>>(&mut self, other: &BitSet<S2>) -> bool {
+        let words = self.storage.as_mut();
+        let other_words = other.storage.as_ref();
+        let mut changed = false;
+        for (i, word) in words.iter_mut().enumerate() {
+            let other_word = other_words.get(i).copied().unwrap_or(0);
+
+            *word &= other_word;
+            if other_word != *word {
+                changed = true;
+            }
+        }
+        changed
     }
 }
 
