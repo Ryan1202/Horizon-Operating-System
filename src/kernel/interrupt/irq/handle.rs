@@ -250,7 +250,7 @@ impl Drop for IrqHandle {
         domain::synchronize(data);
 
         // SAFETY: 已关闭并屏蔽该 IRQ，且已同步确保现有的中断处理执行完成
-        unsafe { domain::deactivate(data) };
+        unsafe { domain::deactivate(data).expect("Failed to deactivate IRQ") };
 
         let actions = {
             let mut state = descriptor.state.lock_irqsave();

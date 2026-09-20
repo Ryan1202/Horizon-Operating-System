@@ -1,4 +1,4 @@
-use core::any::Any;
+use core::{any::Any, hint::spin_loop};
 
 use alloc::{boxed::Box, sync::Arc};
 
@@ -116,7 +116,20 @@ impl Domain for LocalApicDomain {
         Ok(())
     }
 
-    fn synchronize(&self, _data: &IrqData) {}
+    fn synchronize(&self, data: &IrqData) {
+        let local = data.chip_data::<LocalApicData>();
+        let vector = local
+            .route
+            .lock_irqsave()
+            .current
+            .map(|r| r.vector)
+            .unwrap_or(0);
+        let lapic = LocalApic::get();
+
+        while lapic.is_busy(vector) {
+            spin_loop();
+        }
+    }
 
     unsafe fn update_affinity(
         &self,

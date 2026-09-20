@@ -21,7 +21,7 @@ pub trait Domain: Send + Sync {
     /// 构造当前 domain 的私有数据
     fn allocate(&self, irq: IrqNumber, arg: &dyn Any) -> Result<IrqData, IrqError>;
 
-    /// 成功后路由可用于 chip 回调，但中断源必须保持屏蔽
+    /// 激活 IRQ，返回实际生效的 CPU 集合
     ///
     /// # Safety
     ///
@@ -33,7 +33,7 @@ pub trait Domain: Send + Sync {
         affinity: &CpuMask,
     ) -> Result<CpuMask, IrqError>;
 
-    /// 释放路由作为最后的收尾
+    /// 释放路由
     ///
     /// # Safety
     ///
@@ -73,14 +73,14 @@ pub(super) unsafe fn activate(
     unsafe { data.domain().activate(irq, data, affinity) }
 }
 
-/// 释放路由作为最后的收尾
+/// 释放路由
 ///
 /// # Safety
 ///
 /// 调用前需确保已关闭并屏蔽该 IRQ，且所有旧的执行者已退出
-pub(super) unsafe fn deactivate(data: &IrqData) {
+pub(super) unsafe fn deactivate(data: &IrqData) -> Result<(), IrqError> {
     // SAFETY: 由调用者保证
-    unsafe { data.domain().deactivate(data) };
+    unsafe { data.domain().deactivate(data) }
 }
 
 pub(super) fn synchronize(data: &IrqData) {
