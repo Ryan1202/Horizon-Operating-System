@@ -1,4 +1,4 @@
-OUTPUT_ARCH(x86_64)
+OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start) /* _start is at arch/x86/multiboot2/multiboot2.asm */
 
 PHDRS
