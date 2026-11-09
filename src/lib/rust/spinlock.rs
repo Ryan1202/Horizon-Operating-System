@@ -348,6 +348,15 @@ impl<T> Spinlock<T> {
     }
 }
 
+impl<T> Spinlock<ListHead<T>>
+where
+    T: ListMember<Node = ListNode<<T as ListMember>::LinkOwner>>,
+{
+    pub const unsafe fn new_list_head(ptr: *const Self) -> Self {
+        Spinlock::new(unsafe { ListHead::new(Self::inner_ptr(ptr)) })
+    }
+}
+
 impl<T> RwSpinlock<T> {
     const WRITER: u32 = 1 << 31;
 

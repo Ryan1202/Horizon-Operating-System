@@ -1,4 +1,4 @@
-use core::{cmp, marker::PhantomData, mem::offset_of, ptr::NonNull};
+use core::{cmp, marker::PhantomData, mem::offset_of, pin::Pin, ptr::NonNull};
 
 use crate::lib::rust::{
     field::field_path,
@@ -64,8 +64,8 @@ impl<K: Sized, A, NA> AugmentLink<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K,
 impl<K: Sized, A, NA> AugmentLinkHead<K, LinkedIter, LinkedHead<K, A, NA>, Linked<K, NA>>
     for LinkedRbTreeBase<K, A, NA>
 {
-    fn init(&mut self, node: &mut RbNodeBase<K, LinkedIter, Linked<K, NA>>) {
-        self.augment.list_head.add_head(node);
+    fn init(self: Pin<&mut Self>, node: &mut RbNodeBase<K, LinkedIter, Linked<K, NA>>) {
+        unsafe { self.map_unchecked_mut(|tree| &mut tree.augment.list_head) }.add_head(node);
     }
 }
 
@@ -111,10 +111,13 @@ impl<K, A, NA> LinkedRbTreeBase<K, A, NA> {
         offset_of!(Linked<K, NA>, list_node) + offset_of!(Self, augment)
     }
 
-    pub fn _linked_init(&mut self, augment: A) {
-        self._init();
-        self.augment.augment = augment;
-        unsafe { self.augment.list_head.init() };
+    pub fn _linked_init(mut self: Pin<&mut Self>, augment: A) {
+        unsafe {
+            self.as_mut().get_unchecked_mut()._init();
+            self.as_mut().get_unchecked_mut().augment.augment = augment;
+            self.map_unchecked_mut(|tree| &mut tree.augment.list_head)
+                .init()
+        };
     }
 }
 
@@ -128,7 +131,7 @@ const impl<K, I: const Default, A> Default for LinkedRbTreeBase<K, I, A> {
 }
 
 impl<K, A> LinkedRbTreeBase<K, (), A> {
-    pub fn init(&mut self) {
+    pub fn init(self: Pin<&mut Self>) {
         self._linked_init(());
     }
 }

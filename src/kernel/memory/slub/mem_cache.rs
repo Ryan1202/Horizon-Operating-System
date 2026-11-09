@@ -79,16 +79,16 @@ impl MemCaches {
             global_caches()
                 .map_unchecked(|caches| &caches.list_head)
                 .init_with_pinned(|mut head| {
-                    head.as_mut().init_pinned();
+                    head.as_mut().init();
 
-                    let head = head.as_mut().get_unchecked_mut();
+                    let mut head = head.as_mut();
 
-                    head.add_head(mem_cache_node.as_mut());
-                    head.add_head(mem_cache.as_mut());
+                    head.as_mut().add_head(mem_cache_node.as_mut());
+                    head.as_mut().add_head(mem_cache.as_mut());
 
                     for cache in 0..DEFAULT_CACHE_COUNT {
                         let mut cache = get_cache_unchecked(cache);
-                        head.add_tail(cache.as_mut());
+                        head.as_mut().add_tail(cache.as_mut());
                     }
                 });
         }
@@ -97,7 +97,7 @@ impl MemCaches {
     /// 向 MemCaches 中添加一个新的 MemCache。
     pub fn add_cache(&self, cache: &mut MemCache) {
         let mut list_head = unsafe { Pin::new_unchecked(&self.list_head) }.lock_pinned();
-        unsafe { list_head.as_mut().get_unchecked_mut().add_head(cache) };
+        list_head.as_mut().add_head(cache);
     }
 
     fn list_head(self: Pin<&Self>) -> Pin<&Spinlock<ListHead<field_of!(MemCache, list)>>> {

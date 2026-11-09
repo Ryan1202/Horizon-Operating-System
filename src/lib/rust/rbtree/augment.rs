@@ -1,4 +1,4 @@
-use core::{cmp, ptr::NonNull};
+use core::{cmp, pin::Pin, ptr::NonNull};
 
 use crate::lib::rust::rbtree::RbTreeBase;
 
@@ -32,6 +32,6 @@ pub trait AugmentLink<K: Sized, I, TA, NA> {
 
 #[allow(unused_variables)]
 pub trait AugmentLinkHead<K: Sized, I, TA, NA> {
-    fn init(&mut self, node: &mut RbNodeBase<K, I, NA>) {}
+    fn init(self: Pin<&mut Self>, node: &mut RbNodeBase<K, I, NA>) {}
     fn clear(&mut self) {}
 }

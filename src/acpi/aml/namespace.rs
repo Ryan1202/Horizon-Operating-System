@@ -89,14 +89,15 @@ impl NameSpace {
 
     pub fn init(&mut self) {
         unsafe {
-            self.children.init_with(|head| head.init());
+            self.children
+                .init_with(|head| Pin::new_unchecked(head).init());
         };
     }
 
     pub fn add_child(&self, child: &mut NameSpace) {
         child.parent = Some(NonNull::from_ref(self));
         let mut guard = self.children_locked();
-        unsafe { guard.as_mut().get_unchecked_mut() }.add_tail(child);
+        guard.as_mut().add_tail(child);
     }
 
     pub fn root() -> Pin<&'static Spinlock<NameSpace>> {

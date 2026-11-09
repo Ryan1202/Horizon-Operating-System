@@ -62,7 +62,7 @@ impl Vmap {
     pub fn init(mut self: Pin<&mut Self>) {
         unsafe {
             FREE_VMAP_TREE.init_with(|rbtree| {
-                rbtree.init();
+                Pin::new_unchecked(rbtree).init();
 
                 let pages = Box::leak(Box::new_in(
                     VmapNode::kernel(),
@@ -76,9 +76,13 @@ impl Vmap {
         unsafe {
             let pools = &mut self.as_mut().get_unchecked_mut().pools;
             for pool in pools.iter_mut() {
-                pool.list_head.init_with(|list_head| list_head.init());
+                pool.list_head
+                    .init_with(|list_head| Pin::new_unchecked(list_head).init());
             }
-            self.allocated.init_with(|rbtree| rbtree.init());
+            self.as_mut()
+                .get_unchecked_mut()
+                .allocated
+                .init_with(|rbtree| Pin::new_unchecked(rbtree).init());
         }
     }
 
@@ -94,7 +98,7 @@ impl Vmap {
         let mut list_head =
             unsafe { Pin::new_unchecked(&self.pools.get_unchecked(index).list_head) }.lock_pinned();
 
-        unsafe { list_head.as_mut().get_unchecked_mut().add_tail(node) };
+        list_head.as_mut().add_tail(node);
     }
 
     fn pool_get(self: &Pin<&mut Self>, count: NonZeroUsize) -> Option<NonNull<VmapNode>> {

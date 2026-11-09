@@ -25,7 +25,7 @@ impl ThreadManager {
     pub(super) fn init() {
         unsafe {
             let all = Pin::new_unchecked(&THREAD_MANAGER.all);
-            all.lock_pinned().as_mut().init_pinned();
+            all.lock_pinned().as_mut().init();
         }
     }
 
@@ -45,10 +45,7 @@ impl ThreadManager {
 
             unsafe {
                 let all = Pin::new_unchecked(&self.all);
-                all.lock_pinned()
-                    .as_mut()
-                    .get_unchecked_mut()
-                    .add_tail(thread);
+                all.lock_pinned().as_mut().add_tail(thread);
             };
         }
 

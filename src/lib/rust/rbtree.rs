@@ -159,7 +159,7 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
     {
         // SAFETY: this operation only rewires links in place and never moves
         // the pinned tree value.
-        let tree = unsafe { self.get_unchecked_mut() };
+        let mut tree = self;
         debug_assert!(
             new_node.get_parent().is_none() && new_node.left.is_none() && new_node.right.is_none(),
             "Inserting a node that is already in a tree!"
@@ -174,6 +174,8 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
             Some((mut parent_ptr, ordering)) => {
                 let parent_ref = unsafe { parent_ptr.as_mut() };
 
+                let tree = unsafe { tree.as_mut().get_unchecked_mut() };
+
                 parent_ref.link_node(new_node, ordering);
                 new_node.insert_fixup(tree);
 
@@ -184,7 +186,8 @@ impl<K: Sized, I, TA, NA> RbTreeBase<K, I, TA, NA> {
             None => {
                 // 树为空，插入为根节点
                 new_node.parent = RbNodeWithColor::null_node();
-                tree.root = Some(NonNull::from_mut(new_node));
+                unsafe { tree.as_mut().get_unchecked_mut() }.root =
+                    Some(NonNull::from_mut(new_node));
 
                 tree.init(new_node);
             }

@@ -17,7 +17,7 @@ impl ReadyQueue {
     }
 
     pub fn init(self: Pin<&mut Self>) {
-        unsafe { self.get_unchecked_mut().head.init() };
+        unsafe { self.map_unchecked_mut(|q| &mut q.head).init() };
     }
 
     pub unsafe fn enqueue(self: Pin<&mut Self>, thread: &Thread) -> Result<(), ThreadError> {

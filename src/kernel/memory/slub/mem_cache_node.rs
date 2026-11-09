@@ -54,7 +54,7 @@ impl Spinlock<PartialList> {
         }
 
         partial.count += 1;
-        let head = unsafe { &mut guard.as_mut().get_unchecked_mut().list_head };
+        let head = unsafe { guard.as_mut().map_unchecked_mut(|list| &mut list.list_head) };
         head.add_tail(slub);
     }
 }
@@ -83,8 +83,8 @@ impl MemCacheNode {
             });
 
             list.as_ref().init_with_pinned(|mut v| {
-                let head = &mut v.as_mut().get_unchecked_mut().list_head;
-                head.init();
+                let mut head = v.as_mut().map_unchecked_mut(|list| &mut list.list_head);
+                head.as_mut().init();
 
                 if let Some(mut slub) = slub {
                     let slub = slub.as_mut();

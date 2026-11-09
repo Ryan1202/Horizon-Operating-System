@@ -1,90 +1,18 @@
 use core::{
-    cell::{SyncUnsafeCell, UnsafeCell},
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::NonNull,
 };
 
-use crate::lib::rust::field::FieldPath;
+mod thin;
+mod utils;
 
-#[macro_export]
-macro_rules! list_owner {
-    ($var:ident, $container:ty, $field:ident) => {{ $crate::container_of!($var.cast::<ListNode<$container>>(), $container, $field) }};
-}
-
-pub const unsafe trait ListMember: FieldPath {
-    type Owner;
-    type LinkOwner;
-
-    unsafe fn node_of(owner: NonNull<Self::Owner>) -> NonNull<ListNode<Self::LinkOwner>>;
-    unsafe fn owner_of(node: NonNull<ListNode<Self::LinkOwner>>) -> NonNull<Self::Owner>;
-}
-
-pub const unsafe trait ListNodeStorage {
-    type LinkOwner;
-
-    unsafe fn node_ptr(storage: NonNull<Self>) -> NonNull<ListNode<Self::LinkOwner>>;
-    unsafe fn storage_ptr(node: NonNull<ListNode<Self::LinkOwner>>) -> NonNull<Self>;
-}
-
-const unsafe impl<Owner> ListNodeStorage for ListNode<Owner> {
-    type LinkOwner = Owner;
-
-    unsafe fn node_ptr(storage: NonNull<Self>) -> NonNull<ListNode<Owner>> {
-        storage
-    }
-
-    unsafe fn storage_ptr(node: NonNull<ListNode<Owner>>) -> NonNull<Self> {
-        node
-    }
-}
-
-const unsafe impl<Owner> ListNodeStorage for UnsafeCell<ListNode<Owner>> {
-    type LinkOwner = Owner;
-
-    unsafe fn node_ptr(storage: NonNull<Self>) -> NonNull<ListNode<Owner>> {
-        storage.cast::<ListNode<Owner>>()
-    }
-
-    unsafe fn storage_ptr(node: NonNull<ListNode<Owner>>) -> NonNull<Self> {
-        node.cast::<UnsafeCell<ListNode<Owner>>>()
-    }
-}
-
-const unsafe impl<Owner> ListNodeStorage for SyncUnsafeCell<ListNode<Owner>> {
-    type LinkOwner = Owner;
-
-    unsafe fn node_ptr(storage: NonNull<Self>) -> NonNull<ListNode<Owner>> {
-        storage.cast::<ListNode<Owner>>()
-    }
-
-    unsafe fn storage_ptr(node: NonNull<ListNode<Owner>>) -> NonNull<Self> {
-        node.cast::<SyncUnsafeCell<ListNode<Owner>>>()
-    }
-}
-
-const unsafe impl<P> ListMember for P
-where
-    P: const FieldPath,
-    P::Target: const ListNodeStorage,
-{
-    type Owner = P::Base;
-    type LinkOwner = <P::Target as ListNodeStorage>::LinkOwner;
-
-    unsafe fn node_of(owner: NonNull<Self::Owner>) -> NonNull<ListNode<Self::LinkOwner>> {
-        let storage = unsafe { P::project(owner) };
-        unsafe { <P::Target as ListNodeStorage>::node_ptr(storage) }
-    }
-
-    unsafe fn owner_of(node: NonNull<ListNode<Self::LinkOwner>>) -> NonNull<Self::Owner> {
-        let storage = unsafe { <P::Target as ListNodeStorage>::storage_ptr(node) };
-        unsafe { P::unproject(storage) }
-    }
-}
+pub use thin::{ThinListHead, ThinListNode};
+pub use utils::ListMember;
 
 #[derive(PartialEq, Debug)]
 #[repr(C)]
-pub struct Link<Owner> {
+pub struct Link<Owner: ?Sized> {
     prev: NonNull<Link<Owner>>,
     next: NonNull<Link<Owner>>,
     _phantom: (PhantomData<Owner>, PhantomPinned),
@@ -108,6 +36,8 @@ pub struct ListHead<Member: ListMember> {
     link: Link<Member::LinkOwner>,
 }
 
+unsafe impl<Owner: ListMember + Sync> Sync for ListHead<Owner> {}
+
 const impl<T: ListMember> Default for ListHead<T> {
     fn default() -> Self {
         Self {
@@ -116,23 +46,35 @@ const impl<T: ListMember> Default for ListHead<T> {
     }
 }
 
-impl<Member: ListMember> ListHead<Member> {
-    #[inline(always)]
-    pub unsafe fn init(&mut self) {
-        let ptr = unsafe { NonNull::new_unchecked(&raw mut self.link) };
+impl<Member> ListHead<Member>
+where
+    Member: ListMember<Node = ListNode<<Member as ListMember>::LinkOwner>>,
+{
+    /// 创建一个新的 ListHead 实例
+    ///
+    /// # Safety
+    ///
+    /// `ptr` 必须是当前 ListHead 实例的指针
+    pub const unsafe fn new(ptr: *const Self) -> Self {
+        let link = NonNull::from_ref(unsafe { &(*ptr).link });
 
-        self.link = Link::new(ptr, ptr);
+        Self {
+            link: Link::new(link, link),
+        }
     }
 
     #[inline(always)]
-    pub fn init_pinned(self: Pin<&mut Self>) {
-        unsafe { self.get_unchecked_mut().init() };
+    pub unsafe fn init(mut self: Pin<&mut Self>) {
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
+        let ptr = unsafe { NonNull::new_unchecked(&raw mut this.link) };
+
+        this.link = Link::new(ptr, ptr);
     }
 
     #[inline(always)]
-    pub fn add_head(&mut self, owner: &mut Member::Owner) {
+    pub fn add_head(mut self: Pin<&mut Self>, owner: &mut Member::Owner) {
         unsafe {
-            let prev = NonNull::new_unchecked(&raw mut self.link);
+            let prev = NonNull::new_unchecked(&raw mut self.as_mut().get_unchecked_mut().link);
             let next = self.link.next;
             let mut node = Member::node_of(NonNull::from_mut(owner));
             node.as_mut().add(prev, next);
@@ -150,10 +92,10 @@ impl<Member: ListMember> ListHead<Member> {
     }
 
     #[inline(always)]
-    pub fn add_tail(&mut self, owner: &mut Member::Owner) {
+    pub fn add_tail(mut self: Pin<&mut Self>, owner: &mut Member::Owner) {
         unsafe {
             let prev = self.link.prev;
-            let next = NonNull::new_unchecked(&raw mut self.link);
+            let next = NonNull::new_unchecked(&raw mut self.as_mut().get_unchecked_mut().link);
             let mut node = Member::node_of(NonNull::from_mut(owner));
             node.as_mut().add(prev, next);
         }
@@ -242,16 +184,18 @@ impl<Member: ListMember> Iterator for ListIterator<'_, Member> {
 
         // 转换到 Owner 类型
         current
-            .map(|p| p.cast::<ListNode<Member::LinkOwner>>())
+            .map(|p| p.cast())
             .map(|p| unsafe { Member::owner_of(p) })
     }
 }
 
 #[derive(PartialEq, Default, Debug)]
 #[repr(transparent)]
-pub struct ListNode<Owner> {
+pub struct ListNode<Owner: ?Sized> {
     link: Option<Link<Owner>>,
 }
+
+unsafe impl<Owner> Sync for ListNode<Owner> {}
 
 impl<Owner> ListNode<Owner> {
     pub const fn new() -> Self {

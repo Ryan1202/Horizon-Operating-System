@@ -78,21 +78,23 @@ impl WaitQueue {
     }
 
     pub fn init(&self) {
-        unsafe { self.inner.init_with(|inner| inner.init()) };
+        unsafe {
+            self.inner
+                .init_with(|inner| Pin::new_unchecked(inner).init())
+        };
     }
 
     /// 分配并初始化一个地址稳定的等待队列。
     pub fn try_new() -> Result<Pin<Box<Self, Kmalloc>>, MemoryError> {
-        let queue = Box::try_new_in(Self::new_uninit(), Kmalloc::default())
-            .map_err(|_| MemoryError::OutOfMemory)?;
+        let queue = Box::pin_in(Self::new_uninit(), Kmalloc::default());
 
         // SAFETY: queue 已经固定在 Box 中，初始化后不会再移动；当前尚未发布，
         // 不存在并发访问。
         unsafe {
-            queue.inner.init_with(|inner| inner.init());
+            queue
+                .inner
+                .init_with(|inner| Pin::new_unchecked(inner).init());
         }
-
-        let queue = Box::into_pin(queue);
 
         Ok(queue)
     }
@@ -331,9 +333,9 @@ impl WaitQueueInner {
         }
     }
 
-    fn init(&mut self) {
-        self.initialized = true;
-        unsafe { self.waiters.init() };
+    fn init(mut self: Pin<&mut Self>) {
+        unsafe { self.as_mut().get_unchecked_mut() }.initialized = true;
+        unsafe { self.map_unchecked_mut(|inner| &mut inner.waiters).init() };
     }
 
     fn is_empty(&self) -> bool {

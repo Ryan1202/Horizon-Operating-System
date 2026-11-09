@@ -242,7 +242,7 @@ impl BuddyAllocator {
             unsafe {
                 self.zones[i].init_with(|v| {
                     for free in v.free_frames.iter_mut() {
-                        free.init();
+                        Pin::new_unchecked(free).init();
                     }
                 })
             };
@@ -402,8 +402,11 @@ impl BuddyAllocator {
             {
                 let mut guard = self.get_zone(zone_type).lock_pinned();
 
-                let zone = unsafe { guard.as_mut().get_unchecked_mut() };
-                let head = zone.get_free_list(split_order);
+                let mut head = unsafe {
+                    guard
+                        .as_mut()
+                        .map_unchecked_mut(|zone| zone.get_free_list(split_order))
+                };
 
                 head.add_tail(buddy);
             }
@@ -431,8 +434,9 @@ impl BuddyAllocator {
 
             let mut guard = self.get_zone(zone_type).lock_pinned();
 
-            let zone = guard.as_mut().get_unchecked_mut();
-            let head = zone.get_free_list(FrameOrder(new_order));
+            let head = guard
+                .as_mut()
+                .map_unchecked_mut(|zone| zone.get_free_list(FrameOrder(new_order)));
 
             head.add_head(buddy);
         }
@@ -486,8 +490,11 @@ impl BuddyAllocator {
         let buddy: &mut Buddy = frame.try_into()?;
         let mut guard = zone.lock_pinned();
 
-        let zone = unsafe { guard.as_mut().get_unchecked_mut() };
-        let head = zone.get_free_list(order);
+        let head = unsafe {
+            guard
+                .as_mut()
+                .map_unchecked_mut(|zone| zone.get_free_list(order))
+        };
 
         head.add_head(buddy);
 
