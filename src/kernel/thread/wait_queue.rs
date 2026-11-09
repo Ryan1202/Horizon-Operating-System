@@ -86,7 +86,9 @@ impl WaitQueue {
 
     /// 分配并初始化一个地址稳定的等待队列。
     pub fn try_new() -> Result<Pin<Box<Self, Kmalloc>>, MemoryError> {
-        let queue = Box::pin_in(Self::new_uninit(), Kmalloc::default());
+        let queue = Box::try_new_in(Self::new_uninit(), Kmalloc::default())
+            .map_err(|_| MemoryError::OutOfMemory)?;
+        let queue = Box::into_pin(queue);
 
         // SAFETY: queue 已经固定在 Box 中，初始化后不会再移动；当前尚未发布，
         // 不存在并发访问。
