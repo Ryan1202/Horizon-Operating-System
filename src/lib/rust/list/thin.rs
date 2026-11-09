@@ -131,11 +131,12 @@ impl<Owner> ThinListNode<Owner> {
             self.link = Some(ThinLink::new(pprev, next));
 
             if let Some(mut next) = next {
+                let link = self.link.as_ref().unwrap_unchecked();
                 next.as_mut()
                     .link
                     .as_mut()
                     .expect("prev node linked to an unlinked node")
-                    .pprev = NonNull::from_ref(&self.next());
+                    .pprev = NonNull::from_ref(&link.next);
             }
         };
     }
