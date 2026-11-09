@@ -7,6 +7,7 @@
 
 use core::cell::UnsafeCell;
 use core::ffi::c_int;
+use core::field::field_of;
 use core::fmt;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
@@ -17,6 +18,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::arch::ArchInterrupt;
 use crate::kernel::interrupt::InterruptGuard;
+use crate::lib::rust::list::{ListHead, ListMember, ListNode};
 
 unsafe extern "C" {
     // 架构相关的辅助函数在其他地方提供（C/汇编）
@@ -156,22 +158,22 @@ impl SpinlockRaw {
 
 #[repr(C)]
 pub struct Spinlock<T> {
-    pub(super) _inner: UnsafeCell<T>,
+    pub(super) inner: UnsafeCell<T>,
     lock: SpinlockRaw,
 }
 
 unsafe impl<T> Sync for Spinlock<T> {}
 unsafe impl<T> Send for Spinlock<T> {}
 
+pub type SpinInner<T> = field_of!(Spinlock<T>, inner);
+
 impl<T: fmt::Debug> fmt::Debug for Spinlock<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let lock = self.lock.lock.load(Ordering::Relaxed);
         if lock > 0 {
-            write!(f, "Spinlock<Locked>({:?})", unsafe { &*self._inner.get() })
+            write!(f, "Spinlock<Locked>({:?})", unsafe { &*self.inner.get() })
         } else {
-            write!(f, "Spinlock<Unlocked>({:?})", unsafe {
-                &*self._inner.get()
-            })
+            write!(f, "Spinlock<Unlocked>({:?})", unsafe { &*self.inner.get() })
         }
     }
 }
@@ -242,7 +244,7 @@ impl<T> Spinlock<T> {
     pub const fn new(inner: T) -> Self {
         Spinlock {
             lock: SpinlockRaw::new_unlocked(),
-            _inner: UnsafeCell::new(inner),
+            inner: UnsafeCell::new(inner),
         }
     }
 
@@ -257,7 +259,7 @@ impl<T> Spinlock<T> {
         self.lock.lock();
         SpinGuard {
             lock: &self.lock,
-            inner: unsafe { &mut *self._inner.get() },
+            inner: unsafe { &mut *self.inner.get() },
         }
     }
 
@@ -265,7 +267,7 @@ impl<T> Spinlock<T> {
         let this = self.get_ref();
         this.lock.lock();
         let lock = &this.lock;
-        let _inner = unsafe { Pin::new_unchecked(&mut *this._inner.get()) };
+        let _inner = unsafe { Pin::new_unchecked(&mut *this.inner.get()) };
         SpinGuard {
             lock,
             inner: _inner,
@@ -281,7 +283,7 @@ impl<T> Spinlock<T> {
         SpinIrqGuard {
             spin_guard: SpinGuard {
                 lock: &self.lock,
-                inner: unsafe { &mut *self._inner.get() },
+                inner: unsafe { &mut *self.inner.get() },
             },
             interrupt_guard: InterruptGuard::new(status as usize),
         }
@@ -291,11 +293,11 @@ impl<T> Spinlock<T> {
         let this = self.get_ref();
         let status = this.lock.lock_irqsave();
         let lock = &this.lock;
-        let _inner = unsafe { Pin::new_unchecked(&mut *this._inner.get()) };
+        let _inner = unsafe { Pin::new_unchecked(&mut *this.inner.get()) };
         SpinIrqGuard {
             spin_guard: SpinGuard {
                 lock,
-                inner: unsafe { Pin::new_unchecked(&mut *this._inner.get()) },
+                inner: unsafe { Pin::new_unchecked(&mut *this.inner.get()) },
             },
             interrupt_guard: InterruptGuard::new(status as usize),
         }
@@ -303,7 +305,7 @@ impl<T> Spinlock<T> {
 
     pub const fn get_relaxed(&self) -> &T {
         // 在无需同步语义（仅在明确知道安全的场景下）下获取对内部数据的只读访问
-        unsafe { &*self._inner.get() }
+        unsafe { &*self.inner.get() }
     }
 
     /// 在受保护上下文中初始化内部数据
@@ -317,7 +319,7 @@ impl<T> Spinlock<T> {
         F: FnOnce(&mut T),
     {
         self.lock.init_with(SpinlockRaw::new_unlocked());
-        let inner = unsafe { &mut *self._inner.get() };
+        let inner = unsafe { &mut *self.inner.get() };
         f(inner);
     }
 
@@ -332,8 +334,17 @@ impl<T> Spinlock<T> {
         F: FnOnce(Pin<&mut T>),
     {
         self.lock.init_with(SpinlockRaw::new_unlocked());
-        let inner = unsafe { Pin::new_unchecked(&mut *self._inner.get()) };
+        let inner = unsafe { Pin::new_unchecked(&mut *self.inner.get()) };
         f(inner);
+    }
+
+    pub fn with_pinned<R>(self: Pin<&Self>, f: impl FnOnce(Pin<&mut T>) -> R) -> R {
+        let mut guard = self.lock_pinned();
+        f(guard.as_mut())
+    }
+
+    pub const fn inner_ptr(this: *const Self) -> *const T {
+        unsafe { UnsafeCell::raw_get(&raw const (*this).inner) }
     }
 }
 

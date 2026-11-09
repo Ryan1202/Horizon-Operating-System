@@ -15,6 +15,7 @@
 #![feature(decl_macro)]
 #![allow(incomplete_features)]
 #![feature(field_projections)]
+#![feature(type_info)]
 #![feature(const_convert)]
 #![feature(vec_push_within_capacity)]
 
