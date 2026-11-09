@@ -1,6 +1,5 @@
 use super::{
-    Flow, IrqDescriptor, IrqNumber, IrqSharing, action::IrqAction, assert_management,
-    descriptor::Status, domain,
+    Flow, IrqDescriptor, IrqNumber, IrqSharing, action::IrqAction, descriptor::Status, domain,
 };
 use crate::kernel::{
     interrupt::irq::{Domain, IRQ_DESCRIPTORS, IrqError, IrqHandler},
@@ -206,8 +205,6 @@ impl IrqHandle {
     }
 
     fn set_enabled(&mut self, enabled: bool) {
-        assert_management();
-
         unsafe { self.action.as_ref() }
             .enabled
             .store(enabled, Ordering::Relaxed);
@@ -216,8 +213,6 @@ impl IrqHandle {
 
 impl Drop for IrqHandle {
     fn drop(&mut self) {
-        assert_management();
-
         self.disable_irq();
 
         let descriptor = self.descriptor();

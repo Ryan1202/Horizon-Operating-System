@@ -13,7 +13,6 @@ mod number;
 mod placeholder;
 mod table;
 
-pub(crate) use crate::kernel::thread::scheduler::assert_can_manage_irq as assert_management;
 pub use action::{IrqHandler, IrqSharing};
 pub use affinity::Affinity;
 pub use allocator::IrqReservation;

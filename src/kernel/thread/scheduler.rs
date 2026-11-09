@@ -9,7 +9,7 @@ use crate::{
     arch::{ArchCpuLocal, ArchInterrupt},
     cpu_local,
     kernel::{
-        interrupt::{Interrupt, InterruptGuard, in_thread},
+        interrupt::{Interrupt, InterruptGuard},
         memory::{
             kmalloc::Kmalloc,
             percpu::{CpuLocal, CpuLocalGuard, PerCpuInit, PerCpuReadWrite},
@@ -40,19 +40,6 @@ cpu_local! {
 
 pub fn scheduler<'a>(guard: &'a PreemptGuard) -> CpuLocalGuard<'a, Scheduler> {
     SCHEDULER.get_local(guard)
-}
-
-/// IRQ 管理只自旋排空，不阻塞当前线程，也允许调度器启动前的 BSP 上下文
-pub fn assert_can_manage_irq() {
-    let guard = PreemptGuard::new();
-    let scheduler = scheduler(&guard);
-    assert!(
-        in_thread()
-            && ArchInterrupt::is_enabled()
-            && guard.can_switch()
-            && (!scheduler.is_initialized() || scheduler.current.get() != scheduler.idle.get()),
-        "IRQ management requires interruptible, non-idle context"
-    );
 }
 
 /// 在调用方已经证明当前 CPU 不会发生抢占或上下文切换时获取调度器。
