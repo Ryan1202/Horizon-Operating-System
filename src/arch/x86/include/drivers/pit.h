@@ -14,7 +14,7 @@
 #define TIMER_UNUSED 1
 #define TIMER_USING	 2
 
-DriverResult				  register_pit();
+// DriverResult				  register_pit();
 extern struct PhysicalDevice *i8254_device;
 extern struct TimerDevice	 *pit_timer_device;
 

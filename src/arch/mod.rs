@@ -1,5 +1,7 @@
 #[cfg(target_arch = "x86_64")]
 pub mod x86 {
+    pub mod asm;
+
     pub mod kernel {
         pub mod acpi;
         pub mod interrupt;
@@ -13,6 +15,7 @@ pub mod x86 {
         pub mod interrupt {
             pub mod apic;
         }
+        pub mod timer;
     }
 }
 

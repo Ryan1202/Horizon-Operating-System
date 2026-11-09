@@ -4,6 +4,7 @@
  * @brief 内核主程序
  * @date 2020-03
  */
+#include "driver/timer/timer_dm.h"
 #include "drivers/acpi.h"
 #include "objects/transfer.h"
 #include <bios_emu/bios_emu.h>
@@ -122,6 +123,7 @@ int main() {
 
 	register_driver(&core_driver);
 
+	timers_init();
 	DriverResult platform_result = platform_init();
 	if (platform_result != DRIVER_OK) {
 		DRV_PRINT_RESULT(platform_result, platform_init());

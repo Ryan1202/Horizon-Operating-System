@@ -88,9 +88,10 @@ DriverResult platform_init() {
 
 	register_serial();
 	DRIVER_RESULT_PASS(register_vesa_display());
-	// result = register_apic();
-	// if (x86_boot_capabilities.has_pic) result = register_pic();
-	DRIVER_RESULT_PASS(register_pit());
+
+	interrupt_init();
+	x86_timer_init();
+
 	if (x86_boot_capabilities.use_rtc) DRIVER_RESULT_PASS(register_cmos());
 
 	dma_init();
@@ -107,11 +108,10 @@ void serial_receive(uint8_t data) {
 DriverResult platform_start_devices() {
 	DRIVER_RESULT_PASS(framebuffer_start_all());
 	init_console();
-	interrupt_init();
 
 	// 控制器及入口就绪后允许中断，设备仍由各自 handle 保持屏蔽。
 	io_sti();
-	DRIVER_RESULT_PASS(init_and_start_physical_device(i8254_device));
+	// DRIVER_RESULT_PASS(init_and_start_physical_device(i8254_device));
 	if (x86_boot_capabilities.use_rtc)
 		DRIVER_RESULT_PASS(init_and_start_physical_device(cmos_device));
 
@@ -126,7 +126,7 @@ DriverResult platform_start_devices() {
 	}
 
 	print_features();
-	DRIVER_RESULT_PASS(init_and_start_logical_device(pit_timer_device->device));
+	// DRIVER_RESULT_PASS(init_and_start_logical_device(pit_timer_device->device));
 	// LAPIC timer 尚未实现正式时钟接口，保持 LVT timer 屏蔽
 	if (x86_boot_capabilities.use_rtc)
 		DRIVER_RESULT_PASS(

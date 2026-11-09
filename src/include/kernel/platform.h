@@ -27,5 +27,6 @@ void		 platform_early_init();
 DriverResult platform_init();
 DriverResult platform_start_devices();
 void		 acpi_update_boot_capabilities();
+void		 x86_timer_init();
 
 #endif

@@ -104,8 +104,7 @@ impl Interrupt for X86Interrupt {
     }
 }
 
-#[unsafe(export_name = "irq_early_init")]
-extern "C" fn early_init() {
+fn early_init() {
     VECTOR_MANAGER
         .init()
         .expect("failed to initialize x86 vectors");

@@ -127,12 +127,12 @@ pub(super) fn init_irqs() -> Result<(), IrqError> {
     Ok(())
 }
 
-pub(crate) fn isa_irq(irq: u8) -> Option<IrqNumber> {
+fn isa_irq(irq: u8) -> Option<IrqNumber> {
     ISA_NUMBERS.lock_irqsave().as_ref()?.get(irq as usize)
 }
 
 /// 首个 action 激活 domain，各 handle 显式开放自己的 handler
-pub(crate) fn request_isa_irq(
+pub fn request_isa_irq(
     isa_irq_number: u8,
     sharing: IrqSharing,
     handler: Arc<dyn IrqHandler, Kmalloc>,

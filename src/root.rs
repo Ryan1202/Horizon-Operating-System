@@ -24,6 +24,7 @@
 #![feature(vec_push_within_capacity)]
 #![feature(const_bool)]
 #![feature(const_destruct)]
+#![feature(const_index)]
 #![feature(const_iter)]
 
 extern crate alloc;
@@ -73,6 +74,7 @@ pub mod kernel {
     pub mod interrupt;
     pub mod memory;
     pub mod thread;
+    pub mod time;
     pub mod topology;
 }
 pub mod lib {

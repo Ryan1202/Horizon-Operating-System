@@ -25,7 +25,7 @@ typedef struct TimerOps {
 		struct TimerDevice *timer_device, uint32_t frequency);
 	TimerResult (*one_shot)(
 		struct TimerDevice *timer_device,
-		uint32_t frequency); // 单次中断，可用于校准其他定时器
+		uint32_t			frequency); // 单次中断，可用于校准其他定时器
 } TimerOps;
 
 typedef struct TimerDevice {
@@ -81,5 +81,7 @@ size_t		 timer_get_counter();
 
 DriverResult timer_callback_enable(Timer *timer);
 DriverResult timer_callback_cancel(Timer *timer);
+
+void timers_init(void);
 
 #endif
