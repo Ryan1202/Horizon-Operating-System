@@ -18,7 +18,7 @@ use crate::{
             },
         },
         thread::scheduler::PreemptGuard,
-        topology::{CPU_REGISTRY, CpuId, NR_CPUS_MAX},
+        topology::{CPU_REGISTRY, CpuId, CpuIter, NR_CPUS_MAX},
     },
     lib::rust::spinlock::SpinGuard,
 };
@@ -226,6 +226,11 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
     {
         let area = percpu_area()?;
         let delta = percpu_delta(area, cpu_id)?;
+
+        if !CPU_REGISTRY.get_relaxed().is_possible(cpu_id) {
+            return Err(MemoryError::NotInitialized);
+        }
+
         // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
         Ok(unsafe { ArchCpuLocal::get_ptr_dyn_for(self, delta) })
     }
@@ -233,36 +238,28 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
 
 impl<'a, T: 'a + PerCpuInit + Sync> PerCpuDyn<T> {
     pub fn iter(&'a self) -> Result<PerCpuDynIter<'a, T>, MemoryError> {
-        let area = percpu_area()?;
         Ok(PerCpuDynIter {
             percpu: self,
-            index: 0,
-            count: area.count(),
+            cpus: CPU_REGISTRY.get_relaxed().iter_possible(),
         })
     }
 
     pub fn iter_mut(&'a mut self) -> Result<PerCpuDynIterMut<'a, T>, MemoryError> {
-        let area = percpu_area()?;
         Ok(PerCpuDynIterMut {
             percpu: self,
-            index: 0,
-            count: area.count(),
+            cpus: CPU_REGISTRY.get_relaxed().iter_possible(),
         })
     }
 
     pub fn get_remote(&self, cpu_id: CpuId) -> Option<&T> {
-        let ptr = self
-            .get_remote_ptr(cpu_id)
-            .expect("failed to get remote pointer");
+        let ptr = self.get_remote_ptr(cpu_id).ok()?;
 
         // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
         unsafe { ptr.as_ref() }
     }
 
     pub fn get_remote_mut(&self, cpu_id: CpuId) -> Option<&mut T> {
-        let ptr = self
-            .get_remote_ptr(cpu_id)
-            .expect("failed to get remote pointer") as *mut T;
+        let ptr = self.get_remote_ptr(cpu_id).ok()? as *mut T;
 
         // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
         unsafe { ptr.as_mut() }
@@ -271,34 +268,26 @@ impl<'a, T: 'a + PerCpuInit + Sync> PerCpuDyn<T> {
 
 impl<'a, T: PerCpuInit> SpinGuard<'a, &'a mut PerCpuDyn<T>> {
     pub fn iter(&'a self) -> Result<PerCpuDynIter<'a, T>, MemoryError> {
-        let area = percpu_area()?;
         Ok(PerCpuDynIter {
             percpu: self.deref(),
-            index: 0,
-            count: area.count(),
+            cpus: CPU_REGISTRY.get_relaxed().iter_possible(),
         })
     }
 }
 
 pub struct PerCpuDynIter<'a, T: PerCpuInit> {
     percpu: &'a PerCpuDyn<T>,
-    index: u32,
-    count: u32,
+    cpus: CpuIter<'a>,
 }
 
 impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIter<'a, T> {
     type Item = (CpuId, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.count {
-            return None;
-        }
-
-        let cpu_id = CpuId::new(self.index);
+        let cpu_id = self.cpus.next()?;
 
         // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
         let ptr = self.percpu.get_remote_ptr(cpu_id).ok()?;
-        self.index += 1;
         // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
         unsafe { ptr.as_ref().map(|t| (cpu_id, t)) }
     }
@@ -306,23 +295,17 @@ impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIter<'a, T> {
 
 pub struct PerCpuDynIterMut<'a, T: PerCpuInit> {
     percpu: &'a mut PerCpuDyn<T>,
-    index: u32,
-    count: u32,
+    cpus: CpuIter<'a>,
 }
 
 impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIterMut<'a, T> {
     type Item = (CpuId, &'a mut T);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.count {
-            return None;
-        }
-
-        let cpu_id = CpuId::new(self.index);
+        let cpu_id = self.cpus.next()?;
 
         // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
         let ptr = self.percpu.get_remote_ptr(cpu_id).ok()? as *mut T;
-        self.index += 1;
         // SAFETY: 上述指针指向该 CPU 的独立、对齐且已初始化的 T 存储
         unsafe { ptr.as_mut().map(|t| (cpu_id, t)) }
     }
@@ -332,8 +315,7 @@ impl<T: PerCpuInit> Drop for PerCpuDyn<T> {
     fn drop(&mut self) {
         let area = percpu_area().expect("动态 per-CPU 对象析构时区域未初始化");
 
-        for cpu_id in 0..area.count() {
-            let cpu_id = CpuId::new(cpu_id);
+        for cpu_id in CPU_REGISTRY.get_relaxed().iter_possible() {
             let delta = percpu_delta(area, cpu_id).expect("动态 per-CPU 对象析构时 CPU unit 无效");
             // SAFETY: handle 在当前析构前仍有效，且调用方必须保证不存在并发的远程访问。
             let ptr = unsafe { ArchCpuLocal::get_ptr_dyn_for(self, delta) as *mut T };

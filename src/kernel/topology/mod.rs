@@ -93,19 +93,24 @@ impl CpuRegistry {
     pub fn init<T>(cpu_ids: &[T], bsp: CpuHardwareId, f: impl Fn(&T) -> Option<CpuHardwareId>) {
         let count = cpu_ids.iter().filter_map(&f).count().min(get_cpu_limit());
         let mut cpus = Box::new_uninit_slice_in(count, Kmalloc::default());
+        let mut possible = ThinCpuMask::new_zeroed();
 
         // 固定 BSP 为逻辑 CPU0，其他 CPU 连续编号，与 MADT 中的排列无关。
         let ids = once(bsp).chain(cpu_ids.iter().filter_map(&f).filter(|id| *id != bsp));
         for (i, hardware_id) in ids.take(count).enumerate() {
+            let id = CpuId::new(i as u32);
             cpus[i].write(Cpu {
-                id: CpuId::new(i as u32),
+                id,
                 hardware_id,
             });
+            possible.set(id);
         }
 
+        let mut registry = CPU_REGISTRY.lock();
         unsafe {
-            CPU_REGISTRY.lock().cpus = MaybeUninit::new(cpus.assume_init());
+            registry.cpus = MaybeUninit::new(cpus.assume_init());
         };
+        registry.possible = possible;
     }
 
     pub const fn bsp_id() -> CpuId {
@@ -114,6 +119,10 @@ impl CpuRegistry {
 
     pub fn online_cpus(&self) -> ThinCpuMask {
         self.online.clone()
+    }
+
+    pub fn is_possible(&self, cpu: CpuId) -> bool {
+        self.possible.contains(cpu)
     }
 
     pub fn hardware_id(&self, cpu: CpuId) -> Option<CpuHardwareId> {
