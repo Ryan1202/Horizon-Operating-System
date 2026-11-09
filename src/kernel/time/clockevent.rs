@@ -186,7 +186,7 @@ impl EventDevice {
         Some(())
     }
 
-    /// 与另一时钟事件设备同步设置，用于方便替换
+    /// 从旧设备接管事件回调
     pub fn sync_settings_with(self: Pin<&Self>, other: Pin<&Self>) {
         let mut self_inner = unsafe { self.map_unchecked(|this| &this.inner).lock_pinned() };
         let mut other_inner = unsafe { other.map_unchecked(|this| &this.inner).lock_pinned() };
@@ -194,7 +194,6 @@ impl EventDevice {
         let other_inner = unsafe { other_inner.as_mut().get_unchecked_mut() };
 
         inner.handler = other_inner.handler;
-        inner.state = other_inner.state;
         other_inner.handler = noop_handler;
     }
 

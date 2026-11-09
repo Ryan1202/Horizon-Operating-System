@@ -1,8 +1,14 @@
-use core::{cell::Cell, pin::Pin, sync::atomic::AtomicBool};
+use core::{
+    cell::Cell,
+    pin::Pin,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
+    arch::ArchInterrupt,
     cpu_local,
     kernel::{
+        interrupt::Interrupt,
         memory::percpu::{CPU_ID, PerCpuInit, PerCpuReadWrite},
         thread::PreemptGuard,
         time::{Duration, EventDevice, NS_PER_SECOND, TIMER_PERIOD, Time},
@@ -100,11 +106,18 @@ fn replace_device(tick_device: &TickDevice, new: Pin<&'static EventDevice>) {
         new.sync_settings_with(old);
     } else {
         // 默认使用周期模式
+        tick_device.is_one_shot.store(false, Ordering::Relaxed);
+    }
+
+    if tick_device.is_one_shot.load(Ordering::Relaxed) {
+        new.set_one_shot();
+    } else {
         new.set_periodic();
     }
 }
 
 pub fn try_new_device(event_device: Pin<&'static mut EventDevice>) {
+    let _interrupt = ArchInterrupt::save_and_disable();
     let guard = PreemptGuard::new();
     let tick_device = TICK_DEVICES.get_local(&guard);
     let current_device = tick_device.event_device.get();
