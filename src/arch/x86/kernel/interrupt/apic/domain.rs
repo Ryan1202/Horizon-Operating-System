@@ -9,7 +9,7 @@ use crate::{
     },
     kernel::{
         interrupt::irq::{Domain, HardwareIrq, IrqChip, IrqData, IrqError, IrqNumber, RawIrq},
-        memory::{MemoryError, kmalloc::Kmalloc},
+        memory::kmalloc::Kmalloc,
         topology::CpuMask,
     },
     lib::rust::spinlock::Spinlock,
@@ -87,7 +87,7 @@ impl Domain for LocalApicDomain {
     ) -> Result<CpuMask, IrqError> {
         let local = data.chip_data::<LocalApicData>();
 
-        let mut effective = CpuMask::new_zeroed().ok_or(MemoryError::OutOfMemory)?;
+        let mut effective = CpuMask::new_zeroed();
         let mut route = local.route.lock_irqsave();
 
         assert!(route.current.is_none());
@@ -138,7 +138,7 @@ impl Domain for LocalApicDomain {
         affinity: &CpuMask,
     ) -> Result<CpuMask, IrqError> {
         let local = data.chip_data::<LocalApicData>();
-        let mut effective = CpuMask::new_zeroed().ok_or(MemoryError::OutOfMemory)?;
+        let mut effective = CpuMask::new_zeroed();
 
         let mut route = local.route.lock_irqsave();
 

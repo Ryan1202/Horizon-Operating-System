@@ -29,11 +29,11 @@ pub struct CpuId(u32);
 pub struct CpuHardwareId(u32);
 
 impl CpuId {
-    pub fn new(id: u32) -> Self {
+    pub const fn new(id: u32) -> Self {
         Self(id)
     }
 
-    pub fn get(&self) -> u32 {
+    pub const fn get(&self) -> u32 {
         self.0
     }
 }

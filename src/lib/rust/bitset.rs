@@ -1,6 +1,6 @@
 //! 固定容量位集合。存储由外部提供，所有位置和长度均以 bit 为单位
 
-use core::num::NonZeroUsize;
+use core::{marker::Destruct, num::NonZeroUsize};
 
 const WORD_BITS: usize = usize::BITS as usize;
 
@@ -25,7 +25,7 @@ impl<S> BitSet<S> {
         self.len == 0
     }
 
-    fn check_range(&self, start: usize, count: usize) -> Option<()> {
+    const fn check_range(&self, start: usize, count: usize) -> Option<()> {
         if start <= self.len && count <= self.len - start {
             Some(())
         } else {
@@ -33,8 +33,13 @@ impl<S> BitSet<S> {
         }
     }
 
-    pub fn breakdown(self) -> (S, usize) {
-        (self.storage, self.len)
+    pub const fn breakdown(self) -> (S, usize)
+    where
+        Self: [const] Destruct,
+    {
+        let Self { storage, len } = self;
+
+        (storage, len)
     }
 }
 
@@ -49,9 +54,9 @@ impl<const N: usize> BitSet<[usize; N]> {
     }
 }
 
-impl<S: AsRef<[usize]>> BitSet<S> {
+impl<S: const AsRef<[usize]>> BitSet<S> {
     /// 包装已有存储，不改变其内容；多余 word 和尾部 bit 不参与操作
-    pub fn from_storage(storage: S, len: usize) -> Self {
+    pub const fn from_storage(storage: S, len: usize) -> Self {
         assert!(
             len.div_ceil(WORD_BITS) <= storage.as_ref().len(),
             "insufficient bit storage"
@@ -59,14 +64,16 @@ impl<S: AsRef<[usize]>> BitSet<S> {
         Self { storage, len }
     }
 
-    pub fn new(storage: S, len: usize) -> Option<Self> {
+    pub const fn new(storage: S, len: usize) -> Result<Self, S> {
         if len.div_ceil(WORD_BITS) <= storage.as_ref().len() {
-            Some(Self { storage, len })
+            Ok(Self { storage, len })
         } else {
-            None
+            Err(storage)
         }
     }
+}
 
+impl<S: AsRef<[usize]>> BitSet<S> {
     pub fn test(&self, bit: usize) -> bool {
         self.check_range(bit, 1);
         self.storage.as_ref()[bit / WORD_BITS] & (1 << (bit % WORD_BITS)) != 0
@@ -130,16 +137,25 @@ impl<S: AsRef<[usize]>> BitSet<S> {
 }
 
 impl<S: AsRef<[usize]> + AsMut<[usize]>> BitSet<S> {
-    pub fn set(&mut self, bit: usize) {
+    pub const fn set(&mut self, bit: usize)
+    where
+        S: [const] AsMut<[usize]>,
+    {
         self.try_set(bit);
     }
 
-    pub fn clear(&mut self, bit: usize) {
+    pub const fn clear(&mut self, bit: usize)
+    where
+        S: [const] AsMut<[usize]>,
+    {
         self.try_clear(bit);
     }
 
     /// 尝试设置 bit，仅在原值为 0 时返回 true；非原子操作。
-    pub fn try_set(&mut self, bit: usize) -> Option<()> {
+    pub const fn try_set(&mut self, bit: usize) -> Option<()>
+    where
+        S: [const] AsMut<[usize]>,
+    {
         self.check_range(bit, 1)?;
         let word = &mut self.storage.as_mut()[bit / WORD_BITS];
         let mask = 1 << (bit % WORD_BITS);
@@ -149,7 +165,10 @@ impl<S: AsRef<[usize]> + AsMut<[usize]>> BitSet<S> {
     }
 
     /// 尝试清除 bit，仅在原值为 1 时返回 true；非原子操作。
-    pub fn try_clear(&mut self, bit: usize) -> Option<()> {
+    pub const fn try_clear(&mut self, bit: usize) -> Option<()>
+    where
+        S: [const] AsMut<[usize]>,
+    {
         self.check_range(bit, 1)?;
         let word = &mut self.storage.as_mut()[bit / WORD_BITS];
         let mask = 1 << (bit % WORD_BITS);
@@ -193,10 +212,13 @@ impl<S: AsRef<[usize]> + AsMut<[usize]>> BitSet<S> {
         Some(start)
     }
 
+    /// 交集赋值，返回是否有 bit 被清除
     pub fn intersect<S2: AsRef<[usize]>>(&mut self, other: &BitSet<S2>) -> bool {
         let words = self.storage.as_mut();
         let other_words = other.storage.as_ref();
+
         let mut changed = false;
+
         for (i, word) in words.iter_mut().enumerate() {
             let other_word = other_words.get(i).copied().unwrap_or(0);
 
@@ -206,6 +228,29 @@ impl<S: AsRef<[usize]> + AsMut<[usize]>> BitSet<S> {
             }
         }
         changed
+    }
+}
+
+const impl<S: [const] AsRef<[usize]>> PartialEq for BitSet<S> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+
+        let words = self.storage.as_ref();
+        let other_words = other.storage.as_ref();
+
+        let mut i = 0;
+        while i < words.len() {
+            let word = words[i];
+            let other_word = other_words[i];
+
+            if other_word != word {
+                return false;
+            }
+            i += 1;
+        }
+        true
     }
 }
 

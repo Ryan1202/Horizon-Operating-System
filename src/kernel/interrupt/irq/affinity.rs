@@ -9,8 +9,8 @@ pub struct Affinity {
 
 const impl Default for Affinity {
     fn default() -> Self {
-        let requested = Mask::new_full().expect("Failed to create requested affinity mask");
-        let effective = Mask::new_zeroed().expect("Failed to create effective affinity mask");
+        let requested = Mask::new_full();
+        let effective = Mask::new_zeroed();
         Self {
             requested,
             effective,
@@ -22,7 +22,7 @@ impl Affinity {
     pub const fn new(requested: Mask) -> Self {
         Self {
             requested,
-            effective: Mask::new_zeroed().expect("Failed to create effective affinity mask"),
+            effective: Mask::new_zeroed(),
         }
     }
 
