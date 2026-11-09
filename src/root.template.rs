@@ -20,6 +20,7 @@
 #![feature(vec_push_within_capacity)]
 #![feature(const_bool)]
 #![feature(const_destruct)]
+#![feature(const_iter)]
 
 extern crate alloc;
 

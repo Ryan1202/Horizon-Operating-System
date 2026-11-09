@@ -5,7 +5,7 @@ use crate::{
     kernel::{
         interrupt::irq::{INVALID_IRQ, IrqError, IrqNumber},
         memory::percpu::{PerCpuDyn, PerCpuInit},
-        topology::{CpuId, CpuMask, CpuRegistry},
+        topology::{CPU_REGISTRY, CpuId, CpuMask},
     },
     lib::rust::{bitset::BitSet, spinlock::Spinlock},
 };
@@ -60,7 +60,37 @@ struct VectorMap {
 }
 
 // 不含自引用，每个 CPU 由动态初始化器构造独立值
-unsafe impl PerCpuInit for VectorMap {}
+unsafe impl PerCpuInit for VectorMap {
+    fn init(this: &mut MaybeUninit<Self>, cpu: CpuId) {
+        let cpus = CPU_REGISTRY.get_relaxed();
+
+        let (map, available) = const {
+            let mut map: BitSet<[usize; MAX_VECTOR_COUNT / usize::BITS as usize]> =
+                BitSet::zeroed(MAX_VECTOR_COUNT);
+            let mut available = 0;
+
+            for vector in 0..MAX_VECTOR_COUNT {
+                if reserved(vector) {
+                    map.set(vector);
+                } else {
+                    available += 1;
+                }
+            }
+            (map, available)
+        };
+
+        this.write(VectorMap {
+            // per-CPU 容量可以大于固件实际提供的 CPU 数，未注册槽位不可投递。
+            apic_id: cpus
+                .hardware_id(cpu)
+                .map(ApicId::from)
+                .unwrap_or(ApicId::new(u32::MAX)),
+            available,
+            map,
+            irqs: [INVALID_IRQ; MAX_VECTOR_COUNT],
+        });
+    }
+}
 
 const fn reserved(vector: usize) -> bool {
     // CPU 异常、旧 ISA IRQ、系统调用、LAPIC timer、error 和 spurious
@@ -92,28 +122,8 @@ impl VectorManager {
 
     pub(crate) fn init(&self) -> Result<(), IrqError> {
         let mut guard = self.inner.lock_irqsave();
-        let cpus = CpuRegistry::get();
 
-        let maps = PerCpuDyn::try_new_with(|cpuid| {
-            let mut map = VectorMap {
-                // per-CPU 容量可以大于固件实际提供的 CPU 数，未注册槽位不可投递。
-                apic_id: cpus
-                    .hardware_id(cpuid)
-                    .map(ApicId::from)
-                    .unwrap_or(ApicId::new(u32::MAX)),
-                available: 0,
-                map: BitSet::zeroed(MAX_VECTOR_COUNT),
-                irqs: [INVALID_IRQ; MAX_VECTOR_COUNT],
-            };
-            for vector in 0..MAX_VECTOR_COUNT {
-                if reserved(vector) {
-                    map.map.set(vector);
-                } else {
-                    map.available += 1;
-                }
-            }
-            map
-        })?;
+        let maps = PerCpuDyn::try_new()?;
 
         guard.write(VectorInner {
             maps,
@@ -141,7 +151,9 @@ impl VectorManager {
             .get_remote_mut(cpu_id)
             .expect("failed to get vector map when registering CPU");
 
-        if apic_id.get() >= 255 || CpuRegistry::get().hardware_id(cpu_id) != Some(apic_id.into()) {
+        let cpus = CPU_REGISTRY.get_relaxed();
+
+        if apic_id.get() >= 255 || cpus.hardware_id(cpu_id) != Some(apic_id.into()) {
             return Err(IrqError::Unsupported);
         }
         // global/ISA 的占用、反向映射及 available 已在分配时同步到所有槽位，
@@ -160,7 +172,7 @@ impl VectorManager {
     ) -> Result<VectorRoute, IrqError> {
         let mut guard = self.inner.lock_irqsave();
 
-        let online = CpuRegistry::get().online_cpus();
+        let online = CPU_REGISTRY.get_relaxed().online_cpus();
         let mut affinity = affinity.clone();
         affinity.intersect(&online.into());
 

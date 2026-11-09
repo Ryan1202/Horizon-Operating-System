@@ -17,6 +17,7 @@ pub struct ProcessorLocalApic {
     pub flags: LocalApicFlags,
 }
 
+#[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct LocalApicFlags(u32);
 

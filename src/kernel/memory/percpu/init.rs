@@ -17,8 +17,8 @@ use crate::{
                 zone::ZoneType,
             },
             percpu::{
-                CPU_DELTA, CpuLocal, PercpuArea, area::PERCPU_AREA, chunk::DYNAMIC_TARGET_SIZE,
-                percpu_template_size,
+                CPU_DELTA, CPU_ID, CpuLocal, PercpuArea, area::PERCPU_AREA,
+                chunk::DYNAMIC_TARGET_SIZE, percpu_template_size,
             },
         },
         topology::{CpuId, CpuRegistry, NR_CPUS_MAX, get_cpu_limit},
@@ -35,7 +35,9 @@ const PERCPU_READY: u8 = 2;
 static PERCPU_STATE: AtomicU8 = AtomicU8::new(PERCPU_UNINITIALIZED);
 
 /// 可以由链接器模板按字节复制成多个独立 per-CPU 实例的类型。
-pub unsafe trait PerCpuInit: Sized + 'static {}
+pub const unsafe trait PerCpuInit: Sized + 'static {
+    fn init(_this: &mut MaybeUninit<Self>, _cpu: CpuId) {}
+}
 
 macro_rules! impl_percpu_init {
     ($($t:ty),* $(,)?) => {
@@ -104,8 +106,10 @@ pub(crate) fn try_percpu_init(nr_cpus: usize) -> Result<(), MemoryError> {
 
         // SAFETY: delta 由该 CPU unit 的有效起点计算，目标是模板复制后的 CPU_DELTA 实例
         let cpu_delta = unsafe { ArchCpuLocal::get_ptr_for(&CPU_DELTA, delta) as *mut usize };
+        let _cpu_id = unsafe { ArchCpuLocal::get_ptr_for(&CPU_ID, delta) as *mut CpuId };
         // SAFETY: 每个 CPU unit 的 CPU_DELTA 仅在启动阶段写入一次
         unsafe { cpu_delta.write(delta) };
+        unsafe { _cpu_id.write(CpuId::new(cpu_id as u32)) };
 
         PERCPU_DELTAS[cpu_id].store(delta, Ordering::Relaxed);
     }

@@ -1,13 +1,15 @@
 use core::{
-    cell::SyncUnsafeCell,
     iter::once,
-    mem::MaybeUninit,
+    mem::{MaybeUninit, offset_of},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use alloc::boxed::Box;
 
-use crate::{kernel::memory::kmalloc::Kmalloc, lib::rust::spinlock::Spinlock};
+use crate::{
+    kernel::memory::{kmalloc::Kmalloc, percpu::PerCpuInit},
+    lib::rust::spinlock::Spinlock,
+};
 
 mod mask;
 
@@ -16,13 +18,14 @@ pub use mask::{CpuMask, ThinCpuMask};
 /// 允许的最大 CPU 数量
 pub const NR_CPUS_MAX: u32 = 64;
 
-static CPU_REGISTRY: SyncUnsafeCell<MaybeUninit<CpuRegistry>> =
-    SyncUnsafeCell::new(MaybeUninit::uninit());
+pub static CPU_REGISTRY: Spinlock<CpuRegistry> = Spinlock::new(CpuRegistry::new());
 pub static CPU_LIMIT: AtomicUsize = AtomicUsize::new(NR_CPUS_MAX as usize);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct CpuId(u32);
+
+unsafe impl PerCpuInit for CpuId {}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
@@ -35,6 +38,19 @@ impl CpuId {
 
     pub const fn get(&self) -> u32 {
         self.0
+    }
+
+    pub const fn bsp() -> Self {
+        Self(0)
+    }
+
+    pub const fn uninited() -> Self {
+        Self(u32::MAX)
+    }
+
+    /// 真正的整数 id 在 `CpuId` 中的偏移地址
+    pub const fn id_offset() -> usize {
+        offset_of!(Self, 0)
     }
 }
 
@@ -60,58 +76,81 @@ pub struct Cpu {
 }
 
 pub struct CpuRegistry {
-    cpus: Box<[Cpu], Kmalloc>,
-    online: Spinlock<Box<ThinCpuMask, Kmalloc>>,
+    cpus: MaybeUninit<Box<[Cpu], Kmalloc>>,
+    online: ThinCpuMask,
+    possible: ThinCpuMask,
 }
 
 impl CpuRegistry {
-    pub fn register<T>(cpus: &[T], bsp: CpuHardwareId, f: impl Fn(&T) -> Option<CpuHardwareId>) {
-        let count = cpus.iter().filter_map(&f).count().min(get_cpu_limit());
-        let mut registry = Box::new_uninit_slice_in(count, Kmalloc::default());
+    const fn new() -> Self {
+        Self {
+            cpus: MaybeUninit::uninit(),
+            online: ThinCpuMask::mask_of(CpuId::bsp()),
+            possible: ThinCpuMask::mask_of(CpuId::bsp()),
+        }
+    }
+
+    pub fn init<T>(cpu_ids: &[T], bsp: CpuHardwareId, f: impl Fn(&T) -> Option<CpuHardwareId>) {
+        let count = cpu_ids.iter().filter_map(&f).count().min(get_cpu_limit());
+        let mut cpus = Box::new_uninit_slice_in(count, Kmalloc::default());
 
         // 固定 BSP 为逻辑 CPU0，其他 CPU 连续编号，与 MADT 中的排列无关。
-        let ids = once(bsp).chain(cpus.iter().filter_map(&f).filter(|id| *id != bsp));
+        let ids = once(bsp).chain(cpu_ids.iter().filter_map(&f).filter(|id| *id != bsp));
         for (i, hardware_id) in ids.take(count).enumerate() {
-            registry[i].write(Cpu {
+            cpus[i].write(Cpu {
                 id: CpuId::new(i as u32),
                 hardware_id,
             });
         }
 
-        let mut online: Box<ThinCpuMask, Kmalloc> =
-            unsafe { Box::new_zeroed_in(Kmalloc::default()).assume_init() };
-        online.set(Self::bsp_id());
-
         unsafe {
-            (*CPU_REGISTRY.get()).write(Self {
-                cpus: registry.assume_init(),
-                online: Spinlock::new(online),
-            })
+            CPU_REGISTRY.lock().cpus = MaybeUninit::new(cpus.assume_init());
         };
     }
 
-    pub fn get<'a>() -> &'a Self {
-        unsafe { (*CPU_REGISTRY.get()).assume_init_ref() }
-    }
-
     pub const fn bsp_id() -> CpuId {
-        CpuId(0)
+        CpuId::bsp()
     }
 
     pub fn online_cpus(&self) -> ThinCpuMask {
-        *self.online.lock_irqsave().clone()
+        self.online.clone()
     }
 
     pub fn hardware_id(&self, cpu: CpuId) -> Option<CpuHardwareId> {
-        self.cpus
-            .get(cpu.get() as usize)
-            .map(|entry| entry.hardware_id)
+        unsafe {
+            self.cpus
+                .assume_init_ref()
+                .get(cpu.get() as usize)
+                .map(|entry| entry.hardware_id)
+        }
     }
 
     /// 仅在该 CPU 的中断入口和控制器就绪后发布；暂不支持 CPU 下线。
-    pub(crate) fn mark_online(&self, cpu: CpuId) {
+    pub(crate) fn mark_online(&mut self, cpu: CpuId) {
         debug_assert!(self.hardware_id(cpu).is_some());
-        self.online.lock_irqsave().set(cpu);
+        self.online.set(cpu);
+    }
+
+    pub const fn iter_possible<'a>(&'a self) -> CpuIter<'a> {
+        CpuIter {
+            mask: &self.possible,
+            index: 0,
+        }
+    }
+}
+
+pub struct CpuIter<'a> {
+    mask: &'a ThinCpuMask,
+    index: u32,
+}
+
+impl<'a> Iterator for CpuIter<'a> {
+    type Item = CpuId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cpu = self.mask.find_next(self.index)?;
+        self.index = cpu.get() + 1;
+        Some(cpu)
     }
 }
 

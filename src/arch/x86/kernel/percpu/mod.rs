@@ -2,8 +2,11 @@ use core::{arch::asm, ptr::with_exposed_provenance};
 
 use crate::{
     arch::x86::kernel::msr::{IA32_GS_BASE, wrmsr},
-    kernel::memory::percpu::{
-        __percpu_start, CpuLocal, PerCpu, PerCpuDyn, PerCpuInit, PerCpuReadWrite,
+    kernel::{
+        memory::percpu::{
+            __percpu_start, CpuLocal, PerCpu, PerCpuDyn, PerCpuInit, PerCpuReadWrite,
+        },
+        topology::CpuId,
     },
 };
 
@@ -303,4 +306,23 @@ where
     *mut T: PerCpuInit,
 {
     impl_percpu_pointer_read_write!(*mut T, reg, "qword", "r");
+}
+
+impl PerCpuReadWrite<CpuId> for PerCpu<CpuId> {
+    fn read(&self) -> CpuId {
+        let value: u32;
+        unsafe {
+            asm!(
+                "mov {value:e}, dword ptr gs:[{offset}]",
+                value = out(reg) value,
+                offset = in(reg) self.get_template().byte_offset(CpuId::id_offset() as isize).addr(),
+                options(nostack, preserves_flags),
+            )
+        }
+        CpuId::new(value)
+    }
+
+    fn write(&self, _: CpuId) {
+        // CPU ID 仅在启动阶段写入一次，之后只读
+    }
 }

@@ -2,6 +2,7 @@ use core::{
     alloc::Layout,
     cell::{Cell, RefCell, UnsafeCell},
     marker::PhantomData,
+    mem::MaybeUninit,
     ops::Deref,
     sync::atomic::Ordering,
 };
@@ -17,7 +18,7 @@ use crate::{
             },
         },
         thread::scheduler::PreemptGuard,
-        topology::{CpuId, NR_CPUS_MAX},
+        topology::{CPU_REGISTRY, CpuId, NR_CPUS_MAX},
     },
     lib::rust::spinlock::SpinGuard,
 };
@@ -51,6 +52,7 @@ macro_rules! cpu_local {
 }
 
 cpu_local!(
+    pub static CPU_ID: CpuId = CpuId::uninited();
     pub static CPU_DELTA: usize = 0;
 );
 
@@ -121,18 +123,38 @@ impl<T: PerCpuInit> PerCpu<T> {
         &raw const self.value
     }
 
+    /// 获取当前 CPU 的实例
+    ///
+    /// `get_local` 返回的 `CpuLocalGuard` 只能解引用为 `&T`，不能解引用为 `&mut T`，
+    /// 因为当前 CPU 的 per-CPU 实例可能被多次持有。如果需要可变引用，请通过内部可变性类型
+    /// （如 `Cell`, `RefCell`, `UnsafeCell`, `Spinlock`）来实现。
     pub fn get_local<'a>(&self, preempt: &'a PreemptGuard) -> CpuLocalGuard<'a, T> {
         CpuLocalGuard::new(preempt, self)
+    }
+
+    fn get_ptr_for(&self, cpu_id: CpuId) -> Result<*const T, MemoryError> {
+        let area = percpu_area()?;
+        let delta = percpu_delta(area, cpu_id)?;
+        // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
+        Ok(unsafe { ArchCpuLocal::get_ptr_for(self, delta) })
     }
 
     pub fn get_remote(&self, cpu_id: CpuId) -> Result<*const T, MemoryError>
     where
         T: Sync,
     {
-        let area = percpu_area()?;
-        let delta = percpu_delta(area, cpu_id)?;
-        // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
-        Ok(unsafe { ArchCpuLocal::get_ptr_for(self, delta) })
+        self.get_ptr_for(cpu_id)
+    }
+
+    /// 为所有可能上线的 CPU 初始化他们的部分
+    pub unsafe fn init_possible_cpus(&self) {
+        for cpu_id in CPU_REGISTRY.get_relaxed().iter_possible() {
+            let this = self.get_ptr_for(cpu_id).expect("get PerCpu remote failed") as *mut T;
+            let this = this as *mut MaybeUninit<T>;
+            unsafe {
+                T::init(&mut *this, cpu_id);
+            }
+        }
     }
 }
 
@@ -168,19 +190,23 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
         }
     }
 
-    pub fn try_new_with(mut init: impl FnMut(CpuId) -> T) -> Result<Self, MemoryError> {
+    /// 动态分配 per-CPU 变量，自动调用 [`PerCpuInit::init`] 完成初始化
+    pub fn try_new() -> Result<Self, MemoryError> {
         let area = percpu_area()?;
         let layout = Layout::new::<T>();
         let handle = area.allocate(layout)?;
         let percpu = Self::new_in(handle);
 
-        for cpu_id in 0..area.count() {
-            let cpu_id = CpuId::new(cpu_id);
+        for cpu_id in CPU_REGISTRY.get_relaxed().iter_possible() {
             let delta = percpu_delta(area, cpu_id)?;
             // SAFETY: handle 由 area 分配，delta 指向已发布的 CPU unit，且每个实例只在此处初始化一次。
             let ptr = unsafe { ArchCpuLocal::get_ptr_dyn_for(&percpu, delta) as *mut T };
-            // SAFETY: 上述指针指向该 CPU 的独立、对齐且尚未初始化的 T 存储
-            unsafe { ptr.write(init(cpu_id)) };
+
+            // SAFETY: `MaybeUninit<T>` 和 `T` 的内存布局一致
+            unsafe {
+                let uninit = ptr as *mut MaybeUninit<T>;
+                T::init(&mut *uninit, cpu_id);
+            };
         }
 
         Ok(percpu)

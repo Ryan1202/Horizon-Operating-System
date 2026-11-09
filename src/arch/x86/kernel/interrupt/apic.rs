@@ -20,7 +20,7 @@ use crate::{
         },
         memory::percpu::PerCpuInit,
         thread::PreemptGuard,
-        topology::{CpuHardwareId, CpuId, CpuRegistry},
+        topology::{CPU_REGISTRY, CpuHardwareId, CpuId},
     },
 };
 
@@ -85,7 +85,7 @@ pub unsafe fn enable_current(cpu: CpuId) -> Result<(), IrqError> {
     lapic.software_enable();
 
     VectorManager::get().register_cpu(cpu, lapic.id())?;
-    CpuRegistry::get().mark_online(cpu);
+    CPU_REGISTRY.lock().mark_online(cpu);
     Ok(())
 }
 

@@ -126,7 +126,7 @@ impl X86Topology {
         let cpus = unsafe { topology.cpus.assume_init_mut() };
 
         let bsp_id = LocalApic::get().id();
-        CpuRegistry::register(cpus, bsp_id.into(), |cpu| {
+        CpuRegistry::init(cpus, bsp_id.into(), |cpu| {
             (!matches!(cpu.state(), cpu::CpuState::Unusable)).then(|| cpu.id().into())
         });
     }
