@@ -12,7 +12,7 @@
 #![feature(const_result_trait_fn)]
 #![feature(atomic_ptr_null)]
 #![feature(const_range)]
-#![feature(allocator_api)]
+#![feature(allocator_ext)]
 #![feature(const_default)]
 #![feature(negative_impls)]
 #![feature(macro_metavar_expr_concat)]
@@ -21,8 +21,6 @@
 #![feature(field_projections)]
 #![feature(const_convert)]
 #![feature(vec_push_within_capacity)]
-#![feature(const_volatile)]
-#![feature(option_get_or_try_insert_with)]
 
 extern crate alloc;
 

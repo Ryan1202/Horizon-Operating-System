@@ -1,5 +1,5 @@
 [toolchain]
-channel = "nightly-2026-08-30"
+channel = "nightly-2026-11-04"
 profile = "default"
 components = ["rust-src"]
 targets = ["x86_64-unknown-none"]

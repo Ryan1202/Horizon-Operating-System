@@ -1,4 +1,8 @@
-UNAME_S := $(shell uname -s)
+ifeq ($(OS),Windows_NT)
+    UNAME_S := Windows_NT
+else
+    UNAME_S := $(shell uname -s)
+endif
 
 DD			=	dd
 CP			=	cp
