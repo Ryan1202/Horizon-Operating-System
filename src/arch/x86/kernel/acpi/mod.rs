@@ -15,7 +15,7 @@ use crate::{
     arch::{
         PhysAddr,
         x86::{
-            drivers::interrupt::apic::LocalApic,
+            drivers::apic::LocalApic,
             kernel::{
                 acpi::cpu::Cpu,
                 interrupt::{

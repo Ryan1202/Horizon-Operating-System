@@ -108,9 +108,11 @@ void serial_receive(uint8_t data) {
 DriverResult platform_start_devices() {
 	DRIVER_RESULT_PASS(framebuffer_start_all());
 	init_console();
-
 	// 控制器及入口就绪后允许中断，设备仍由各自 handle 保持屏蔽。
 	io_sti();
+
+	lapic_setup_bsp_timer();
+
 	// DRIVER_RESULT_PASS(init_and_start_physical_device(i8254_device));
 	if (x86_boot_capabilities.use_rtc)
 		DRIVER_RESULT_PASS(init_and_start_physical_device(cmos_device));

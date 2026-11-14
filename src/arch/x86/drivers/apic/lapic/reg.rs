@@ -8,7 +8,8 @@ use crate::{
     arch::{
         PhysAddr,
         x86::kernel::msr::{
-            IA32_X2APIC_APIC_ID, IA32_X2APIC_EOI, IA32_X2APIC_ESR, IA32_X2APIC_IRR0,
+            IA32_X2APIC_APIC_ID, IA32_X2APIC_CUR_COUNT, IA32_X2APIC_DIV_CONF, IA32_X2APIC_EOI,
+            IA32_X2APIC_ESR, IA32_X2APIC_ICR, IA32_X2APIC_INIT_COUNT, IA32_X2APIC_IRR0,
             IA32_X2APIC_ISR0, IA32_X2APIC_LVT_CMCI, IA32_X2APIC_LVT_ERROR, IA32_X2APIC_LVT_LINT0,
             IA32_X2APIC_LVT_LINT1, IA32_X2APIC_LVT_PMI, IA32_X2APIC_LVT_THERMAL,
             IA32_X2APIC_LVT_TIMER, IA32_X2APIC_SIVR, IA32_X2APIC_TPR, IA32_X2APIC_VERSION, rdmsr,
@@ -38,6 +39,9 @@ pub(super) enum CommonReg {
     Error,
     PerfCounter,
     Thermal,
+    Icr,
+    Ccr,
+    Dcr,
 }
 
 use CommonReg::*;
@@ -61,6 +65,9 @@ mod offsets {
     pub const LVT_LINT0: usize = 0x350;
     pub const LVT_LINT1: usize = 0x360;
     pub const LVT_ERROR: usize = 0x370;
+    pub const ICR: usize = 0x380;
+    pub const CCR: usize = 0x390;
+    pub const DCR: usize = 0x3e0;
 }
 
 /// LVT 源与 IDT vector 是两种编号，不能用 vector 索引寄存器
@@ -141,6 +148,9 @@ impl MmioRegs {
             Lint1 => offsets::LVT_LINT1,
             Error => offsets::LVT_ERROR,
             Cmci => offsets::LVT_CMCI,
+            Icr => offsets::ICR,
+            Ccr => offsets::CCR,
+            Dcr => offsets::DCR,
         }
     }
 
@@ -206,6 +216,9 @@ impl MsrRegs {
             Error => IA32_X2APIC_LVT_ERROR,
             PerfCounter => IA32_X2APIC_LVT_PMI,
             Thermal => IA32_X2APIC_LVT_THERMAL,
+            Icr => IA32_X2APIC_INIT_COUNT,
+            Ccr => IA32_X2APIC_CUR_COUNT,
+            Dcr => IA32_X2APIC_DIV_CONF,
         }
     }
 }

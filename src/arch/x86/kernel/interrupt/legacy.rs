@@ -2,7 +2,7 @@
 
 use crate::{
     arch::x86::{
-        drivers::interrupt::apic::IoApics,
+        drivers::apic::IoApics,
         kernel::interrupt::{
             apic::{Gsi, IoApicArg},
             vector::VectorManager,

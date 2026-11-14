@@ -11,7 +11,11 @@ use crate::{
 };
 
 pub(in crate::arch::x86) const MAX_VECTOR_COUNT: usize = 256;
+
 pub const FIRST_DEVICE_VECTOR: u8 = 0x30;
+
+pub const RESERVE_VECTOR_MIN: u8 = 0xe0;
+pub const APIC_TIMER_VECTOR: u8 = 0xfd;
 pub const ERROR_VECTOR: u8 = 0xfe;
 pub const SPURIOUS_VECTOR: u8 = 0xff;
 
@@ -94,7 +98,7 @@ unsafe impl PerCpuInit for VectorMap {
 
 const fn reserved(vector: usize) -> bool {
     // CPU 异常、旧 ISA IRQ、系统调用、LAPIC timer、error 和 spurious
-    vector < FIRST_DEVICE_VECTOR as usize || vector == 0x80 || vector >= ERROR_VECTOR as usize
+    vector < FIRST_DEVICE_VECTOR as usize || vector == 0x80 || vector >= RESERVE_VECTOR_MIN as usize
 }
 
 impl VectorInner {

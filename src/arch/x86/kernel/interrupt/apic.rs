@@ -4,7 +4,7 @@ use crate::{
     arch::{
         ArchInterrupt, PhysAddr,
         x86::{
-            drivers::interrupt::apic::{IoApics, LocalApic},
+            drivers::apic::{IoApics, LocalApic},
             kernel::{
                 acpi::BOOT_CAPABILITIES,
                 interrupt::vector::VectorManager,

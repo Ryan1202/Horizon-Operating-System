@@ -4,7 +4,7 @@ use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     arch::x86::{
-        drivers::interrupt::apic::LocalApic,
+        drivers::apic::LocalApic,
         kernel::interrupt::vector::{VectorManager, VectorRoute, VectorScope},
     },
     kernel::{

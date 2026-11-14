@@ -1,5 +1,6 @@
 use core::{
     field::field_of,
+    mem::MaybeUninit,
     ops::{Index, IndexMut},
 };
 
@@ -23,7 +24,7 @@ const WHEEL_SIZE: usize = LEVEL_COUNT * LEVEL_SIZE;
 type TimerOwner = field_of!(Timer, list);
 
 cpu_local! {
-    static CPU_TIMERS: TimerManager = TimerManager::default();
+    static CPU_TIMERS: MaybeUninit<TimerManager> = MaybeUninit::uninit();
 }
 
 pub struct Timer {

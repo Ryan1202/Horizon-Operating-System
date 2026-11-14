@@ -1,5 +1,6 @@
 use core::{
     cell::Cell,
+    intrinsics::{AtomicOrdering, atomic_load},
     pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -41,6 +42,10 @@ impl TickState {
     pub(super) const fn tick(&mut self, ticks: usize) {
         self.jiffies += ticks as u64;
         self.next_period_time += Duration::from_tick(ticks);
+    }
+
+    pub const fn jiffies(&self) -> u64 {
+        unsafe { atomic_load::<u64, { AtomicOrdering::Relaxed }, false>(&raw const self.jiffies) }
     }
 }
 

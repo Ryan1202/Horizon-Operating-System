@@ -7,7 +7,10 @@ use core::{
 use alloc::boxed::Box;
 
 use crate::{
-    kernel::memory::{kmalloc::Kmalloc, percpu::PerCpuInit},
+    kernel::memory::{
+        kmalloc::Kmalloc,
+        percpu::{CPU_ID, PerCpuInit, PerCpuReadWrite},
+    },
     lib::rust::spinlock::Spinlock,
 };
 
@@ -51,6 +54,10 @@ impl CpuId {
     /// 真正的整数 id 在 `CpuId` 中的偏移地址
     pub const fn id_offset() -> usize {
         offset_of!(Self, 0)
+    }
+
+    pub fn current() -> Self {
+        CPU_ID.read()
     }
 }
 
@@ -99,10 +106,7 @@ impl CpuRegistry {
         let ids = once(bsp).chain(cpu_ids.iter().filter_map(&f).filter(|id| *id != bsp));
         for (i, hardware_id) in ids.take(count).enumerate() {
             let id = CpuId::new(i as u32);
-            cpus[i].write(Cpu {
-                id,
-                hardware_id,
-            });
+            cpus[i].write(Cpu { id, hardware_id });
             possible.set(id);
         }
 

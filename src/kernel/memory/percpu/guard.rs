@@ -39,7 +39,7 @@ impl<'a, T: Sized> CpuLocalGuard<'a, T> {
     pub fn map<F, R>(self, f: F) -> CpuLocalGuard<'a, R>
     where
         F: FnOnce(&T) -> &R,
-        R: PerCpuInit,
+        R: Sized + PerCpuInit,
     {
         let inner = f(unsafe { self.inner.as_ref() });
         CpuLocalGuard {

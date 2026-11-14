@@ -1,8 +1,12 @@
-use core::{mem::replace, pin::Pin};
+use core::{
+    mem::replace,
+    ops::{Range, RangeInclusive},
+    pin::Pin,
+};
 
 use crate::{
     kernel::{
-        time::{Duration, SYSTEM_TIME, tick},
+        time::{Duration, Factor, NS_PER_SECOND, SYSTEM_TIME, tick},
         topology::{CpuId, CpuMask, ThinCpuMask},
     },
     lib::rust::{
@@ -18,6 +22,7 @@ type EventListNode = field_path!(
     EventDeviceInner => list
 );
 
+const MAX_SECONDS: RangeInclusive<u64> = 1..=600;
 static EVENT_DEVICES: Spinlock<ListHead<EventListNode>> =
     unsafe { Spinlock::new_list_head(&raw const EVENT_DEVICES) };
 static RELEASED_DEVICES: Spinlock<ListHead<EventListNode>> =
@@ -31,7 +36,7 @@ pub trait ClockEvent: Sync {
     fn set_one_shot(&self);
     fn set_periodic(&self);
 
-    fn set_next_event(&self, duration: Duration);
+    fn set_next_event(&self, ticks: u64);
 }
 
 /// 时钟事件的时间间隔限制
@@ -41,7 +46,7 @@ pub struct EventLimit {
 }
 
 impl EventLimit {
-    pub fn new(min: Duration, max: Duration) -> Self {
+    pub const fn new(min: Duration, max: Duration) -> Self {
         Self { min, max }
     }
 }
@@ -66,6 +71,7 @@ struct EventDeviceInner {
 pub struct EventDevice {
     pub(super) priority: u8,
     limit: EventLimit,
+    factor: Factor,
     cpu_mask: ThinCpuMask,
 
     inner: Spinlock<EventDeviceInner>,
@@ -76,10 +82,16 @@ pub struct EventDevice {
 impl EventDevice {
     pub const fn new(
         private: &'static dyn ClockEvent,
-        limit: EventLimit,
+        range: Range<u64>,
+        frequency: u32,
         priority: u8,
         cpu_mask: CpuMask,
     ) -> Self {
+        let max_seconds =
+            rounded_div::u64(range.end, frequency as u64).clamp_to(MAX_SECONDS) as u32;
+        let factor = Factor::new(NS_PER_SECOND, frequency, max_seconds);
+        let limit = EventLimit::new(factor * range.start, factor * range.end);
+
         Self {
             inner: Spinlock::new(EventDeviceInner {
                 list: ListNode::new(),
@@ -87,6 +99,7 @@ impl EventDevice {
                 handler: noop_handler,
             }),
             limit,
+            factor,
             priority,
             cpu_mask: ThinCpuMask::from(cpu_mask),
             private,
@@ -181,7 +194,11 @@ impl EventDevice {
             return None;
         }
 
-        self.private.set_next_event(next_event);
+        if next_event < self.limit.min || next_event > self.limit.max {
+            return None;
+        }
+
+        self.private.set_next_event(next_event / self.factor);
 
         Some(())
     }

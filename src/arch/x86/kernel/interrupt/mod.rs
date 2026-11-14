@@ -2,7 +2,7 @@ use core::arch::asm;
 
 use crate::{
     arch::x86::{
-        drivers::interrupt::apic::{IoApics, LocalApic},
+        drivers::apic::{IoApics, LocalApic},
         kernel::{acpi::X86Topology, interrupt::vector::VECTOR_MANAGER},
     },
     kernel::{
@@ -29,6 +29,11 @@ fn vector_dispatch(vector: u8) {
             }
             vector::SPURIOUS_VECTOR => {
                 lapic.handle_spurious();
+                None
+            }
+            vector::APIC_TIMER_VECTOR => {
+                lapic.eoi();
+                (lapic.handle_timer)(lapic);
                 None
             }
             _ => {

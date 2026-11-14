@@ -51,10 +51,14 @@ impl SystemTime {
             self.tick.lock().tick(ticks);
         }
     }
+
+    pub const fn jiffies() -> u64 {
+        SYSTEM_TIME.tick.get_relaxed().jiffies()
+    }
 }
 
 /// 时间间隔，单位为纳秒
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub struct Duration(u64);
 
 impl Duration {

@@ -20,7 +20,7 @@ use crate::{
         thread::scheduler::PreemptGuard,
         topology::{CPU_REGISTRY, CpuId, CpuIter, NR_CPUS_MAX},
     },
-    lib::rust::spinlock::SpinGuard,
+    lib::rust::spinlock::{SpinGuard, Spinlock},
 };
 
 unsafe extern "C" {
@@ -133,7 +133,7 @@ impl<T: PerCpuInit> PerCpu<T> {
     }
 
     fn get_ptr_for(&self, cpu_id: CpuId) -> Result<*const T, MemoryError> {
-        let area = percpu_area()?;
+        let area = percpu_area();
         let delta = percpu_delta(area, cpu_id)?;
         // SAFETY: percpu_delta 已验证该 CPU 的 unit 已完成发布。
         Ok(unsafe { ArchCpuLocal::get_ptr_for(self, delta) })
@@ -145,22 +145,53 @@ impl<T: PerCpuInit> PerCpu<T> {
     {
         self.get_ptr_for(cpu_id)
     }
+}
 
+impl<T: PerCpuInit> PerCpu<MaybeUninit<T>> {
     /// 为所有可能上线的 CPU 初始化他们的部分
+    ///
+    /// # Safety
+    ///
+    /// 不允许重复调用，避免重复初始化出现意外情况
     pub unsafe fn init_possible_cpus(&self) {
         for cpu_id in CPU_REGISTRY.get_relaxed().iter_possible() {
-            let this = self.get_ptr_for(cpu_id).expect("get PerCpu remote failed") as *mut T;
-            let this = this as *mut MaybeUninit<T>;
+            let this =
+                self.get_ptr_for(cpu_id).expect("get PerCpu remote failed") as *mut MaybeUninit<T>;
             unsafe {
                 T::init(&mut *this, cpu_id);
             }
         }
+    }
+
+    /// 为当前 CPU 初始化
+    ///
+    /// # Safety
+    ///
+    /// 不允许在同一 CPU 上重复初始化
+    pub unsafe fn init_current_cpu(&self) {
+        let cpu_id = CPU_ID.read();
+        let this =
+            self.get_ptr_for(cpu_id).expect("get PerCpu remote failed") as *mut MaybeUninit<T>;
+        unsafe {
+            T::init(&mut *this, cpu_id);
+        }
+    }
+
+    /// 获取已初始化的本地实例
+    ///
+    /// # Safety
+    ///
+    /// 需要确认在使用前已初始化过
+    pub unsafe fn get_local_init<'a>(&self, preempt: &'a PreemptGuard) -> CpuLocalGuard<'a, T> {
+        unsafe { self.get_local(preempt).map(|this| this.assume_init_ref()) }
     }
 }
 
 unsafe impl<T: PerCpuInit> PerCpuInit for Cell<T> {}
 unsafe impl<T: PerCpuInit> PerCpuInit for UnsafeCell<T> {}
 unsafe impl<T: PerCpuInit> PerCpuInit for RefCell<T> {}
+unsafe impl<T: PerCpuInit> PerCpuInit for Spinlock<T> {}
+unsafe impl<T: PerCpuInit> PerCpuInit for MaybeUninit<T> {}
 
 pub(super) struct PerCpuDynHandle {
     handle: usize,
@@ -192,7 +223,7 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
 
     /// 动态分配 per-CPU 变量，自动调用 [`PerCpuInit::init`] 完成初始化
     pub fn try_new() -> Result<Self, MemoryError> {
-        let area = percpu_area()?;
+        let area = percpu_area();
         let layout = Layout::new::<T>();
         let handle = area.allocate(layout)?;
         let percpu = Self::new_in(handle);
@@ -224,7 +255,7 @@ impl<T: PerCpuInit> PerCpuDyn<T> {
     where
         T: Sync,
     {
-        let area = percpu_area()?;
+        let area = percpu_area();
         let delta = percpu_delta(area, cpu_id)?;
 
         if !CPU_REGISTRY.get_relaxed().is_possible(cpu_id) {
@@ -313,7 +344,7 @@ impl<'a, T: PerCpuInit + Sync> Iterator for PerCpuDynIterMut<'a, T> {
 
 impl<T: PerCpuInit> Drop for PerCpuDyn<T> {
     fn drop(&mut self) {
-        let area = percpu_area().expect("动态 per-CPU 对象析构时区域未初始化");
+        let area = percpu_area();
 
         for cpu_id in CPU_REGISTRY.get_relaxed().iter_possible() {
             let delta = percpu_delta(area, cpu_id).expect("动态 per-CPU 对象析构时 CPU unit 无效");
@@ -330,13 +361,13 @@ impl<T: PerCpuInit> Drop for PerCpuDyn<T> {
     }
 }
 
-pub(super) fn percpu_area() -> Result<&'static PercpuArea, MemoryError> {
+pub(super) fn percpu_area() -> &'static PercpuArea {
     if !percpu_is_ready() {
-        return Err(MemoryError::NotInitialized);
+        panic!("PerCpu is not ready!")
     }
 
     // SAFETY: Ready 仅在 PERCPU_AREA 完整写入且 BSP GS 已激活后以 Release 发布。
-    Ok(unsafe { (*PERCPU_AREA.get()).assume_init_ref() })
+    unsafe { (*PERCPU_AREA.get()).assume_init_ref() }
 }
 
 pub(super) fn percpu_delta(area: &PercpuArea, cpu_id: CpuId) -> Result<usize, MemoryError> {

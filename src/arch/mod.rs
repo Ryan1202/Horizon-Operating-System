@@ -12,9 +12,7 @@ pub mod x86 {
     }
 
     pub mod drivers {
-        pub mod interrupt {
-            pub mod apic;
-        }
+        pub mod apic;
         pub mod timer;
     }
 }

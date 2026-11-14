@@ -4,7 +4,7 @@ use crate::{
     arch::{
         ArchInterrupt, PhysAddr,
         x86::{
-            drivers::interrupt::apic::lapic::reg::{MmioRegs, MsrRegs, Regs},
+            drivers::apic::lapic::reg::{MmioRegs, MsrRegs, Regs},
             kernel::interrupt::{
                 apic::ApicId,
                 vector::{ERROR_VECTOR, FIRST_DEVICE_VECTOR, SPURIOUS_VECTOR},
@@ -18,6 +18,7 @@ use crate::{
 };
 
 mod reg;
+mod timer;
 
 use reg::CommonReg::*;
 pub(crate) use reg::LvtEntry;
@@ -32,6 +33,7 @@ static LAPIC: SyncUnsafeCell<MaybeUninit<LocalApic>> = SyncUnsafeCell::new(Maybe
 pub struct LocalApic {
     max_lvt_entry: u32,
     lapic_type: LapicType,
+    pub handle_timer: fn(&Self),
 }
 
 #[derive(Clone)]
@@ -56,6 +58,9 @@ impl LocalApic {
         let lapic = Self::init(LapicType::XApic(MmioRegs::new_bsp(address)?))?;
 
         unsafe { LAPIC.get().write(MaybeUninit::new(lapic)) };
+
+        let regs = unsafe { (*LAPIC.get()).assume_init_ref().reg() };
+        timer::timer_init(regs);
 
         Ok(())
     }
@@ -113,6 +118,7 @@ impl LocalApic {
         Ok(Self {
             max_lvt_entry,
             lapic_type,
+            handle_timer: LocalApic::validate_timer,
         })
     }
 

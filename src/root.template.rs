@@ -22,6 +22,10 @@
 #![feature(const_destruct)]
 #![feature(const_index)]
 #![feature(const_iter)]
+#![feature(const_atomic)]
+#![allow(internal_features)]
+#![feature(core_intrinsics)]
+#![feature(clamp_to)]
 
 extern crate alloc;
 

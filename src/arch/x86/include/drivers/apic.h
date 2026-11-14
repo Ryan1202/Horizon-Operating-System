@@ -96,4 +96,6 @@ extern struct TimerDevice	 *apic_timer_device;
 
 DriverResult register_apic(void);
 
+void lapic_setup_bsp_timer();
+
 #endif
